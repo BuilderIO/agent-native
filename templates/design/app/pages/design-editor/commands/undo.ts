@@ -951,78 +951,76 @@ export function runUndo({
   let prunedUndoHistory = 0;
   let contentReplayRefused = false;
   const undoContent = (scope: "any" | "local" | "global" = "any") => {
-    if (scope !== "global" && um?.canUndo()) {
-      const beforeUndoContent = ydoc?.getText("content").toJSON() ?? null;
+    if (scope !== "global" && activeFile && ydoc && um?.canUndo()) {
+      const beforeUndoContent = ydoc.getText("content").toJSON();
       const poppedItem = um.undo();
       const restoredSelection = readYjsUndoSelection(poppedItem);
-      if (ydoc && activeFile && beforeUndoContent !== null) {
-        const ytext = ydoc.getText("content");
-        const rawNext = ytext.toJSON();
-        let next = rawNext;
-        try {
-          next = prepareCanonicalSourceContent(rawNext, {
-            fileId: activeFile.id,
-            fileType: activeFile.fileType,
-          }).content;
-        } catch {
-          toast.error(t("common.genericError"), {
-            id: `design-source-identity:${activeFile.id}`,
-          });
-          return false;
-        }
-        if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
-        markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
-        lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next, {
-          expectedVersionHash: sourceContentHash(beforeUndoContent),
-          syncCollab: !(ydoc && isSynced),
+      const ytext = ydoc.getText("content");
+      const rawNext = ytext.toJSON();
+      let next = rawNext;
+      try {
+        next = prepareCanonicalSourceContent(rawNext, {
+          fileId: activeFile.id,
+          fileType: activeFile.fileType,
+        }).content;
+      } catch {
+        toast.error(t("common.genericError"), {
+          id: `design-source-identity:${activeFile.id}`,
         });
-        if (
-          previewContentReplaceNeedsRenderFallback(
-            replacePreviewContent(next, null, {
-              forceFullDocument: true,
-              allowSourceNodeSwap: true,
-            }),
-          )
-        ) {
-          setContentRenderRevision((revision) => revision + 1);
-        }
-        setSelectedElement((prev) => {
-          if (restoredSelection)
-            return resolveLocalHistorySelection(
+        return false;
+      }
+      if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
+      markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
+      lastLocalContentRef.current = next;
+      queueFileContentSave(activeFile.id, next, {
+        expectedVersionHash: sourceContentHash(beforeUndoContent),
+        syncCollab: !isSynced,
+      });
+      if (
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(next, null, {
+            forceFullDocument: true,
+            allowSourceNodeSwap: true,
+          }),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+      setSelectedElement((prev) => {
+        if (restoredSelection)
+          return resolveLocalHistorySelection(
+            restoredSelection,
+            activeFile.id,
+            next,
+          ).selectedElement;
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setHoveredElement((prev) => {
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setSelectedLayerIdsState((prev) =>
+        restoredSelection
+          ? resolveLocalHistorySelection(
               restoredSelection,
               activeFile.id,
               next,
-            ).selectedElement;
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
-        });
-        setHoveredElement((prev) => {
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
-        });
-        setSelectedLayerIdsState((prev) =>
-          restoredSelection
-            ? resolveLocalHistorySelection(
-                restoredSelection,
-                activeFile.id,
-                next,
-              ).selectedLayerIds
-            : refreshSelectedLayerIdsFromContent(next, prev, {
-                kind: "design-file",
-                fileId: activeFile.id,
-              }),
-        );
-      }
+            ).selectedLayerIds
+          : refreshSelectedLayerIdsFromContent(next, prev, {
+              kind: "design-file",
+              fileId: activeFile.id,
+            }),
+      );
       const mirroredIndex = findLastContentHistoryChangeIndex(
         localContentUndoStackRef.current,
-        activeFile?.id,
+        activeFile.id,
       );
       if (mirroredIndex !== -1) {
         localContentUndoStackRef.current =

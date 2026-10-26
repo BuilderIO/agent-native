@@ -163,6 +163,7 @@ export function useEditorClipboard({
     setSelectedElement,
     setRuntimeStructureInsertRequest,
     setActiveFileId,
+    activeFileIdRef,
   } = editorCore;
   const {
     setActiveLeftPanel,
@@ -246,7 +247,10 @@ export function useEditorClipboard({
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
-  const { runtimeStructureInsertRevisionRef } = editorToolsAndVectors;
+  const {
+    runtimeStructureInsertRevisionRef,
+    selectionRevisionRef,
+  } = editorToolsAndVectors;
   const {
     selectedLayerTargetsRef,
     lastDuplicateTransformRef,
@@ -1070,6 +1074,7 @@ export function useEditorClipboard({
       return runPastedImageFiles(
         {
           activeFile,
+          activeFileIdRef,
           applyFileContentUpdate,
           applyLocalContentUpdate,
           boardFileId,
@@ -1084,6 +1089,7 @@ export function useEditorClipboard({
           overviewSelectedScreenIds,
           pasteCascadeRef,
           replacePreviewContent,
+          selectionRevisionRef,
           selectInsertedLayers,
           t,
           uploadMediaFileForHtml,
@@ -1096,6 +1102,7 @@ export function useEditorClipboard({
     },
     [
       activeFile?.id,
+      activeFileIdRef,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
@@ -1108,6 +1115,7 @@ export function useEditorClipboard({
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      selectionRevisionRef,
       selectInsertedLayers,
       t,
       requestFileStorageSetup,
@@ -1168,6 +1176,7 @@ export function useEditorClipboard({
       return runPastedImageFiles(
         {
           activeFile,
+          activeFileIdRef,
           applyFileContentUpdate,
           applyLocalContentUpdate,
           boardFileId,
@@ -1182,6 +1191,7 @@ export function useEditorClipboard({
           overviewSelectedScreenIds,
           pasteCascadeRef,
           replacePreviewContent,
+          selectionRevisionRef,
           selectInsertedLayers,
           t,
           uploadMediaFileForHtml,
@@ -1194,6 +1204,7 @@ export function useEditorClipboard({
     },
     [
       activeFile?.id,
+      activeFileIdRef,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
@@ -1207,6 +1218,7 @@ export function useEditorClipboard({
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      selectionRevisionRef,
       selectInsertedLayers,
       t,
       requestFileStorageSetup,

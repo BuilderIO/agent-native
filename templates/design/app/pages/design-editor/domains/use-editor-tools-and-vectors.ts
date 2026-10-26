@@ -918,12 +918,21 @@ export function useEditorToolsAndVectors({
     (nextPath: PenPath, phase: "preview" | "commit") => {
       const current = vectorEditingState;
       if (!current) return false;
+      const exitIfCurrent = () => {
+        setVectorEditingState((latest) =>
+          latest?.layerId === current.layerId &&
+          latest.screenId === current.screenId
+            ? null
+            : latest,
+        );
+        return false;
+      };
       let primitiveSource = current.primitiveSource;
       if (phase === "commit") {
         const baseContent = getScreenContent(current.screenId);
         if (!baseContent) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return false;
+          return exitIfCurrent();
         }
 
         const sourcePath = penPathForVectorEditCommit(
@@ -946,14 +955,14 @@ export function useEditorToolsAndVectors({
             );
         if (nextContent === null) {
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return false;
+          return exitIfCurrent();
         }
         if (nextContent !== baseContent) {
           const result = applyFileContentUpdate(current.screenId, nextContent, {
             skipPreview: current.screenId !== activeFile?.id,
             historyBeforeContent: baseContent,
           });
-          if (result.status !== "accepted") return false;
+          if (result.status !== "accepted") return exitIfCurrent();
           if (current.primitiveSource) primitiveSource = null;
         }
       }
@@ -1007,7 +1016,7 @@ export function useEditorToolsAndVectors({
           const baseContent = getScreenContent(current.screenId);
           if (!baseContent) {
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
+            return null;
           }
           const sourcePath = penPathForVectorEditCommit(
             nextPath,
@@ -1021,7 +1030,7 @@ export function useEditorToolsAndVectors({
           );
           if (nextContent === null) {
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-            return current;
+            return null;
           }
           if (nextContent !== baseContent) {
             const publication = applyFileContentUpdate(
@@ -1032,7 +1041,7 @@ export function useEditorToolsAndVectors({
                 historyBeforeContent: baseContent,
               },
             );
-            if (publication.status !== "accepted") return current;
+            if (publication.status !== "accepted") return null;
           }
         }
         return { ...current, path: nextPath };

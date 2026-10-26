@@ -268,6 +268,7 @@ export interface PastedImageFilesArgs {
       clipboardMutation?: ClipboardContentMutationPublication;
     },
   ) => ApplyLocalContentUpdateResult | void;
+  activeFileIdRef?: RefObject<string | null | undefined>;
   boardFileId: string | undefined;
   canEditDesign: boolean;
   canvasContainerRef: RefObject<HTMLDivElement | null>;
@@ -284,6 +285,7 @@ export interface PastedImageFilesArgs {
     selector?: string | null,
     options?: { forceFullDocument?: boolean },
   ) => unknown;
+  selectionRevisionRef?: RefObject<number>;
   selectInsertedLayers: (
     screenId: string,
     content: string,
@@ -344,6 +346,7 @@ export function getOverviewCanvasCenter(container: HTMLDivElement | null): {
 export function runPastedImageFiles(
   {
     activeFile,
+    activeFileIdRef,
     applyFileContentUpdate,
     applyLocalContentUpdate,
     boardFileId,
@@ -358,6 +361,7 @@ export function runPastedImageFiles(
     overviewSelectedScreenIds,
     pasteCascadeRef,
     replacePreviewContent,
+    selectionRevisionRef,
     selectInsertedLayers,
     t,
     uploadMediaFileForHtml,
@@ -368,6 +372,35 @@ export function runPastedImageFiles(
   target?: PastedImageFilesTarget | PastedImageFilesClientAnchor,
 ) {
   if (files.length === 0 || !canEditDesign || !activeFile) return false;
+
+  const activeFileIdAtStart = activeFileIdRef?.current;
+  let expectedSelectionRevision = selectionRevisionRef?.current;
+  let lastSelectedFileIdByThisPaste: string | null = null;
+  const selectInsertedLayersIfCurrent = (
+    screenId: string,
+    content: string,
+    rootNodeIds: string[],
+  ) => {
+    if (
+      selectionRevisionRef &&
+      expectedSelectionRevision !== undefined &&
+      selectionRevisionRef.current !== expectedSelectionRevision
+    ) {
+      return;
+    }
+    if (activeFileIdRef) {
+      const currentActiveFileId = activeFileIdRef.current;
+      if (
+        currentActiveFileId !== activeFileIdAtStart &&
+        currentActiveFileId !== lastSelectedFileIdByThisPaste
+      ) {
+        return;
+      }
+    }
+    selectInsertedLayers(screenId, content, rootNodeIds);
+    lastSelectedFileIdByThisPaste = screenId;
+    expectedSelectionRevision = selectionRevisionRef?.current;
+  };
 
   const insertFilesAtPoint = (
     targetFileId: string,
@@ -419,7 +452,7 @@ export function runPastedImageFiles(
         toast.error(t("common.genericError"));
         return true;
       }
-      selectInsertedLayers(
+      selectInsertedLayersIfCurrent(
         targetFileId,
         inserted.content,
         inserted.rootNodeIds,
@@ -551,7 +584,9 @@ export function runPastedImageFiles(
               forceFullDocument: true,
             });
           }
-          selectInsertedLayers(targetFileId, nextContent, [insertedNodeId]);
+          selectInsertedLayersIfCurrent(targetFileId, nextContent, [
+            insertedNodeId,
+          ]);
         } catch {
           const currentContent =
             targetFileId === activeFile?.id
