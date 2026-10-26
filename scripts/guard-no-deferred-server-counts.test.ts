@@ -165,7 +165,7 @@ describe("deferred server counts guard", () => {
     const source = [
       "setTimeout(() => {",
       '  const later = () => track("page_saved");',
-      "  register(later);",
+      "  cache.later = later;",
       "}, 0);",
       "setTimeout(() => {",
       '  items.forEach((item) => countOutcome("content_editor_mount_counts", { item }));',
@@ -179,6 +179,26 @@ describe("deferred server counts guard", () => {
     ].join("\n");
 
     assert.deepEqual(flagged(source), [5, 8, 13]);
+  });
+
+  it("follows functions passed by name to calls", () => {
+    const source = [
+      "const trackId = currentPage();",
+      "function flush() {",
+      '  countOutcome("content_editor_mount_counts", {});',
+      "}",
+      "setTimeout(() => {",
+      '  const record = () => track("page_saved");',
+      "  [1].forEach(record);",
+      "}, 0);",
+      "setTimeout(() => Promise.resolve().then(flush), 0);",
+      "setTimeout(() => flush.call(null), 0);",
+      "setTimeout(() => flush.apply(null, []), 0);",
+      "setTimeout(() => notify(trackId), 0);",
+      "setTimeout(() => items.map(track), 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [5, 9, 10, 11, 13]);
   });
 
   it("follows a count helper imported under another name", () => {

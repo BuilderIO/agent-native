@@ -262,13 +262,22 @@ function isTimerReference(
   );
 }
 
+/** `flush.call(this)` and `flush.apply(this, args)` run `flush`. */
+function invoked(expression: ts.Expression): ts.Expression {
+  const target = unbound(expression);
+  return ts.isPropertyAccessExpression(target) &&
+    (target.name.text === "call" || target.name.text === "apply")
+    ? unbound(target.expression)
+    : target;
+}
+
 /** Whether calling this reference tracks or counts, as far as the file shows. */
 function countsWhenCalled(
   checker: ts.TypeChecker,
   expression: ts.Expression,
   seen: Set<ts.Node>,
 ): boolean {
-  const target = unbound(expression);
+  const target = invoked(expression);
   const body = bodyOf(target);
   if (body) return callsCount(checker, body, seen);
   const name = calleeName(target);
@@ -290,8 +299,8 @@ function countsWhenCalled(
 }
 
 /**
- * A function handed to a call or `new`, such as `items.forEach(…)`, `.then(…)`
- * or a promise executor, is taken to run there.
+ * A function written into a call or `new`, such as `items.forEach(…)`,
+ * `.then(…)` or a promise executor, is taken to run there.
  */
 function isPassedToCall(fn: ts.Node): boolean {
   let node = fn;
@@ -309,6 +318,38 @@ function isPassedToCall(fn: ts.Node): boolean {
   );
 }
 
+/**
+ * Whether a function passed by name, as in `items.forEach(record)` or
+ * `.then(flush)`, counts when it runs there. An imported or undeclared name is
+ * judged by its name, as a call is; a local one only if it holds a function,
+ * so a `trackId` value passed along is not a count.
+ */
+function passedReferenceCounts(
+  checker: ts.TypeChecker,
+  argument: ts.Expression,
+  seen: Set<ts.Node>,
+): boolean {
+  const target = unbound(argument);
+  if (!ts.isIdentifier(target) && !ts.isPropertyAccessExpression(target)) {
+    return false;
+  }
+  const declaration = declarationOf(checker, target);
+  if (
+    !declaration ||
+    ts.isImportSpecifier(declaration) ||
+    ts.isBindingElement(declaration)
+  ) {
+    return countsWhenCalled(checker, target, seen);
+  }
+  if (seen.has(declaration)) return false;
+  seen.add(declaration);
+  const value = boundValue(checker, declaration);
+  if (!value) return false;
+  const body = bodyOf(value);
+  if (body) return callsCount(checker, body, seen);
+  return ts.isExpression(value) && passedReferenceCounts(checker, value, seen);
+}
+
 function callsCount(
   checker: ts.TypeChecker,
   node: ts.Node,
@@ -317,6 +358,14 @@ function callsCount(
   if (
     ts.isCallExpression(node) &&
     countsWhenCalled(checker, node.expression, seen)
+  ) {
+    return true;
+  }
+  if (
+    (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+    node.arguments?.some((argument) =>
+      passedReferenceCounts(checker, argument, seen),
+    )
   ) {
     return true;
   }
