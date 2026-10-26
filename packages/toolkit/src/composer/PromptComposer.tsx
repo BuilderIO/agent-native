@@ -1203,12 +1203,12 @@ function PromptComposerInner({
  */
 function PromptComposerRuntime(props: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
-  const StaleIndexBoundary = adapters.agentChat!.StaleIndexBoundary!;
+  const StaleIndexBoundary = adapters.agentChat.StaleIndexBoundary;
   const attachmentAdapter = useMemo(
     () =>
       props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
-        new RasterImageAttachmentAdapter(adapters.translate!),
+        new RasterImageAttachmentAdapter(adapters.translate),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),

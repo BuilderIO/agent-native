@@ -97,6 +97,7 @@ import {
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
+import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
@@ -113,7 +114,6 @@ import {
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { uploadFile } from "../file-upload/registry.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
-import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   derivedTool,
   plainJsonSnapshot,
