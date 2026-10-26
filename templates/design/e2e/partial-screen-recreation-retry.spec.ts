@@ -19,6 +19,8 @@ const ALPHA_HTML =
 const BETA_HTML =
   '<!doctype html><html lang="en"><head><title>Retry Beta</title></head><body style="margin:0"><main>Retry Beta</main></body></html>';
 
+test.use({ viewport: { width: 1320, height: 720 } });
+
 type DesignFile = { id: string; filename: string; content?: string };
 type DesignRecord = { data?: unknown; files?: DesignFile[] };
 type ActionBody = Record<string, unknown>;

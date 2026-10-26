@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import {
   Item,
   ItemContent,
-  ItemDescription,
   ItemFooter,
   ItemMedia,
   ItemTitle,
@@ -40,13 +39,6 @@ import { TAB_ID } from "@/lib/tab-id";
 const DOCS_URL = "https://www.agent-native.com/docs";
 const GITHUB_URL = "https://github.com/BuilderIO/agent-native";
 const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
-
-const INLINE_COMPOSER_STYLE = {
-  display: "block",
-  blockSize: "auto",
-  overflow: "visible",
-  background: "transparent",
-} as const;
 
 const EDIT_HINT_CODE = { file: "actions/hello.ts" };
 
@@ -95,7 +87,6 @@ function CodeChip({ children }: { children: ReactNode }) {
 function HomeAgentComposer() {
   const navigate = useNavigate();
   const [threadId] = useState(getChatHomeThreadId);
-  const [mode, setMode] = useState<"act" | "plan">("act");
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
       browserTabId: TAB_ID,
@@ -121,42 +112,28 @@ function HomeAgentComposer() {
   }
 
   return (
-    // `agentkit-chat` carries the page composer's sizing tokens. Its stylesheet
-    // is unlayered, so Tailwind utilities can't undo the transcript canvas
-    // (background, full-height grid); only inline styles win here.
     <div
-      className="agentkit-chat w-full max-w-2xl text-start"
-      style={INLINE_COMPOSER_STYLE}
+      className="agentkit-tokens w-full max-w-[calc(var(--agent-kit-conversation-max-width,47rem)-2rem)] text-start"
+      data-agentkit-composer-size="large"
     >
-      <div className="agentkit-composer-stack">
-        <CoreComposerRuntimeProvider>
-          <CoreAgentKitRoot
-            transport={transport}
-            clientOptions={{ transportOwnership: "owned" }}
-            threadId={threadId}
-          >
-            <HomeAgentComposerInput
-              threadId={threadId}
-              mode={mode}
-              onModeChange={setMode}
-              onSubmit={openChat}
-            />
-          </CoreAgentKitRoot>
-        </CoreComposerRuntimeProvider>
-      </div>
+      <CoreComposerRuntimeProvider>
+        <CoreAgentKitRoot
+          transport={transport}
+          clientOptions={{ transportOwnership: "owned" }}
+          threadId={threadId}
+        >
+          <HomeAgentComposerInput threadId={threadId} onSubmit={openChat} />
+        </CoreAgentKitRoot>
+      </CoreComposerRuntimeProvider>
     </div>
   );
 }
 
 function HomeAgentComposerInput({
   threadId,
-  mode,
-  onModeChange,
   onSubmit,
 }: {
   threadId: string;
-  mode: "act" | "plan";
-  onModeChange: (mode: "act" | "plan") => void;
   onSubmit: (
     text: string,
     options: ChatInitialComposerOptions,
@@ -173,8 +150,6 @@ function HomeAgentComposerInput({
       placeholder={t("home.composerPlaceholder")}
       plusMenuMode="hidden"
       attachmentsEnabled={false}
-      mode={mode}
-      onModeChange={onModeChange}
       voiceEnabled
       onSubmit={async (text, files, references, options) => {
         const uploadedAttachments = files.length
@@ -190,13 +165,14 @@ function HomeAgentComposerInput({
         const {
           onLocalSubmit: clearLocalDraft,
           attachments: _rawAttachments,
+          requestMode,
           ...submitOptions
         } = options;
         onSubmit(
           text,
           {
             ...submitOptions,
-            mode,
+            mode: requestMode ?? "act",
             references,
             ...(uploadedAttachments.length ? { uploadedAttachments } : {}),
           },
@@ -229,25 +205,20 @@ function ResourceLink({
 function ResourceColumn({
   icon,
   title,
-  description,
   children,
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
   children: ReactNode;
 }) {
   return (
-    <Item asChild className="px-6 py-8 sm:px-10">
+    <Item asChild className="content-start px-6 py-8 sm:px-10">
       <section>
         <ItemMedia variant="icon">{icon}</ItemMedia>
         <ItemContent>
           <ItemTitle role="heading" aria-level={2}>
             {title}
           </ItemTitle>
-          {description ? (
-            <ItemDescription>{description}</ItemDescription>
-          ) : null}
         </ItemContent>
         <ItemFooter className="flex-wrap justify-start">{children}</ItemFooter>
       </section>
@@ -289,11 +260,7 @@ export default function HomePage() {
 
       <Separator />
       <div className="grid md:grid-cols-[1fr_auto_1fr]">
-        <ResourceColumn
-          icon={<IconBook />}
-          title={t("home.docsTitle")}
-          description={t("home.docsDescription")}
-        >
+        <ResourceColumn icon={<IconBook />} title={t("home.docsTitle")}>
           <ResourceLink href={`${DOCS_URL}/getting-started`}>
             {t("home.docsGettingStarted")}
           </ResourceLink>
@@ -308,11 +275,7 @@ export default function HomePage() {
           </ResourceLink>
         </ResourceColumn>
         <Separator orientation="vertical" className="hidden md:block" />
-        <ResourceColumn
-          icon={<IconUsers />}
-          title={t("home.communityTitle")}
-          description={t("home.communityDescription")}
-        >
+        <ResourceColumn icon={<IconUsers />} title={t("home.communityTitle")}>
           <ResourceLink href={GITHUB_URL} icon={<IconBrandGithub />}>
             GitHub
           </ResourceLink>

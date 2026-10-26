@@ -22,6 +22,7 @@ vi.mock("@agent-native/core/client/uploads", async (importOriginal) => ({
 }));
 
 import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
+import type { MotionEase } from "@shared/motion-timeline";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -96,7 +97,270 @@ function MotionInspectorHarness({
   );
 }
 
+function SegmentEasingHarness({
+  onEasingChange,
+}: {
+  onEasingChange: (ease: MotionEase) => void;
+}) {
+  const [ease, setEase] = useState<MotionEase>("cubic-bezier(0, 1, 1, 1)");
+  return (
+    <QueryClientProvider client={new QueryClient()}>
+      <TooltipProvider>
+        <EditPanel
+          selectedElement={null}
+          viewMode="single"
+          mode="edit"
+          motionInspector
+          motionEasingSegment={{
+            trackId: "motion-track-1",
+            targetNodeId: "motion-node",
+            property: "opacity",
+            label: "Box",
+            isTextAnimation: false,
+            fromT: 0,
+            toT: 1,
+            ease,
+          }}
+          onMotionEasingSegmentChange={(nextEase) => {
+            setEase(nextEase);
+            onEasingChange(nextEase);
+          }}
+          onStyleChange={vi.fn()}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+function SwitchingSegmentEasingHarness({
+  onEasingChange,
+}: {
+  onEasingChange: (ease: MotionEase) => void;
+}) {
+  const [segmentIndex, setSegmentIndex] = useState(0);
+  const [queryClient] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <button
+          type="button"
+          aria-label="select-next-segment"
+          onClick={() => setSegmentIndex(1)}
+        >
+          Next segment
+        </button>
+        <EditPanel
+          selectedElement={null}
+          viewMode="single"
+          mode="edit"
+          motionInspector
+          motionEasingSegment={{
+            trackId: `motion-track-${segmentIndex}`,
+            targetNodeId: `motion-node-${segmentIndex}`,
+            property: "opacity",
+            label: "Box",
+            isTextAnimation: false,
+            fromT: 0,
+            toT: 1,
+            ease: (segmentIndex === 0
+              ? "spring(0.75)"
+              : "linear") as MotionEase,
+          }}
+          onMotionEasingSegmentChange={onEasingChange}
+          onStyleChange={vi.fn()}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
 describe("EditPanel Motion inspector context", () => {
+  it("returns from segment easing to the Motion inspector without editing the ease", async () => {
+    const onMotionEasingSegmentBack = vi.fn();
+    const onMotionEasingSegmentChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TooltipProvider>
+            <EditPanel
+              selectedElement={null}
+              viewMode="single"
+              mode="edit"
+              motionInspector
+              motionEasingSegment={{
+                trackId: "motion-track-1",
+                targetNodeId: "motion-node",
+                property: "opacity",
+                label: "Box",
+                isTextAnimation: false,
+                fromT: 0,
+                toT: 1,
+                ease: "linear",
+              }}
+              onMotionEasingSegmentBack={onMotionEasingSegmentBack}
+              onMotionEasingSegmentChange={onMotionEasingSegmentChange}
+              onStyleChange={vi.fn()}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      ),
+    );
+
+    const backButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.responsiveInteract.back"]',
+    );
+    expect(backButton).not.toBeNull();
+    await act(async () => backButton?.click());
+
+    expect(onMotionEasingSegmentBack).toHaveBeenCalledTimes(1);
+    expect(onMotionEasingSegmentChange).not.toHaveBeenCalled();
+  });
+
+  it("edits the selected timeline segment easing in the inspector without a canvas selection", async () => {
+    const onMotionEasingSegmentChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <TooltipProvider>
+            <EditPanel
+              selectedElement={null}
+              viewMode="single"
+              mode="edit"
+              motionInspector
+              motionEasingSegment={{
+                trackId: "motion-track-1",
+                targetNodeId: "motion-node",
+                property: "opacity",
+                label: "Box",
+                isTextAnimation: false,
+                fromT: 0,
+                toT: 1,
+                ease: "linear",
+              }}
+              onMotionEasingSegmentChange={onMotionEasingSegmentChange}
+              onStyleChange={vi.fn()}
+            />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      ),
+    );
+
+    expect(
+      container.querySelector(
+        '[data-design-inspector-section] h3[aria-label="designEditor.motion.animationStyles.easing"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      Array.from(
+        container.querySelectorAll("[data-design-inspector-section-header] h3"),
+      ).map((heading) => heading.getAttribute("aria-label")),
+    ).toEqual([
+      "designEditor.motion.animationStyles.easing",
+      "designEditor.motion.audio",
+    ]);
+    const audioHeading = container.querySelector<HTMLElement>(
+      '[data-design-inspector-section] h3[aria-label="designEditor.motion.audio"]',
+    );
+    expect(audioHeading?.classList.contains("ml-2")).toBe(true);
+    expect(
+      audioHeading
+        ?.closest("[data-design-inspector-section]")
+        ?.getAttribute("style"),
+    ).toContain("--design-section-height: 24px");
+    expect(
+      container.querySelector(
+        '[aria-label="designEditor.motion.emptyStateNoSelection"]',
+      ),
+    ).toBeNull();
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.animationStyles.easingPresets.linear"]',
+        )!
+        .click(),
+    );
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="designEditor.motion.animationStyles.easingPresets.easeOut"]',
+        )!
+        .click(),
+    );
+
+    expect(onMotionEasingSegmentChange).toHaveBeenCalledWith(
+      "cubic-bezier(0, 0, 0.58, 1)",
+    );
+  });
+
+  it("switches easing modes without losing the selected segment curve", async () => {
+    const onEasingChange = vi.fn();
+    await act(async () =>
+      root.render(<SegmentEasingHarness onEasingChange={onEasingChange} />),
+    );
+
+    const springTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.springTab");
+    const curveTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.curveTab");
+    expect(curveTab).not.toBeUndefined();
+    expect(springTab).not.toBeUndefined();
+
+    await act(async () => {
+      springTab?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+    expect(onEasingChange).toHaveBeenLastCalledWith("spring(0.25)");
+    await act(async () => {
+      curveTab?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+    expect(onEasingChange).toHaveBeenLastCalledWith("cubic-bezier(0, 1, 1, 1)");
+  });
+
+  it("resets remembered spring values when the selected segment changes", async () => {
+    const onEasingChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <SwitchingSegmentEasingHarness onEasingChange={onEasingChange} />,
+      ),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="select-next-segment"]',
+        )!
+        .click();
+    });
+    const springTab = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "designEditor.motion.springTab");
+
+    await act(async () => {
+      springTab?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+
+    expect(onEasingChange).toHaveBeenLastCalledWith("spring(0.25)");
+  });
+
   it("switches to the Motion inspector with no tab and reuses the property keyframe controls", async () => {
     const onToggle = vi.fn();
     await act(async () =>

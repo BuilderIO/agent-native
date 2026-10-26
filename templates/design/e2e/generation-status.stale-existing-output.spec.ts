@@ -27,7 +27,7 @@ test("completed generation without output stays retryable", async ({
   });
   await expect(
     page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
-  ).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  ).toHaveAttribute("aria-pressed", "true");
   const pendingKey = `design.pending-generation.${designId}`;
   let runTabId: string | null = null;
   await expect
@@ -192,7 +192,7 @@ test("unknown output verification preserves pending generation without offering 
   });
   await expect(
     page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
-  ).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
+  ).toHaveAttribute("aria-pressed", "true");
   const pendingKey = `design.pending-generation.${designId}`;
   let runTabId: string | null = null;
   await expect
@@ -390,7 +390,7 @@ test("restored stale generation with existing output keeps its stale warning", a
     resolveGetDesignContinued();
   });
 
-  await page.reload();
+  await page.reload({ waitUntil: "commit" });
   try {
     await getDesignRequested;
     await expect

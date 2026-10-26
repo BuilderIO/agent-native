@@ -1329,6 +1329,7 @@ export async function preloadJevContextWithStatus(options: {
   orgId?: string | null;
   apiKey?: string;
   personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   candidates?: readonly JevPromptContextCandidate[];
   fallbackCandidateIds?: readonly string[];
@@ -1341,13 +1342,16 @@ export async function preloadJevContextWithStatus(options: {
   const request = options.request.trim();
   const apiKey = options.apiKey?.trim();
   const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
   if (!request || options.maxChars === 0) {
     return { context: "", status: "empty" };
   }
 
   const deadlineAt =
     options.contextPrefetchDeadlineAt ?? Date.now() + JEV_PRELOAD_BUDGET_MS;
-  const hasJev = Boolean(apiKey || personalApiKey || options.builderAuth);
+  const hasJev = Boolean(
+    apiKey || personalApiKey || directApiKey || options.builderAuth,
+  );
   const appDiscoveryOnly =
     options.appDiscoveryOnly === true || options.dispatchToBackground === true;
   const appDiscoveryStartedAt = Date.now();
@@ -1550,6 +1554,7 @@ export async function preloadJevContextWithStatus(options: {
               category === "app" ? (options.appRequest ?? request) : request,
             apiKey,
             personalApiKey,
+            directApiKey,
             builderAuth: options.builderAuth,
             candidates: group,
             candidateStateKey: `candidate_${category.replaceAll("-", "_")}`,

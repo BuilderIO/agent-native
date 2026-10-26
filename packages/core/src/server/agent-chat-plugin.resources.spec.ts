@@ -676,6 +676,47 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
   });
 
+  it("validates whole-queue reorders and reports a stale order as 409", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-queued-reorder";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const post = (mutation: unknown) =>
+      fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${threadId}/queued`,
+        { userEmail: "user@example.test" },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mutation }),
+        },
+      );
+
+    const duplicate = await post({ type: "reorder", messageIds: ["a", "a"] });
+    expect(duplicate.status).toBe(400);
+    expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValueOnce({
+      queuedMessages: [],
+      queueOrderStale: true,
+    });
+    const stale = await post({ type: "reorder", messageIds: ["b", "a"] });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      { type: "reorder", messageIds: ["b", "a"] },
+      expect.anything(),
+    );
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      code: "queue_order_stale",
+      retryable: false,
+    });
+  });
+
   it("accepts queued metadata when its submission receipt matches", async () => {
     const h3App = await mountResourceRoutes();
     const threadId = "thread-queued-metadata";
@@ -811,6 +852,49 @@ describe("agent chat queued-message route", () => {
     expect(response.status).toBe(403);
     expect(setupScope).toBe("personal");
     expect(threadStoreMocks.mutateThreadQueuedMessages).not.toHaveBeenCalled();
+  });
+
+  it("accepts Send now as a queue mutation and keeps the message's delivery", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-send-now";
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    const steered = {
+      id: "queued-send-now",
+      threadId,
+      text: "Use the blue theme",
+      delivery: "steering",
+    };
+    threadStoreMocks.mutateThreadQueuedMessages.mockResolvedValueOnce({
+      queuedMessages: [steered],
+      message: steered,
+    });
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mutation: { type: "steer", messageId: steered.id },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ message: steered });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      { type: "steer", messageId: steered.id },
+      expect.objectContaining({
+        actor: expect.objectContaining({ email: "user@example.test" }),
+      }),
+    );
   });
 
   it("returns a typed conflict when a claimed queue item was removed", async () => {

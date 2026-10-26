@@ -7,15 +7,12 @@ import {
   indexHtml,
   layerRow,
   layersTree,
-  newDesign,
   node,
   openEditor,
-  postAction,
   selectViaTree,
-  setBaseURL,
 } from "./drag-and-drop.shared";
 import { appPath, expandAllLayers } from "./helpers";
-import { expect, expectOnlyChanged, test } from "./rails";
+import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const UNDO = `${MOD}+Z`;
 const REDO = process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z";
@@ -31,19 +28,8 @@ const SECOND_SCREEN = `<!doctype html>
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
-
-async function newTwoScreenDesign(page: Page): Promise<string> {
-  const id = await newDesign(page);
-  await postAction(page, "create-file", {
-    designId: id,
-    filename: "page-two.html",
-    content: SECOND_SCREEN,
-    fileType: "html",
-  });
-  return id;
+function newTwoScreenDesign(app: App): Promise<string> {
+  return app.seed(FIXTURE, { files: { "page-two.html": SECOND_SCREEN } });
 }
 
 async function readIndexFrame(page: Page, designId: string) {
@@ -160,9 +146,10 @@ async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
 }
 
 test("one drag-move is exactly one undo step, and redo re-applies the exact dropped position", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
 
   const before = await geom(page, id, "box-a");
@@ -191,16 +178,15 @@ test("one drag-move is exactly one undo step, and redo re-applies the exact drop
 });
 
 test("rotating a screen then undoing immediately restores persisted geometry", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   await page.goto(appPath(`/design/${id}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-card]").first()).toBeVisible();
 
   const before = await readIndexFrame(page, id);
   await page
@@ -256,19 +242,18 @@ test("rotating a screen then undoing immediately restores persisted geometry", a
 
 for (const platform of ["MacIntel", "Linux x86_64"]) {
   test(`nudging a screen then undoing immediately restores persisted geometry (${platform})`, async ({
+    app,
     page,
   }, testInfo) => {
     await page.addInitScript((platform) => {
       Object.defineProperty(navigator, "platform", { value: platform });
     }, platform);
-    const id = await newDesign(page);
+    const id = await app.seed(FIXTURE);
     await openEditor(page, id);
     await page.goto(appPath(`/design/${id}?view=overview`), {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-screen-card]").first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
 
     const before = await readIndexFrame(page, id);
     const screen = page.locator(`[data-frame-id="${before.id}"]`);
@@ -315,8 +300,8 @@ for (const platform of ["MacIntel", "Linux x86_64"]) {
   });
 }
 
-test("a fresh edit after undo clears the redo stack", async ({ page }) => {
-  const id = await newDesign(page);
+test("a fresh edit after undo clears the redo stack", async ({ app, page }) => {
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
 
   const aBefore = await geom(page, id, "box-a");
@@ -422,9 +407,10 @@ test("renaming a layer then one undo restores its previous name", async ({
 });
 
 test("committing an inspector width value then one undo restores the exact previous width", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   await selectViaTree(page, "Box A");
 
@@ -453,9 +439,10 @@ test("committing an inspector width value then one undo restores the exact previ
 });
 
 test("undo targets the file that was actually edited, not whichever screen currently has focus", async ({
+  app,
   page,
 }) => {
-  const id = await newTwoScreenDesign(page);
+  const id = await newTwoScreenDesign(app);
   await openEditor(page, id);
 
   const before = await geom(page, id, "box-a");
@@ -486,9 +473,10 @@ test("undo targets the file that was actually edited, not whichever screen curre
 });
 
 test("redo re-selects the group Cmd+G produced, not the pre-group selection it undid back to", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
 
   const layersTree = page.getByRole("tree", { name: "Layers" });
@@ -545,24 +533,14 @@ for (const theme of ["dark", "light"] as const) {
       theme,
     );
 
-    const created = await postAction(page, "create-design", {
+    const id = await app.seed(FIXTURE, {
       title: `undo-redo background ${theme}`,
-      projectType: "prototype",
-    });
-    const id: string = created?.id ?? created?.data?.id;
-    await postAction(page, "create-file", {
-      designId: id,
-      filename: "index.html",
-      content: FIXTURE,
-      fileType: "html",
     });
 
     await page.goto(appPath(`/design/${id}`), {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
     await expandAllLayers(page);
 
@@ -664,9 +642,10 @@ async function commitBoxAWidth(page: Page, designId: string, width: number) {
 }
 
 test("selection changes after an edit are not undo steps: one undo reverts the edit and reselects the edited layer", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   const widthBefore = await commitBoxAWidth(page, id, 240);
 
@@ -698,9 +677,10 @@ test("selection changes after an edit are not undo steps: one undo reverts the e
 });
 
 test("a selection change between undo and redo keeps the redo", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   const widthBefore = await commitBoxAWidth(page, id, 240);
 
@@ -729,9 +709,10 @@ test("a selection change between undo and redo keeps the redo", async ({
 });
 
 test("Escape after drawing a line is not an undo step: one undo removes the line", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   const lineRows = layersTree(page)
     .getByRole("treeitem")
@@ -758,9 +739,8 @@ test("Escape after drawing a line is not an undo step: one undo removes the line
   ).toHaveCount(0, { timeout: 15_000 });
 });
 
-test("one text edit session is one undo step", async ({ page }) => {
-  const id = await newDesign(
-    page,
+test("one text edit session is one undo step", async ({ app, page }) => {
+  const id = await app.seed(
     FIXTURE.replace(
       "</body>",
       `<p data-agent-native-node-id="label" data-agent-native-layer-name="Label"
@@ -810,9 +790,10 @@ test("one text edit session is one undo step", async ({ page }) => {
 });
 
 test("a marquee selection after an edit is not an undo step", async ({
+  app,
   page,
 }) => {
-  const id = await newDesign(page);
+  const id = await app.seed(FIXTURE);
   await openEditor(page, id);
   const widthBefore = await commitBoxAWidth(page, id, 240);
 

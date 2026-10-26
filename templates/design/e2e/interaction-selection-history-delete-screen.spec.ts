@@ -1,8 +1,8 @@
 import { type Page, type Route } from "@playwright/test";
 
 import { OVERVIEW_FRAME_LABEL_HEIGHT } from "../shared/canvas-frames";
-import { e2eBaseURL } from "./base-url";
-import { layerRow, openEditor, setBaseURL } from "./drag-and-drop.shared";
+import { layerRow, openEditor } from "./drag-and-drop.shared";
+import { appPath } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const UNDO = process.platform === "darwin" ? "Meta+z" : "Control+z";
@@ -45,16 +45,6 @@ const THIRD_SCREEN = `<!doctype html>
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-let baseURL = "";
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
-
 async function newTwoScreenDesign(
   app: App,
   homeContent = HOME_SCREEN,
@@ -83,7 +73,7 @@ async function fileIdByFilename(
   let filenames: string[] = [];
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const response = await page.request.get(
-      `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
     );
     if (!response.ok()) throw new Error(await response.text());
     const result = await response.json();
@@ -115,7 +105,7 @@ async function screenOrder(page: Page, names: string[]): Promise<string[]> {
 /** Saved canvas frames keyed by filename instead of file id, since undo recreates files under new ids. */
 async function framesByFilename(page: Page, designId: string) {
   const response = await page.request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+    appPath(`/_agent-native/actions/get-design?id=${designId}`),
   );
   expect(response.ok()).toBe(true);
   const record = (await response.json()) as {

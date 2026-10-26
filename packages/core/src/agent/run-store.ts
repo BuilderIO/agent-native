@@ -768,6 +768,25 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
+
+/**
+ * A model step's input snapshot keeps the arguments' key order, which a
+ * re-emitted call need not repeat; its exact arguments hash does not.
+ */
+function executionStepInputIdentity(
+  inputJson: string | undefined,
+): string | undefined {
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  const { argumentsHash } = JSON.parse(inputJson) as {
+    argumentsHash?: unknown;
+  };
+  if (typeof argumentsHash !== "string") {
+    throw new Error("Execution step input has an unreadable arguments hash");
+  }
+  return `arguments:${argumentsHash}`;
+}
+
 /** Persist intent before dispatch and decide whether an interrupted call may run again. */
 export async function beginAgentExecutionStep(
   intent: AgentExecutionStepIntent,
@@ -818,7 +837,8 @@ export async function beginAgentExecutionStep(
       if (
         row.operation_id !== intent.operationId ||
         row.tool_name !== intent.toolName ||
-        row.input_json !== intent.inputJson
+        executionStepInputIdentity(row.input_json) !==
+          executionStepInputIdentity(intent.inputJson)
       ) {
         throw new Error(
           `Execution step ${intent.stepId} was retried with a different intent`,
@@ -5165,6 +5185,7 @@ const JOURNAL_EVENT_STRING_FIELDS = {
   tripwire: ["reason"],
   auto_continue: ["reason"],
   clear: [],
+  user_message: ["continuationMessageId"],
 } satisfies Record<AgentChatEvent["type"], readonly string[]>;
 
 function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
@@ -5224,6 +5245,13 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
       );
     case "approval_required":
       return isJournalObject(value.input);
+    case "user_message":
+      return (
+        isJournalObject(value.message) &&
+        typeof value.message.id === "string" &&
+        typeof value.message.text === "string" &&
+        typeof value.message.createdAt === "string"
+      );
     case "agent_call_activity":
       return isJournalObject(value.snapshot);
     case "agent_call_progress":
@@ -5739,6 +5767,25 @@ export async function ensureTerminalRunEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
   return appendTerminalRunEvent(runId, event);
+}
+
+/** Hands a terminal run's thread save to the stale-run projection retry. */
+export async function markRunThreadProjectionPending(
+  runId: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_pending = TRUE,
+              thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
+          WHERE id = ? AND status <> 'running'`,
+    args: [runId],
+  });
+  if (rowsAffected !== 1) {
+    throw new Error(
+      `Run ${runId} did not retain its thread projection retry marker`,
+    );
+  }
 }
 
 /**
