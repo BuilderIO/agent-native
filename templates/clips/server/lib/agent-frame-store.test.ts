@@ -1,3 +1,4 @@
+import { RECORDING_THUMBNAIL_AT_MS as OPENING_MS } from "@shared/agent-context";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRows = vi.hoisted(() => ({ value: [] as Array<unknown> }));
@@ -201,7 +202,9 @@ describe("agent frame store", () => {
 
     it("clamps recommended times to the last frame like the route", async () => {
       const times = await recommendedAgentFrameTimes(clip);
-      expect(times).toEqual(expect.arrayContaining([350, 25_000, 50_000]));
+      expect(times).toEqual(
+        expect.arrayContaining([OPENING_MS, 25_000, 50_000]),
+      );
       expect(Math.max(...times)).toBeLessThan(100_000);
     });
 
@@ -217,14 +220,16 @@ describe("agent frame store", () => {
       const extract = vi.fn(async (_atMs: number) => new Uint8Array([4]));
 
       await fillRecommendedAgentFrames(clip, extract, {
-        atMs: 350,
+        atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
       const cut = extract.mock.calls.map(([atMs]) => atMs);
-      expect(cut).not.toContain(350);
+      expect(cut).not.toContain(OPENING_MS);
       expect(cut).not.toContain(50_000);
-      expect(cut).toEqual(expected.filter((t) => t !== 350 && t !== 50_000));
+      expect(cut).toEqual(
+        expected.filter((t) => t !== OPENING_MS && t !== 50_000),
+      );
       expect(mockUploadRecordingMedia).toHaveBeenCalledTimes(
         expected.length - 1,
       );
@@ -237,14 +242,14 @@ describe("agent frame store", () => {
       });
       mockRows.value = [
         {
-          atMs: 350,
+          atMs: OPENING_MS,
           mediaKey: agentFrameMediaKey(recording),
           storageUrl: "https://cdn.example.com/old.jpg",
         },
       ];
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
-        atMs: 350,
+        atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
@@ -254,7 +259,7 @@ describe("agent frame store", () => {
       );
       expect(mockInserted).toContainEqual(
         expect.objectContaining({
-          atMs: 350,
+          atMs: OPENING_MS,
           storageUrl: "https://cdn.example.com/new.jpg",
         }),
       );
@@ -263,7 +268,7 @@ describe("agent frame store", () => {
     it("keeps the old row, and stores nothing, when the replaced object will not delete", async () => {
       mockRows.value = [
         {
-          atMs: 350,
+          atMs: OPENING_MS,
           mediaKey: "stale",
           storageUrl: "https://cdn.example.com/old.jpg",
         },
@@ -271,15 +276,15 @@ describe("agent frame store", () => {
       mockDeleteStoredMediaUrl.mockResolvedValue(false);
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
-        atMs: 350,
+        atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
       expect(mockUploadRecordingMedia).not.toHaveBeenCalledWith(
-        expect.objectContaining({ filename: "agent-frame-350.jpg" }),
+        expect.objectContaining({ filename: `agent-frame-${OPENING_MS}.jpg` }),
       );
       expect(mockInserted).not.toContainEqual(
-        expect.objectContaining({ atMs: 350 }),
+        expect.objectContaining({ atMs: OPENING_MS }),
       );
     });
 
@@ -370,14 +375,14 @@ describe("agent frame store", () => {
       );
       mockRows.value = [
         {
-          atMs: 350,
+          atMs: OPENING_MS,
           mediaKey: agentFrameMediaKey(recording),
           storageUrl: "https://cdn.example.com/f.jpg",
         },
       ];
       mockFetchMedia.mockResolvedValue(new Response(new Uint8Array([7])));
 
-      expect(await loadStoredAgentFrame(clip, 350)).toEqual(
+      expect(await loadStoredAgentFrame(clip, OPENING_MS)).toEqual(
         new Uint8Array([7]),
       );
       await fill;
