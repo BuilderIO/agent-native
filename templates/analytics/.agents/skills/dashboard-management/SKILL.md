@@ -483,6 +483,42 @@ groups, so make it a count such as people, not an average or a rate.
 Breakdowns don't work on a pivoted table (`config.pivot`). The
 open breakdown is in `view-screen` as `rowBreakdown`.
 
+BigQuery and first-party line, area, bar, combo, pie and funnel charts can
+declare `config.drilldown: { sql: "…" }`
+to open records for a clicked point instead of aggregate rows. The template
+receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
+`{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
+In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables
+must be standalone SQL tokens, such as inside `IN ({{appFilter:list}})`.
+Lookup rejects variables in raw literals, identifiers or comments, variables
+right after a string's backslash escape, variables touching a quote other than
+a triple-quoted string's own delimiters (an empty value could join the quotes),
+and variables attached to SQL identifiers or literal prefixes. Doubled quotes
+(`''`) are refused too: GoogleSQL reads them as two literals, so escape quotes
+with a backslash. Static raw regex literals are allowed.
+Declared first-party templates follow the same position rules in PostgreSQL
+syntax: scalar variables go inside plain `'…'` strings (`''` escapes a quote),
+never in `"…"` identifiers. Lookup also refuses `E`, `U&`, `B`, `X` and `N`
+strings, a prefix touching its quote (write `DATE '2026-10-01'`), `$`,
+backticks or `#` outside strings, and nested block comments.
+Declared record templates do not support `{{?variable}}…{{/variable}}`
+blocks, which could assemble new literal contexts after validation. Use SQL
+`CASE` expressions with ordinary variables for optional filters.
+Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
+record list such as `LIMIT 500`; the dialog hides that count column and reports
+truncation. Without a valid count, the total and export completeness remain
+unknown. Provider partial results also have unknown totals, even if a count is
+present. The declared SQL runs only when a point is opened and reuses a
+completed result for the same account, source, SQL and dashboard scope.
+The dialog requests the `panel-drilldown` operation with a fixed 50 GiB server
+byte cap; measure its scan before enabling it, since a row limit does not reduce
+scanned bytes. This is an interaction budget, not a restriction on the SQL an
+authenticated user can submit to the normal query operation under its source
+budget.
+Without a declaration, supported first-party catalog panels retain their
+record templates and other charts open their aggregate rows. Normal panel SQL
+is unchanged by this declaration.
+
 When a dashboard is being migrated from an extension, create a new v2 copy,
 bind its panels to the real provider schema or Data Programs, and compare it
 with the original before retiring the extension-backed version. Do not invent
