@@ -16,6 +16,7 @@ import {
   type RealtimeVoiceAudioLevelStore,
 } from "./realtime-voice-audio-level.js";
 import { realtimeVoiceTranscriptRegistry } from "./realtime-voice-transcript.js";
+import { createRealtimeVoiceTurnMetrics } from "./realtime-voice-turn-metrics.js";
 import type {
   RealtimeVoiceModeCopy,
   RealtimeVoiceModeInlineSettings,
@@ -38,6 +39,10 @@ const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CAPABILITY_HEADER = "X-Agent-Native-Realtime-Capability";
 const REALTIME_VOICE_PROTOCOL_HEADER = "X-Agent-Native-Realtime-Protocol";
 const REALTIME_VOICE_MODEL_HEADER = "X-Agent-Native-Realtime-Model";
+const REALTIME_VOICE_INTELLIGENCE_HEADER =
+  "X-Agent-Native-Realtime-Intelligence";
+const REALTIME_VOICE_PRIORITY_TOOLS_HEADER =
+  "X-Agent-Native-Realtime-Priority-Tools";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
 const REALTIME_VOICE_MAX_TOOLS = 32;
 const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
@@ -50,7 +55,10 @@ const REALTIME_VOICE_PRIORITY_TOOL_NAMES = [
   "set-url-path",
   "set-search-params",
   "view-screen",
+  "chat-history",
   "tool-search",
+  "web-search",
+  "web-request",
 ] as const;
 const REALTIME_VOICE_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REALTIME_VOICE_MICROPHONE_STORAGE_KEY =
@@ -96,12 +104,15 @@ export interface RealtimeVoicePreferences {
   language: RealtimeVoiceLanguage;
   intelligence: RealtimeVoiceIntelligence;
   voice: RealtimeVoice;
+  /** False until the user picks a level; until then the app's default applies. */
+  intelligenceChosen?: boolean;
 }
 
 export const DEFAULT_REALTIME_VOICE_PREFERENCES: RealtimeVoicePreferences = {
   language: "auto",
   intelligence: "instant",
   voice: "marin",
+  intelligenceChosen: false,
 };
 
 export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -132,6 +143,7 @@ export interface RealtimeVoiceToolResult {
   approvalKey?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
   capability?: string;
+  readOnly?: boolean;
 }
 
 export interface RealtimeVoiceSessionAnswer {
@@ -139,6 +151,10 @@ export interface RealtimeVoiceSessionAnswer {
   capability?: string;
   protocol?: RealtimeVoiceProtocol;
   model?: string;
+  /** The level the session runs at, after the app's default. */
+  intelligence?: RealtimeVoiceIntelligence;
+  /** App edit tools the session loaded, kept through tool expansions. */
+  priorityToolNames?: string[];
 }
 
 export interface RealtimeVoiceFunctionTool {
@@ -294,19 +310,32 @@ export function normalizeRealtimeVoicePreferences(
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const storedIntelligence = isOneOf(
+    REALTIME_VOICE_INTELLIGENCE_LEVELS,
+    record.intelligence,
+  )
+    ? record.intelligence
+    : undefined;
+  // Saves from before `intelligenceChosen` stored "instant" for everyone, so
+  // only a non-default level among them shows a pick.
+  const chosenIntelligence =
+    typeof record.intelligenceChosen === "boolean"
+      ? record.intelligenceChosen
+        ? storedIntelligence
+        : undefined
+      : storedIntelligence !== DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence
+        ? storedIntelligence
+        : undefined;
   return {
     language: isOneOf(REALTIME_VOICE_LANGUAGES, record.language)
       ? record.language
       : DEFAULT_REALTIME_VOICE_PREFERENCES.language,
-    intelligence: isOneOf(
-      REALTIME_VOICE_INTELLIGENCE_LEVELS,
-      record.intelligence,
-    )
-      ? record.intelligence
-      : DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
+    intelligence:
+      chosenIntelligence ?? DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
     voice: isOneOf(REALTIME_VOICES, record.voice)
       ? record.voice
       : DEFAULT_REALTIME_VOICE_PREFERENCES.voice,
+    intelligenceChosen: chosenIntelligence !== undefined,
   };
 }
 
@@ -327,10 +356,16 @@ export function resolveRealtimeVoiceLanguage(
 export function realtimeVoiceReasoningEffort(
   intelligence: RealtimeVoiceIntelligence,
   protocol?: RealtimeVoiceProtocol,
-): "minimal" | "low" | "medium" {
+): "minimal" | "low" | "medium" | "high" {
+  // The delegated Live model rejects "minimal", so its levels start at "low".
+  if (protocol === "live") {
+    if (intelligence === "balanced") return "medium";
+    if (intelligence === "deep") return "high";
+    return "low";
+  }
   if (intelligence === "balanced") return "low";
   if (intelligence === "deep") return "medium";
-  return protocol === "live" ? "low" : "minimal";
+  return "minimal";
 }
 
 export function createRealtimeVoicePreferenceUpdate(
@@ -985,7 +1020,12 @@ export async function createRealtimeVoiceSessionWithCapability(
               preferences.language,
               options.browserLanguages,
             ),
-            "X-Agent-Native-Realtime-Intelligence": preferences.intelligence,
+            ...(preferences.intelligenceChosen
+              ? {
+                  [REALTIME_VOICE_INTELLIGENCE_HEADER]:
+                    preferences.intelligence,
+                }
+              : {}),
             "X-Agent-Native-Realtime-Voice": preferences.voice,
           }
         : {}),
@@ -1008,11 +1048,29 @@ export async function createRealtimeVoiceSessionWithCapability(
       : undefined;
   const modelHeader = response.headers.get(REALTIME_VOICE_MODEL_HEADER);
   const model = modelHeader?.trim() || undefined;
+  const intelligenceHeader = response.headers
+    .get(REALTIME_VOICE_INTELLIGENCE_HEADER)
+    ?.trim();
+  const intelligence = isOneOf(
+    REALTIME_VOICE_INTELLIGENCE_LEVELS,
+    intelligenceHeader,
+  )
+    ? intelligenceHeader
+    : undefined;
+  const priorityToolNames = (
+    response.headers.get(REALTIME_VOICE_PRIORITY_TOOLS_HEADER) ?? ""
+  )
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => REALTIME_VOICE_TOOL_NAME.test(name))
+    .slice(0, REALTIME_VOICE_MAX_TOOLS);
   return {
     sdp,
     ...(capability ? { capability } : {}),
     ...(protocol ? { protocol } : {}),
     ...(model ? { model } : {}),
+    ...(intelligence ? { intelligence } : {}),
+    ...(priorityToolNames.length > 0 ? { priorityToolNames } : {}),
   };
 }
 
@@ -1161,6 +1219,7 @@ export function mergeRealtimeVoiceToolManifest(
   currentTools: readonly RealtimeVoiceFunctionTool[],
   expandedTools: readonly RealtimeVoiceFunctionTool[],
   protocol: RealtimeVoiceProtocol = "realtime",
+  appPriorityToolNames: readonly string[] = [],
 ): RealtimeVoiceFunctionTool[] {
   const current = new Map<string, RealtimeVoiceFunctionTool>();
   for (const value of currentTools) {
@@ -1180,7 +1239,10 @@ export function mergeRealtimeVoiceToolManifest(
     seen.add(tool.name);
     candidates.push(tool);
   };
-  for (const name of REALTIME_VOICE_PRIORITY_TOOL_NAMES) {
+  for (const name of [
+    ...REALTIME_VOICE_PRIORITY_TOOL_NAMES,
+    ...appPriorityToolNames,
+  ]) {
     add(expanded.get(name) ?? current.get(name));
   }
   for (const tool of expanded.values()) add(tool);
@@ -1229,6 +1291,7 @@ function createRealtimeVoiceToolResultEvent(
 export interface RealtimeVoiceToolManifestCoordinator {
   enqueue: (result: RealtimeVoiceToolResult) => void;
   setProtocol: (protocol: RealtimeVoiceProtocol) => void;
+  setPriorityToolNames: (names: readonly string[]) => void;
   setSessionTools: (tools: readonly RealtimeVoiceFunctionTool[]) => void;
   handleError: (eventId: string | undefined, message?: string) => boolean;
   reset: (options?: { preserveSessionTools?: boolean }) => void;
@@ -1241,6 +1304,7 @@ export function createRealtimeVoiceToolManifestCoordinator(
 ): RealtimeVoiceToolManifestCoordinator {
   let currentTools: RealtimeVoiceFunctionTool[] = [];
   let protocol: RealtimeVoiceProtocol = "realtime";
+  let priorityToolNames: readonly string[] = [];
   const queue: RealtimeVoiceToolResult[] = [];
   let updateSequence = 0;
   let active:
@@ -1293,6 +1357,7 @@ export function createRealtimeVoiceToolManifestCoordinator(
       currentTools,
       expanded,
       protocol,
+      priorityToolNames,
     );
     const mergedNames = new Set(merged.map((tool) => tool.name));
     const expectedNames = expanded
@@ -1326,8 +1391,16 @@ export function createRealtimeVoiceToolManifestCoordinator(
     setProtocol(nextProtocol) {
       protocol = nextProtocol;
     },
+    setPriorityToolNames(names) {
+      priorityToolNames = [...names];
+    },
     setSessionTools(tools) {
-      currentTools = mergeRealtimeVoiceToolManifest([], tools, protocol);
+      currentTools = mergeRealtimeVoiceToolManifest(
+        [],
+        tools,
+        protocol,
+        priorityToolNames,
+      );
       if (!active) return;
       const names = new Set(currentTools.map((tool) => tool.name));
       if (active.expectedNames.every((name) => names.has(name))) finish();
@@ -1341,7 +1414,10 @@ export function createRealtimeVoiceToolManifestCoordinator(
       if (active) clearTimeout(active.timer);
       active = undefined;
       queue.length = 0;
-      if (!options?.preserveSessionTools) currentTools = [];
+      if (!options?.preserveSessionTools) {
+        currentTools = [];
+        priorityToolNames = [];
+      }
       protocol = "realtime";
     },
     getTools() {
@@ -1707,6 +1783,13 @@ function useRealtimeVoiceModeController(
       }),
     [],
   );
+  const turnMetrics = useMemo(
+    () =>
+      createRealtimeVoiceTurnMetrics((name, properties) =>
+        adapters.voice.trackEvent(name, properties),
+      ),
+    [adapters],
+  );
   const toolManifestCoordinator = useMemo(
     () =>
       createRealtimeVoiceToolManifestCoordinator((event) => {
@@ -1839,7 +1922,11 @@ function useRealtimeVoiceModeController(
 
   const setIntelligence = useCallback(
     (intelligence: RealtimeVoiceIntelligence) => {
-      const next = { ...preferencesRef.current, intelligence };
+      const next = {
+        ...preferencesRef.current,
+        intelligence,
+        intelligenceChosen: true,
+      };
       savePreferences(next);
       updateLivePreferences(next);
     },
@@ -1994,6 +2081,7 @@ function useRealtimeVoiceModeController(
   switchMicrophoneRef.current = setMicrophone;
 
   const cleanupTransport = useCallback(() => {
+    turnMetrics.sessionEnded();
     if (liveCloseDrainTimerRef.current !== null) {
       window.clearTimeout(liveCloseDrainTimerRef.current);
       liveCloseDrainTimerRef.current = null;
@@ -2045,6 +2133,7 @@ function useRealtimeVoiceModeController(
     audioLevels,
     responseCoordinator,
     toolManifestCoordinator,
+    turnMetrics,
   ]);
 
   const fail = useCallback(
@@ -2067,6 +2156,7 @@ function useRealtimeVoiceModeController(
       const toolAbortController = new AbortController();
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
+      turnMetrics.toolCallStarted();
       let result: RealtimeVoiceToolResult;
       try {
         const args = parseFunctionArguments(call.argumentsText);
@@ -2095,9 +2185,10 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (result.capability) capabilityRef.current = result.capability;
+      turnMetrics.toolCallFinished(performance.now(), result);
       toolManifestCoordinator.enqueue(result);
     },
-    [browserTabId, toolManifestCoordinator, transition],
+    [browserTabId, toolManifestCoordinator, transition, turnMetrics],
   );
 
   const publishTranscript = useCallback(
@@ -2184,8 +2275,10 @@ function useRealtimeVoiceModeController(
         greetingStarter.start();
         transition("working");
       } else if (event.type === "input_audio_buffer.speech_started") {
+        turnMetrics.userSpeechStarted(performance.now());
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
+        turnMetrics.userSpeechEnded(performance.now());
         transition("working");
         if (protocolRef.current === "realtime") responseCoordinator.request();
       } else if (event.type === "response.created") {
@@ -2193,6 +2286,7 @@ function useRealtimeVoiceModeController(
         lastAssistantTextRef.current = "";
         transition("working");
       } else if (event.type === "response.output_audio_transcript.delta") {
+        turnMetrics.assistantAudioStarted(performance.now());
         hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
@@ -2211,11 +2305,21 @@ function useRealtimeVoiceModeController(
         }
         syncAppState("working");
       } else if (event.type === "session.input_transcript.delta") {
+        const now = performance.now();
+        turnMetrics.userSpeechStarted(now);
+        turnMetrics.userSpeechEnded(
+          now,
+          typeof event.end_ms === "number" ? event.end_ms : undefined,
+        );
         if (typeof event.delta === "string") {
           lastUserTextRef.current += event.delta;
         }
         transition("listening");
       } else if (event.type === "session.output_transcript.delta") {
+        turnMetrics.assistantAudioStarted(
+          performance.now(),
+          typeof event.start_ms === "number" ? event.start_ms : undefined,
+        );
         hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
@@ -2307,6 +2411,7 @@ function useRealtimeVoiceModeController(
       transition,
       responseCoordinator,
       toolManifestCoordinator,
+      turnMetrics,
       updateLivePreferences,
     ],
   );
@@ -2475,7 +2580,25 @@ function useRealtimeVoiceModeController(
         answer.model ??
         (protocolRef.current === "live" ? "gpt-live-1" : "gpt-realtime-2.1");
       toolManifestCoordinator.setProtocol(protocolRef.current);
+      toolManifestCoordinator.setPriorityToolNames(
+        answer.priorityToolNames ?? [],
+      );
       greetingStarter.setProtocol(protocolRef.current);
+      const chosen = preferencesRef.current.intelligenceChosen === true;
+      if (!chosen && answer.intelligence) {
+        // Shows the app's default without saving it as the user's pick.
+        const next = {
+          ...preferencesRef.current,
+          intelligence: answer.intelligence,
+        };
+        preferencesRef.current = next;
+        setPreferences(next);
+      }
+      turnMetrics.setContext({
+        protocol: protocolRef.current,
+        intelligence: preferencesRef.current.intelligence,
+        intelligenceSource: chosen ? "user" : "default",
+      });
       await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
     } catch (startError) {
       if (
@@ -2517,6 +2640,7 @@ function useRealtimeVoiceModeController(
     t,
     transcriptSequencer,
     transition,
+    turnMetrics,
   ]);
 
   const end = useCallback(() => {
@@ -2744,7 +2868,11 @@ export function buildRealtimeVoiceSettings({
       })),
       onValueChange: (value: string) => {
         if (isOneOf(REALTIME_VOICE_INTELLIGENCE_LEVELS, value)) {
-          onPreferencesChange({ ...preferences, intelligence: value });
+          onPreferencesChange({
+            ...preferences,
+            intelligence: value,
+            intelligenceChosen: true,
+          });
         }
       },
     },

@@ -61,8 +61,11 @@ vi.mock("../agent/production-agent.js", () => ({
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
+  composeRealtimeVoiceInstructions,
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_CAPABILITY_HEADER,
+  REALTIME_VOICE_INTELLIGENCE_HEADER,
+  REALTIME_VOICE_PRIORITY_TOOLS_HEADER,
   REALTIME_VOICE_MODEL_HEADER,
   REALTIME_VOICE_PROTOCOL_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
@@ -196,6 +199,9 @@ function fakeEvent(options: {
 function mount(options?: {
   actions?: Record<string, ActionEntry>;
   getInstructions?: (context: any) => string | Promise<string>;
+  voiceInstructions?: string;
+  priorityToolNames?: readonly string[];
+  defaultIntelligence?: "instant" | "balanced" | "deep";
   model?: string;
   voice?: string;
   resolveOrgId?: (event: any) => string | Promise<string>;
@@ -395,11 +401,165 @@ describe("realtime voice inline preferences", () => {
     expect(resolveRealtimeVoiceReasoningEffort("instant", "realtime")).toBe(
       "minimal",
     );
-    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
-    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("high");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced", "realtime")).toBe(
+      "low",
+    );
+    expect(resolveRealtimeVoiceReasoningEffort("deep", "realtime")).toBe(
+      "medium",
+    );
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
     expect(resolveRealtimeVoicePreference("cedar", "marin")).toBe("cedar");
     expect(resolveRealtimeVoicePreference("custom-id", "marin")).toBe("marin");
+  });
+});
+
+describe("composeRealtimeVoiceInstructions", () => {
+  it("gives the spoken model voice guidance and the tool model the app context", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "live",
+      voiceInstructions: "Say the new value out loud.",
+      appInstructions: "App guidance:\nUse edit-design.",
+    });
+
+    expect(composed.voice).toContain("Before each action, say a few words");
+    expect(composed.voice).toContain("Delegate every request");
+    expect(composed.voice).toContain("Say the new value out loud.");
+    expect(composed.voice).not.toContain("Use edit-design.");
+    expect(composed.tools).toContain("call `tool-search` before saying");
+    expect(composed.tools.indexOf("Say the new value out loud.")).toBeLessThan(
+      composed.tools.indexOf("Use edit-design."),
+    );
+    expect(composed.tools).not.toContain("Delegate every request");
+  });
+
+  it("keeps voice guidance when a long system prompt hits the length cap", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "live",
+      voiceInstructions: "Treat bigger as one step on the scale.",
+      appInstructions: `App guidance:\n${"x".repeat(40_000)}`,
+    });
+
+    expect(composed.tools).toContain("Treat bigger as one step on the scale.");
+    expect(composed.tools).toMatch(/\.\.\.\[truncated\]$/);
+  });
+
+  it("gives the single Realtime model every part", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "realtime",
+      voiceInstructions: "Offer more or less.",
+      appInstructions: "The current view is the calendar.",
+    });
+
+    expect(composed.voice).toBe(composed.tools);
+    expect(composed.voice).toContain(
+      "Use the function tools for every request",
+    );
+    expect(composed.voice).toContain("Offer more or less.");
+    expect(composed.voice).toContain("The current view is the calendar.");
+    expect(composed.voice).not.toContain("Delegate every request");
+  });
+});
+
+describe("realtime voice app configuration", () => {
+  function liveSessionFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session: { id: "live-session-app" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=live\r\n" },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function liveSessionBody(fetchMock: ReturnType<typeof vi.fn>) {
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    return JSON.parse(String(init.body)).session;
+  }
+
+  it("loads the app's edit tools right after the framework tools", async () => {
+    actionsToEngineTools.mockReturnValue([
+      ...Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `template_tool_${index}`,
+        description: `Template tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+      ...["update-slide", "tool-search", "web-search"].map((name) => ({
+        name,
+        description: name,
+        inputSchema: { type: "object", properties: {} },
+      })),
+    ]);
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({
+      priorityToolNames: ["update-slide", "missing-tool"],
+    });
+    const event = sessionEvent();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    const tools = liveSessionBody(fetchMock).delegation.responses.tools;
+    expect(
+      tools.slice(0, 3).map((tool: { name: string }) => tool.name),
+    ).toEqual(["tool-search", "web-search", "update-slide"]);
+    expect(tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(event.responseHeaders[REALTIME_VOICE_PRIORITY_TOOLS_HEADER]).toBe(
+      "update-slide",
+    );
+  });
+
+  it("uses the app's default intelligence until the user picks one", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({ defaultIntelligence: "balanced" });
+    const event = sessionEvent();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    expect(liveSessionBody(fetchMock).delegation.responses.reasoning).toEqual({
+      effort: "medium",
+    });
+    expect(event.responseHeaders[REALTIME_VOICE_INTELLIGENCE_HEADER]).toBe(
+      "balanced",
+    );
+  });
+
+  it("lets the user's pick win over the app's default", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({ defaultIntelligence: "balanced" });
+    const event = sessionEvent(undefined, {
+      [REALTIME_VOICE_INTELLIGENCE_HEADER]: "instant",
+    });
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    expect(liveSessionBody(fetchMock).delegation.responses.reasoning).toEqual({
+      effort: "low",
+    });
+    expect(event.responseHeaders[REALTIME_VOICE_INTELLIGENCE_HEADER]).toBe(
+      "instant",
+    );
+  });
+
+  it("sends voice guidance to both Live models and app context only to the tool model", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({
+      voiceInstructions: "Say the new value out loud.",
+      getInstructions: () => "App guidance:\nUse update-slide.",
+    });
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const session = liveSessionBody(fetchMock);
+    expect(session.instructions).toContain("Say the new value out loud.");
+    expect(session.instructions).not.toContain("Use update-slide.");
+    expect(session.instructions).toMatch(/Speak in en unless/);
+    expect(session.delegation.responses.instructions).toContain(
+      "Say the new value out loud.",
+    );
+    expect(session.delegation.responses.instructions).toContain(
+      "Use update-slide.",
+    );
   });
 });
 
@@ -1165,6 +1325,7 @@ describe("realtime voice tool route", () => {
     expect(searchResult).toEqual({
       callId: "call_search",
       status: "completed",
+      readOnly: true,
       output: JSON.stringify({
         query: "rare capability",
         results: [{ name: "rare-action" }, { name: "invented-action" }],

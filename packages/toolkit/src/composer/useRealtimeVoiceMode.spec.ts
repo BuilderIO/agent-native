@@ -88,14 +88,24 @@ describe("Realtime voice client transport", () => {
         intelligence: "deep",
         voice: "cedar",
       }),
-    ).toEqual({ language: "en", intelligence: "deep", voice: "cedar" });
+    ).toEqual({
+      language: "en",
+      intelligence: "deep",
+      voice: "cedar",
+      intelligenceChosen: true,
+    });
     expect(
       normalizeRealtimeVoicePreferences({
         language: "xx",
         intelligence: "maximum",
         voice: "unknown",
       }),
-    ).toEqual({ language: "auto", intelligence: "instant", voice: "marin" });
+    ).toEqual({
+      language: "auto",
+      intelligence: "instant",
+      voice: "marin",
+      intelligenceChosen: false,
+    });
     expect(resolveRealtimeVoiceLanguage("auto", ["en-US", "fr"])).toBe("en");
     expect(resolveRealtimeVoiceLanguage("auto", ["nl-NL"])).toBe("en");
   });
@@ -137,10 +147,42 @@ describe("Realtime voice client transport", () => {
       type: "session.update",
       session: {
         delegation: {
-          responses: { reasoning: { effort: "medium" } },
+          responses: { reasoning: { effort: "high" } },
         },
       },
     });
+  });
+
+  it("gives each intelligence level its own GPT-Live reasoning effort", () => {
+    expect(realtimeVoiceReasoningEffort("instant", "live")).toBe("low");
+    expect(realtimeVoiceReasoningEffort("balanced", "live")).toBe("medium");
+    expect(realtimeVoiceReasoningEffort("deep", "live")).toBe("high");
+  });
+
+  it("treats an old save's default level as not picked, and keeps a new pick", () => {
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "instant",
+        voice: "cedar",
+      }).intelligenceChosen,
+    ).toBe(false);
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "instant",
+        voice: "cedar",
+        intelligenceChosen: true,
+      }),
+    ).toMatchObject({ intelligence: "instant", intelligenceChosen: true });
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "balanced",
+        voice: "cedar",
+        intelligenceChosen: false,
+      }),
+    ).toMatchObject({ intelligence: "instant", intelligenceChosen: false });
   });
 
   it("maps instant intelligence to a supported GPT-Live reasoning effort", () => {
@@ -341,6 +383,7 @@ describe("Realtime voice client transport", () => {
           language: "auto",
           intelligence: "instant",
           voice: "marin",
+          intelligenceChosen: true,
         },
         browserLanguages: ["en-US"],
       }),
@@ -370,6 +413,45 @@ describe("Realtime voice client transport", () => {
     );
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain(
       "OPENAI_API_KEY",
+    );
+  });
+
+  it("lets the app default apply until the user picks a level", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("answer-sdp", {
+          status: 200,
+          headers: {
+            "X-Agent-Native-Realtime-Protocol": "live",
+            "X-Agent-Native-Realtime-Intelligence": "balanced",
+            "X-Agent-Native-Realtime-Priority-Tools":
+              "edit-design, bad name,update-slide",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createRealtimeVoiceSessionWithCapability("offer-sdp", {
+        preferences: {
+          language: "en",
+          intelligence: "instant",
+          voice: "marin",
+          intelligenceChosen: false,
+        },
+      }),
+    ).resolves.toEqual({
+      sdp: "answer-sdp",
+      protocol: "live",
+      intelligence: "balanced",
+      priorityToolNames: ["edit-design", "update-slide"],
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(init.headers).not.toHaveProperty(
+      "X-Agent-Native-Realtime-Intelligence",
     );
   });
 
@@ -473,6 +555,58 @@ describe("Realtime voice dynamic tool manifests", () => {
     expect(names).toContain("open-dashboard");
     expect(names).toContain("list-dashboards");
     expect(names).not.toContain("old-26");
+  });
+
+  it("keeps the app's edit tools when a discovery fills the manifest", () => {
+    const current = [
+      ...Array.from({ length: 31 }, (_, index) => realtimeTool(`old-${index}`)),
+      realtimeTool("edit-design"),
+    ];
+    const discoveries = Array.from({ length: 8 }, (_, index) =>
+      realtimeTool(`found-${index}`),
+    );
+
+    expect(
+      mergeRealtimeVoiceToolManifest(current, discoveries).map(
+        (tool) => tool.name,
+      ),
+    ).not.toContain("edit-design");
+    const merged = mergeRealtimeVoiceToolManifest(
+      current,
+      discoveries,
+      "live",
+      ["edit-design"],
+    ).map((tool) => tool.name);
+    expect(merged[0]).toBe("edit-design");
+    expect(merged).toContain("found-7");
+  });
+
+  it("keeps the session's app edit tools through a coordinator expansion", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setProtocol("live");
+    coordinator.setPriorityToolNames(["update-slide"]);
+    coordinator.setSessionTools([
+      ...Array.from({ length: 31 }, (_, index) => realtimeTool(`old-${index}`)),
+      realtimeTool("update-slide"),
+    ]);
+    coordinator.enqueue({
+      callId: "call-search",
+      status: "completed",
+      output: "{}",
+      expandedTools: [realtimeTool("web-search")],
+    });
+
+    const update = sent[0] as {
+      session: { delegation: { responses: { tools: { name: string }[] } } };
+    };
+    const names = update.session.delegation.responses.tools.map(
+      (tool) => tool.name,
+    );
+    expect(names.slice(0, 2)).toEqual(["web-search", "update-slide"]);
+    expect(names).toHaveLength(32);
   });
 
   it("packs dynamic schemas within the realtime session byte budget", () => {

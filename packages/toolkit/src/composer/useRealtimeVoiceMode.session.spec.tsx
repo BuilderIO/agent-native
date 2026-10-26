@@ -75,6 +75,10 @@ afterEach(() => {
 
 async function startSession(
   readAppState: (key: string) => unknown = () => undefined,
+  trackEvent: (
+    name: string,
+    properties: Record<string, unknown>,
+  ) => void = () => undefined,
 ) {
   let api: RealtimeVoiceModeApi | undefined;
   function Probe() {
@@ -91,6 +95,7 @@ async function startSession(
             readAppState: readAppState as never,
             setAppState: () => undefined,
             getBrowserTabId: () => "tab-1",
+            trackEvent,
           },
         }}
       >
@@ -116,6 +121,34 @@ async function startSession(
 }
 
 describe("realtime voice session controls", () => {
+  it("reports each turn's timing without the words spoken", async () => {
+    const trackEvent = vi.fn();
+    const session = await startSession(undefined, trackEvent);
+
+    await session.send({ type: "input_audio_buffer.speech_started" });
+    await session.send({ type: "input_audio_buffer.speech_stopped" });
+    await session.send({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Opening the secret plans",
+    });
+    expect(trackEvent).not.toHaveBeenCalled();
+    await session.send({ type: "input_audio_buffer.speech_started" });
+
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    const [name, properties] = trackEvent.mock.calls[0]!;
+    expect(name).toBe("realtime_voice_turn");
+    expect(properties).toMatchObject({
+      turn_index: 0,
+      tool_calls: 0,
+      latency_clock: "browser",
+      spoke_again_after_edit: null,
+    });
+    expect(properties.speech_to_audio_ms).toEqual(expect.any(Number));
+    expect(JSON.stringify(properties)).not.toContain("secret");
+    session.unmount();
+  });
+
   it("mutes the microphone track and the assistant's playback", async () => {
     const session = await startSession();
     expect(session.api().state).toBe("connecting");
@@ -216,6 +249,7 @@ describe("realtime voice session controls", () => {
       language: "ja",
       intelligence: "deep",
       voice: "cedar",
+      intelligenceChosen: true,
     });
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
       audio: expect.objectContaining({ deviceId: { ideal: "studio" } }),

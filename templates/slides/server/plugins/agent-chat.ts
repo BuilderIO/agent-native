@@ -18,6 +18,7 @@ import {
   readGeneratedDeckSlideCount,
   trackGenerationCompletedForRun,
 } from "../lib/generation-completion.js";
+import { SLIDES_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -213,6 +214,7 @@ export default createAgentChatPlugin({
   onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  realtimeVoice: SLIDES_REALTIME_VOICE,
   mcp: {
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
