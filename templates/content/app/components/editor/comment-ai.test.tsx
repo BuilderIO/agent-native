@@ -239,6 +239,20 @@ describe("comment AI controls", () => {
     expect(await label({ status: "queued", model: "claude-haiku-5-5" })).toBe(
       "comments.aiQueuedNamed",
     );
+    expect(
+      await label({
+        status: "queued",
+        model: null,
+        submittedModel: "claude-haiku-5-5",
+      }),
+    ).toBe("comments.aiQueuedNamed");
+    expect(
+      await label({
+        status: "classifying",
+        model: null,
+        submittedModel: "claude-haiku-5-5",
+      }),
+    ).toBe("comments.aiWorkingNamed");
     expect(await label({ status: "running", model: null })).toBe(
       "comments.aiWorking",
     );

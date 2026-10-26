@@ -1044,12 +1044,16 @@ export function useCommentAiRequests(
   );
 }
 
-/** "Claude Haiku 5.5 is working…": the model the comment was sent to. */
+/**
+ * "Claude Haiku 5.5 is working…": the model the comment was sent to. Until a
+ * run starts, only `submittedModel` names it.
+ */
 function workingLabel(
-  model: string | null | undefined,
+  request: CommentAiRequest,
   t: ReturnType<typeof useT>,
   queued = false,
 ) {
+  const model = request.model ?? request.submittedModel;
   if (!model?.trim())
     return t(queued ? "comments.aiQueued" : "comments.aiWorking");
   return t(queued ? "comments.aiQueuedNamed" : "comments.aiWorkingNamed", {
@@ -1062,9 +1066,9 @@ function requestStatusLabel(
   t: ReturnType<typeof useT>,
 ) {
   if (request.status === "classifying" || request.status === "classified")
-    return workingLabel(request.model, t);
-  if (request.status === "queued") return workingLabel(request.model, t, true);
-  if (request.status === "running") return workingLabel(request.model, t);
+    return workingLabel(request, t);
+  if (request.status === "queued") return workingLabel(request, t, true);
+  if (request.status === "running") return workingLabel(request, t);
   if (request.status === "refreshing") return t("comments.aiRefreshing");
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
@@ -1120,7 +1124,7 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? workingLabel(request.model, t)
+      ? workingLabel(request, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
