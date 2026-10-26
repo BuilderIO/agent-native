@@ -28,6 +28,7 @@ const AI_SOURCE = readFileSync(
 );
 const PRIMARY_DECLARATION = "--primary: #0f766e;";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const AI_BRIDGE_SOURCE = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><title>AI bridge replay</title></head>
@@ -222,7 +223,10 @@ async function dragByCenter(
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click selects the nested layer; a plain click takes its top-level frame.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(from.x, from.y);
+  await app.page.keyboard.up(MOD);
   const to = await app.pagePoint(toX, toY);
   await app.page.mouse.move(from.x, from.y);
   await app.page.mouse.down();

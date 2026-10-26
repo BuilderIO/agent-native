@@ -1,4 +1,3 @@
-import { useRoute, type RouteProp } from "@react-navigation/native";
 import {
   IconCheck,
   IconChevronLeft,
@@ -7,6 +6,7 @@ import {
   IconShare,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -36,7 +36,7 @@ import {
   publishKeyboardDictation,
 } from "@/lib/ios-companion";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
-import { useMobileNavigation, type RootStackParamList } from "@/lib/navigation";
+import { useMobileNavigation } from "@/lib/navigation";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
   saveMobileDictation,
@@ -49,8 +49,10 @@ type Phase = "capture" | "transcribing" | "review";
 
 export default function DictationCaptureScreen() {
   const navigation = useMobileNavigation();
-  const { params = {} } =
-    useRoute<RouteProp<RootStackParamList, "CaptureDictate">>();
+  const params = useLocalSearchParams<{
+    requestId?: string;
+    source?: string;
+  }>();
   const routeKeyboardRequestId =
     params.source === "keyboard" &&
     typeof params.requestId === "string" &&

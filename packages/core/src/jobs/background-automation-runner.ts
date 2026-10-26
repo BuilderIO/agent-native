@@ -49,6 +49,7 @@ import {
   markAgentExecutionStepDispatched,
   insertRun,
   tryClaimRunSlot,
+  retryRunThreadProjection,
   releaseBackgroundRunBeforeStart,
   type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
@@ -122,6 +123,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryProjectionDeferredError,
   AutomationRecoveryStorageError,
   deliveryNoteForEvents,
   readAutomationRecoveryEvents,
@@ -651,6 +653,7 @@ export async function runBackgroundAutomation(
     if (
       err instanceof StaleExecutionFenceError ||
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
       err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
         (err.errorCode === "background_automation_claim_lost" ||
@@ -874,6 +877,8 @@ export async function runJobRunner(
   } catch (err) {
     if (
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
+      err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
         err.errorCode === "background_automation_history_write_failed")
     )
@@ -1505,11 +1510,30 @@ async function executeBackgroundAutomation(
       const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const resume = options.resume;
+      if (resume) {
+        const projection = await withAutomationRecoveryStorage(() =>
+          retryRunThreadProjection(resume.previousRunId),
+        );
+        switch (projection.state) {
+          case "deferred":
+            throw new AutomationRecoveryProjectionDeferredError(
+              resume.previousRunId,
+            );
+          case "untracked":
+            // Inspection found this run before retention pruned its cleared
+            // projection marker; a pending marker prevents that pruning.
+            break;
+          case "projected":
+          case "already_projected":
+            break;
+        }
+      }
       const thread = resume
         ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
         : await createThread(ownerEmail, {
             title: threadTitle,
             orgId: orgId ?? null,
+            ...(deps.appId ? { source: { appId: deps.appId } } : {}),
           });
       if (!thread)
         throw new Error(

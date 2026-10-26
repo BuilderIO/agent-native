@@ -183,6 +183,18 @@ async function insertPage(id: string, content: string) {
   });
 }
 
+/** Links page `id` to a local file, as a local-folder sync does. */
+async function linkToLocalFile(id: string) {
+  await getDb()
+    .update(schema.documents)
+    .set({
+      sourceMode: "local-files",
+      sourceKind: "file",
+      sourcePath: `${id}.md`,
+    })
+    .where(eq(schema.documents.id, id));
+}
+
 async function page(id: string) {
   const [row] = await getDb()
     .select({
@@ -482,6 +494,46 @@ describe("switching a page to its live copy", () => {
     });
     expect((await page("off")).liveBodySwitchedAt).toBeNull();
     expect(await collabVersion("off")).toBeUndefined();
+  });
+
+  it("refuses a page linked to a local file, as set-live-body-switch says, and leaves it and its collab state alone", async () => {
+    await insertPage("linked", "Hello there");
+    await linkToLocalFile("linked");
+    const action = (await import("../../actions/set-live-body-switch.js"))
+      .default;
+
+    await expect(
+      switching.switchPageToLiveCopy("linked"),
+    ).rejects.toMatchObject({
+      name: "LiveBodyConversionError",
+      code: "local_file",
+    });
+    await expect(
+      asOwner(async () =>
+        action.run({ id: "linked", switched: true }, {
+          caller: "frontend",
+          userEmail: OWNER,
+        } as never),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_SWITCH_LOCAL_FILE",
+      statusCode: 409,
+    });
+    expect((await page("linked")).liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("linked")).toBeUndefined();
+  });
+
+  it("refuses a page linked to a local file whose live copy already holds its body", async () => {
+    await switchedPage("linked-again", "Hello there");
+    await switching.switchPageToLegacy("linked-again");
+    await linkToLocalFile("linked-again");
+    const version = await collabVersion("linked-again");
+
+    await expect(
+      switching.switchPageToLiveCopy("linked-again"),
+    ).rejects.toMatchObject({ code: "local_file" });
+    expect((await page("linked-again")).liveBodySwitchedAt).toBeNull();
+    expect(await collabVersion("linked-again")).toBe(version);
   });
 
   it("refuses to switch a page whose stored body the parser can't keep in full", async () => {
@@ -2856,7 +2908,7 @@ describe("a version restore on a switched page", () => {
         ownerEmail: OWNER,
       }),
     );
-    await restore(
+    const restored = await restore(
       "restore-open",
       versionId,
       (await metadata("restore-open")).updatedAt,
@@ -2864,6 +2916,346 @@ describe("a version restore on a switched page", () => {
 
     expect(performance.now() - started).toBeLessThan(2_000);
     expect((await page("restore-open")).content).toBe("First draft");
+    expect(restored).not.toHaveProperty("titleFlush");
+  });
+
+  it("has a tab that advertises the title save save its title first, so History keeps it", async () => {
+    await switchedPage("restore-tab-title", "First draft");
+    await serverEdit("restore-tab-title", "Second draft");
+    const versionId = await versionHolding("restore-tab-title", "First draft");
+    const before = await metadata("restore-tab-title");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-title", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-title", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-title"));
+      },
+    });
+
+    const restored = await restore(
+      "restore-tab-title",
+      versionId,
+      before.updatedAt,
+    );
+
+    await expect(answered).resolves.toMatchObject({ scope: "title" });
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: {
+        pages: [
+          {
+            documentId: "restore-tab-title",
+            confirmedTitle: "Tab title",
+            editors: [
+              expect.objectContaining({ clientId: 7, flush: "answered" }),
+            ],
+          },
+        ],
+      },
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-title"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Second draft",
+    });
+  });
+
+  it("restores through main's path from the page as its tab's title save left it, when the flags go off meanwhile", async () => {
+    await switchedPage("restore-tab-off", "First draft");
+    await serverEdit("restore-tab-off", "Second draft");
+    const versionId = await versionHolding("restore-tab-off", "First draft");
+    const before = await metadata("restore-tab-off");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-off", OWNER, {
+      canFlushTitle: true,
+    });
+    // The tab saves its title and closes, and the flags go off, before the
+    // restore commits.
+    const answered = tabs.answerTitleRequest("restore-tab-off", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-off"));
+        await getDbExec().execute({
+          sql: "DELETE FROM _collab_awareness WHERE doc_id = ?",
+          args: ["restore-tab-off"],
+        });
+        await setFlags(false);
+      },
+    });
+
+    const restored = await restore(
+      "restore-tab-off",
+      versionId,
+      before.updatedAt,
+    );
+
+    await answered;
+    expect(restored).toMatchObject({
+      content: "First draft",
+      titleFlush: {
+        pages: [{ documentId: "restore-tab-off", editors: [{ clientId: 7 }] }],
+      },
+    });
+    expect((await page("restore-tab-off")).content).toBe("First draft");
+    expect(await gateFor("restore-tab-off")).not.toEqual({
+      writePath: "live_copy",
+    });
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-off"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Second draft",
+    });
+  });
+
+  it("reports the title save its tab makes during main's flush when the flags come back on", async () => {
+    await switchedPage("restore-late-title", "First draft");
+    const saved = (await page("restore-late-title")).content;
+    await getDb().insert(schema.documentVersions).values({
+      id: "restore-late-title-version",
+      documentId: "restore-late-title",
+      ownerEmail: OWNER,
+      title: "Original title",
+      content: saved,
+    });
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-late-title", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-late-title", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-late-title"));
+      },
+    });
+    await setFlags(false);
+    beforeEditorFlush.current = () => setFlags(true);
+
+    try {
+      const restored = await restore(
+        "restore-late-title",
+        "restore-late-title-version",
+        (await metadata("restore-late-title")).updatedAt,
+      );
+
+      await expect(answered).resolves.toMatchObject({ scope: "title" });
+      expect(restored).toMatchObject({
+        title: "Original title",
+        content: saved,
+        titleFlush: {
+          pages: [
+            {
+              documentId: "restore-late-title",
+              confirmedTitle: "Tab title",
+              editors: [
+                expect.objectContaining({ clientId: 7, flush: "answered" }),
+              ],
+            },
+          ],
+        },
+      });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-late-title"));
+    expect(versions).toContainEqual({ title: "Tab title", content: saved });
+  });
+
+  it("restores through main's path when the flags go off after its tab's title save and an editor saves the body during main's flush", async () => {
+    await switchedPage("restore-tab-dirty", "First draft");
+    await serverEdit("restore-tab-dirty", "Second draft");
+    const versionId = await versionHolding("restore-tab-dirty", "First draft");
+    const before = await metadata("restore-tab-dirty");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-dirty", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-dirty", OWNER, {
+      save: async () => {
+        await getDb()
+          .update(schema.documents)
+          .set({ title: "Tab title", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, "restore-tab-dirty"));
+        await getDbExec().execute({
+          sql: "DELETE FROM _collab_awareness WHERE doc_id = ?",
+          args: ["restore-tab-dirty"],
+        });
+        await setFlags(false);
+      },
+    });
+    beforeEditorFlush.current = async () => {
+      const [row] = await getDb()
+        .select({
+          bodyRevision: schema.documents.bodyRevision,
+          updatedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "restore-tab-dirty"));
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: "Unsaved draft",
+          bodyRevision: row.bodyRevision + 1,
+          updatedAt: new Date(Date.parse(row.updatedAt) + 1_000).toISOString(),
+        })
+        .where(eq(schema.documents.id, "restore-tab-dirty"));
+    };
+
+    try {
+      const restored = await restore(
+        "restore-tab-dirty",
+        versionId,
+        before.updatedAt,
+      );
+
+      await answered;
+      expect(restored).toMatchObject({ content: "First draft" });
+    } finally {
+      beforeEditorFlush.current = null;
+    }
+    expect((await page("restore-tab-dirty")).content).toBe("First draft");
+    const versions = await getDb()
+      .select({
+        title: schema.documentVersions.title,
+        content: schema.documentVersions.content,
+      })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, "restore-tab-dirty"));
+    expect(versions).toContainEqual({
+      title: "Tab title",
+      content: "Unsaved draft",
+    });
+  });
+
+  it("refuses a restore whose tab couldn't save its title, and changes nothing", async () => {
+    await switchedPage("restore-tab-error", "First draft");
+    await serverEdit("restore-tab-error", "Second draft");
+    const versionId = await versionHolding("restore-tab-error", "First draft");
+    const before = await metadata("restore-tab-error");
+    const version = await collabVersion("restore-tab-error");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-error", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-error", OWNER, {
+      errorCode: "title_conflict",
+    });
+
+    await expect(
+      restore("restore-tab-error", versionId, before.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+      statusCode: 409,
+      details: {
+        documentId: "restore-tab-error",
+        reason: "editor_error",
+        code: "title_conflict",
+        retryable: true,
+      },
+    });
+    await answered;
+    expect(await metadata("restore-tab-error")).toEqual(before);
+    expect((await page("restore-tab-error")).content).toBe("Second draft");
+    expect(await collabVersion("restore-tab-error")).toBe(version);
+  });
+
+  it("refuses a restore whose tab claims a title SQL never got, though a body save moved the page on", async () => {
+    await switchedPage("restore-tab-unsaved", "First draft");
+    await serverEdit("restore-tab-unsaved", "Second draft");
+    const versionId = await versionHolding(
+      "restore-tab-unsaved",
+      "First draft",
+    );
+    const before = await metadata("restore-tab-unsaved");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-unsaved", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-unsaved", OWNER, {
+      claimTitle: "Typed title",
+      save: () => serverEdit("restore-tab-unsaved", "Third draft"),
+      // The clock stops at the deadline once the server has read the claim
+      // and found SQL without it, so the restore refuses there on any runner.
+      onAskedAgain: (request) => {
+        vi.useFakeTimers({ toFake: ["Date"], now: request.expiresAt });
+      },
+    });
+
+    try {
+      await expect(
+        restore("restore-tab-unsaved", versionId, before.updatedAt),
+      ).rejects.toMatchObject({
+        errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED",
+        statusCode: 409,
+        details: {
+          documentId: "restore-tab-unsaved",
+          reason: "timeout",
+          retryable: true,
+        },
+      });
+      await answered;
+    } finally {
+      vi.useRealTimers();
+    }
+    const after = await metadata("restore-tab-unsaved");
+    expect(after.updatedAt).not.toBe(before.updatedAt);
+    expect(after.title).toBe(before.title);
+    expect((await page("restore-tab-unsaved")).content).toBe("Third draft");
+  });
+
+  it("refuses a restore when a body edit lands while its tab saves the title", async () => {
+    await switchedPage("restore-tab-edit", "First draft");
+    await serverEdit("restore-tab-edit", "Second draft");
+    const versionId = await versionHolding("restore-tab-edit", "First draft");
+    const before = await metadata("restore-tab-edit");
+    const tabs = await import("../test-support/open-editor-tab.js");
+    await tabs.openEditorTab("restore-tab-edit", OWNER, {
+      canFlushTitle: true,
+    });
+    const answered = tabs.answerTitleRequest("restore-tab-edit", OWNER, {
+      save: async () => {
+        await rename("restore-tab-edit", "Tab title");
+        await serverEdit("restore-tab-edit", "Third draft");
+      },
+    });
+
+    await expect(
+      restore("restore-tab-edit", versionId, before.updatedAt),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_RESTORE_CONFLICT",
+      statusCode: 409,
+    });
+    await answered;
+    expect(await metadata("restore-tab-edit")).toMatchObject({
+      title: "Tab title",
+    });
+    expect((await page("restore-tab-edit")).content).toBe("Third draft");
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {
@@ -3082,6 +3474,25 @@ describe("a browser save to a switched page's body", () => {
       );
     }
   }
+
+  it("writes the body of a page linked to a local file, whose editor saves it without the live copy", async () => {
+    await switchedPage("linked-file-save", "Hello there");
+    await linkToLocalFile("linked-file-save");
+    const loaded = await page("linked-file-save");
+    const version = await collabVersion("linked-file-save");
+
+    await browserSave("linked-file-save", loaded, "Hello there A");
+
+    expect(await page("linked-file-save")).toMatchObject({
+      content: "Hello there A",
+      bodyRevision: loaded.bodyRevision + 1,
+    });
+    expect(await collabVersion("linked-file-save")).toBe(version);
+    await expect(gateFor("linked-file-save")).resolves.toEqual({
+      writePath: "legacy",
+      reason: "local_file",
+    });
+  });
 
   it("answers a stale tab's body save with the live copy instead of diverting it to History", async () => {
     await switchedPage("two-tabs", "Hello there");
@@ -3580,6 +3991,127 @@ describe("a browser save to a switched page's body", () => {
       preservationRequired: true,
       reason: "provenance",
     });
+  });
+});
+
+describe("a SQL body write to a switched page", () => {
+  /** Everything a SQL body write could change on page `id`. */
+  async function bodyState(id: string) {
+    return {
+      page: await page(id),
+      liveCopy: await collabVersion(id),
+      history: await history(id),
+    };
+  }
+
+  async function cliUpdate(id: string, content: string) {
+    const action = (await import("../../actions/update-document.js")).default;
+    return asOwner(async () =>
+      action.run(
+        { id, content } as never,
+        { caller: "cli", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  async function agentEdit(
+    id: string,
+    base: { bodyRevision: number; content: string },
+  ) {
+    const action = (await import("../../actions/edit-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    return asOwner(async () =>
+      action.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+          idempotencyKey: `${id}-edit`,
+          edits: [{ find: "there", replace: "world" }],
+        } as never,
+        { caller: "mcp", userEmail: OWNER } as never,
+      ),
+    ) as Promise<{ receipt: { outcome: string } }>;
+  }
+
+  async function editorEdit(id: string) {
+    const action = (await import("../../actions/edit-document.js")).default;
+    return asOwner(async () =>
+      action.run(
+        { id, find: "there", replace: "world" } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+  }
+
+  it("refuses update-document's body from outside the editor, and names edit-document", async () => {
+    await switchedPage("cli-update", "Hello there");
+    const before = await bodyState("cli-update");
+
+    await expect(cliUpdate("cli-update", "Hello world")).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "cli-update", operation: "update-document" },
+      message: expect.stringMatching(
+        /Retrying won't change that\. Write the body with edit-document\.$/,
+      ),
+    });
+
+    expect(await bodyState("cli-update")).toEqual(before);
+    expect(await gateFor("cli-update")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("takes update-document's body from outside the editor once the page's flags are off (SF-11)", async () => {
+    await switchedPage("cli-update-off", "Hello there");
+    await setFlags(false);
+
+    await cliUpdate("cli-update-off", "Hello world");
+
+    expect((await page("cli-update-off")).content).toBe("Hello world");
+  });
+
+  it("refuses an agent's legacy edit whose page took its live copy before it committed, and its retry takes the copy", async () => {
+    await switchedPage("agent-race", "Hello there");
+    await setFlags(false);
+    const loaded = await page("agent-race");
+    const before = await bodyState("agent-race");
+    afterWritePathRead.current = () => setFlags(true);
+    try {
+      await expect(agentEdit("agent-race", loaded)).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      afterWritePathRead.current = null;
+    }
+    expect(await bodyState("agent-race")).toEqual(before);
+
+    const retried = await agentEdit("agent-race", loaded);
+
+    expect(retried.receipt.outcome).toBe("applied");
+    expect((await page("agent-race")).content).toBe("Hello world");
+    expect(await gateFor("agent-race")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("refuses an editor's legacy edit whose page took its live copy before it committed, and its retry takes the copy", async () => {
+    await switchedPage("editor-race", "Hello there");
+    await setFlags(false);
+    const before = await bodyState("editor-race");
+    afterWritePathRead.current = () => setFlags(true);
+    try {
+      await expect(editorEdit("editor-race")).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITE_PATH_CHANGED",
+        statusCode: 409,
+      });
+    } finally {
+      afterWritePathRead.current = null;
+    }
+    expect(await bodyState("editor-race")).toEqual(before);
+
+    await editorEdit("editor-race");
+
+    expect((await page("editor-race")).content).toBe("Hello world");
+    expect(await gateFor("editor-race")).toEqual({ writePath: "live_copy" });
   });
 });
 

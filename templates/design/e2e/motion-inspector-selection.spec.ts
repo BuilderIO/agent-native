@@ -36,7 +36,7 @@ test("deselecting restores the Canvas inspector without closing the Motion timel
   });
   await app.open(designId);
   await app.zoomToFit();
-  await selectByText(page, "Primary motion target", { deep: false });
+  await selectByText(page, "Primary motion target");
 
   const launchMotion = page.getByRole("button", {
     name: "Motion dock",
@@ -140,7 +140,6 @@ test("deselecting restores the Canvas inspector without closing the Motion timel
 
   await selectByText(page, "Primary motion target", {
     clearPreviousSelection: true,
-    deep: false,
   });
   await expect(
     page.locator('[data-design-inspector-section] h3[aria-label="Animations"]'),
@@ -158,7 +157,6 @@ test("deselecting restores the Canvas inspector without closing the Motion timel
 
   await selectByText(page, "Unsupported motion target", {
     clearPreviousSelection: true,
-    deep: false,
   });
   await expect.poll(() => app.selectedLayers()).toEqual(["Unsupported"]);
   await expect(

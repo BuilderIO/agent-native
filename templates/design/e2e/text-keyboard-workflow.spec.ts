@@ -22,7 +22,10 @@ test("Cmd+Enter commits a text edit so Cmd+D duplicates the layer, and each copy
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(center.x, center.y);
+  await page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toEqual(["Draft title"]);
 
   const editable = app.page

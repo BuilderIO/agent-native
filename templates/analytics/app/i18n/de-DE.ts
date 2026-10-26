@@ -1407,6 +1407,10 @@ export default {
     drilldownHideSql: "SQL ausblenden",
     drilldownDownloadCsv: "CSV herunterladen",
     drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownShowingLoaded:
+      "{{shown}} von {{loaded}} geladenen Datensätzen; Gesamtzahl unbekannt.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Die Vollständigkeit des Exports ist unbekannt; diese Datei enthält nach dem Filtern {{exported}} von {{loaded}} geladenen Datensätzen.",
     drilldownCsvTruncated:
       "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
     drilldownCountMismatch:
@@ -1414,7 +1418,13 @@ export default {
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownNoRecordsIncomplete:
+      "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
+    drilldownNoLoadedMatches:
+      "Keine geladenen Datensätze passen, aber das vollständige Ergebnis kann nicht geladene Datensätze enthalten.",
     drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
+    drilldownOverByteCap:
+      "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",

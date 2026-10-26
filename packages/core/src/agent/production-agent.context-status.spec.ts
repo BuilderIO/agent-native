@@ -606,7 +606,7 @@ describe("run trace metadata", () => {
 
     expect(instrumented.at(-1)?.metadata).toMatchObject({
       modelSelectionSource: "default",
-      reasoningEffortRequested: "high",
+      reasoningEffortRequested: null,
       contextPrefetchStatus: "timed_out",
       screenContextStatus: "failed",
     });

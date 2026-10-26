@@ -6,6 +6,7 @@ import {
   CHAT_THREADS_UPDATED_EVENT,
   ChatThreadListError,
   fetchChatThreadListPage,
+  hideChatThread,
   type ChatThreadOwnership,
   type ChatThreadListRow,
   type ChatThreadScope,
@@ -22,6 +23,7 @@ export interface UseChatThreadListOptions {
   includeExternal?: boolean;
   /** Include archived threads. Defaults to false. */
   includeArchived?: boolean;
+  includeHidden?: boolean;
   /** Search text. Empty lists the whole set. */
   query?: string;
   /** When false nothing is fetched and the list is empty. Defaults to true. */
@@ -50,6 +52,7 @@ export interface UseChatThreadListResult {
   refresh: () => Promise<void>;
   /** Reports whether this invocation applied the complete refreshed window. */
   refreshWithResult: () => Promise<ChatThreadListRefreshOutcome>;
+  hideThread: (id: string, hidden: boolean) => Promise<boolean>;
 }
 
 /** `pageSize` is not an integer between 1 and the server's page cap. */
@@ -116,6 +119,7 @@ export function useChatThreadList(
     ownership,
     includeExternal = false,
     includeArchived = false,
+    includeHidden = false,
     enabled = true,
     refreshOnThreadUpdates = true,
   } = options;
@@ -134,6 +138,7 @@ export function useChatThreadList(
     pageSize,
     includeExternal,
     includeArchived,
+    includeHidden,
     enabled,
   ]);
   const [stored, setState] = useState(() => createListState(identity, enabled));
@@ -171,6 +176,7 @@ export function useChatThreadList(
         ownership,
         includeExternal,
         includeArchived,
+        includeHidden,
         scope: scopeType && scopeId ? { type: scopeType, id: scopeId } : null,
       }).then((result) => {
         if (result.hasMore === undefined) {
@@ -191,6 +197,7 @@ export function useChatThreadList(
       apiUrl,
       includeArchived,
       includeExternal,
+      includeHidden,
       ownership,
       query,
       scopeId,
@@ -307,6 +314,52 @@ export function useChatThreadList(
   }, [enabled, refresh, refreshOnThreadUpdates]);
 
   const { threads, loading, loadingMore, error, hasMore } = state;
+  const hideThread = useCallback(
+    async (id: string, hidden: boolean): Promise<boolean> => {
+      const previous = state.threads.find((thread) => thread.id === id);
+      update({
+        threads: state.threads.flatMap((thread) => {
+          if (thread.id !== id) return [thread];
+          if (hidden && !includeHidden) return [];
+          return [{ ...thread, hiddenAt: hidden ? Date.now() : null }];
+        }),
+      });
+      try {
+        return await hideChatThread(id, hidden, {
+          apiUrl,
+          scope: options.scope,
+        });
+      } catch (error) {
+        // A newer refresh may have dropped a removed row because access was
+        // revoked, so the server decides whether it comes back.
+        if (hidden && !includeHidden) void refreshWithResult();
+        else if (previous)
+          setState((current) =>
+            current.session === session
+              ? {
+                  ...current,
+                  threads: current.threads.map((thread) =>
+                    thread.id === id
+                      ? { ...thread, hiddenAt: previous.hiddenAt }
+                      : thread,
+                  ),
+                }
+              : current,
+          );
+        throw error;
+      }
+    },
+    [
+      apiUrl,
+      includeHidden,
+      options.scope,
+      refreshWithResult,
+      session,
+      state.threads,
+      update,
+    ],
+  );
+
   return {
     threads,
     loading,
@@ -316,5 +369,6 @@ export function useChatThreadList(
     loadMore,
     refresh,
     refreshWithResult,
+    hideThread,
   };
 }

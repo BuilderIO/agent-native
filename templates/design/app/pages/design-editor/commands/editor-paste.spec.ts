@@ -11,7 +11,12 @@ vi.mock("sonner", () => ({
 import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
 import { serializeDesignClipboardPayload } from "@/lib/design-import";
 
-import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
+import {
+  adoptDesignClipboardPayloadIntoRefs,
+  runCanvasClipboardRelayPaste,
+  runEditorPaste,
+  type EditorPasteArgs,
+} from "./editor-paste";
 import { parsePastedSvg } from "./pasted-svg";
 
 const FIGMA_HTML =
@@ -329,5 +334,138 @@ describe("runEditorPaste", () => {
     runEditorPaste(h.args, pasteEvent({ "text/plain": "just some text" }));
 
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("skips the async clipboard read for a Design payload the paste event carried", () => {
+    const h = harness();
+    const handlePasteSelection = vi.fn(async () => {});
+    h.args.handlePasteSelection = handlePasteSelection;
+    const markerText = withTrustToken("paste-event-token", () =>
+      serializeDesignClipboardPayload(
+        "<p>Card</p>",
+        designPayload,
+        "paste-event-token",
+      ),
+    );
+    const event = pasteEvent({ "text/html": markerText, "text/plain": "Card" });
+
+    withTrustToken("paste-event-token", () => runEditorPaste(h.args, event));
+
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
+  });
+
+  it("says why a Design copy from another origin cannot paste instead of pasting its lone SVG", () => {
+    const h = harness();
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const markerText = serializeDesignClipboardPayload(
+      '<div><svg width="16" height="16"></svg>Icon row</div>',
+      designPayload,
+      "another-origin-token",
+    );
+    const event = pasteEvent({
+      "text/html": markerText,
+      "text/plain": "Icon row",
+    });
+
+    withTrustToken("this-origin-token", () => runEditorPaste(h.args, event));
+
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+    expect(h.pasted).toBe(0);
+    expect(event.defaultPrevented).toBe(true);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteClipboardUntrusted",
+      expect.anything(),
+    );
+  });
+});
+
+const designPayload = {
+  version: 1 as const,
+  entries: [
+    { html: "<p>Card</p>", rootNodeId: "card", sourceFileId: "screen-1" },
+  ],
+};
+
+function withTrustToken<T>(token: string, run: () => T): T {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: { getItem: () => token, setItem: () => {} },
+  });
+  try {
+    return run();
+  } finally {
+    if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    else Reflect.deleteProperty(window, "localStorage");
+  }
+}
+
+describe("runCanvasClipboardRelayPaste", () => {
+  it("pastes a Design copy relayed from a focused screen iframe instead of dropping it", () => {
+    const h = harness();
+    const adopt = vi.fn();
+    const handlePasteSelection = vi.fn(async () => {});
+    const handlePastedSvg = vi.fn(() => true);
+    Object.assign(h.args, {
+      adoptDesignClipboardPayload: adopt,
+      handlePasteSelection,
+      handlePastedSvg,
+    });
+    const markerText = serializeDesignClipboardPayload(
+      '<div><svg width="16" height="16"></svg>Icon row</div>',
+      designPayload,
+      "relay-token",
+    );
+
+    const handled = withTrustToken("relay-token", () =>
+      runCanvasClipboardRelayPaste(h.args, {
+        html: markerText,
+        text: "Icon row",
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(adopt).toHaveBeenCalledWith(designPayload, markerText, "Icon row");
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+  });
+
+  it("leaves a relayed paste with no Design marker to the other handlers", () => {
+    const h = harness();
+    expect(
+      runCanvasClipboardRelayPaste(h.args, { html: "<p>x</p>", text: "x" }),
+    ).toBe(false);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+describe("adoptDesignClipboardPayloadIntoRefs", () => {
+  it("restarts the paste cascade for a newly adopted copy", () => {
+    const refs = {
+      copiedLayerEntriesRef: ref<typeof designPayload.entries>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef: ref<[] | undefined>([]),
+      lastWrittenClipboardMarkerRef: ref<string | null>("older-marker"),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      pasteCascadeRef: ref(3),
+    };
+
+    const hasClipboard = adoptDesignClipboardPayloadIntoRefs(
+      refs,
+      designPayload,
+      "new-marker",
+      "Card",
+    );
+
+    expect(hasClipboard).toBe(true);
+    expect(refs.pasteCascadeRef.current).toBe(0);
+    expect(refs.copiedLayerEntriesRef.current).toBe(designPayload.entries);
+    expect(refs.lastWrittenClipboardMarkerRef.current).toBe("new-marker");
+    expect(refs.lastWrittenClipboardPlainTextRef.current).toBe("Card");
   });
 });

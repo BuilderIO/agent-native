@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
@@ -47,6 +48,7 @@ import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
+import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
@@ -81,6 +83,7 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_SETUP_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
@@ -147,6 +150,7 @@ import {
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   hydrateStructuredHistoryImageReferences,
+  isResumableStreamFailure,
   trimOldToolResults,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -563,10 +567,10 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("defaults missing effort to High", () => {
+  it("sends no effort when neither the request nor the config sets one", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("high");
+    ).toBeUndefined();
   });
 
   it("preserves explicit none through the production request path", () => {
@@ -5741,6 +5745,138 @@ describe("createProductionAgentHandler", () => {
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
+    }
+  });
+
+  it("keeps setup liveness through response finish and close until the deadline", async () => {
+    vi.useFakeTimers();
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    let finishSetupFinalization!: (result: boolean) => void;
+    const finalizeSetup = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            finishSetupFinalization = resolve;
+          }),
+      );
+    const startRun = vi.spyOn(runManager, "startRun");
+    let markOwnerEmailEntered!: () => void;
+    const ownerEmailEntered = new Promise<void>((resolve) => {
+      markOwnerEmailEntered = resolve;
+    });
+    let releaseOwnerEmail!: (email: string | null) => void;
+    const ownerEmail = new Promise<string | null>((resolve) => {
+      releaseOwnerEmail = resolve;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+      resolveOwnerEmail: async () => {
+        markOwnerEmailEntered();
+        return ownerEmail;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = {
+      message: "go",
+      threadId: "thread-background-setup-close",
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-background-setup-close",
+        turnId: "turn-background-setup-close",
+      },
+    };
+    const response = new EventEmitter();
+    Object.defineProperty(event, "node", {
+      configurable: true,
+      value: { res: response },
+    });
+    let pending: Promise<unknown> | undefined;
+
+    try {
+      pending = runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      await ownerEmailEntered;
+
+      expect(response.listenerCount("finish")).toBe(0);
+      expect(response.listenerCount("close")).toBe(0);
+      const heartbeatCount = updateRunHeartbeat.mock.calls.length;
+      response.emit("finish");
+      response.emit("close");
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
+      );
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_SETUP_HEARTBEAT_MAX_MS - BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+      );
+      expect(finalizeSetup).toHaveBeenCalledWith(
+        "run-background-setup-close",
+        expect.objectContaining({
+          message: "Background worker setup heartbeat deadline exceeded",
+        }),
+      );
+      const deadlineHeartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+
+      finishSetupFinalization(true);
+      await vi.advanceTimersByTimeAsync(0);
+      const finalizedHeartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat).toHaveBeenCalledTimes(finalizedHeartbeatCount);
+
+      releaseOwnerEmail("alice@example.com");
+      await expect(pending).resolves.toEqual({
+        ok: true,
+        skipped: "setup-deadline",
+      });
+      expect(startRun).not.toHaveBeenCalled();
+      response.emit("finish");
+    } finally {
+      finishSetupFinalization?.(true);
+      releaseOwnerEmail("alice@example.com");
+      await pending?.catch(() => {});
+      response.emit("finish");
+      finalizeSetup.mockRestore();
+      startRun.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
+      vi.useRealTimers();
     }
   });
 
@@ -11041,6 +11177,99 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("treats a retryable error after streamed text as resumable", () => {
+    const err = new EngineError("Internal error", { statusCode: 500 });
+    expect(isResumableStreamFailure(err, [])).toBe(false);
+    expect(
+      isResumableStreamFailure(err, [{ type: "text", text: "partial" }]),
+    ).toBe(true);
+  });
+
+  it("retries a failure before any text without clearing earlier rounds on screen", async () => {
+    const sent: AgentChatEvent[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError("Connection error.", {
+            errorCode: "provider_network_error",
+          });
+        }
+        yield { type: "text-delta", text: "Second round." };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      hasVisibleTurnText: () => true,
+      send: (event) => sent.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(sent.some((event) => event.type === "clear")).toBe(false);
+  });
+
+  it("does not restart a model call that already streamed text", async () => {
+    const sent: AgentChatEvent[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "text-delta", text: "Here is the answer" };
+        throw new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        });
+      },
+    };
+
+    await expect(
+      runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        hasVisibleTurnText: () => true,
+        send: (event) => sent.push(event),
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("Connection error.");
+
+    expect(streamCalls).toBe(1);
+    expect(sent.some((event) => event.type === "clear")).toBe(false);
+  });
+
   it("stops retrying a failing model call once the next backoff would not fit the run budget", async () => {
     vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "1000");
     let streamCalls = 0;
@@ -14252,7 +14481,7 @@ describe("runAgentLoop", () => {
       );
     });
 
-    it("still stops after a failed POST that may have written", async () => {
+    it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
       const create = (email: string) => ({
         provider: "hubspot",
@@ -14265,15 +14494,29 @@ describe("runAgentLoop", () => {
         [
           { name: "provider-api-request", input: create("a@example.com") },
           { name: "provider-api-request", input: create("b@example.com") },
+          { name: "provider-api-request", input: create("a@example.com") },
         ],
         { "provider-api-request": providerRequestAction(executeRequest) },
       );
 
       expect(executeRequest).toHaveBeenCalledTimes(1);
+      const done = events.filter(
+        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+          event.type === "tool_done",
+      );
+      expect(done[1]).toMatchObject({
+        isError: true,
+        completedSideEffect: false,
+        result: expect.stringContaining(
+          "Not run: an earlier provider-api-request call in this turn may have already applied",
+        ),
+      });
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "error",
           errorCode: "write_tool_outcome_unknown",
+          blockedTool: "provider-api-request",
+          blockedBy: "rejection",
         }),
       );
     });
@@ -15348,7 +15591,7 @@ describe("runAgentLoop", () => {
     "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
     "'options' must be a non-empty JSON array.",
   ])(
-    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    "blocks a repeat when a plain write handler throws without non-execution evidence (%s)",
     async (message) => {
       const run = vi.fn(async () => {
         throw new Error(message);
@@ -15357,10 +15600,19 @@ describe("runAgentLoop", () => {
         [
           { name: "write", input: { id: "first" } },
           { name: "write", input: { id: "second" } },
+          { name: "write", input: { id: "first" } },
         ],
         { write: { ...actionEntry({ readOnly: false }), run } },
       );
       expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          input: { id: "second" },
+          result: expect.stringContaining("Not run: an earlier write call"),
+        }),
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           type: "tool_done",
@@ -19795,6 +20047,149 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
+  it("bounds empty max-token turns without stepping reasoning effort down", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxOutputTokens: 8_000,
+      reasoningEffort: "high",
+    });
+
+    expect(seenOpts).toHaveLength(3);
+    expect(seenOpts.map((opts) => opts.reasoningEffort)).toEqual([
+      "high",
+      "high",
+      "medium",
+    ]);
+    expect(seenOpts[0]?.maxOutputTokens).toBe(8_000);
+    expect(seenOpts[1]?.maxOutputTokens).toBeGreaterThan(8_000);
+    expect(seenOpts[2]?.maxOutputTokens).toBe(seenOpts[1]?.maxOutputTokens);
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+        recoverable: false,
+      }),
+    );
+  });
+
+  it("steps reasoning effort down on empty max-token retries when the model cap cannot rise", async () => {
+    const seenOpts: EngineStreamOptions[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "gpt-5.6-luna",
+      supportedModels: ["gpt-5.6-luna"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenOpts.push(opts);
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "gpt-5.6-luna",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      maxOutputTokens: 40_000,
+      reasoningEffort: "high",
+    });
+
+    expect(seenOpts.map((opts) => opts.maxOutputTokens)).toEqual([
+      40_000, 40_000, 40_000,
+    ]);
+    expect(seenOpts.map((opts) => opts.reasoningEffort)).toEqual([
+      "high",
+      "medium",
+      "low",
+    ]);
+  });
+
+  it("caps repeated textful max-token continuations with an incomplete-response error", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const text = `Part ${streamCalls}.`;
+        yield { type: "text-delta", text };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text }],
+        };
+        yield { type: "stop", reason: "max_tokens" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(4);
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "max_tokens_continuation_limit",
+        error: expect.stringMatching(/may be incomplete/i),
+      }),
+    );
+  });
+
   it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
     let call = 0;
     const engine: AgentEngine = {
@@ -19837,7 +20232,11 @@ describe("runAgentLoop", () => {
       new Request("http://app.example.com/_agent-native/agent-chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-effort",
+          effort: "high",
+        }),
       }),
     );
 
@@ -19946,6 +20345,7 @@ describe("runAgentLoop", () => {
         body: JSON.stringify({
           message: "go",
           threadId: "thread-profile-models",
+          effort: "high",
           references: [
             { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
             { type: "custom-agent", name: "Editor", refId: "editor" },
@@ -20097,7 +20497,7 @@ describe("runAgentLoop", () => {
         }
       }
 
-      expect(text).toContain("could not recover its result");
+      expect(text).toContain("without confirming whether it saved changes");
       expect(ran).toEqual(["check", "other"]);
     } finally {
       findProfile.mockRestore();
@@ -20562,13 +20962,19 @@ describe("runAgentLoop", () => {
     const run = vi.fn(async () => "delivered");
     const events: any[] = [];
     const outcomes: AgentLoopOutcome[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions: {
         "send-email": {
           ...actionEntry({ readOnly: false }),
@@ -20599,13 +21005,60 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "tool_done",
         tool: "send-email",
-        result: expect.stringContaining("did NOT execute"),
+        result: expect.stringContaining(
+          "NOT execute. The turn is paused until this specific call is approved; do not retry it before then. Once approved, re-emit this exact call once so it can run, then summarize its result.",
+        ),
       }),
     );
     expect(events).toContainEqual({
       type: "text",
       text: "Waiting for your approval to run send-email.",
     });
+    const waitingTextIndex = events.findIndex(
+      (event) =>
+        event.type === "text" &&
+        event.text === "Waiting for your approval to run send-email.",
+    );
+    const approvalResultIndex = events.findIndex(
+      (event) => event.type === "tool_done" && event.approvalPause === true,
+    );
+    expect(waitingTextIndex).toBeGreaterThanOrEqual(0);
+    expect(waitingTextIndex).toBeLessThan(approvalResultIndex);
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "text" &&
+          event.text === "Waiting for your approval to run send-email.",
+      ),
+    ).toHaveLength(1);
+
+    const waitingHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text === "Waiting for your approval to run send-email.",
+        ),
+    );
+    const approvalResultHistoryIndex = messages.findIndex(
+      (message) =>
+        message.role === "user" &&
+        message.content.some(
+          (part) =>
+            part.type === "tool-result" &&
+            part.toolCallId === "approval-call-1" &&
+            part.content.includes("Awaiting human approval"),
+        ),
+    );
+    expect(waitingHistoryIndex).toBeGreaterThanOrEqual(0);
+    expect(messages[waitingHistoryIndex]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        id: "approval-call-1",
+      }),
+    );
+    expect(waitingHistoryIndex).toBeLessThan(approvalResultHistoryIndex);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(outcomes).toEqual([
       {
@@ -20614,6 +21067,180 @@ describe("runAgentLoop", () => {
         message: "Waiting for your approval to run send-email.",
       },
     ]);
+  });
+
+  it("uses the pending approval call's note after the repeat guard records an unrelated stop", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `repeated-approval-call-${streamCalls}`,
+              name: "send-email",
+              input: { to: "a@b.com" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    let approvalChecks = 0;
+    const run = vi.fn(async () => "delivered");
+    const events: any[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: () => ++approvalChecks === 8,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The loop-breaker closeout gets one final model response after the stop.
+    expect(streamCalls).toBe(9);
+    expect(approvalChecks).toBe(8);
+    expect(run).toHaveBeenCalledTimes(7);
+    expect(
+      events.filter((event) => event.type === "approval_required"),
+    ).toHaveLength(1);
+    expect(
+      events
+        .filter((event) => event.type === "text")
+        .map((event) => event.text),
+    ).toEqual(["Waiting for your approval to run send-email."]);
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text === "Waiting for your approval to run send-email.",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps one call-specific note when multiple approval-gated calls are returned", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "approval-call-1",
+              name: "send-email",
+              input: { to: "a@b.com" },
+            },
+            {
+              type: "tool-call" as const,
+              id: "approval-call-2",
+              name: "delete-records",
+              input: { id: "42" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const sendEmail = vi.fn(async () => "delivered");
+    const deleteRecords = vi.fn(async () => "deleted");
+    const events: any[] = [];
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+    ];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "delete-records": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: deleteRecords,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(deleteRecords).not.toHaveBeenCalled();
+    expect(
+      events.filter((event) => event.type === "approval_required"),
+    ).toEqual([
+      expect.objectContaining({
+        tool: "send-email",
+        toolCallId: "approval-call-1",
+      }),
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "text")
+        .map((event) => event.text),
+    ).toEqual(["Waiting for your approval to run send-email."]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "approval-call-2",
+        result: expect.stringContaining(
+          "after an earlier action stopped or paused this turn",
+        ),
+      }),
+    );
   });
 
   it("requires fresh approval before shared resource and organization-memory writes", async () => {
@@ -20967,6 +21594,9 @@ describe("runAgentLoop", () => {
   it("runs an approved call when the continuation has a new provider call id", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
     const actions = {
       "send-email": {
         ...actionEntry({ readOnly: false }),
@@ -20981,7 +21611,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       send: (event) => events1.push(event),
       signal: new AbortController().signal,
@@ -20997,6 +21627,18 @@ describe("runAgentLoop", () => {
       async *stream(): AsyncIterable<EngineEvent> {
         continuationStreamCalls += 1;
         if (continuationStreamCalls === 1) {
+          const approvalPause = messages
+            .flatMap((message) => message.content)
+            .find(
+              (part) =>
+                part.type === "tool-result" &&
+                part.content.includes("Awaiting human approval"),
+            );
+          expect(approvalPause).toMatchObject({
+            content: expect.stringContaining(
+              "Once approved, re-emit this exact call once so it can run, then summarize its result.",
+            ),
+          });
           yield {
             type: "assistant-content",
             parts: [
@@ -21036,7 +21678,7 @@ describe("runAgentLoop", () => {
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages,
       actions,
       approvedToolCalls: [approvalKey],
       approvedToolCallAskId: approvalId,
@@ -21050,6 +21692,15 @@ describe("runAgentLoop", () => {
     expect(run).toHaveBeenCalledOnce();
     expect(events2.some((event) => event.type === "approval_required")).toBe(
       false,
+    );
+    expect(
+      events2.findIndex(
+        (event) => event.type === "tool_done" && event.tool === "send-email",
+      ),
+    ).toBeLessThan(
+      events2.findIndex(
+        (event) => event.type === "text" && event.text === "sent the email",
+      ),
     );
   });
 
@@ -21666,6 +22317,74 @@ describe("runAgentLoop endsTurn", () => {
         message: "Waiting for your answer before continuing: Which range?",
       },
     ]);
+  });
+
+  it("keeps an earlier user-input stop visible when a later approval call is skipped", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "ask-1",
+              name: "ask-question",
+              input: { question: "Which range?", options: "[]" },
+            },
+            {
+              type: "tool-call" as const,
+              id: "email-1",
+              name: "send-email",
+              input: { to: "person@example.com" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const ask = vi.fn(async () => "asked");
+    const sendEmail = vi.fn(async () => "sent");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run: ask,
+        },
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(ask).toHaveBeenCalledOnce();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "email-1",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    expect(events.some((event) => event.type === "done")).toBe(false);
   });
 
   it("keeps the turn running when the endsTurn action fails", async () => {
@@ -23194,16 +23913,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("claims the first background chunk before expensive setup can race foreground fallback", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg",
-        threadId: "thread-bg",
-        markerTurnId: "turn-bg",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg",
+      threadId: "thread-bg",
+      markerTurnId: "turn-bg",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
@@ -23245,8 +23964,143 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a claimed worker fresh until handoff", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-handoff",
+        threadId: "thread-setup-handoff",
+        markerTurnId: "turn-setup-handoff",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_SETUP_HEARTBEAT_MAX_MS -
+          BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2,
+      );
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        heartbeatCount,
+      );
+
+      result.stopSetupHeartbeat();
+      const handedOffHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(
+        handedOffHeartbeatCount,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a claimed worker if setup does not hand off before the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let stopDeadlineHeartbeat!: () => void;
+      const onSetupDeadline = vi.fn((stopHeartbeat: () => void) => {
+        stopDeadlineHeartbeat = stopHeartbeat;
+      });
+      const result = await claimBackgroundWorkerRunEarly({
+        runId: "run-setup-deadline",
+        threadId: "thread-setup-deadline",
+        markerTurnId: "turn-setup-deadline",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        onSetupDeadline,
+        deps: d,
+      });
+
+      expect(result).toMatchObject({ claimed: true });
+      if (!result.claimed) return;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      expect(result.setupDeadlineExceeded()).toBe(true);
+      expect(onSetupDeadline).toHaveBeenCalledOnce();
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+      stopDeadlineHeartbeat();
+      const stoppedHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(stoppedHeartbeatCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the deadline finalizer's heartbeat if setup exits after expiring", async () => {
+    vi.useFakeTimers();
+    let rejectStartupCheck!: (error: Error) => void;
+    let markStartupCheckPending!: () => void;
+    let stopDeadlineHeartbeat!: () => void;
+    const startupCheckPending = new Promise<boolean>((_resolve, reject) => {
+      rejectStartupCheck = reject;
+    });
+    const startupCheckEntered = new Promise<void>((resolve) => {
+      markStartupCheckPending = resolve;
+    });
+    try {
+      const d = deps();
+      d.isTurnAborted
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockImplementationOnce(() => {
+          markStartupCheckPending();
+          return startupCheckPending;
+        });
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-setup-check-pending",
+        threadId: "thread-setup-check-pending",
+        markerTurnId: "turn-setup-check-pending",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        onSetupDeadline: (stopHeartbeat) => {
+          stopDeadlineHeartbeat = stopHeartbeat;
+        },
+        deps: d,
+      });
+      await startupCheckEntered;
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_SETUP_HEARTBEAT_MAX_MS);
+      const deadlineHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        deadlineHeartbeatCount,
+      );
+
+      rejectStartupCheck(new Error("startup check failed"));
+      await expect(pending).rejects.toThrow("startup check failed");
+      const failedStartupHeartbeatCount =
+        d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat.mock.calls.length).toBeGreaterThan(
+        failedStartupHeartbeatCount,
+      );
+
+      stopDeadlineHeartbeat();
+      const stoppedHeartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(stoppedHeartbeatCount);
+    } finally {
+      stopDeadlineHeartbeat?.();
       vi.useRealTimers();
     }
   });
@@ -23277,7 +24131,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
 
       releaseAbort(false);
-      await expect(pending).resolves.toEqual({ claimed: true });
+      const result = await pending;
+      expect(result).toMatchObject({ claimed: true });
+      if (result.claimed) result.stopSetupHeartbeat();
     } finally {
       vi.useRealTimers();
     }
@@ -23286,18 +24142,18 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("records background runtime marker diagnostics on worker entry", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-bg-marker",
-        threadId: "thread-bg-marker",
-        markerTurnId: "turn-bg-marker",
-        continuationCount: 0,
-        runsInBackgroundFunction: true,
-        backgroundRuntimeDetail:
-          "markerExpected=true runtimeDetected=false globalMarker=false",
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-bg-marker",
+      threadId: "thread-bg-marker",
+      markerTurnId: "turn-bg-marker",
+      continuationCount: 0,
+      runsInBackgroundFunction: true,
+      backgroundRuntimeDetail:
+        "markerExpected=true runtimeDetected=false globalMarker=false",
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
       1,
@@ -23310,16 +24166,16 @@ describe("claimBackgroundWorkerRunEarly", () => {
   it("inserts a chained background continuation row before claiming it", async () => {
     const d = deps();
 
-    await expect(
-      claimBackgroundWorkerRunEarly({
-        runId: "run-next",
-        threadId: "thread-next",
-        markerTurnId: "turn-next",
-        continuationCount: 2,
-        runsInBackgroundFunction: true,
-        deps: d,
-      }),
-    ).resolves.toEqual({ claimed: true });
+    const result = await claimBackgroundWorkerRunEarly({
+      runId: "run-next",
+      threadId: "thread-next",
+      markerTurnId: "turn-next",
+      continuationCount: 2,
+      runsInBackgroundFunction: true,
+      deps: d,
+    });
+    expect(result).toMatchObject({ claimed: true });
+    if (result.claimed) result.stopSetupHeartbeat();
 
     expect(d.insertRun).toHaveBeenCalledWith(
       "run-next",

@@ -5,8 +5,10 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
+  isMissingAppSecretsTableError,
   readAppSecret,
   type SecretRef,
 } from "../secrets/storage.js";
@@ -154,10 +156,9 @@ async function readScopedAppSecret(
 ): Promise<string | undefined> {
   try {
     return (await readAppSecret({ key, scope, scopeId }))?.value;
-  } catch {
-    // Older databases may not have app_secrets yet. Keep the legacy
-    // credential store available while the table bootstraps.
-    return undefined;
+  } catch (error) {
+    if (isMissingAppSecretsTableError(error)) return undefined;
+    throw error;
   }
 }
 
@@ -236,6 +237,7 @@ export async function resolveCredentialDetailed(
 ): Promise<ResolvedCredential | undefined> {
   if (!ctx?.userEmail) return undefined;
 
+  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   // Stored but unused while the org restricts a member's provider keys.
   const personalRestricted =
     ctx.credentialScope !== "org" &&
@@ -247,22 +249,34 @@ export async function resolveCredentialDetailed(
     ));
 
   let personal: ResolvedCredential | undefined;
+  let personalReadError: AppSecretDecryptionError | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
-    const value =
-      (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
-      (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
-    if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    try {
+      const value =
+        (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
+        (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
+      if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
+    } catch (error) {
+      if (!(error instanceof AppSecretDecryptionError)) throw error;
+      personalReadError = error;
+    }
   }
 
-  if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
-  // Before the personal answer: without the org, an owner's role is unknown.
+  // Without the org, an owner's precedence cannot be determined safely.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
-  // An owner or admin runs on the organization's credential ahead of their own.
-  if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
-    return personal;
-  }
+  // Usually role lookup is needed only when a personal value is available.
+  // An unreadable personal row also needs this check so it cannot mask an org
+  // credential that takes precedence for an owner or admin.
+  const orgCredentialFirst =
+    ctx.credentialScope !== "org" &&
+    Boolean(personal || personalReadError) &&
+    (await readsOrgCredentialFirst(orgId, ctx.userEmail));
+  // A member's own credential has precedence. If it cannot be read, do not
+  // silently run the request with a shared org credential instead.
+  if (personalReadError && !orgCredentialFirst) throw personalReadError;
+  if (personal && !orgCredentialFirst) return personal;
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
@@ -284,6 +298,7 @@ export async function resolveCredentialDetailed(
   }
 
   if (ctx.credentialScope === "org") return undefined;
+  if (personalReadError) throw personalReadError;
   if (personal) return personal;
 
   // Solo-workspace fallback: always checked, even when an org id was found

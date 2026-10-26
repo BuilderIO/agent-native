@@ -24,7 +24,7 @@ surfaces are best-effort and never block request handling.
 1. At server startup, `registerBuiltinProviders()` checks env vars and registers any configured providers.
 2. Application code calls `track(eventName, properties, source)` from actions, plugins, or server routes.
 3. The registry fans out the event to every registered provider. Errors are caught and logged -- a failing provider never crashes the caller.
-4. Built-in providers batch HTTP calls (flush every 10 seconds or 50 events, whichever comes first).
+4. Built-in providers batch HTTP calls (flush every 10 seconds or 50 events, whichever comes first). Each send times out after 10 seconds.
 
 ## API
 

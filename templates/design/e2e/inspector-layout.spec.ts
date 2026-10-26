@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { waitForEditorBoot } from "./editor-boot";
 import { appPath, gotoEditor, readSeedDesignId, selectByText } from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
@@ -74,9 +75,10 @@ for (const tab of ["comments", "tweaks", "code"]) {
     await page.goto(appPath(`/design/${designId}?inspector=${tab}`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await selectByText(page, "E2E Hero Heading");
 
     await expectHeaderThenSections(page);

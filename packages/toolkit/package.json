@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.219.0",
+  "version": "0.220.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -601,6 +601,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
+    "typecheck:spec": "tsc -p tsconfig.spec.json",
     "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {
