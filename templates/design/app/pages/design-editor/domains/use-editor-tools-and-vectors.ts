@@ -270,21 +270,21 @@ export function useEditorToolsAndVectors({
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
   const [vectorEditingState, setVectorEditingState] =
     useState<VectorEditingState | null>(null);
+  const vectorCommitOutcomeRef = useRef<"accepted" | "deferred" | "refused">(
+    "accepted",
+  );
   const setVectorEditingStateFromMode = useCallback(
     (next: VectorEditingState | null) => {
-      setVectorEditingState((current) => {
-        if (!current?.pendingCommit) return next;
-        if (
-          !next ||
-          next.screenId !== current.screenId ||
-          next.layerId !== current.layerId
-        ) {
-          return current;
-        }
-        return { ...next, pendingCommit: true };
-      });
+      if (vectorEditingState?.pendingCommit) {
+        toast.info(t("visualEditor.saving"), {
+          id: `design-source-linked-edit-pending:${vectorEditingState.screenId}`,
+        });
+        return false;
+      }
+      setVectorEditingState(next);
+      return true;
     },
-    [],
+    [t, vectorEditingState],
   );
   const runtimeStructureInsertRevisionRef = useRef(0);
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
@@ -949,10 +949,19 @@ export function useEditorToolsAndVectors({
       };
       let primitiveSource = current.primitiveSource;
       if (phase === "commit") {
+        vectorCommitOutcomeRef.current = "accepted";
         const baseContent = getScreenContent(current.screenId);
         if (!baseContent) {
+          vectorCommitOutcomeRef.current = "refused";
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return current.pendingCommit ? false : exitIfCurrent();
+          if (!current.pendingCommit) return exitIfCurrent();
+          setVectorEditingState((latest) =>
+            latest?.layerId === current.layerId &&
+            latest.screenId === current.screenId
+              ? { ...latest, path: nextPath, pendingCommit: false }
+              : latest,
+          );
+          return false;
         }
 
         const sourcePath = penPathForVectorEditCommit(
@@ -974,8 +983,16 @@ export function useEditorToolsAndVectors({
               sourcePath,
             );
         if (nextContent === null) {
+          vectorCommitOutcomeRef.current = "refused";
           toast.error(t("designEditor.toasts.vectorEditUnsupported"));
-          return current.pendingCommit ? false : exitIfCurrent();
+          if (!current.pendingCommit) return exitIfCurrent();
+          setVectorEditingState((latest) =>
+            latest?.layerId === current.layerId &&
+            latest.screenId === current.screenId
+              ? { ...latest, path: nextPath, pendingCommit: false }
+              : latest,
+          );
+          return false;
         }
         if (nextContent !== baseContent) {
           const result = applyFileContentUpdate(current.screenId, nextContent, {
@@ -984,6 +1001,7 @@ export function useEditorToolsAndVectors({
             deferWhenLinkedMutationPending: true,
           });
           if (result.status !== "accepted") {
+            vectorCommitOutcomeRef.current = result.status;
             if (result.status === "refused") {
               toast.error(t("editPanel.shaders.saveFailed"));
             }
@@ -994,7 +1012,7 @@ export function useEditorToolsAndVectors({
                     ...latest,
                     path: nextPath,
                     primitiveSource,
-                    pendingCommit: true,
+                    pendingCommit: result.status === "deferred",
                   }
                 : latest,
             );
@@ -1030,6 +1048,8 @@ export function useEditorToolsAndVectors({
       vectorEditingState?.pendingCommit &&
       !handleVectorEditChange(vectorEditingState.path, "commit")
     ) {
+      if (vectorCommitOutcomeRef.current === "deferred") return;
+      setVectorEditingState(null);
       return;
     }
     setVectorEditingState(null);
@@ -1096,13 +1116,14 @@ export function useEditorToolsAndVectors({
               },
             );
             if (publication.status !== "accepted") {
+              vectorCommitOutcomeRef.current = publication.status;
               if (publication.status === "refused") {
                 toast.error(t("editPanel.shaders.saveFailed"));
               }
               return {
                 ...current,
                 path: nextPath,
-                pendingCommit: true,
+                pendingCommit: publication.status === "deferred",
               };
             }
           }
