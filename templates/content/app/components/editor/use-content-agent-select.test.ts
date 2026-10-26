@@ -22,7 +22,11 @@ function thread(
     suffix: null,
     startOffset: null,
     resolved: options.resolved ?? false,
-    comments: comments as Comment[],
+    // The first comment is the thread's root; the rest reply to it.
+    comments: comments.map((comment, index) => ({
+      ...comment,
+      parent_id: index === 0 ? null : threadId,
+    })) as Comment[],
   };
 }
 

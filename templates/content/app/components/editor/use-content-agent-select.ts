@@ -93,13 +93,22 @@ function threadLines(threads: readonly CommentThread[]): string[] {
   return [
     "Open comment threads on this block:",
     ...threads.map((thread) => {
-      const [root, ...replies] = thread.comments;
-      const author = root?.author_name || root?.author_email || "unknown";
+      const root = thread.comments.find(
+        (comment) => comment.parent_id === null,
+      );
+      const replies = Math.max(0, thread.comments.length - 1);
+      const author = root
+        ? root.author_name || root.author_email || "unknown"
+        : "unknown";
       const body = root ? excerpt(root.content, COMMENT_LIMIT) : "";
       const quote = thread.quotedText
         ? ` on ${JSON.stringify(excerpt(thread.quotedText, 80))}`
         : "";
-      return `- thread ${thread.threadId} by ${author}${quote}: ${JSON.stringify(body)}${replies.length > 0 ? ` (${replies.length} ${replies.length === 1 ? "reply" : "replies"})` : ""}`;
+      const replyNote =
+        replies > 0
+          ? ` (${replies} ${replies === 1 ? "reply" : "replies"})`
+          : "";
+      return `- thread ${thread.threadId} by ${author}${quote}: ${JSON.stringify(body)}${replyNote}`;
     }),
   ];
 }
