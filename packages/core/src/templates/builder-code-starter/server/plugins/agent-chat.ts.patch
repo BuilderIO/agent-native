@@ -1,18 +1,19 @@
 ===================================================================
 --- a/server/plugins/agent-chat.ts
 +++ b/server/plugins/agent-chat.ts
-@@ -4,23 +4,20 @@
+@@ -4,24 +4,20 @@
    loadActionsFromStaticRegistry,
  } from "@agent-native/core/server";
- 
+
  import actionsRegistry from "../../.generated/actions-registry.js";
 +import { appOperationFinalResponseGuard } from "../agent/app-operation-guard.js";
- 
+
 -const INITIAL_TOOL_NAMES = [
 -  "view-screen",
 -  "navigate",
 -  "hello",
 -  "provider-api-request",
+-  "ask-question",
 -];
 -
  export default createAgentChatPlugin({
