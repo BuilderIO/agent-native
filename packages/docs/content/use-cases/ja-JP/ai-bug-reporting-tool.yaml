@@ -87,7 +87,7 @@ other_uses:
       body: ボットを通話に参加させずに、すべての会議から要約、ノート、アクションアイテムを手に入れます。
     - title: AIディクテーション
       url: https://www.agent-native.com/use-cases/ai-dictation/
-      body: Macでは、キーを押しながら話すだけで、整えたテキストがカーソルの位置に入力されます。
+      body: "タイプする代わりに話すだけで、整えられたテキストが使用中のアプリに入力されます。"
 faqs:
   heading: よくある質問
   items:

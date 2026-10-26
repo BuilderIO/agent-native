@@ -87,7 +87,7 @@ other_uses:
       body: "통화에 봇 없이 모든 회의의 요약, 노트, 작업 항목을 받아 보세요."
     - title: AI 받아쓰기
       url: https://www.agent-native.com/use-cases/ai-dictation/
-      body: "Mac에서 키를 누른 채 말하면 정리된 텍스트가 커서 위치에 입력돼요."
+      body: "타이핑 대신 말하면, 정리된 텍스트가 사용 중인 앱에 바로 입력됩니다."
 faqs:
   heading: 궁금한 점이 있으신가요? 답해 드릴게요
   items:

@@ -87,7 +87,7 @@ other_uses:
       body: 每场会议都有摘要、笔记和行动项，通话里没有机器人。
     - title: AI 听写
       url: https://www.agent-native.com/use-cases/ai-dictation/
-      body: 在 Mac 上，按住一个键开口说话，整理好的文字就落在光标所在的位置。
+      body: "用说代替打字，整理好的文字会直接出现在你正在用的应用里。"
 faqs:
   heading: 有疑问？这里有答案
   items:

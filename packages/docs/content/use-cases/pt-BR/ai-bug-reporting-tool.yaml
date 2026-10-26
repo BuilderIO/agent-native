@@ -87,7 +87,7 @@ other_uses:
       body: Receba resumo, notas e itens de ação de cada reunião, sem bot na chamada.
     - title: Ditado com IA
       url: https://www.agent-native.com/use-cases/ai-dictation/
-      body: No Mac, segure uma tecla, fale, e o texto já limpo aparece onde está o cursor.
+      body: "Fale em vez de digitar, e o texto limpo aparece no app que você estiver usando."
 faqs:
   heading: Dúvidas? Temos respostas
   items:
