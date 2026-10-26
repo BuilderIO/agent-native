@@ -985,6 +985,42 @@ describe("a start Content repeats for one picked file", () => {
     expect(next.body.recordingId).not.toBe(state.created[0].args.id);
   });
 
+  it("refuses the key of a start that failed after making its recording, and makes nothing more", async () => {
+    const editor = await clipsEditor();
+    const bearer = await token({ sub: editor });
+    // create-recording made the row and failed it, then couldn't say so.
+    state.duringCreate = async () => {
+      const { args, context } = state.created[state.created.length - 1];
+      await state.db.insert(schema.recordings).values({
+        id: args.id,
+        organizationId: context?.orgId,
+        ownerEmail: editor,
+        visibility: args.visibility,
+        title: args.title,
+        status: "failed",
+        createdAt: "2026-10-24T00:00:00.000Z",
+        updatedAt: "2026-10-24T00:00:00.000Z",
+      });
+      await failCreate("unconfirmed");
+    };
+    await expect(
+      startUpload(bearer, { ...START, uploadKey: KEY }),
+    ).rejects.toThrow();
+    const [kept] = await rows("recording_content_bindings");
+    expect(kept.upload_start_failed_at).not.toBeNull();
+
+    const repeat = await startUpload(bearer, { ...START, uploadKey: KEY });
+
+    expect(repeat).toMatchObject({
+      status: 409,
+      body: { code: "upload_key_used" },
+    });
+    expect(state.created).toHaveLength(1);
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({ id: kept.recording_id, status: "failed" }),
+    ]);
+  });
+
   it("runs one retake of a failed start when two repeats overlap", async () => {
     const { bearer } = await failedStart("unconfirmed");
     const [failedId] = state.created.map(({ args }) => args.id);
