@@ -1,0 +1,98 @@
+template: v2
+slug: ai-meeting-notes
+app: clips
+title: AI 회의 노트
+seo_title: 통화에 봇이 들어오지 않는 AI 회의 노트
+meta_description: "Agent-Native Clips는 내 컴퓨터에서 AI 회의 노트를 만들어 주는 무료 오픈 소스 도구예요. 모든 통화의 전사, 요약, 작업 항목을 받아 보세요."
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips는 통화를 전사, 요약, 참석자별 작업 항목이 담긴 노트로 만들어 줘요. 내 컴퓨터에서 녹음하니 봇이 들어오지 않고, 어떤 회의든 검색하거나 질문할 수 있어요."
+  button:
+    label: 회의 노트 만들기
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: "Clips에서 끝난 주간 제품 싱크 회의. 왼쪽 노트 창에는 짧은 요약, 핵심 포인트, 참석자별로 묶인 작업 항목이 보여요. 오른쪽에는 화자별 발언이 담긴 전사가 이어져요."
+how_to:
+  heading: AI로 회의 노트 만드는 방법
+  steps:
+    - title: 캘린더 연결하기
+      body: "Clips Desktop을 설치하고, Clips 설정에서 회의를 켠 뒤 회의 페이지에서 Google Calendar를 연결하세요. 앞으로 있을 회의가 Agenda 탭에 나타나요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: "회의 페이지의 Agenda 탭 확대 화면. Google Calendar의 오늘 회의가 나열되고, 2분 뒤 시작하는 회의에 참가와 노트 열기 버튼이 보여요."
+    - title: 알림에서 노트 시작하기
+      body: "Clips Desktop은 캘린더 회의가 시작되기 1분 전에 알림을 보여 줘요. 참가 버튼을 누르면 통화에 들어가면서 바로 노트가 시작되고, 버튼 메뉴를 쓰면 참가하지 않고 노트만 시작해요. 그러면 Clips가 내 마이크와 통화 소리를 담아요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "주간 제품 싱크 회의의 Clips Desktop 알림 확대 화면. Join Meet & open Clips 버튼의 메뉴가 열려 Join only, Start notes only, Snooze 5 min이 보여요."
+    - title: 노트와 작업 항목 확인하기
+      body: "통화가 끝나면 회의 페이지에 내 노트와 AI 노트가 전사 옆에 나란히 나와요. 요약, 핵심 포인트, 참석자별 작업 항목이 담겨 있어요. 공유하기 전에 전사와 비교해 [AI 회의 노트를 확인](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/)하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "끝난 회의의 AI 노트 창 확대 화면. 요약, 핵심 포인트 네 개, 두 참석자별로 묶인 작업 항목이 보여요."
+features:
+  heading: 모든 회의에 필요한 것을 한곳에
+  items:
+    - title: 통화에 봇이 없어요
+      body: "Clips Desktop이 내 컴퓨터에서 마이크와 통화 소리를 녹음하니, 다른 참석자에게는 평소와 똑같은 회의로 보여요."
+    - title: 사람별 작업 항목
+      body: "통화에서 누가 무슨 말을 했는지에 따라 작업 항목마다 담당자가 적혀요. 공유하기 전에 항목을 추가하거나 고치거나 지울 수 있어요."
+    - title: 통화 중에 질문하기
+      body: "진행 중인 회의에 대해 물어보세요. 놓친 내용, 지난 5분 요약, 다음에 하면 좋을 질문을 알려 줘요."
+    - title: 말한 내용으로 검색하기
+      body: "전사, 노트, 참석자 이름에 나온 단어로 회의를 찾거나, 어떤 이야기가 나온 통화를 에이전트에게 물어보세요."
+    - title: 원본으로 이어지는 노트
+      body: "AI 노트의 핵심 포인트를 클릭하면 전사에서 그 말을 한 순간으로 바로 이동해요."
+    - title: 공유할 수 있는 회의 노트
+      body: "링크 하나로 요약, 핵심 포인트, 작업 항목, 전체 전사를 공유해요. 녹화 영상과 댓글은 포함되지 않아요."
+integrations:
+  heading: 이미 쓰는 도구와 Clips 연결하기
+  cards:
+    - title: 캘린더와 화상 통화
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: "Clips는 Google Calendar의 회의를 보여 주고, Google Meet, Microsoft Teams 등 화상 통화에서 노트를 만들어요."
+    - title: Slack에서 에이전트에게 묻기
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: "Slack이나 Microsoft Teams를 연결하면 거기서 Clips 에이전트에게 메시지를 보내 회의, 노트, 내가 해야 할 작업 항목을 찾을 수 있어요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Clips로 할 수 있는 다른 일
+  cards:
+    - title: AI 버그 리포트 도구
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: "브라우저 콘솔과 네트워크 로그가 담긴 버그 녹화를 코딩 에이전트에게 바로 넘겨 보세요."
+    - title: AI 받아쓰기
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "키를 누른 채 말하면 Clips가 정리된 텍스트를 쓰고 있는 앱에 입력해 줘요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Clips는 무료인가요?
+      a: "네, Agent-Native Clips는 무료 오픈 소스예요. 요약, 제목, 전사 정리는 기본적으로 [Builder.io AI 크레딧](https://www.agent-native.com/docs/template-clips-features/)으로 실행돼요. 크레딧이 떨어지면 크레딧을 추가하거나 내 Gemini 키를 연결할 때까지 이 기능들이 멈춰요. Clips는 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: 회의에 봇이 들어오나요?
+      a: "아니요. Clips는 내 컴퓨터에서 노트를 만들어요. Clips Desktop이 마이크와 통화 소리를 녹음하니 Zoom, Google Meet, Microsoft Teams 통화에 아무것도 들어오지 않아요. 봇이 들어오지 않으니 노트를 만들고 있다는 사실은 참석자에게 알려 주세요."
+    - q: Clips는 어떤 캘린더와 화상 통화 앱에서 쓸 수 있나요?
+      a: "캘린더는 Google Calendar만 연결할 수 있어요. 노트는 Zoom, Google Meet, Microsoft Teams, Webex 등 내 컴퓨터에서 소리가 재생되는 모든 통화에서 만들 수 있어요. Mac에서는 캘린더에 없는 통화도 Clips Desktop이 알아채고 노트를 시작할지 물어봐요. 다른 참석자의 목소리는 Mac에서만 담겨요."
+    - q: Windows에서도 회의 노트를 만들 수 있나요?
+      a: "Clips Desktop은 Mac, Windows, Linux에서 실행되지만, 다른 참석자의 목소리를 담는 기능은 Mac에서만 돼요. Windows와 Linux에서는 내 마이크만 녹음하므로, 원격 참석자는 전사와 작업 항목에 나타나지 않아요."
+    - q: Clips는 Zoom이나 Google Meet의 AI 노트 기능과 무엇이 다른가요?
+      a: "통화 앱의 AI 노트 기능은 그 앱의 통화에만 묶여 있어요. Clips는 어떤 통화 앱이든 모든 회의를 한 라이브러리에 모아 둬요. [Clips 에이전트](https://www.agent-native.com/docs/template-clips-agent/)에게 “지난 화요일에 Daniel이 뭘 하기로 했지?”라고 물으면 말한 내용으로 회의를 검색해요. 그래서 Clips는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

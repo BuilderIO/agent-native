@@ -1,0 +1,98 @@
+template: v2
+slug: ai-meeting-notes
+app: clips
+title: "AI मीटिंग नोट्स"
+seo_title: "AI मीटिंग नोट्स, आपकी कॉल में बिना किसी बॉट के"
+meta_description: "Agent-Native Clips आपके अपने कंप्यूटर से AI मीटिंग नोट्स लेने का फ़्री और ओपन सोर्स तरीक़ा है: हर कॉल का ट्रांसक्रिप्ट, समरी और एक्शन आइटम्स।"
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips आपकी कॉल्स को नोट्स में बदल देता है: ट्रांसक्रिप्ट, समरी और हर अटेंडी के हिसाब से एक्शन आइटम्स। यह आपके अपने कंप्यूटर से रिकॉर्ड करता है, इसलिए कोई बॉट कॉल में नहीं आता, और आप किसी भी मीटिंग को खोज सकते हैं या उसके बारे में पूछ सकते हैं।"
+  button:
+    label: "मीटिंग नोट्स लें"
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: "Clips में खत्म हो चुकी वीकली प्रोडक्ट सिंक। बाईं ओर नोट्स पैनल में छोटी समरी, मुख्य बातें और हर अटेंडी के नीचे एक्शन आइटम्स दिख रहे हैं। दाईं ओर ट्रांसक्रिप्ट में हर स्पीकर की बातें हैं।"
+how_to:
+  heading: "AI से मीटिंग नोट्स कैसे लें"
+  steps:
+    - title: "अपना कैलेंडर कनेक्ट करें"
+      body: "Clips Desktop इंस्टॉल करें, Clips की सेटिंग्स में मीटिंग चालू करें और मीटिंग पेज पर Google Calendar कनेक्ट करें। आपकी आने वाली मीटिंग्स Agenda टैब में दिखने लगती हैं।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: "मीटिंग पेज के Agenda टैब का क्लोज़-अप, जिसमें Google Calendar से आज की मीटिंग्स की लिस्ट है। 2 मिनट में शुरू होने वाली मीटिंग पर जुड़ें और नोट्स खोलें बटन हैं।"
+    - title: "रिमाइंडर से नोट्स शुरू करें"
+      body: "Clips Desktop हर कैलेंडर मीटिंग से एक मिनट पहले रिमाइंडर दिखाता है। उसका जुड़ें बटन कॉल में जोड़कर तुरंत नोट्स शुरू कर देता है, और बटन का मेन्यू कॉल में जुड़े बिना नोट्स शुरू करता है। फिर Clips आपका माइक्रोफ़ोन और कॉल का ऑडियो रिकॉर्ड करता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "वीकली प्रोडक्ट सिंक के लिए Clips Desktop रिमाइंडर का क्लोज़-अप। उसके Join Meet & open Clips बटन का मेन्यू खुला है: Join only, Start notes only और Snooze 5 min।"
+    - title: "अपने नोट्स और एक्शन आइटम्स पढ़ें"
+      body: "कॉल खत्म होने पर मीटिंग पेज पर ट्रांसक्रिप्ट के बगल में आपके नोट्स और AI नोट्स दिखते हैं: समरी, मुख्य बातें और हर अटेंडी के एक्शन आइटम्स। शेयर करने से पहले [AI मीटिंग नोट्स](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/) को ट्रांसक्रिप्ट से मिलाकर जाँच लें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "खत्म हो चुकी मीटिंग के AI नोट्स पैनल का क्लोज़-अप: समरी, चार मुख्य बातें, और दो अटेंडीज़ के नीचे एक्शन आइटम्स।"
+features:
+  heading: "हर मीटिंग से आपको जो कुछ चाहिए"
+  items:
+    - title: "आपकी कॉल्स में कोई बॉट नहीं"
+      body: "Clips Desktop आपके अपने कंप्यूटर पर आपका माइक्रोफ़ोन और कॉल का ऑडियो रिकॉर्ड करता है, इसलिए बाकी सबको मीटिंग पहले जैसी ही दिखती है।"
+    - title: "हर व्यक्ति के एक्शन आइटम्स"
+      body: "हर एक्शन आइटम में लिखा होता है कि ज़िम्मेदारी किसकी है, यह कॉल में किसने क्या कहा उसी से तय होता है। शेयर करने से पहले आइटम जोड़ें, बदलें या हटाएँ।"
+    - title: "कॉल के दौरान ही पूछें"
+      body: "मीटिंग चलते-चलते उसके बारे में पूछें: आपने क्या मिस किया, पिछले पाँच मिनट की रीकैप, या आगे पूछने लायक कोई अच्छा सवाल।"
+    - title: "जो कहा गया, उससे खोजें"
+      body: "ट्रांसक्रिप्ट या नोट्स का कोई शब्द, या किसी अटेंडी का नाम डालकर मीटिंग ढूँढें, या एजेंट से उस कॉल के बारे में पूछें जिसमें कोई बात उठी थी।"
+    - title: "वापस ले जाने वाले नोट्स"
+      body: "AI नोट्स की किसी भी मुख्य बात पर क्लिक करें और आप ट्रांसक्रिप्ट में ठीक उसी पल पर पहुँच जाएँगे जब वह बात कही गई थी।"
+    - title: "शेयर करने लायक मीटिंग नोट्स"
+      body: "एक लिंक से समरी, मुख्य बातें, एक्शन आइटम्स और पूरा ट्रांसक्रिप्ट शेयर होता है, रिकॉर्डिंग के वीडियो या कमेंट्स के बिना।"
+integrations:
+  heading: "Clips को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "आपका कैलेंडर और आपकी कॉल्स"
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: "Clips आपकी मीटिंग्स Google Calendar से दिखाता है और Google Meet, Microsoft Teams और दूसरी वीडियो कॉल्स में नोट्स लेता है।"
+    - title: "Slack से एजेंट से पूछें"
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: "Slack या Microsoft Teams कनेक्ट करने के बाद, वहीं से Clips एजेंट को मैसेज करें और कोई मीटिंग, उसके नोट्स या अपने एक्शन आइटम्स ढूँढें।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Clips से आप और क्या कर सकते हैं"
+  cards:
+    - title: "AI बग रिपोर्टिंग टूल"
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: "ब्राउज़र कंसोल और नेटवर्क लॉग्स के साथ बग रिकॉर्ड करें, आपके कोडिंग एजेंट के लिए तैयार।"
+    - title: "AI डिक्टेशन"
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "एक की दबाकर बोलें, और Clips आप जिस ऐप में हैं उसमें साफ़-सुथरा टेक्स्ट टाइप कर देता है।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Clips फ़्री है?"
+      a: "हाँ, Agent-Native Clips फ़्री और ओपन सोर्स है। समरी, टाइटल और ट्रांसक्रिप्ट क्लीनअप डिफ़ॉल्ट रूप से [Builder.io AI क्रेडिट्स](https://www.agent-native.com/docs/template-clips-features/) पर चलते हैं। क्रेडिट्स खत्म होने पर ये फ़ीचर तब तक बंद रहते हैं जब तक आप क्रेडिट्स नहीं जोड़ते या अपनी Gemini key कनेक्ट नहीं करते। Clips अभी alpha में है, इसलिए बदलाव होते रहेंगे।"
+    - q: "क्या मेरी मीटिंग्स में कोई बॉट जुड़ता है?"
+      a: "नहीं। Clips आपके अपने कंप्यूटर से नोट्स लेता है: Clips Desktop आपका माइक्रोफ़ोन और कॉल का ऑडियो रिकॉर्ड करता है, इसलिए आपकी Zoom, Google Meet या Microsoft Teams कॉल में कुछ नहीं जुड़ता। चूँकि कोई बॉट नहीं जुड़ता, लोगों को बता दें कि आप नोट्स ले रहे हैं।"
+    - q: "Clips कौन-से कैलेंडर और वीडियो कॉल ऐप्स के साथ काम करता है?"
+      a: "Clips सिर्फ़ Google Calendar से कनेक्ट होता है। नोट्स Zoom, Google Meet, Microsoft Teams, Webex या ऐसी किसी भी कॉल में काम करते हैं जिसका ऑडियो आपका कंप्यूटर चलाता है। Mac पर Clips Desktop कैलेंडर में न होने वाली ऐसी कॉल्स को भी पहचान लेता है और नोट्स शुरू करने का सुझाव देता है। बाकी अटेंडीज़ की आवाज़ें सिर्फ़ Mac पर रिकॉर्ड होती हैं।"
+    - q: "क्या Clips Windows पर मीटिंग नोट्स लेता है?"
+      a: "Clips Desktop Mac, Windows और Linux पर चलता है, लेकिन बाकी अटेंडीज़ की आवाज़ें सिर्फ़ Mac पर रिकॉर्ड होती हैं। Windows और Linux पर Clips सिर्फ़ आपका माइक्रोफ़ोन रिकॉर्ड करता है, इसलिए रिमोट अटेंडीज़ ट्रांसक्रिप्ट और एक्शन आइटम्स में नहीं आते।"
+    - q: "Clips, Zoom या Google Meet के AI नोट टेकर से कैसे अलग है?"
+      a: "किसी कॉल ऐप का AI नोट टेकर उसी ऐप की कॉल्स तक सीमित रहता है। Clips हर मीटिंग को, किसी भी कॉल ऐप की हो, एक ही लाइब्रेरी में रखता है। [Clips एजेंट](https://www.agent-native.com/docs/template-clips-agent/) से पूछें \"पिछले मंगलवार को Daniel ने क्या कमिट किया था?\" और वह जो कहा गया उसके आधार पर आपकी मीटिंग्स खोज लेगा। यही इसे एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) बनाता है: एजेंट का दिमाग, ऐप जैसी आसानी।"

@@ -1,0 +1,98 @@
+template: v2
+slug: ai-meeting-notes
+app: clips
+title: AI議事録
+seo_title: ボット不要のAI議事録作成
+meta_description: Agent-Native Clipsは、ご自身のパソコンからAI議事録を作成できる無料のオープンソースツールです。すべての通話について、文字起こし、要約、アクションアイテムを作成します。
+updated: 2026-10-26
+hero:
+  body: Agent-Native Clipsは、通話を議事録にまとめます。文字起こし、要約、参加者ごとのアクションアイテムが手に入ります。録音はご自身のパソコンから行うのでボットは参加せず、どの会議も検索したり質問したりできます。
+  button:
+    label: 議事録を作成する
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: Clipsで表示した、完了済みの週次プロダクト定例。左のノート欄には、短い要約、重要ポイント、参加者ごとにまとめたアクションアイテムが表示されています。右側には、話者ごとの発言を含む文字起こしが並んでいます。
+how_to:
+  heading: AIで議事録を作成する方法
+  steps:
+    - title: カレンダーを連携する
+      body: Clips Desktopをインストールし、Clipsの設定で「ミーティング」をオンにして、ミーティングページでGoogle Calendarを連携します。今後の会議は「Agenda」タブに表示されます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: ミーティングページの「Agenda」タブの拡大図。Google Calendarから取り込んだ本日の会議が並び、2分後に始まる会議には「参加」ボタンと「ノートを開く」ボタンが表示されています。
+    - title: リマインダーからノートを開始する
+      body: Clips Desktopは、カレンダーの会議の1分前にリマインダーを表示します。「Join」ボタンを押すと通話に参加してすぐにノートを開始し、ボタンのメニューからは参加せずにノートだけを開始できます。その後、Clipsがマイクと通話の音声を取り込みます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: 週次プロダクト定例のClips Desktopリマインダーの拡大図。「Join Meet & open Clips」ボタンのメニューが開き、「Join only」「Start notes only」「Snooze 5 min」が表示されています。
+    - title: ノートとアクションアイテムを確認する
+      body: 通話が終わると、会議ページに、文字起こしと並んで自分のメモとAIメモが表示されます。内容は要約、重要ポイント、参加者ごとのアクションアイテムです。共有する前に、[AI議事録の内容](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/)を文字起こしと照らし合わせて確認しましょう。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: 完了した会議のAIメモ欄の拡大図。要約、4つの重要ポイント、2人の参加者ごとにまとめたアクションアイテムが表示されています。
+features:
+  heading: あらゆる会議に必要な機能がすべて揃っています
+  items:
+    - title: 通話にボットは不要
+      body: Clips Desktopは、ご自身のパソコン上でマイクと通話の音声を録音します。ほかの参加者から見える会議の様子は、いつもと変わりません。
+    - title: 担当者ごとのアクションアイテム
+      body: 通話での発言をもとに、各アクションアイテムの担当者が示されます。共有する前に、項目の追加、編集、削除ができます。
+    - title: 通話中に質問できる
+      body: 会議の最中に、聞き逃したこと、直近5分間の要約、次にするとよい質問などを尋ねられます。
+    - title: 発言内容で検索
+      body: 文字起こしやノート、参加者の名前に含まれる言葉から会議を探せます。エージェントに、ある話題が出た通話を尋ねることもできます。
+    - title: 元の発言にたどれるノート
+      body: AIメモの重要ポイントをクリックすると、文字起こしのその発言の位置に移動します。
+    - title: 共有できる議事録
+      body: 1つのリンクで、要約、重要ポイント、アクションアイテム、文字起こし全文を共有できます。録画の動画やコメントは含まれません。
+integrations:
+  heading: いつものツールとClipsを連携
+  cards:
+    - title: カレンダーと通話
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: ClipsはGoogle Calendarの会議を表示し、Google MeetやMicrosoft Teamsなどのビデオ通話でノートを作成します。
+    - title: Slackからエージェントに質問
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: SlackまたはMicrosoft Teamsを連携すると、そこからClipsエージェントにメッセージを送り、会議やそのノート、自分が担当するアクションアイテムを探せます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Clipsでできるその他のこと
+  cards:
+    - title: AIバグ報告ツール
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: ブラウザのコンソールログとネットワークログ付きでバグを録画し、コーディングエージェントに渡せる状態にします。
+    - title: AIディクテーション
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: キーを押しながら話すだけで、Clipsが整えたテキストを使用中のアプリに入力します。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Clipsは無料ですか？
+      a: はい、Agent-Native Clipsは無料のオープンソースです。要約、タイトル、文字起こしの整形は、デフォルトで[Builder.io AIクレジット](https://www.agent-native.com/docs/template-clips-features/)を使って実行されます。クレジットがなくなると、クレジットを追加するかご自身のGeminiキーを接続するまで、これらの機能は停止します。Clipsはアルファ版のため、今後変更が加わる可能性があります。
+    - q: ボットが会議に参加しますか？
+      a: いいえ。Clipsはご自身のパソコンからノートを作成します。Clips Desktopがマイクと通話の音声を録音するので、ZoomやGoogle Meet、Microsoft Teamsの通話に何かが参加することはありません。ボットは参加しないため、ノートを取っていることは参加者に伝えておきましょう。
+    - q: Clipsはどのカレンダーやビデオ通話アプリに対応していますか？
+      a: カレンダーはGoogle Calendarのみに対応しています。ノートの作成は、Zoom、Google Meet、Microsoft Teams、Webex、そのほかパソコンから音声が再生されるあらゆる通話で使えます。Macでは、カレンダーにない通話もClips Desktopが検知して、ノートの開始を提案します。ほかの参加者の声を取り込めるのはMacのみです。
+    - q: ClipsはWindowsでも議事録を作成できますか？
+      a: Clips DesktopはMac、Windows、Linuxで動作しますが、ほかの参加者の声を取り込めるのはMacのみです。WindowsとLinuxではマイクの音声だけが録音されるため、リモート参加者は文字起こしとアクションアイテムに含まれません。
+    - q: ZoomやGoogle MeetのAIノートテイカーとは何が違いますか？
+      a: 通話アプリのAIノートテイカーは、そのアプリの通話にしか対応しません。Clipsなら、どの通話アプリの会議も1つのライブラリにまとまります。[Clipsエージェント](https://www.agent-native.com/docs/template-clips-agent/)に「先週の火曜日にDanielは何を約束した？」と尋ねれば、発言内容から会議を検索します。これが[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。
