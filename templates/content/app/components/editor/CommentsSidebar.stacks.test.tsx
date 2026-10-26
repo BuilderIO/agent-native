@@ -314,7 +314,7 @@ describe("comment stacks in the margin", () => {
     render();
     expect(margin()).toEqual(["stack:d", "solo", "stack:l2", "l3"]);
     const front = found(
-      foldedStacks()[0].querySelector("[data-comment-stack-front-card]"),
+      found(foldedStacks()[0]).querySelector("[data-comment-stack-front-card]"),
     );
     // The newest thread is in front: its quote, its first comment, and
     // how many replies it has.
@@ -334,7 +334,7 @@ describe("comment stacks in the margin", () => {
   it("keeps the other threads' cards unseen behind the front, so it keeps its size when the front changes", () => {
     render();
     const behind = [
-      ...foldedStacks()[0].querySelectorAll<HTMLElement>(
+      ...found(foldedStacks()[0]).querySelectorAll<HTMLElement>(
         "[data-comment-stack-behind]",
       ),
     ];
@@ -365,7 +365,7 @@ describe("comment stacks in the margin", () => {
     };
     render([across, thread("near", ["2026-10-20T10:00:00Z"])]);
     expect(margin()).toEqual(["stack:near"]);
-    const stack = foldedStacks()[0];
+    const stack = found(foldedStacks()[0]);
     expect(
       found(stack.querySelector('[data-comment-stack-behind="across"]'))
         .textContent,
@@ -375,12 +375,15 @@ describe("comment stacks in the margin", () => {
     await wait(220);
     expect(margin()).toEqual(["stack:across"]);
     const front = found(
-      foldedStacks()[0].querySelector("[data-comment-stack-front-card]"),
+      found(foldedStacks()[0]).querySelector("[data-comment-stack-front-card]"),
     );
     expect(front.textContent).toContain("end of one start of two");
     expect(
-      found(foldedStacks()[0].querySelector("[data-comment-stack-description]"))
-        .textContent,
+      found(
+        found(foldedStacks()[0]).querySelector(
+          "[data-comment-stack-description]",
+        ),
+      ).textContent,
     ).toContain("end of one start of two");
   });
 
@@ -1117,7 +1120,7 @@ describe("comment stacks in the margin", () => {
         vi.advanceTimersByTime(200);
       });
       expect(margin()[0]).toBe("stack:b");
-      const [card] = leaving();
+      const card = found(leaving()[0]);
       expect(card.dataset.commentStackLeaving).toBe("d");
       expect(card.textContent).toContain("Comment d");
       // Drawn just before the new front, so it stays underneath.

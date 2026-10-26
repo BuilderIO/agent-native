@@ -565,16 +565,16 @@ export function arrangeOpenStack(
   gap = 12,
 ): { offsets: Map<string, number>; height: number; layoutTop: number | null } {
   const focusIndex = cards.findIndex((card) => card.threadId === focusId);
-  const focusTop =
-    focusIndex >= 0
-      ? (positions.get(cards[focusIndex].threadId)?.layoutTop ?? null)
-      : null;
+  const focus = focusIndex >= 0 ? cards[focusIndex] : undefined;
+  const focusTop = focus
+    ? (positions.get(focus.threadId)?.layoutTop ?? null)
+    : null;
   const above = cards
     .slice(0, Math.max(0, focusIndex))
     .reduce((sum, card) => sum + card.height + gap, headerHeight + gap);
   const order =
-    focusTop !== null && focusTop < above
-      ? [cards[focusIndex], ...cards.filter((_, index) => index !== focusIndex)]
+    focus && focusTop !== null && focusTop < above
+      ? [focus, ...cards.filter((_, index) => index !== focusIndex)]
       : cards;
   const offsets = new Map<string, number>();
   let bottom = headerHeight;
@@ -582,8 +582,7 @@ export function arrangeOpenStack(
     offsets.set(card.threadId, bottom + gap);
     bottom += gap + card.height;
   }
-  const anchorIndex = focusTop !== null ? focusIndex : 0;
-  const anchor = anchorIndex < cards.length ? cards[anchorIndex] : null;
+  const anchor = focusTop !== null ? focus : cards[0];
   const anchorTop = anchor
     ? (positions.get(anchor.threadId)?.layoutTop ?? null)
     : null;
