@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentKitClient } from "@agent-native/agentkit";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
@@ -52,6 +53,8 @@ import {
 } from "../../composer/runtime-adapters.js";
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
+import { AgentKitChat } from "../agentkit/react/components.js";
+import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
 import { AgentSidebar } from "./AgentSidebar.js";
 import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import {
@@ -110,6 +113,7 @@ const chatHandleMocks = vi.hoisted(() => ({
 
 const assistantChatMockState = vi.hoisted(() => ({
   referenceProbe: false,
+  renderTranscript: false,
   referenceDisabled: true,
   deferredHandleThread: null as string | null,
   referenceDeliveries: [] as Array<{ threadId: string; context: string }>,
@@ -294,6 +298,7 @@ function stubCatalog(
   engines: unknown[],
   configuredKeys: string[],
   builderConfigured = false,
+  appDefault: { model: string; engine?: string } = { model: "gpt-5-6-luna" },
 ) {
   invalidateClientStatusRequests();
   const modelEngines = Object.fromEntries(
@@ -327,7 +332,8 @@ function stubCatalog(
     }),
     modelEngines,
     currentModelEngine: null,
-    defaultModel: "gpt-5-6-luna",
+    defaultModel: appDefault.model,
+    defaultEngine: appDefault.engine,
     loadLiveGroups: async () => null,
   });
   actionMocks.callAction.mockResolvedValue({ engines } as never);
@@ -372,8 +378,9 @@ async function mountWithCatalog(
   engines: unknown[],
   configuredKeys: string[],
   builderConfigured = false,
+  appDefault?: { model: string; engine?: string },
 ) {
-  stubCatalog(engines, configuredKeys, builderConfigured);
+  stubCatalog(engines, configuredKeys, builderConfigured, appDefault);
   const el = document.createElement("div");
   document.body.appendChild(el);
   const localRoot = createRoot(el);
@@ -559,6 +566,12 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         >
           {props.emptyStateAddon}
           {props.composerSlot}
+          {assistantChatMockState.renderTranscript && (
+            <div
+              className="agentkit-transcript"
+              data-testid={`transcript-${props.threadId}`}
+            />
+          )}
           {assistantChatMockState.referenceProbe && (
             <ReferenceProbe
               threadId={props.threadId}
@@ -573,6 +586,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 
 function resetThreadMocks() {
   assistantChatMockState.referenceProbe = false;
+  assistantChatMockState.renderTranscript = false;
   assistantChatMockState.referenceDisabled = true;
   assistantChatMockState.deferredHandleThread = null;
   assistantChatMockState.referenceDeliveries = [];
@@ -3823,9 +3837,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       delivered: false,
       reason: "context-too-large",
     });
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("alongside the composer's existing context"),
-    );
+    // The typed result already reports the refusal; the console stays quiet.
+    expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -3857,6 +3870,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       delivered: false,
       reason: "composer-not-ready",
     });
+    expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 
@@ -4542,12 +4556,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toHaveLength(2);
   });
 
-  it("defaults effort to high", () => {
+  it("leaves effort unset by default", () => {
     expect(
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("high");
+    ).toBe("auto");
   });
 
   it("defaults a fresh chat to a configured model group", async () => {
@@ -4565,6 +4579,27 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
 
     expect(view.engineOf()).toBe("builder");
+    await view.cleanup();
+  });
+
+  it("starts a fresh chat on the app's configured default model", async () => {
+    const view = await mountWithCatalog(
+      [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+      false,
+      { model: "claude-sonnet-5-5", engine: "anthropic" },
+    );
+
+    // Not the first listed model: the app's default.
+    expect(view.modelOf()).toBe("claude-sonnet-5-5");
+    expect(view.engineOf()).toBe("anthropic");
     await view.cleanup();
   });
 
@@ -5202,7 +5237,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toBe("claude-sonnet-5");
   });
 
-  it("migrates persisted legacy auto effort to high", async () => {
+  it("keeps a persisted auto effort unset", async () => {
     window.localStorage.setItem(
       "agent-native:chat-models:selection:legacy-medium-test",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -5218,7 +5253,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("high");
+    ).toBe("auto");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -5235,16 +5270,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
   });
 
-  it("preserves plan mode on submitted bridge messages", () => {
-    act(() => {
-      root.render(
-        <MultiTabAssistantChat storageKey="bridge-test" execMode="plan" />,
-      );
-    });
-
+  it("preserves an explicit plan mode on submitted bridge messages", () => {
     act(() => {
       dispatchSubmitChat({
         message: "Plan this first",
+        mode: "plan",
       });
     });
 
@@ -5287,14 +5317,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
-  it("implements the latest plan when /act is selected", () => {
-    chatHandleMocks.implementPlan.mockImplementationOnce(() => true);
-
+  it("leaves /plan to the composer and has no /act to leave a mode", () => {
     act(() => {
+      assistantChatMockState.onSlashCommand?.("plan");
       assistantChatMockState.onSlashCommand?.("act");
     });
 
-    expect(chatHandleMocks.implementPlan).toHaveBeenCalledOnce();
+    expect(chatHandleMocks.implementPlan).not.toHaveBeenCalled();
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -5415,6 +5444,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("keeps existing thread restoration loading while the thread list loads", () => {
+    // A fresh mount: beforeEach's mount already saw the list load once.
+    act(() => root.unmount());
+    root = createRoot(container);
     threadMocks.isLoading = true;
     threadMocks.isNewThread.mockReturnValue(false);
 
@@ -5425,6 +5457,22 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const chat = container.querySelector("[data-testid='assistant-chat']");
     expect(chat?.getAttribute("data-new-thread")).toBe("false");
     expect(chat?.getAttribute("data-thread-state-loading")).toBe("true");
+  });
+
+  it("keeps an already-loaded tab ready when the thread list reloads for a new scope", () => {
+    threadMocks.isNewThread.mockReturnValue(false);
+    const chat = () =>
+      container.querySelector("[data-testid='assistant-chat']");
+    expect(chat()?.getAttribute("data-thread-state-loading")).toBe("false");
+
+    // A history-scope change refetches the list, so useChatThreads reports
+    // loading again for threads that already restored.
+    threadMocks.isLoading = true;
+    act(() => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    expect(chat()?.getAttribute("data-thread-state-loading")).toBe("false");
   });
 
   it("creates a foreground tab when the active chat has messages", async () => {
@@ -7258,19 +7306,33 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       );
     expect(closeButtons()).toHaveLength(2);
 
-    // The reported bug was a hit zone that stayed clickable while invisible
-    // (opacity alone does not disable pointer-events). jsdom/happy-dom does
-    // not compute real hover-driven hit-testing for a plain `.click()` call,
-    // so guard the actual CSS invariant directly: the close button must be
-    // non-interactive by default and only regain pointer-events together
-    // with becoming visible, scoped to a real ancestor of the button.
-    const styleText = container.querySelector("style")?.textContent ?? "";
-    expect(styleText).toContain(
-      ".agent-tab-close{opacity:0;pointer-events:none}",
+    // agent-native.css hides `.agent-tab-close` (opacity and pointer-events)
+    // until its `.agent-tab-group` is hovered or active, so the button must
+    // keep that class and ancestor for the hit zone to follow its visibility.
+    expect(
+      closeButtons().every(
+        (button) =>
+          button.classList.contains("agent-tab-close") &&
+          button.closest(".agent-tab-group") !== null,
+      ),
+    ).toBe(true);
+    const tablist = container.querySelector('[role="tablist"]');
+    expect(tablist?.getAttribute("aria-label")).toBeTruthy();
+    const tabButtons = Array.from(
+      tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
     );
-    expect(styleText).toContain(
-      ".agent-tab-group:hover .agent-tab-close,.agent-tab-close:focus-visible{opacity:1;pointer-events:auto}",
-    );
+    expect(tabButtons.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "false",
+    ]);
+    expect(tabButtons.map((tab) => tab.tabIndex)).toEqual([0, -1]);
+    tabButtons[0].focus();
+    act(() => {
+      tabButtons[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(tabButtons[1]);
     const closeButtonGroupAncestor =
       closeButtons()[0].closest(".agent-tab-group");
     expect(closeButtonGroupAncestor?.contains(closeButtons()[0])).toBe(true);
@@ -7563,6 +7625,9 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(container.querySelector(".agent-tab")?.className).toContain(
       "min-w-[56px]",
     );
+    expect(
+      container.querySelector(".agent-tab")?.className.split(/\s+/),
+    ).toContain("h-6");
   });
 
   it("closes a duplicated active tab instead of the effect re-adding it", async () => {
@@ -7809,6 +7874,67 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
   });
 });
 
+describe("MultiTabAssistantChat hidden tabs", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
+    assistantChatMockState.renderTranscript = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("puts a hidden tab's transcript back where the user left it", async () => {
+    threadMocks.threads = [
+      { ...threadMocks.threads[0]!, id: "thread-1" },
+      { ...threadMocks.threads[0]!, id: "thread-2" },
+    ];
+    window.localStorage.setItem(
+      openTabsStorageKey("hidden-tab-scroll"),
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+    const render = async () => {
+      await act(async () => {
+        root.render(<MultiTabAssistantChat storageKey="hidden-tab-scroll" />);
+      });
+    };
+    await render();
+    const transcript = container.querySelector<HTMLElement>(
+      '[data-testid="transcript-thread-1"]',
+    )!;
+    Object.defineProperty(transcript, "clientHeight", { value: 400 });
+    Object.defineProperty(transcript, "scrollHeight", { value: 2_000 });
+    transcript.scrollTop = 300;
+    act(() => {
+      transcript.dispatchEvent(new Event("scroll"));
+    });
+
+    threadMocks.activeThreadId = "thread-2";
+    await render();
+    // display:none drops the scroll position.
+    transcript.scrollTop = 0;
+    threadMocks.activeThreadId = "thread-1";
+    await render();
+
+    expect(transcript.scrollTop).toBe(300);
+  });
+});
+
 describe("MultiTabAssistantChat page overlay", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -7838,19 +7964,35 @@ describe("MultiTabAssistantChat page overlay", () => {
   });
 
   it("marks the page overlay only after the thread scrolls", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    // The real AgentKit transcript, since the host matches its scroller class.
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
           storageKey="page-overlay-test"
           renderOverlay={() => (
-            <div className="agent-chat-scroll" data-testid="chat-scroll" />
+            <CoreAgentKitRoot
+              controller={client}
+              threadId="thread-1"
+              load="manual"
+            >
+              <AgentKitChat composer={false} />
+            </CoreAgentKitRoot>
           )}
         />,
       );
     });
 
     const scrollTarget = container.querySelector<HTMLElement>(
-      '[data-testid="chat-scroll"]',
+      ".agentkit-transcript",
     );
     expect(scrollTarget).not.toBeNull();
     expect(
@@ -8039,9 +8181,7 @@ describe("MultiTabAssistantChat history popover", () => {
         ),
       ).toEqual(["Active chat"]);
       expect(mine.querySelector(".an-chat-history-row--active")).not.toBeNull();
-      expect(
-        mine.querySelector(".an-chat-history-row__timestamp")?.textContent,
-      ).toBe("Active");
+      expect(mine.querySelector(".an-chat-history-row__timestamp")).toBeNull();
       expect(threadMocks.saveThreadData).not.toHaveBeenCalled();
     },
   );

@@ -47,7 +47,11 @@ export function OwnershipChatHistoryRail({
     <ChatHistoryRail
       {...listProps}
       {...props}
-      labels={{ copyLink: t("agentChat.history.copyLink"), ...labels }}
+      labels={{
+        copyLink: t("agentChat.history.copyLink"),
+        unread: t("agentChat.history.unread"),
+        ...labels,
+      }}
       sections={sections}
       railLabels={{
         newChat: t("agentChat.tabs.newChat"),

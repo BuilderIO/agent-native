@@ -391,9 +391,7 @@ test("Option-dragging a root from Screen A duplicates into nested auto layout on
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect
     .poll(() =>
       designFrame(page, design.destinationId)

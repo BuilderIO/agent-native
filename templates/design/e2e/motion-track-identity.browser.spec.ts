@@ -3,6 +3,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { compileMotionCode } from "../shared/motion-code";
 import type { MotionTimeline } from "../shared/motion-timeline";
+import { e2eBaseURL } from "./base-url";
 import { appPath, enableLab, gotoEditor, selectByText } from "./helpers";
 
 const html = `<!doctype html>
@@ -109,6 +110,11 @@ test.describe("repeated motion track identity", () => {
   let designId: string | null = null;
 
   test.beforeEach(async ({ page }) => {
+    await page
+      .context()
+      .addCookies([
+        { name: "an_consent", value: "1.p0.t0", url: e2eBaseURL() },
+      ]);
     restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
   });
 

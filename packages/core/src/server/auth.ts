@@ -3918,6 +3918,13 @@ function getAuthGuardPath(event: H3Event): string | null {
   return stripAppBasePath(canonicalFrameworkPathname(event.url.pathname));
 }
 
+function isBrowserNavigationRequest(event: H3Event): boolean {
+  const fetchDest = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document" || fetchDest === "iframe") return true;
+  const accept = getHeader(event, "accept")?.toLowerCase();
+  return accept !== undefined && accept.includes("text/html");
+}
+
 function createAuthGuardFn(
   app?: object,
 ): (event: H3Event) => Promise<Response | object | string | void> {
@@ -4700,6 +4707,12 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
  *    source-code-known credential. After logout the auto-flow won't refire
  *    (dev row exists); use normal signup or reset the local DB to start over.
  *  - **NODE_ENV.** Still gated on development/test.
+ *  - **Browser navigations only.** A probe (curl, a health check, an agent
+ *    polling for the dev server) accepts any content type and sends no
+ *    Sec-Fetch headers. Letting it claim the one-time account would leave
+ *    the first real browser on the sign-in form, so only document
+ *    navigations and requests that ask for HTML create it, and never
+ *    while `AUTH_DISABLED` is on.
  *
  * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
  * (useful for tests that exercise the unauthenticated branch).
@@ -4711,6 +4724,10 @@ async function maybeAutoCreateDevSession(
   if (!isDevEnvironment()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
   if (!isLoopbackRequest(event)) return null;
+  if (!isBrowserNavigationRequest(event)) return null;
+  // Every request already runs as the dev account; creating it now would
+  // spend the one-time sign-in before AUTH_DISABLED is removed.
+  if (isAuthDisabled()) return null;
 
   try {
     const db = getDbExec();

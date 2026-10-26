@@ -10,6 +10,7 @@ import {
   clearFailedChatHandoff,
   initialComposerOptionsFromState,
   readFailedChatHandoff,
+  skeletonLayoutForPath,
   writeFailedChatHandoff,
 } from "./chat-paths";
 
@@ -273,5 +274,17 @@ describe("failed Chat handoff storage", () => {
     });
 
     getItem.mockRestore();
+  });
+});
+
+describe("skeletonLayoutForPath", () => {
+  it("loads Home behind the home shell and chats behind the assistant shells", () => {
+    expect(skeletonLayoutForPath("/home")).toBe("home");
+    expect(skeletonLayoutForPath("/home/")).toBe("home");
+    expect(skeletonLayoutForPath("/chat")).toBe("assistant-new");
+    expect(skeletonLayoutForPath("/chat/")).toBe("assistant-new");
+    expect(skeletonLayoutForPath("/chat/thread-1")).toBe("assistant");
+    expect(skeletonLayoutForPath("/homework")).toBe("assistant");
+    expect(skeletonLayoutForPath("/")).toBe("assistant");
   });
 });

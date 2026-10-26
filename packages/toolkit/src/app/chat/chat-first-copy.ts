@@ -1,8 +1,10 @@
 import type { ChatFirstSurfaceKind } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { useMemo } from "react";
 
 import type { ChatFirstCopy } from "./chat-first/types.js";
 
-const DEFAULT_COPY: Record<string, string> = {
+const DEFAULT_COPY: Partial<Record<string, string>> = {
   newChat: "New chat",
   search: "Search",
   workspaceApps: "Apps",
@@ -11,6 +13,7 @@ const DEFAULT_COPY: Record<string, string> = {
   scheduled: "Scheduled",
   createWorkspaceApp: "Create app",
   openApp: "Open {name}",
+  appLabel: "{name} app",
   appsLoadError: "Apps could not be loaded",
   noWorkspaceApps: "No apps yet",
   createApp: "Create app",
@@ -131,3 +134,29 @@ export const defaultChatFirstCopy: ChatFirstCopy = (key, values) => {
   }
   return interpolate(DEFAULT_COPY[key] ?? key, values);
 };
+
+/**
+ * The chat-first copy for a component: the host's `copy` when it passes one,
+ * otherwise the localized defaults. `defaultChatFirstCopy` stays English-only
+ * for callers outside React.
+ */
+export function useChatFirstCopy(copy?: ChatFirstCopy): ChatFirstCopy {
+  const t = useT();
+  return useMemo(
+    () =>
+      copy ??
+      ((key, values) => {
+        const english = Object.hasOwn(DEFAULT_COPY, key)
+          ? DEFAULT_COPY[key]
+          : undefined;
+        return english === undefined
+          ? defaultChatFirstCopy(key, values)
+          : t(`agentChat.chatFirst.${key}`, {
+              ...values,
+              // Hosts that never load the toolkit catalog keep English copy.
+              defaultValue: english.replace(/\{(\w+)\}/g, "{{$1}}"),
+            });
+      }),
+    [copy, t],
+  );
+}

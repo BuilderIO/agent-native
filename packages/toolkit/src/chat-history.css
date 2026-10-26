@@ -64,8 +64,22 @@
 
 .an-chat-history__skeletons {
   display: grid;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 1px;
+  min-width: 0;
+}
+
+/* Same box as a row, so rows replace skeletons without a shift. */
+.an-chat-history__skeleton-row {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 8px 12px;
+}
+
+.an-chat-history--rail .an-chat-history__skeleton-row {
+  margin: 0 4px;
+  padding-block: 6px;
+  padding-inline: 10px;
 }
 
 .an-chat-history-rail__section-footer {
@@ -82,7 +96,7 @@
   align-self: center;
 }
 
-/* The active row has no timestamp; keep its avatar clear of the ⋯ trigger. */
+/* Rail rows have no timestamp; keep a trailing avatar clear of the ⋯ trigger. */
 .an-chat-history--rail
   .an-chat-history-row--has-menu
   .an-chat-history-row__owner-mark:last-child {
@@ -204,7 +218,7 @@
   border: 0;
   border-radius: calc(var(--radius) - 2px);
   background: transparent;
-  color: hsl(var(--muted-foreground) / 0.72);
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
 }
 
@@ -281,7 +295,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: hsl(var(--muted-foreground) / 0.7);
+  color: hsl(var(--muted-foreground));
 }
 
 .an-chat-history--rail .an-chat-history__section {
@@ -376,37 +390,69 @@
   color: hsl(var(--muted-foreground));
 }
 
+/* Outside the topline, so the topline's end fade never masks the dot. */
+.an-chat-history-row__unread {
+  position: absolute;
+  top: 16px;
+  inset-inline-start: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: hsl(var(--foreground) / 0.72);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.an-chat-history
+  .an-chat-history-row--unread:not(.an-chat-history-row--active)
+  .an-chat-history-row__title {
+  color: hsl(var(--foreground));
+}
+
 .an-chat-history-row__timestamp {
   flex-shrink: 0;
   font-size: 10px;
   color: hsl(var(--muted-foreground));
 }
 
-.an-chat-history--rail .an-chat-history-row__timestamp {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground) / 0.62);
-  transition: opacity 100ms ease;
+/* While the ⋯ trigger shows, rail titles fade out under it instead of
+   reflowing, so hovering never re-truncates a title. */
+.an-chat-history--rail {
+  --an-chat-history-menu-clearance: 1.125rem;
 }
 
 .an-chat-history--rail
-  .an-chat-history-row--active
-  .an-chat-history-row__timestamp {
-  color: hsl(var(--accent-foreground));
+  .an-chat-history-row--has-menu:is(
+    :hover,
+    :focus-within,
+    .an-chat-history-row--menu-open,
+    .an-chat-history-row--pinned
+  )
+  .an-chat-history-row__topline {
+  mask-image: linear-gradient(
+    to right,
+    hsl(var(--foreground))
+      calc(100% - var(--an-chat-history-menu-clearance) - 1rem),
+    hsl(var(--foreground) / 0)
+      calc(100% - var(--an-chat-history-menu-clearance))
+  );
 }
 
-.an-chat-history--rail
-  .an-chat-history-row--has-menu:hover
-  .an-chat-history-row__timestamp,
-.an-chat-history--rail
-  .an-chat-history-row--has-menu:focus-within
-  .an-chat-history-row__timestamp,
-.an-chat-history--rail
-  .an-chat-history-row--has-menu.an-chat-history-row--menu-open
-  .an-chat-history-row__timestamp,
-.an-chat-history--rail
-  .an-chat-history-row--has-menu.an-chat-history-row--pinned
-  .an-chat-history-row__timestamp {
-  opacity: 0;
+.an-chat-history--rail:dir(rtl)
+  .an-chat-history-row--has-menu:is(
+    :hover,
+    :focus-within,
+    .an-chat-history-row--menu-open,
+    .an-chat-history-row--pinned
+  )
+  .an-chat-history-row__topline {
+  mask-image: linear-gradient(
+    to left,
+    hsl(var(--foreground))
+      calc(100% - var(--an-chat-history-menu-clearance) - 1rem),
+    hsl(var(--foreground) / 0)
+      calc(100% - var(--an-chat-history-menu-clearance))
+  );
 }
 
 .an-chat-history-row__subtitle {
@@ -424,7 +470,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-  color: hsl(var(--muted-foreground) / 0.7);
+  color: hsl(var(--muted-foreground));
 }
 
 .an-chat-history-row__rename {
@@ -472,7 +518,7 @@
   border: 0;
   border-radius: calc(var(--radius) - 3px);
   background: transparent;
-  color: hsl(var(--muted-foreground) / 0.72);
+  color: hsl(var(--muted-foreground));
   opacity: 0;
   cursor: pointer;
   transition:
@@ -550,7 +596,9 @@
   cursor: pointer;
 }
 
-.an-chat-history-row__menu-item:hover {
+.an-chat-history-row__menu-item:hover,
+.an-chat-history-row__menu-item[data-highlighted] {
+  outline: none;
   background: hsl(var(--accent));
   color: hsl(var(--accent-foreground));
 }
@@ -559,7 +607,14 @@
   color: hsl(var(--destructive));
 }
 
-.an-chat-history-row__menu-item--danger:hover {
+.an-chat-history-row__menu-item--danger:hover,
+.an-chat-history-row__menu-item--danger[data-highlighted] {
   background: hsl(var(--destructive) / 0.12);
   color: hsl(var(--destructive));
+}
+
+.an-chat-history-row__menu-separator {
+  height: 1px;
+  margin: 4px -4px;
+  background: hsl(var(--border));
 }

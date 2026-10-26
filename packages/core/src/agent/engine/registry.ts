@@ -40,6 +40,10 @@ import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
 import { normalizeModelForEngine } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
+  type EngineCredentialOwner,
+  tagEngineCredentialOwner,
+} from "./credential-owner.js";
+import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
   OLLAMA_DEFAULT_BASE_URL,
   OLLAMA_BASE_URL_ENV_VAR,
@@ -915,6 +919,43 @@ async function apiKeyBelongsToDifferentProvider(
 
 type CredentialResolutionMode = "explicit" | "automatic";
 
+/** @internal exported for unit tests only */
+export function credentialOwnerForEntry(
+  entry: AgentEngineEntry,
+  apiKey: string | undefined,
+  provenance: CredentialProvenance | undefined,
+  config: Record<string, unknown>,
+): EngineCredentialOwner | undefined {
+  if (entry.name === "builder") return "builder";
+  if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) return "customer";
+  const envVar = entry.requiredEnvVars[0];
+  // With no key the engine falls back to the deployment key, if one is usable.
+  if (apiKey === undefined) {
+    return envVar &&
+      config.allowEnvFallback !== false &&
+      canUseDeployCredentialFallbackForRequest(envVar) &&
+      readDeployCredentialEnv(envVar)
+      ? "deployment"
+      : undefined;
+  }
+  // The key's value wins over its provenance: a scoped vault entry holding the
+  // deployment key is still funded by the deployment.
+  if (envVar && isDeploymentCredential(envVar, apiKey)) return "deployment";
+  // Only a stored, scoped credential proves the customer owns the key; a
+  // host-supplied key with no provenance may be the deployment's own.
+  if (!provenance) return undefined;
+  return provenance.scope === "deployment" ? "deployment" : "customer";
+}
+
+async function createEngineForEntry(
+  ...args: Parameters<typeof engineCreateConfigForEntry>
+): Promise<AgentEngine> {
+  const { config, credentialOwner } = await engineCreateConfigForEntry(...args);
+  const engine = args[0].create(config);
+  tagEngineCredentialOwner(engine, credentialOwner);
+  return engine;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
@@ -923,7 +964,10 @@ async function engineCreateConfigForEntry(
   apiKeyEnvVar?: string,
   credentialIdentity?: BuilderCredentialLookupIdentity,
   apiKeyProvenance?: CredentialProvenance,
-): Promise<Record<string, unknown>> {
+): Promise<{
+  config: Record<string, unknown>;
+  credentialOwner: EngineCredentialOwner | undefined;
+}> {
   const safeExtra = { ...(extra ?? {}) };
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     const email = identityUserEmail(credentialIdentity);
@@ -1114,7 +1158,16 @@ async function engineCreateConfigForEntry(
       };
     }
   }
-  return engineCreateConfig(entry, matchingApiKey, safeExtra);
+  const config = engineCreateConfig(entry, matchingApiKey, safeExtra);
+  return {
+    config,
+    credentialOwner: credentialOwnerForEntry(
+      entry,
+      matchingApiKey,
+      matchingApiKeyProvenance,
+      config,
+    ),
+  };
 }
 
 export function isStoredEngineUsable(
@@ -1293,16 +1346,14 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${name}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(
-      await engineCreateConfigForEntry(
-        entry,
-        apiKey,
-        engineConfig,
-        "explicit",
-        apiKeyEnvVar,
-        credentialIdentity,
-        apiKeyProvenance,
-      ),
+    return await createEngineForEntry(
+      entry,
+      apiKey,
+      engineConfig,
+      "explicit",
+      apiKeyEnvVar,
+      credentialIdentity,
+      apiKeyProvenance,
     );
   }
 
@@ -1313,16 +1364,14 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${engineOption}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(
-      await engineCreateConfigForEntry(
-        entry,
-        apiKey,
-        undefined,
-        "explicit",
-        apiKeyEnvVar,
-        credentialIdentity,
-        apiKeyProvenance,
-      ),
+    return await createEngineForEntry(
+      entry,
+      apiKey,
+      undefined,
+      "explicit",
+      apiKeyEnvVar,
+      credentialIdentity,
+      apiKeyProvenance,
     );
   }
 
@@ -1339,16 +1388,14 @@ export async function resolveEngine(
           credentialIdentity,
         }));
       if (canUseConfiguredEngine) {
-        return entry.create(
-          await engineCreateConfigForEntry(
-            entry,
-            apiKey,
-            undefined,
-            "automatic",
-            apiKeyEnvVar,
-            credentialIdentity,
-            apiKeyProvenance,
-          ),
+        return await createEngineForEntry(
+          entry,
+          apiKey,
+          undefined,
+          "automatic",
+          apiKeyEnvVar,
+          credentialIdentity,
+          apiKeyProvenance,
         );
       }
     }
@@ -1363,16 +1410,14 @@ export async function resolveEngine(
         credentialIdentity,
       }))
     ) {
-      return entry.create(
-        await engineCreateConfigForEntry(
-          entry,
-          apiKey,
-          undefined,
-          "automatic",
-          apiKeyEnvVar,
-          credentialIdentity,
-          apiKeyProvenance,
-        ),
+      return await createEngineForEntry(
+        entry,
+        apiKey,
+        undefined,
+        "automatic",
+        apiKeyEnvVar,
+        credentialIdentity,
+        apiKeyProvenance,
       );
     }
   }
@@ -1398,48 +1443,42 @@ export async function resolveEngine(
         credentialIdentity,
       }))
     ) {
-      return entry.create(
-        await engineCreateConfigForEntry(
-          entry,
-          apiKey,
-          stripInlineApiKeyConfig(
-            storedConfig as Record<string, unknown> | undefined,
-          ),
-          "automatic",
-          apiKeyEnvVar,
-          credentialIdentity,
-          apiKeyProvenance,
+      return await createEngineForEntry(
+        entry,
+        apiKey,
+        stripInlineApiKeyConfig(
+          storedConfig as Record<string, unknown> | undefined,
         ),
+        "automatic",
+        apiKeyEnvVar,
+        credentialIdentity,
+        apiKeyProvenance,
       );
     }
   }
 
   if (detectedFromUser) {
-    return detectedFromUser.create(
-      await engineCreateConfigForEntry(
-        detectedFromUser,
-        apiKey,
-        undefined,
-        "automatic",
-        apiKeyEnvVar,
-        credentialIdentity,
-        apiKeyProvenance,
-      ),
+    return await createEngineForEntry(
+      detectedFromUser,
+      apiKey,
+      undefined,
+      "automatic",
+      apiKeyEnvVar,
+      credentialIdentity,
+      apiKeyProvenance,
     );
   }
 
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(
-      await engineCreateConfigForEntry(
-        detected,
-        apiKey,
-        undefined,
-        "automatic",
-        apiKeyEnvVar,
-        credentialIdentity,
-        apiKeyProvenance,
-      ),
+    return await createEngineForEntry(
+      detected,
+      apiKey,
+      undefined,
+      "automatic",
+      apiKeyEnvVar,
+      credentialIdentity,
+      apiKeyProvenance,
     );
   }
 
@@ -1449,16 +1488,14 @@ export async function resolveEngine(
       "[agent-engine] Default Anthropic engine is not registered. Did builtin.ts fail to load?",
     );
   }
-  return anthropicEntry.create(
-    await engineCreateConfigForEntry(
-      anthropicEntry,
-      apiKey,
-      undefined,
-      "automatic",
-      apiKeyEnvVar,
-      credentialIdentity,
-      apiKeyProvenance,
-    ),
+  return await createEngineForEntry(
+    anthropicEntry,
+    apiKey,
+    undefined,
+    "automatic",
+    apiKeyEnvVar,
+    credentialIdentity,
+    apiKeyProvenance,
   );
 }
 

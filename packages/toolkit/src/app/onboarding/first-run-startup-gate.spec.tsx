@@ -514,6 +514,41 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBe("true");
   });
 
+  it("shares surface ownership with a second copy of the gate module", async () => {
+    // A standalone app's dev server loads the gate once inside the
+    // pre-bundled chat entry (the sidebar) and once unbundled (the providers).
+    vi.resetModules();
+    const secondCopy = await import("./first-run-startup-gate.js");
+    expect(secondCopy.useFirstRunOnboardingGateOwnsSurface).not.toBe(
+      useFirstRunOnboardingGateOwnsSurface,
+    );
+    function SecondCopyProbe() {
+      const ownsSurface = secondCopy.useFirstRunOnboardingGateOwnsSurface();
+      return (
+        <div data-testid="second-copy-ownership">{String(ownsSurface)}</div>
+      );
+    }
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <SecondCopyProbe />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    await act(async () => {
+      status.resolve(true);
+      await status.promise;
+    });
+
+    expect(
+      container.querySelector("[data-testid='second-copy-ownership']")
+        ?.textContent,
+    ).toBe("true");
+  });
+
   it("reveals the app after the eligible user completes onboarding", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);

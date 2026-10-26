@@ -1,7 +1,15 @@
 import { type Locator, type Page } from "@playwright/test";
 
 import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
-import { e2eBaseURL } from "./base-url";
+import {
+  indexHtml,
+  layerRow,
+  layersTree,
+  openEditor,
+  styleNum,
+  styleOf,
+  toolbar,
+} from "./drag-and-drop.shared";
 import { expandAllLayers } from "./helpers";
 import {
   childrenOf,
@@ -76,51 +84,8 @@ const SOLO_FIXTURE = `<!doctype html>
   <div data-agent-native-node-id="solo-b" data-agent-native-layer-name="Solo B" style="position:absolute;left:750px;top:500px;width:120px;height:80px;background:#ec4899"></div>
 </body></html>`;
 
-let baseURL = "";
-
 async function newDesign(app: App, content = FIXTURE): Promise<string> {
   return app.seed(content, { title: "structure and selection" });
-}
-
-async function indexHtml(page: Page, designId: string): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
-  );
-}
-
-function styleOf(html: string, id: string): string {
-  return (
-    new RegExp(
-      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
-      "i",
-    ).exec(html)?.[1] ?? ""
-  );
-}
-
-function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
-    style,
-  );
-  return m ? Number(m[1]) : NaN;
-}
-
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
-function layersTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function layerRow(page: Page, name: string): Locator {
-  return layersTree(page)
-    .getByRole("treeitem")
-    .filter({ hasText: name })
-    .first();
 }
 
 function node(page: Page, id: string): Locator {
@@ -138,21 +103,6 @@ async function selectedLayerName(page: Page): Promise<string | null> {
     .textContent()
     .catch(() => null);
   return text?.trim() ?? null;
-}
-
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 async function selectViaTree(page: Page, name: string): Promise<void> {
@@ -286,14 +236,7 @@ async function combinedSelectionWidth(app: App) {
     .evaluate((element) => Math.round(element.getBoundingClientRect().width));
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({ app, page }, testInfo) => {
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 test.describe("keyboard selection traversal", () => {
   test("Layers-first selection persists source identity for a later move and reload", async ({
