@@ -72,9 +72,10 @@ export async function saveDocumentWithRebase({
     confirm: (content: string) => void;
   };
   /**
-   * Called after each merge of the save over a newer body, with how many of
-   * that body's changes the merge set aside. For counting: it cannot change
-   * the save, even by throwing.
+   * Called once the save persists, for each merge of it over a newer body,
+   * with how many of that body's changed runs of top-level blocks the merge
+   * set aside. A save that ends any other way reports none of its merges.
+   * For counting: it cannot change the save, even by throwing.
    */
   onMerge?: (outcome: { setAside: number }) => void;
 }): Promise<RebasedDocumentSaveResult> {
@@ -97,8 +98,16 @@ export async function saveDocumentWithRebase({
       base: current && !ownsCurrentSnapshot() ? undefined : attemptedBase,
     };
   };
+  const merges: { setAside: number }[] = [];
   const confirmed = (document: Document): RebasedDocumentSaveResult => {
     if (owner && ownsCurrentSnapshot()) owner.confirm(document.content);
+    for (const merge of merges) {
+      try {
+        onMerge?.(merge);
+      } catch {
+        // coercion-ok: counting a merge never changes the save.
+      }
+    }
     return { status: "saved", document, content: document.content };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
@@ -153,16 +162,13 @@ export async function saveDocumentWithRebase({
         }
         return { status: "displaced", document: winner, localDraft: candidate };
       }
-      // A newer revision with the base's body brought nothing to merge.
+      // Only a newer body that differs from the base is a merge; one with
+      // the base's body (a title change, say) brings nothing to merge.
       if (
         (plan.status === "applied" || plan.status === "noop") &&
         !winnerDoc.eq(baseDoc)
       ) {
-        try {
-          onMerge?.({ setAside: plan.setAside });
-        } catch {
-          // coercion-ok: counting a merge never changes the save.
-        }
+        merges.push({ setAside: plan.setAside });
       }
       if (plan.status === "applied") {
         candidate = docToNfm(plan.mergedDoc.toJSON());

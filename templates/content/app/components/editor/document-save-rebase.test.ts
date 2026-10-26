@@ -335,6 +335,33 @@ describe("document save ownership after a rejected CAS", () => {
     expect(onMerge).not.toHaveBeenCalled();
   });
 
+  it("does not report a merge whose rebased save never persists", async () => {
+    const onMerge = vi.fn();
+    const localDraft = `${original} Peer suffix.`;
+    const persist = vi.fn().mockResolvedValue({
+      conflict: true,
+      document: winner,
+    });
+    await expect(
+      saveDocumentWithRebase({ base, content: localDraft, persist, onMerge }),
+    ).resolves.toMatchObject({ status: "conflict" });
+    let checks = 0;
+    await expect(
+      saveDocumentWithRebase({
+        base,
+        content: localDraft,
+        persist: vi
+          .fn()
+          .mockResolvedValueOnce({ conflict: true, document: winner }),
+        canContinue: () => checks++ === 0,
+        onMerge,
+      }),
+    ).resolves.toEqual({ status: "abandoned" });
+
+    expect(persist).toHaveBeenCalledTimes(3);
+    expect(onMerge).not.toHaveBeenCalled();
+  });
+
   it("saves the same merge when the merge report throws", async () => {
     const localDraft = `${original} Peer suffix.`;
     const merged = `${accepted} Peer suffix.`;

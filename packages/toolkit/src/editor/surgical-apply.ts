@@ -22,8 +22,10 @@ export interface TopLevelHunk {
 }
 
 /**
- * `setAside` counts the server's changes left out because they overlapped a
- * local edit. Only the `prefer-live` overlap policy sets changes aside.
+ * `setAside` counts the server's hunks left out because they overlapped a
+ * local edit. A hunk is one run of adjacent top-level blocks the server
+ * changed, however many blocks it spans. Only the `prefer-live` overlap
+ * policy sets hunks aside.
  */
 export type BaseAwareReconcileResult =
   | { status: "noop"; setAside: number }
