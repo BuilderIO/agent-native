@@ -102,7 +102,8 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
 
   await page.keyboard.press("Escape");
   await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
-  await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");
+  // The right-click selected what a plain click would: the top-level frame.
+  await expect.poll(() => selectedTreeLabel(page)).toContain("Stage frame");
 
   const childMenu = await openLayerStack(app);
   await childMenu.getByText("Nested child", { exact: true }).click();

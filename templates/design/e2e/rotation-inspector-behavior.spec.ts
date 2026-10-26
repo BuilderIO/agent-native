@@ -130,7 +130,7 @@ test("positive inspector rotation turns counter-clockwise and survives reload", 
   await expandAllLayers(page);
   await selectLayer(page, "Asymmetric marker");
   await expect(page.locator('input[aria-label="Rotation" i]')).toHaveValue(
-    "45deg",
+    "45°",
   );
   await expect
     .poll(() => readCssRotation(page, "rotation-asymmetric"))
@@ -201,6 +201,6 @@ test("absolute rotation preserves each selected layer's translation and scale", 
     "rotation-first",
     "rotation-second",
   ]);
-  await expect(rotation, "both layers now share 45deg").toHaveValue("45deg");
+  await expect(rotation, "both layers now share 45°").toHaveValue("45°");
   await expectSelectionEnclosesBothAngles(app);
 });

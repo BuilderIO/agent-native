@@ -11,12 +11,16 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- A big GitHub folder fills its collection much faster, and keeps filling while the collection is open rather than waiting for the next background sync
+- Collections with large select or multi-select properties open faster and use less memory, because each property definition is sent once instead of with every row
+- Pressing Escape while writing a comment, reply or edit cancels it, and asks first if you've written something.
 - A collection linked to a big GitHub folder fills faster, and pushes to other linked collections aren't held up while it does
 - Accept remaining and Reject remaining show the result for every suggested edit at once
 - Accepting a group of suggested edits saves faster and adds one page version
 
 ### Fixed
 
+- A GitHub folder sync keeps going when file storage fails, filling pages without their images and adding them on a later sync
 - Opening a page no longer saves an edit again after another open tab's save already stored it.
 - Changes made from a menu or popover, such as an image's alt text, are always saved.
 - Agents can read saved page titles and text after an unrelated icon change fails.
@@ -26,6 +30,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Agents' suggested edits show inline in MCP Apps hosts like Claude and ChatGPT, where you can accept or reject them
+- The Comments panel is now **Discussion**: comment on a whole page without selecting text, and sort and filter every comment on the page by status, type, what it points at, or who wrote it
 - List rows can show the first lines of each page under its title: pick **Page text** for Line 2
 
 ### Improved

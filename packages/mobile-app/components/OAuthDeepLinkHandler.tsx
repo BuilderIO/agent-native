@@ -12,7 +12,7 @@ import {
   OAUTH_TOKEN_STORE_KEY,
 } from "@/lib/oauth-storage";
 
-async function handleOAuthUrl(url: string | null): Promise<void> {
+async function handleOAuthUrl(url: string | null | undefined): Promise<void> {
   console.log("[oauth] handleOAuthUrl saw url:", url);
   if (!url || !url.includes("oauth-complete")) return;
   const [returnPath, tokenKey, ownerKeyName, baseUrl] = await Promise.all([

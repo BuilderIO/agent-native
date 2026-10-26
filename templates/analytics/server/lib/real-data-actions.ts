@@ -1216,10 +1216,12 @@ function dbtSemanticMetricFailure(result: {
 
   const record = payload as Record<string, unknown>;
   if (record.status === "success") {
+    // A page can have no rows and still hold the cursor to the next one, so the
+    // cursor is checked before the row count.
+    if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
+      return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
+    }
     if (Array.isArray(record.rows) && record.rows.length > 0) {
-      if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
-        return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
-      }
       if (record.truncated === true) {
         return record.truncationReason === "query_row_cap"
           ? "The dbt Semantic Layer hit its 1,000-row result cap without a continuation cursor. Narrow the metric query or report only the returned rows as partial; do not claim a complete total."
@@ -1270,11 +1272,9 @@ function isRecoveredDbtContinuation(
     return false;
   }
   const record = payload as Record<string, unknown>;
-  if (
-    record.status !== "pending" &&
-    record.status !== "provider_error" &&
-    !(record.status === "success" && typeof record.nextPage === "string")
-  ) {
+  // Any status that carries the resume cursors can be continued, including a
+  // recoverable error. A success is continued only while it has a next page.
+  if (record.status === "success" && typeof record.nextPage !== "string") {
     return false;
   }
   if (
@@ -1659,7 +1659,7 @@ export function hasBigQueryPartialDisclosure(
 }
 
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
-  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
+  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|(?<!not )(?<!n't )(?<!to )\bcomplete\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
 const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
   /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;
@@ -1669,6 +1669,9 @@ const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 const EXPLICIT_PARTIAL_DISCLOSURE =
   /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
+const PARTIAL_COVERAGE_NOT_COMPLETE =
+  /\b(?:coverage|corpus|dataset|search|scan|query|data|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|messages?)\s+(?:(?:is|are|was|were|remains?|remain)\s+)?not\s+(?:yet\s+)?complete\b|\bnot\s+(?:yet\s+)?complete\s+(?:coverage|corpus|dataset|search|scan|query|data|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|messages?)\b/i;
+
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
 
@@ -1677,7 +1680,10 @@ export function looksLikeStrongCoverageClaim(text: string): boolean {
 }
 
 export function hasExplicitPartialDisclosure(text: string): boolean {
-  return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+  return (
+    EXPLICIT_PARTIAL_DISCLOSURE.test(text) ||
+    PARTIAL_COVERAGE_NOT_COMPLETE.test(text)
+  );
 }
 
 export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
@@ -1739,6 +1745,14 @@ export function isBigQueryRowsPayload(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+// The rows of a BigQuery payload, or null when the payload is not a rows result.
+export function bigQueryRowValues(content: unknown): unknown[] | null {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  if (parsed === null || typeof parsed !== "object") return null;
+  const rows = (parsed as { rows?: unknown }).rows;
+  return Array.isArray(rows) ? rows : null;
+}
+
 // A dbt success with no rows has no figure to support an answer, so it is not
 // grounding evidence.
 export function isSuccessfulDbtMetricResult(content: unknown): boolean {
@@ -1748,16 +1762,234 @@ export function isSuccessfulDbtMetricResult(content: unknown): boolean {
   return Array.isArray(rows) && rows.length > 0;
 }
 
-function isFailedDataQueryAttempt(
-  result: { name?: string; isError?: boolean; content?: string },
+export function isCompleteDbtMetricResult(result: {
+  name?: string;
+  isError?: boolean;
+  content?: unknown;
+}): boolean {
+  if (
+    !isDbtSemanticMetricActionName(String(result.name ?? "")) ||
+    result.isError === true
+  ) {
+    return false;
+  }
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  return (
+    record.status === "success" &&
+    Array.isArray(record.rows) &&
+    record.rows.length > 0 &&
+    record.truncated === false &&
+    (record.nextPage === undefined ||
+      record.nextPage === null ||
+      record.nextPage === "")
+  );
+}
+
+// A metadata page or an exact-name miss is a lookup step, not an answer. A later
+// complete result clears it only when it answers the same metric and query scope.
+const DBT_LOOKUP_STATUSES = new Set([
+  "not_found",
+  "ambiguous_metric",
+  "metadata_truncated",
+]);
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = typeof value === "string" ? tryParseJsonContent(value) : value;
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
+function dbtQueryScopeKey(value: unknown): string | null {
+  const querySpec = readRecord(value);
+  if (!querySpec) return null;
+  if (
+    Object.keys(querySpec).some(
+      (key) => !["groupBy", "timeRange", "allTime"].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const rawGroupBy = querySpec.groupBy ?? [];
+  if (!Array.isArray(rawGroupBy)) return null;
+  const groupBy = rawGroupBy.map((value) => {
+    const group = readRecord(value);
+    if (
+      !group ||
+      typeof group.name !== "string" ||
+      !group.name.trim() ||
+      (group.grain !== undefined && typeof group.grain !== "string")
+    ) {
+      return null;
+    }
+    return `${group.name.trim().toLowerCase()}:${String(group.grain ?? "")
+      .trim()
+      .toUpperCase()}`;
+  });
+  if (groupBy.some((group) => group === null)) return null;
+  const timeRange =
+    querySpec.timeRange === undefined ? null : readRecord(querySpec.timeRange);
+  if (
+    querySpec.timeRange !== undefined &&
+    (!timeRange ||
+      typeof timeRange.startDate !== "string" ||
+      typeof timeRange.endDate !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(timeRange.startDate) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(timeRange.endDate))
+  ) {
+    return null;
+  }
+  if (
+    querySpec.allTime !== undefined &&
+    typeof querySpec.allTime !== "boolean"
+  ) {
+    return null;
+  }
+  const allTime = querySpec.allTime === true;
+  if (allTime === (timeRange !== null)) return null;
+  return JSON.stringify({
+    allTime,
+    groupBy: (groupBy as string[]).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    timeRange: timeRange
+      ? { startDate: timeRange.startDate, endDate: timeRange.endDate }
+      : null,
+  });
+}
+
+function dbtCallScope(
+  input: Record<string, unknown>,
+):
+  | { kind: "scope-less" }
+  | { kind: "scoped"; key: string }
+  | { kind: "invalid" } {
+  const hasScope =
+    input.groupBy !== undefined ||
+    input.timeRange !== undefined ||
+    input.allTime !== undefined;
+  if (!hasScope) return { kind: "scope-less" };
+  const key = dbtQueryScopeKey({
+    groupBy: input.groupBy ?? [],
+    ...(input.timeRange !== undefined ? { timeRange: input.timeRange } : {}),
+    ...(input.allTime !== undefined ? { allTime: input.allTime } : {}),
+  });
+  return key ? { kind: "scoped", key } : { kind: "invalid" };
+}
+
+function pairedDbtActionCall(
+  results: Array<{ name?: string; toolCallId?: string }>,
+  resultIndex: number,
+  toolCalls: Array<{
+    name?: string;
+    toolCallId?: string;
+    input?: unknown;
+  }> = [],
+): { name?: string; toolCallId?: string; input?: unknown } | undefined {
+  const result = results[resultIndex];
+  if (!result || !isDbtSemanticMetricActionName(String(result.name ?? ""))) {
+    return undefined;
+  }
+  const calls = toolCalls.filter((call) =>
+    isDbtSemanticMetricActionName(String(call.name ?? "")),
+  );
+  if (result.toolCallId) {
+    const matches = calls.filter(
+      (call) => call.toolCallId === result.toolCallId,
+    );
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+  const dbtResults = results.filter((candidate) =>
+    isDbtSemanticMetricActionName(String(candidate.name ?? "")),
+  );
+  return calls.length === 1 && dbtResults.length === 1 ? calls[0] : undefined;
+}
+
+function isRecoveredByLaterDbtSuccess(
+  result: {
+    name?: string;
+    toolCallId?: string;
+    isError?: boolean;
+    content?: unknown;
+  },
   index: number,
-  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+  results: Array<{
+    name?: string;
+    toolCallId?: string;
+    isError?: boolean;
+    content?: unknown;
+  }>,
+  toolCalls?: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
+): boolean {
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  if (!DBT_LOOKUP_STATUSES.has(String(record.status))) return false;
+  const failureCall = pairedDbtActionCall(results, index, toolCalls);
+  if (!failureCall) return false;
+  const failureInput = readRecord(failureCall.input);
+  if (!failureInput || failureInput.metricName !== record.metricName) {
+    return false;
+  }
+  const inputScope = dbtCallScope(failureInput);
+  const outputScope =
+    record.querySpec === undefined ? null : dbtQueryScopeKey(record.querySpec);
+  if (
+    inputScope.kind === "invalid" ||
+    (record.querySpec !== undefined && outputScope === null) ||
+    (inputScope.kind === "scoped" &&
+      outputScope !== null &&
+      inputScope.key !== outputScope)
+  ) {
+    return false;
+  }
+  const failedScope =
+    inputScope.kind === "scoped" ? inputScope.key : outputScope;
+  return results.slice(index + 1).some((candidate) => {
+    if (!isCompleteDbtMetricResult(candidate)) return false;
+    const answered = tryParseJsonContent(
+      String(candidate.content ?? ""),
+    ) as Record<string, unknown> | null;
+    if (
+      typeof record.metricName !== "string" ||
+      answered?.metricName !== record.metricName
+    ) {
+      return false;
+    }
+    if (failedScope === null) return true;
+    const successScope = dbtQueryScopeKey(answered?.querySpec);
+    return successScope !== null && successScope === failedScope;
+  });
+}
+
+function isFailedDataQueryAttempt(
+  result: {
+    name?: string;
+    toolCallId?: string;
+    isError?: boolean;
+    content?: string;
+  },
+  index: number,
+  results: Array<{
+    name?: string;
+    toolCallId?: string;
+    isError?: boolean;
+    content?: string;
+  }>,
+  toolCalls?: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
 ): boolean {
   const name = String(result.name ?? "");
   if (isDbtSemanticMetricActionName(name)) {
     return (
       dbtSemanticMetricFailure(result) !== null &&
-      !isRecoveredDbtContinuation(result, index, results)
+      !isRecoveredDbtContinuation(result, index, results) &&
+      !isRecoveredByLaterDbtSuccess(result, index, results, toolCalls)
     );
   }
   if (isToolName(name, "query-agent-native-analytics")) {
@@ -1783,12 +2015,21 @@ function compactToolFailure(content: string | undefined): string {
 
 export function failedDataQueryAttemptMessage(
   toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | Array<{
+        name?: string;
+        toolCallId?: string;
+        isError?: boolean;
+        content?: string;
+      }>
     | undefined,
+  toolCalls?: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
 ): string | null {
   const results = toolResults ?? [];
-  const failed = results.find(isFailedDataQueryAttempt);
-  if (!failed) return null;
+  const failedIndex = results.findIndex((result, index) =>
+    isFailedDataQueryAttempt(result, index, results, toolCalls),
+  );
+  if (failedIndex === -1) return null;
+  const failed = results[failedIndex]!;
   const name = String(failed.name ?? "data-source query");
   const dbtFailure = dbtSemanticMetricFailure(failed);
   if (dbtFailure) return `I did try \`${name}\`. ${dbtFailure}`;
@@ -1801,15 +2042,22 @@ export function failedDataQueryAttemptMessage(
 
 export function hasFailedDbtSemanticMetricQuery(
   toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | Array<{
+        name?: string;
+        toolCallId?: string;
+        isError?: boolean;
+        content?: string;
+      }>
     | undefined,
+  toolCalls?: Array<{ name?: string; toolCallId?: string; input?: unknown }>,
 ): boolean {
   const results = toolResults ?? [];
   return results.some(
     (result, index) =>
       isDbtSemanticMetricActionName(String(result.name ?? "")) &&
       dbtSemanticMetricFailure(result) !== null &&
-      !isRecoveredDbtContinuation(result, index, results),
+      !isRecoveredDbtContinuation(result, index, results) &&
+      !isRecoveredByLaterDbtSuccess(result, index, results, toolCalls),
   );
 }
 

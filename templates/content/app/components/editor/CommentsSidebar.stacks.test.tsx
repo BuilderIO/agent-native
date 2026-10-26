@@ -344,6 +344,39 @@ describe("comment stacks in the margin", () => {
     }
   });
 
+  it("stacks a quote across blocks under its first block, spaced as the page reads it, in front or behind", async () => {
+    scroll.innerHTML = `
+      <div data-document-scroll-content>
+        <div class="ProseMirror">
+          <p><span data-comment-thread="near">near</span> and the
+            <span data-comment-thread="across">end of one</span></p>
+          <p><span data-comment-thread="across">start of two</span></p>
+        </div>
+      </div>`;
+    const across = {
+      ...thread("across", ["2026-10-20T09:00:00Z"]),
+      quotedText: "end of onestart of two",
+    };
+    render([across, thread("near", ["2026-10-20T10:00:00Z"])]);
+    expect(margin()).toEqual(["stack:near"]);
+    const stack = foldedStacks()[0];
+    expect(
+      stack.querySelector('[data-comment-stack-behind="across"]')!.textContent,
+    ).toContain("end of one start of two");
+
+    act(() => harness.hover("across"));
+    await wait(220);
+    expect(margin()).toEqual(["stack:across"]);
+    const front = foldedStacks()[0].querySelector(
+      "[data-comment-stack-front-card]",
+    )!;
+    expect(front.textContent).toContain("end of one start of two");
+    expect(
+      foldedStacks()[0].querySelector("[data-comment-stack-description]")!
+        .textContent,
+    ).toContain("end of one start of two");
+  });
+
   it("describes a folded stack to screen readers, though its preview is inert", () => {
     render();
     const description = document.getElementById(

@@ -177,10 +177,12 @@ const frontCardClass = cn(
 /** A front thread's quote and first comment, with the others counted below. */
 function StackFrontPreview({
   thread,
+  quote,
   others,
   t,
 }: {
   thread: CommentThread;
+  quote: string | null;
   others: readonly CommentThread[];
   t: Translate;
 }) {
@@ -193,9 +195,9 @@ function StackFrontPreview({
         inert
         className="grid flex-1 grid-cols-1 content-start gap-3.5 px-4 pb-3.5 pt-3.5"
       >
-        {thread.quotedText ? (
+        {quote ? (
           <p className="-mb-1 line-clamp-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground">
-            {thread.quotedText}
+            {quote}
           </p>
         ) : null}
         {first ? (
@@ -242,6 +244,7 @@ export function CommentStackCard({
   front,
   frontPlaced,
   shownFronts,
+  quotes,
   isActive,
   onOpen,
   onHoverChange,
@@ -264,6 +267,8 @@ export function CommentStackCard({
    * key moves with the blocks above it; its threads don't.
    */
   shownFronts: Map<string, string>;
+  /** Quotes as the page shows them, under their thread ids, where they differ. */
+  quotes: ReadonlyMap<string, string>;
   isActive: boolean;
   onOpen: () => void;
   onHoverChange: (hovered: boolean) => void;
@@ -313,6 +318,9 @@ export function CommentStackCard({
   const leaving = motion.leaving
     ? threads.find((thread) => thread.threadId === motion.leaving)
     : undefined;
+  const quoteOf = (thread: CommentThread) =>
+    quotes.get(thread.threadId) ?? thread.quotedText ?? null;
+  const quote = quoteOf(front);
   const first = front.comments[0];
   const firstName = first
     ? (first.author_name ?? first.author_email.split("@")[0])
@@ -349,7 +357,12 @@ export function CommentStackCard({
               className={cn(stackCardClass, "invisible")}
               data-comment-stack-behind={thread.threadId}
             >
-              <StackFrontPreview thread={thread} others={others} t={t} />
+              <StackFrontPreview
+                thread={thread}
+                quote={quoteOf(thread)}
+                others={others}
+                t={t}
+              />
             </div>
           ),
         )}
@@ -367,6 +380,7 @@ export function CommentStackCard({
           >
             <StackFrontPreview
               thread={leaving}
+              quote={quoteOf(leaving)}
               others={threads.filter((thread) => thread !== leaving)}
               t={t}
             />
@@ -387,10 +401,15 @@ export function CommentStackCard({
           )}
           data-comment-stack-front-card
         >
-          <StackFrontPreview thread={front} others={others} t={t} />
+          <StackFrontPreview
+            thread={front}
+            quote={quote}
+            others={others}
+            t={t}
+          />
         </div>
         <div hidden id={descriptionId} data-comment-stack-description>
-          {front.quotedText ? <p>{front.quotedText}</p> : null}
+          {quote ? <p>{quote}</p> : null}
           {first ? (
             <>
               <p>{firstName}</p>

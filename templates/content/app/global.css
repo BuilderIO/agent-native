@@ -920,6 +920,25 @@
   border: 1px solid hsl(var(--border));
 }
 
+/* A table nobody has resized sizes its columns to their content. */
+.content-editor table[data-column-sizing="content"] {
+  table-layout: auto;
+}
+
+/* The page lets any word break anywhere, which tells the browser every column
+   can shrink to a letter, so short columns would be squeezed. Words here break
+   only when they can't fit; links and code, which can be long, still may. */
+.content-editor
+  table[data-column-sizing]
+  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label) {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.content-editor table[data-column-sizing] :is(td, th) :is(a, code) {
+  overflow-wrap: anywhere;
+}
+
 .content-editor table td,
 .content-editor table th {
   border-right: 1px solid hsl(var(--border));

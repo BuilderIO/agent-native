@@ -324,9 +324,72 @@ export function findThreadPosition(
   return null;
 }
 
+// The elements a page's text blocks render as.
+const QUOTE_TEXT_BLOCKS = "p, h1, h2, h3, h4, h5, h6, pre";
+
+/**
+ * A quote as its highlight reads. A stored quote runs blocks together, so
+ * where the highlight crosses into another block this puts a space. Null when
+ * the highlight stays in one block or no longer holds the stored quote.
+ */
+export function highlightedQuote(
+  marked: Iterable<Pick<Element, "textContent" | "closest">>,
+  quotedText: string,
+): string | null {
+  let quote = "";
+  let text = "";
+  let block: Element | null | undefined;
+  for (const element of marked) {
+    const part = element.textContent ?? "";
+    if (!part) continue;
+    const owner = element.closest(QUOTE_TEXT_BLOCKS);
+    if (block !== undefined && owner !== block) quote += " ";
+    block = owner;
+    quote += part;
+    text += part;
+  }
+  return text === quotedText && quote !== text ? quote : null;
+}
+
+/**
+ * The quotes of `threads` that read differently in their highlights, from one
+ * pass over the page's highlights.
+ */
+function measureThreadQuotes(
+  container: ParentNode,
+  threads: readonly { threadId: string; quotedText?: string | null }[],
+): Map<string, string> {
+  const marked = new Map<string, Element[]>();
+  for (const element of container.querySelectorAll(
+    ".ProseMirror [data-comment-thread]",
+  )) {
+    const threadId = element.getAttribute("data-comment-thread")!;
+    const elements = marked.get(threadId);
+    if (elements) elements.push(element);
+    else marked.set(threadId, [element]);
+  }
+  const quotes = new Map<string, string>();
+  for (const { threadId, quotedText } of threads) {
+    const elements = marked.get(threadId);
+    const quote =
+      elements && quotedText ? highlightedQuote(elements, quotedText) : null;
+    if (quote) quotes.set(threadId, quote);
+  }
+  return quotes;
+}
+
 /** Whether a thread's tab is on the page but not open. */
 function sameThreadIds(a: ReadonlySet<string>, b: ReadonlySet<string>) {
   return a.size === b.size && [...b].every((threadId) => a.has(threadId));
+}
+
+function sameQuotes(
+  a: ReadonlyMap<string, string>,
+  b: ReadonlyMap<string, string>,
+) {
+  return (
+    a.size === b.size && [...b].every(([id, quote]) => a.get(id) === quote)
+  );
 }
 
 function threadTabHidden(
@@ -550,7 +613,7 @@ export function scrollToCommentAnchor(
   return true;
 }
 
-export function preserveCommentReplyEscape(event: KeyboardEvent) {
+export function preserveCommentComposerEscape(event: KeyboardEvent) {
   const target = event.target;
   if (
     event.key === "Escape" &&
@@ -559,11 +622,10 @@ export function preserveCommentReplyEscape(event: KeyboardEvent) {
       target instanceof HTMLInputElement ||
       target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
-    // Replies, the page composer and the Discussion search close their own
-    // menus and boxes; Escape there must not close the panel too.
-    target.closest(
-      "[data-comment-reply-composer], [data-discussion-composer], [data-discussion-toolbar]",
-    )
+    // Comment composers, including the Discussion page composer, and the
+    // Discussion search close their own menus and boxes; Escape there must
+    // not close the panel too.
+    target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
   }
@@ -798,6 +860,8 @@ export function useCommentReplyDrafts(
       update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
       update(threadId, () => ({ text: "", mentions: [], aiDraft: null })),
+    discard: (threadId: string) =>
+      draftStore.discard(`reply:${documentId}:${threadId}`),
     beginSubmission: (threadId: string, operationId: string) => {
       const key = `reply:${documentId}:${threadId}`;
       return draftStore.beginSubmission(
@@ -1755,6 +1819,10 @@ export function CommentsSidebar({
   const [hiddenTabThreadIds, setHiddenTabThreadIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  // Quotes whose highlight crosses a block, with a space where it does.
+  const [threadQuotes, setThreadQuotes] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
   // Highlights shown again that the editor hasn't drawn yet.
   const highlightsReturningRef = useRef(false);
   const propertyOrder = useMemo(
@@ -2237,6 +2305,7 @@ export function CommentsSidebar({
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setHiddenTabThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
       setMeasuredThreadIds((prev) => (prev.size === 0 ? prev : new Set()));
+      setThreadQuotes((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
     // With highlights hidden there are no marks to measure, and guessing from
@@ -2264,6 +2333,8 @@ export function CommentsSidebar({
       else if (threadTabHidden(container, fieldId))
         hiddenTabIds.add(thread.threadId);
     }
+    const quotes = measureThreadQuotes(container, openThreads);
+    setThreadQuotes((prev) => (sameQuotes(prev, quotes) ? prev : quotes));
     const lookedFor = new Set(measuredThreads.map((thread) => thread.threadId));
     setHiddenTabThreadIds((prev) =>
       sameThreadIds(prev, hiddenTabIds) ? prev : hiddenTabIds,
@@ -2632,6 +2703,7 @@ export function CommentsSidebar({
         front={front}
         frontPlaced={placedThreadIds === openThreadIds}
         shownFronts={shownStackFronts}
+        quotes={threadQuotes}
         isActive={stack.threads.some(
           (member) => member.threadId === activeThreadId,
         )}
@@ -2860,7 +2932,7 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
-        quote={thread.quotedText}
+        quote={threadQuotes.get(thread.threadId) ?? thread.quotedText}
         showQuote={inStack}
         propertyTarget={
           thread.property
@@ -3530,9 +3602,8 @@ export function CommentsSidebar({
                       : undefined
                   }
                   onCancel={handlePendingCancel}
-                  onEscape={() => {
-                    if (!pendingText.trim()) handlePendingCancel();
-                  }}
+                  onEscape={handlePendingCancel}
+                  confirmEscape={pendingText.trim() ? "comment" : false}
                   onFocus={() => {
                     const selection = pendingInputRef.current?.getSelection();
                     if (selection && pendingFocus)
@@ -3716,6 +3787,7 @@ function ProposalGroup({
     return () => observer.disconnect();
   }, [onHeightChange]);
   const pending = members.filter((member) => member.status === "pending");
+  const undecided = pending.length === totalCount;
   return (
     <div
       ref={groupRef}
@@ -3766,7 +3838,7 @@ function ProposalGroup({
             onClick={() => onDecide("accepted")}
             className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
           >
-            {t("comments.acceptRemaining")}
+            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
           </button>
           <button
             type="button"
@@ -3774,7 +3846,7 @@ function ProposalGroup({
             onClick={() => onDecide("rejected")}
             className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
           >
-            {t("comments.rejectRemaining")}
+            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
           </button>
         </div>
       ) : null}
@@ -5015,9 +5087,14 @@ function ThreadView({
             onAiDraftChange={onAiDraftChange}
             aiModelStorageKey={aiModelStorageKey}
             onEscape={() => {
+              // A reply on its way out keeps its draft until the save lands.
+              if (!isReplySubmitting) replyDrafts?.discard(thread.threadId);
               onCollapse();
               requestAnimationFrame(() => cardRef.current?.focus());
             }}
+            confirmEscape={
+              replyText.trim() && !isReplySubmitting ? "reply" : false
+            }
             onFocus={() => {
               const selection = replyInputRef.current?.getSelection();
               if (!selection || !replyDrafts || !documentId) return;

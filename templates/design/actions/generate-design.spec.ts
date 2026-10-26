@@ -2958,3 +2958,97 @@ describe("generate-design: generation attempt tracking", () => {
     expect(result.savedFiles).toHaveLength(1);
   });
 });
+
+describe("generate-design: rejected input in the agent loop", () => {
+  function scriptedEngine(calls: Array<Record<string, unknown>>) {
+    let turn = 0;
+    return {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream() {
+        const input = calls[turn];
+        turn++;
+        if (input) {
+          yield {
+            type: "assistant-content" as const,
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `call-${turn}`,
+                name: "generate-design",
+                input,
+              },
+            ],
+          };
+          yield { type: "stop" as const, reason: "tool_use" as const };
+          return;
+        }
+        yield {
+          type: "assistant-content" as const,
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop" as const, reason: "end_turn" as const };
+      },
+    };
+  }
+
+  it("lets a corrected call run after a tweak the schema rejects", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    resetDesignDataMutation();
+    mocks.setFileRows([]);
+    mocks.seededCollabText.clear();
+    const files = JSON.stringify([
+      { filename: "index.html", fileType: "html", content: "<main>Hi</main>" },
+    ]);
+    const base = { designId: "design-1", prompt: "Event signup", files };
+    const events: Array<Record<string, unknown>> = [];
+    await runAgentLoop({
+      engine: scriptedEngine([
+        {
+          ...base,
+          tweaks: JSON.stringify([
+            { id: "accent", label: "Accent", type: "color", cssVar: "--a" },
+          ]),
+        },
+        base,
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+      signal: new AbortController().signal,
+    });
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "input_invalid",
+      result: expect.stringContaining("tweaks.0.type"),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.errorCode === "write_tool_outcome_unknown",
+      ),
+    ).toBe(false);
+    expect(mocks.seededCollabText.size).toBe(1);
+  });
+});

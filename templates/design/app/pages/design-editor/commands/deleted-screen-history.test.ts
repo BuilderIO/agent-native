@@ -26,7 +26,6 @@ import type {
   FileDeletionHistoryEntry,
   FileDeletionHistorySnapshot,
   GeometryHistorySelection,
-  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import { getContentHistoryChanges } from "@/pages/design-editor/history";
 import * as historyIdentity from "@/pages/design-editor/history-identity";
@@ -204,8 +203,6 @@ describe("screen deletion history identity", () => {
     const localContentRedoStackRef = ref<ContentHistoryChange[]>([]);
     const geometryUndoStackRef = ref<GeometryHistoryEntry[]>([]);
     const geometryRedoStackRef = ref<GeometryHistoryEntry[]>([]);
-    const selectionUndoStackRef = ref<SelectionHistoryEntry[]>([]);
-    const selectionRedoStackRef = ref<SelectionHistoryEntry[]>([]);
     const fileDeletionRedoStackRef = ref<FileDeletionHistoryEntry[]>([]);
     const createCalls: string[] = [];
     const createFile = vi.fn(async ({ filename }: { filename: string }) => {
@@ -286,8 +283,6 @@ describe("screen deletion history identity", () => {
         requestPendingLiveNonStyleRevert: vi.fn(),
         requestPendingVisualStyleRevert: vi.fn(),
         restoreSelectionSnapshot: vi.fn(),
-        selectionRedoStackRef,
-        selectionUndoStackRef,
         setActiveFileId: vi.fn(),
         setContentRenderRevision: vi.fn(),
         setHoveredElement: vi.fn(),
@@ -518,20 +513,12 @@ describe("screen deletion history identity", () => {
         geometryUndoEntry,
       ]);
       const geometryRedoStackRef = ref<GeometryHistoryEntry[]>([]);
-      const selectionUndoStackRef = ref<SelectionHistoryEntry[]>([
-        { before: survivorSelection, after: { ...originalAfterSelection } },
-      ]);
-      const selectionRedoStackRef = ref<SelectionHistoryEntry[]>([]);
 
       const fileDeletionUndoStackRef = ref<FileDeletionHistoryEntry[]>([]);
       const fileDeletionRedoStackRef = ref<FileDeletionHistoryEntry[]>([]);
       const fileCreationUndoStackRef = ref([]);
       const fileCreationRedoStackRef = ref([]);
-      const historyOrderRef = ref([
-        "selection",
-        "geometry",
-        "file-content",
-      ] as Array<any>);
+      const historyOrderRef = ref(["geometry", "file-content"] as Array<any>);
       const redoOrderRef = ref<Array<any>>([]);
       const fileHistoryMutationPendingRef = ref(false);
       const designDataJsonRef = ref<Record<string, unknown>>({
@@ -713,8 +700,6 @@ describe("screen deletion history identity", () => {
             activeFileIdRef.current = selection.activeFileId ?? "";
             selectedLayerIdsRef.current = selection.selectedLayerIds;
           },
-          selectionRedoStackRef,
-          selectionUndoStackRef,
           setActiveFileId: (id: string) => {
             activeFileIdRef.current = id;
           },
@@ -878,12 +863,6 @@ describe("screen deletion history identity", () => {
       expect(
         geometryUndoStackRef.current[0]?.selectionBefore?.selectedLayerIds,
       ).toEqual([survivorTarget.id]);
-      expect(selectionUndoStackRef.current[0]?.before.selectedLayerIds).toEqual(
-        [survivorTarget.id],
-      );
-      expect(selectionUndoStackRef.current[0]?.after.selectedLayerIds).toEqual([
-        noteParagraphs(after, restoredScreenId)[1]?.id,
-      ]);
       expect(
         contentHistorySelectionAfterRef.current.get(
           restoredChange as ContentHistoryEntry,

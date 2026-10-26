@@ -5,6 +5,7 @@ import {
   resolveThreadAccess,
   setThreadArchived,
   setThreadPinned,
+  setThreadHidden,
 } from "../../chat-threads/store.js";
 import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
@@ -668,6 +669,11 @@ export async function createChatScriptEntries(): Promise<
               description: "Output format",
               enum: ["json", "text"],
             },
+            includeHidden: {
+              type: "boolean",
+              description:
+                "Also include chats hidden by you. Hidden chats are excluded by default.",
+            },
             includeArchived: {
               type: "boolean",
               description:
@@ -700,14 +706,23 @@ export async function createChatScriptEntries(): Promise<
       "chat-history": {
         tool: {
           description:
-            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'rename'/'pin'/'unpin'/'archive' to organize history.",
+            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'pin'/'unpin' to pin for yourself, 'hide'/'unhide' to remove or restore shared chats in your lists. Only owners can rename or archive; owners archive instead of hiding.",
           parameters: {
             type: "object",
             properties: {
               action: {
                 type: "string",
                 description: "The operation to perform",
-                enum: ["search", "open", "rename", "pin", "unpin", "archive"],
+                enum: [
+                  "search",
+                  "open",
+                  "rename",
+                  "pin",
+                  "unpin",
+                  "archive",
+                  "hide",
+                  "unhide",
+                ],
               },
               query: {
                 type: "string",
@@ -723,6 +738,11 @@ export async function createChatScriptEntries(): Promise<
                 description: "(search) Output format",
                 enum: ["json", "text"],
               },
+              includeHidden: {
+                type: "boolean",
+                description:
+                  "(search) Include chats hidden by you, with your hiddenAt timestamp.",
+              },
               includeArchived: {
                 type: "boolean",
                 description:
@@ -731,7 +751,7 @@ export async function createChatScriptEntries(): Promise<
               id: {
                 type: "string",
                 description:
-                  "(open, rename, pin, unpin, archive) The chat thread ID to manage",
+                  "(open, rename, pin, unpin, archive, hide, unhide) The chat thread ID to manage",
               },
               title: {
                 type: "string",
@@ -754,14 +774,16 @@ export async function createChatScriptEntries(): Promise<
             args?.action === "rename" ||
             args?.action === "pin" ||
             args?.action === "unpin" ||
-            args?.action === "archive"
+            args?.action === "archive" ||
+            args?.action === "hide" ||
+            args?.action === "unhide"
           ) {
             const id = typeof args?.id === "string" ? args.id : "";
             if (!id) return "Missing required id.";
             const owner =
               getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
             if (!owner) return "No authenticated user is available.";
-            const thread = await resolveThreadAccess(owner, id, "editor", {
+            const thread = await resolveThreadAccess(owner, id, "viewer", {
               orgId: getRequestOrgId(),
             });
             if (!thread) {
@@ -774,17 +796,32 @@ export async function createChatScriptEntries(): Promise<
                   ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
                   : "";
               if (!nextTitle) return "Missing required title.";
-              const renamed = await renameThread(id, nextTitle);
+              const renamed = await renameThread(id, nextTitle, {
+                ownerEmail: owner,
+              });
               if (!renamed) return `Chat thread "${id}" could not be renamed.`;
               return `Renamed chat "${title}" to "${nextTitle}".`;
             }
             if (args.action === "archive") {
-              const archived = await setThreadArchived(id, true);
+              const archived = await setThreadArchived(id, true, {
+                ownerEmail: owner,
+              });
               if (!archived)
                 return `Chat thread "${id}" could not be archived.`;
               return `Archived chat: ${title}`;
             }
-            const pinned = await setThreadPinned(id, args.action === "pin");
+            if (args.action === "hide" || args.action === "unhide") {
+              const hidden = await setThreadHidden(id, args.action === "hide", {
+                ownerEmail: owner,
+                orgId: getRequestOrgId(),
+              });
+              if (!hidden) return `Chat thread "${id}" could not be updated.`;
+              return `${args.action === "hide" ? "Hidden" : "Unhidden"} chat: ${title}`;
+            }
+            const pinned = await setThreadPinned(id, args.action === "pin", {
+              ownerEmail: owner,
+              orgId: getRequestOrgId(),
+            });
             if (!pinned) return `Chat thread "${id}" could not be updated.`;
             return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
           }

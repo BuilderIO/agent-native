@@ -16,7 +16,7 @@ import {
 import { CommentDraftProvider } from "./comment-drafts";
 import {
   CommentsSidebar,
-  preserveCommentReplyEscape,
+  preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
 
@@ -561,13 +561,13 @@ describe("the Discussion panel", () => {
       search.focus();
       const inSearch = escape();
       search.dispatchEvent(inSearch);
-      preserveCommentReplyEscape(inSearch);
+      preserveCommentComposerEscape(inSearch);
       expect(inSearch.defaultPrevented).toBe(true);
 
       outside.focus();
       const elsewhere = escape();
       outside.dispatchEvent(elsewhere);
-      preserveCommentReplyEscape(elsewhere);
+      preserveCommentComposerEscape(elsewhere);
       expect(elsewhere.defaultPrevented).toBe(false);
     } finally {
       toolbar.remove();

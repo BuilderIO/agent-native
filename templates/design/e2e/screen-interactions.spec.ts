@@ -482,8 +482,8 @@ test("preset screen dimensions and direct size edits survive reload", async ({
     .getByRole("treeitem", { name: /^Screen 2/ })
     .getByRole("button", { name: "Screen 2" })
     .click();
-  await expect(widthInput).toHaveValue("800px");
-  await expect(heightInput).toHaveValue("800px");
+  await expect(widthInput).toHaveValue("800");
+  await expect(heightInput).toHaveValue("800");
   expect(await homeState(), "the Home screen is untouched").toEqual(homeBefore);
 });
 

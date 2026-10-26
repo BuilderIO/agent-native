@@ -1797,7 +1797,7 @@ export function DesignColorPicker({
                           );
                         }}
                       />
-                      <span className="-ml-1 tabular-nums text-muted-foreground !text-[11px]">
+                      <span className="-ml-1.5 tabular-nums !text-[11px]">
                         %
                       </span>
                     </>

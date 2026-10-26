@@ -73,6 +73,8 @@ function githubSource(
         skipped: [],
         skippedCount: status.skipped?.length ?? 0,
         imagesWaiting: 0,
+        imagesFailed: false,
+        storageReady: false,
         problem: null,
         ...status,
       },
@@ -307,6 +309,89 @@ describe("GitHub source status line", () => {
     );
   });
 
+  it("says when file storage is set up but couldn't save pictures", () => {
+    renderLine(
+      githubSource({ problem: problem("storage_failed"), imagesWaiting: 2 }),
+    );
+    expect(document.querySelector('[role="alert"]')).toBe(null);
+    expect(statusLine().textContent).toContain(
+      "Some pictures couldn’t be saved to file storage. Each sync tries them again.",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("Updates are paused");
+  });
+
+  it("still says storage couldn't save pictures when another problem stopped the sync", () => {
+    renderLine(
+      githubSource({
+        problem: problem("unavailable"),
+        imagesWaiting: 1,
+        imagesFailed: true,
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures couldn’t be saved to file storage.",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    // The problem that stopped the sync still shows too.
+    expect(statusLine().textContent).toContain(
+      "Updates are paused for a moment.",
+    );
+  });
+
+  it("still asks for file storage when another problem stopped the sync", () => {
+    renderLine(
+      githubSource({ problem: problem("unavailable"), imagesWaiting: 1 }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures won’t show until a workspace admin sets up file storage.",
+    );
+  });
+
+  it("doesn't ask for file storage the stopped sync found set up", () => {
+    renderLine(
+      githubSource({
+        problem: problem("unavailable"),
+        imagesWaiting: 1,
+        storageReady: true,
+      }),
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
+    expect(statusLine().textContent).toContain(
+      "Updates are paused for a moment.",
+    );
+  });
+
+  it("asks for file storage once it's gone, even after it failed", () => {
+    renderLine(
+      githubSource({
+        problem: problem("storage_unavailable"),
+        imagesWaiting: 1,
+        imagesFailed: true,
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Some pictures won’t show until a workspace admin sets up file storage.",
+    );
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
+  });
+
+  it("doesn't ask for file storage while a sync adds pictures once it's set up", () => {
+    renderLine(
+      githubSource({
+        imagesWaiting: 3,
+        pendingCommitSha: "abcdef1234567",
+        progress: { done: 40, total: 120 },
+      }),
+    );
+    expect(statusLine().textContent).toContain(
+      "Bringing in changes: 40 of 120 files",
+    );
+    expect(statusLine().textContent).not.toContain("sets up file storage");
+    expect(statusLine().textContent).not.toContain("couldn’t be saved");
+  });
+
   it("shows how far an update has got", () => {
     renderLine(
       githubSource({
@@ -420,6 +505,25 @@ describe("Filling while the collection is open", () => {
     expect(sync.mutateAsync).toHaveBeenCalledWith({ databaseId: "database-1" });
     expectNoToasts();
   });
+
+  it.each(["storage_unavailable", "storage_failed"] as const)(
+    "asks for the next part at once after one that got further with %s",
+    async (code) => {
+      vi.useFakeTimers();
+      sync.mutateAsync
+        .mockResolvedValueOnce(
+          syncResult({
+            state: "partial",
+            remaining: 40,
+            problem: problem(code),
+          }),
+        )
+        .mockResolvedValueOnce(syncResult({ state: "synced" }));
+      renderLine(filling());
+      await settle();
+      expect(sync.mutateAsync).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it.each([
     ["the folder is current", syncResult({ state: "synced" })],

@@ -160,7 +160,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
   await transparentFrame.locator("[data-layer-row-button]").click();
   await expect(
     page.getByRole("textbox", { name: "W size in pixels" }),
-  ).toHaveValue("100px");
+  ).toHaveValue("100");
   const transparentFrameExport = await exportPngPixels(page);
   expect(transparentFrameExport).toMatchObject({
     width: 100,

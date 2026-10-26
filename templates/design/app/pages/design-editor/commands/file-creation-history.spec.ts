@@ -18,7 +18,7 @@ describe("file creation history command", () => {
       PendingFileCreationHistoryEntry[]
     >([]);
     const fileCreationUndoStackRef = ref<FileCreationHistoryEntry[]>([]);
-    const historyOrderRef = ref<("file-created" | "selection")[]>([]);
+    const historyOrderRef = ref<"file-created"[]>([]);
     const clearRedoStacks = vi.fn();
     const syncUndoRedoState = vi.fn();
     const state = {
