@@ -4,7 +4,7 @@ import {
   evaluateFeatureFlagRules,
   getFeatureFlagRulesStrict,
 } from "@agent-native/core/feature-flags";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import {
   LIVE_BODY_BACKFILL_FLAG,
@@ -122,18 +122,7 @@ export async function liveBodyWriterGatesForRows(
       versions.set(String(doc.doc_id), doc.version);
     }
   }
-  const flagsByScope = new Map<string, Promise<boolean>>();
-  const flagsOn = (
-    page: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">,
-  ) => {
-    const scope = JSON.stringify([page.ownerEmail, page.orgId]);
-    let on = flagsByScope.get(scope);
-    if (!on) {
-      on = liveBodyWriterFlagsOn(page, { transaction: exec });
-      flagsByScope.set(scope, on);
-    }
-    return on;
-  };
+  const flagsOn = flagsOnByScope({ transaction: exec });
   const gates: LiveBodyWriterGate[] = [];
   for (const row of rows) {
     gates.push(
@@ -141,6 +130,20 @@ export async function liveBodyWriterGatesForRows(
     );
   }
   return gates;
+}
+
+// The flags once per owner and organization, however many of their pages.
+function flagsOnByScope(options: { transaction?: DbExec }) {
+  const byScope = new Map<string, Promise<boolean>>();
+  return (page: Pick<LiveBodyWriterPageRow, "ownerEmail" | "orgId">) => {
+    const scope = JSON.stringify([page.ownerEmail, page.orgId]);
+    let on = byScope.get(scope);
+    if (!on) {
+      on = liveBodyWriterFlagsOn(page, options);
+      byScope.set(scope, on);
+    }
+    return on;
+  };
 }
 
 /** The refusal of a legacy body write to a page that switched in flight. */
@@ -432,6 +435,8 @@ function readContext(options: LiveBodyWriterReadOptions): {
   throw new LiveBodyWriterContextError();
 }
 
+const GATE_PAGE_GROUP = 90;
+
 /** The write path for a page, read without its row lock. */
 export async function liveBodyWriterGate(
   docId: string,
@@ -470,6 +475,59 @@ export async function liveBodyWriterGate(
         context.kind === "transaction" ? { transaction: context.executor } : {},
       ),
   );
+}
+
+/**
+ * The pages among `docIds` whose body writes go through their live copy,
+ * read without their row locks. As in `liveBodyWriterGate`, each page's
+ * markers and its live copy's version come from one statement.
+ */
+export async function liveBodyWriterPageIds(
+  docIds: readonly string[],
+  options: LiveBodyWriterReadOptions = {},
+): Promise<Set<string>> {
+  const context = readContext(options);
+  const db = drizzleOverExec(context.executor);
+  const pages: Array<LiveBodyWriterPageRow & { collabVersion: unknown }> = [];
+  for (let offset = 0; offset < docIds.length; offset += GATE_PAGE_GROUP) {
+    const group = docIds.slice(offset, offset + GATE_PAGE_GROUP);
+    const switchedPage = and(
+      inArray(schema.documents.id, group),
+      isNotNull(schema.documents.liveBodySwitchedAt),
+    );
+    // The marker read names `_collab_docs`, which exists once a page has
+    // switched, so it runs only for a group holding one. It asks the whole
+    // group again, so a page that switches between the reads counts.
+    // guard:allow-unscoped — callers check access to the pages first, and this returns only their write paths.
+    const [anySwitched] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(switchedPage)
+      .limit(1);
+    if (!anySwitched) continue;
+    // guard:allow-unscoped — callers check access to the pages first, and this returns only their write paths.
+    const markers = await db
+      .select({
+        ...liveBodyWriterPageColumns(),
+        collabVersion: sql<unknown>`(SELECT collab.version FROM _collab_docs AS collab WHERE collab.doc_id = documents.id)`,
+      })
+      .from(schema.documents)
+      .where(switchedPage);
+    pages.push(...markers);
+  }
+  const flagsOn = flagsOnByScope(
+    context.kind === "transaction" ? { transaction: context.executor } : {},
+  );
+  const ids = new Set<string>();
+  for (const page of pages) {
+    const gate = await gateForMarkers(
+      page,
+      async () => page.collabVersion,
+      flagsOn,
+    );
+    if (gate.writePath === "live_copy") ids.add(page.id);
+  }
+  return ids;
 }
 
 /** True when `docId`'s body must be written through its live copy. */

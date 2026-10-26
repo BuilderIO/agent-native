@@ -389,9 +389,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview&zoom=60`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens);
   await stableBox(page.locator("[data-screen-card]").first());
   await expect(page.getByRole("button", { name: "60%" })).toBeVisible();
   for (const card of await page.locator("[data-screen-card]").all()) {

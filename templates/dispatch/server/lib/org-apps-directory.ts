@@ -59,7 +59,7 @@ export interface DiscoveredAppLike {
 export function buildOrgAppsResponse(input: {
   org: string;
   apps: DiscoveredAppLike[];
-  selfId?: string;
+  selfId?: string | undefined;
 }): OrgAppDirectoryResponse {
   const seen = new Set<string>();
   const apps: OrgAppDirectoryEntry[] = [];

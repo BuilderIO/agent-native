@@ -119,6 +119,7 @@ export function CommentStackCard({
   heightId,
   threads,
   front,
+  quote,
   isActive,
   onOpen,
   onHoverChange,
@@ -130,6 +131,8 @@ export function CommentStackCard({
   heightId: string;
   threads: readonly CommentThread[];
   front: CommentThread;
+  /** The front thread's quote as the page shows it. */
+  quote: string | null;
   isActive: boolean;
   onOpen: () => void;
   onHoverChange: (hovered: boolean) => void;
@@ -179,9 +182,9 @@ export function CommentStackCard({
             the open button's description too; the hidden copy below is
             what a screen reader hears. */}
         <div inert className="grid grid-cols-1 gap-3.5 px-4 pb-3.5 pt-3.5">
-          {front.quotedText ? (
+          {quote ? (
             <p className="-mb-1 line-clamp-1 border-s-2 border-border ps-2.5 text-sm text-muted-foreground">
-              {front.quotedText}
+              {quote}
             </p>
           ) : null}
           {first ? (
@@ -213,7 +216,7 @@ export function CommentStackCard({
           <CommentStackMore threads={others} t={t} />
         </div>
         <div hidden id={descriptionId} data-comment-stack-description>
-          {front.quotedText ? <p>{front.quotedText}</p> : null}
+          {quote ? <p>{quote}</p> : null}
           {first ? (
             <>
               <p>{firstName}</p>

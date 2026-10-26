@@ -3741,7 +3741,7 @@ interface AgentNativeMessageProjectionState {
     content: AgentNativeMessageContentState[];
     started: boolean;
     approvalPending: boolean;
-    pendingApprovalToolCallId?: string;
+    pendingApprovalToolCallId?: string | undefined;
     connectionPending: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
@@ -4034,6 +4034,64 @@ function agentNativeActivityStatus(
   return "running";
 }
 
+function steeredUserMessageEvent(raw: unknown):
+  | {
+      seq?: number;
+      continuationMessageId: string;
+      message: { id: string; text: string; createdAt?: string };
+      attachments: AgentChatRuntimeFilePart[];
+    }
+  | undefined {
+  const event = asRecord(raw);
+  if (event?.type !== "user_message") return undefined;
+  const message = asRecord(event.message);
+  if (
+    typeof event.continuationMessageId !== "string" ||
+    !event.continuationMessageId ||
+    typeof message?.id !== "string" ||
+    !message.id ||
+    typeof message.text !== "string"
+  ) {
+    throw new TypeError(
+      "Agent chat user_message event requires a message and a continuation id.",
+    );
+  }
+  const attachments = Array.isArray(message.attachments)
+    ? message.attachments.flatMap((value): AgentChatRuntimeFilePart[] => {
+        const attachment = asRecord(value);
+        if (typeof attachment?.url !== "string") return [];
+        const mediaType =
+          typeof attachment.mediaType === "string"
+            ? attachment.mediaType
+            : typeof attachment.contentType === "string"
+              ? attachment.contentType
+              : undefined;
+        return [
+          {
+            type: "file",
+            url: attachment.url,
+            ...(mediaType ? { mediaType } : {}),
+            ...(typeof attachment.name === "string"
+              ? { filename: attachment.name }
+              : {}),
+          },
+        ];
+      })
+    : [];
+  return {
+    ...(typeof event.seq === "number" ? { seq: event.seq } : {}),
+    continuationMessageId: event.continuationMessageId,
+    message: {
+      id: message.id,
+      text: message.text,
+      ...(typeof message.createdAt === "string"
+        ? { createdAt: message.createdAt }
+        : {}),
+    },
+    attachments,
+  };
+}
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -4044,7 +4102,7 @@ function mapAgentNativeEvent(
       content: AgentNativeMessageContentState[];
       started: boolean;
       approvalPending: boolean;
-      pendingApprovalToolCallId?: string;
+      pendingApprovalToolCallId?: string | undefined;
       connectionPending: boolean;
       activityParticipants?: Set<string>;
     };
@@ -5269,6 +5327,52 @@ export function createAgentNativeChatRuntime(
         };
         messageStates.set(stateKey, state);
       }
+      const steered = steeredUserMessageEvent(event);
+      if (steered) {
+        const base = {
+          sessionId: context.sessionId,
+          ...(context.turnId === undefined ? {} : { turnId: context.turnId }),
+          ...(steered.seq !== undefined
+            ? { metadata: { seq: steered.seq } }
+            : {}),
+        };
+        const userMessage: AgentChatRuntimeMessage = {
+          id: steered.message.id,
+          role: "user",
+          content: [
+            { type: "text", text: steered.message.text },
+            ...steered.attachments,
+          ],
+          ...(steered.message.createdAt === undefined
+            ? {}
+            : { createdAt: steered.message.createdAt }),
+          status: "complete",
+        };
+        const mappedSteer: AgentChatRuntimeKnownEvent[] = [
+          ...(state.message.started
+            ? [
+                {
+                  type: "message-done" as const,
+                  ...base,
+                  message: {
+                    id: state.messageId,
+                    role: "assistant" as const,
+                    content: [],
+                    status: "complete" as const,
+                  },
+                },
+              ]
+            : []),
+          { type: "message-start", ...base, message: userMessage },
+          { type: "message-done", ...base, message: userMessage },
+        ];
+        // The run's output after the delivered message is a new reply, under
+        // the id the server saves it with.
+        state.messageId = steered.continuationMessageId;
+        state.message.content = [];
+        state.message.started = false;
+        return mappedSteer;
+      }
       const mapped = mapAgentNativeEvent(event, {
         sessionId: context.sessionId,
         turnId: context.turnId,
@@ -5363,12 +5467,46 @@ export function createAgentNativeChatRuntime(
         });
       }
       if (!approval.approved) {
-        messageStates.delete(messageStateKey);
-        return terminalRuntimeTurn({
-          sessionId: session.id,
-          turnId: continuation.turnId,
-          reason: "complete",
-        });
+        return (async () => {
+          const threadId = session.threadId ?? options.threadId ?? session.id;
+          const headers = await resolveHeaders(options.headers, {
+            sessionId: session.id,
+            turnId: continuation.turnId,
+          });
+          if (!headers.has("Content-Type")) {
+            headers.set("Content-Type", "application/json");
+          }
+          const response = await fetchImpl(
+            `${apiUrl.replace(/\/+$/, "")}/threads/${encodeURIComponent(threadId)}/approval-resolution`,
+            {
+              method: "POST",
+              headers,
+              credentials: "same-origin",
+              body: JSON.stringify({
+                approvalId: approval.id,
+                decision: "deny",
+              }),
+            },
+          );
+          let denialResolved = response.ok;
+          if (!denialResolved && response.status === 409) {
+            try {
+              const body = asRecord(await response.clone().json());
+              denialResolved = body?.code === "approval_not_pending";
+            } catch {
+              // coercion-ok: Preserve the original HTTP failure when conflict details are unreadable.
+            }
+          }
+          if (!denialResolved) {
+            throw new Error(await readErrorText(response));
+          }
+          messageStates.delete(messageStateKey);
+          return terminalRuntimeTurn({
+            sessionId: session.id,
+            turnId: continuation.turnId,
+            reason: "complete",
+          });
+        })();
       }
       const messageState = messageStates.get(messageStateKey);
       const approvalParts = [

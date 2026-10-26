@@ -78,7 +78,9 @@ function replaceLeafBlock(
 
     const block = value as PlanBlock;
     if (block.type === "columns" || block.type === "tabs") {
-      const data = isRecord(block.data) ? block.data : null;
+      const data: Record<string, unknown> | null = isRecord(block.data)
+        ? block.data
+        : null;
       const key = block.type === "tabs" ? "tabs" : "columns";
       const regions = data?.[key];
       if (!Array.isArray(regions)) continue;

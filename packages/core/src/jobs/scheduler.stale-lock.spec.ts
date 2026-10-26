@@ -263,6 +263,9 @@ describe("stale automation run-lock recovery across trigger types", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(runStore, "getCompletedAgentExecutionSteps").mockResolvedValue([]);
+    vi.spyOn(runStore, "retryRunThreadProjection").mockResolvedValue({
+      state: "already_projected",
+    });
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,

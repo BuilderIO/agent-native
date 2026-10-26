@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import type {
   ConfigureDocumentPropertyRequest,
+  ConfigureDocumentPropertyResponse,
   ContentDatabaseMutationTarget,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseResponse,
@@ -414,7 +415,7 @@ export function useConfigureDocumentProperty(
       .map(([, value]) => value)
       .find((value) => value?.database.id === databaseId);
   const mutation = useActionMutation<
-    DocumentPropertiesResponse | GuardedConfigurePropertyResult,
+    ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     ConfigureDocumentPropertyRequest | GuardedConfigurePropertyInput
   >("configure-document-property", {
     skipActionQueryInvalidation: true,
@@ -498,7 +499,7 @@ export function useConfigureDocumentProperty(
         options as never,
       ),
   } as UseMutationResult<
-    DocumentPropertiesResponse | GuardedConfigurePropertyResult,
+    ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     Error,
     ScopedVariables,
     unknown

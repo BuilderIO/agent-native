@@ -9,7 +9,7 @@ import {
 
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 const VERTICAL_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">

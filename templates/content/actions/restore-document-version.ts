@@ -47,7 +47,11 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
+import {
+  flushOpenDocumentEditorToSql,
+  saveOpenEditorTitles,
+  type OpenEditorTitleFlush,
+} from "./_document-flush.js";
 import { lockDocumentForSave } from "./_document-save-locks.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
@@ -329,7 +333,7 @@ export default defineAction({
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
     const db = getDb();
-    if (await isLiveBodyWriterPage(documentId)) {
+    const readCurrent = async () => {
       const [current] = await db
         .select()
         .from(schema.documents)
@@ -341,6 +345,15 @@ export default defineAction({
         )
         .limit(1);
       assertEditableDocument(current);
+      return current;
+    };
+    let titleFlush: OpenEditorTitleFlush | undefined;
+    // The page as the caller prepared the restore, or as the title save the
+    // restore asked for left it. Main's path below must not read that save
+    // as a conflicting edit when the page leaves its live copy first.
+    let preparedUpdatedAt = args.expectedUpdatedAt;
+    if (await isLiveBodyWriterPage(documentId)) {
+      let current = await readCurrent();
       if (current.updatedAt !== args.expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -349,6 +362,35 @@ export default defineAction({
             currentUpdatedAt: current.updatedAt,
           },
         );
+      }
+      // History records the page as it stands before the restore, and an
+      // open editor may not have saved its title yet. Its body is already in
+      // the live copy. The save it asks for moves the page on, which is no
+      // conflict.
+      titleFlush = await saveOpenEditorTitles([documentId]);
+      if (titleFlush) {
+        const prepared = current;
+        const confirmedTitle = titleFlush.pages.find(
+          (page) => page.documentId === documentId,
+        )?.confirmedTitle;
+        current = await readCurrent();
+        // Only the title save may have moved the page on. Anything else that
+        // landed while the editors saved is an edit this restore wasn't
+        // prepared from.
+        if (
+          current.content !== prepared.content ||
+          current.bodyRevision !== prepared.bodyRevision ||
+          (confirmedTitle !== undefined && current.title !== confirmedTitle)
+        ) {
+          restoreConflict(
+            "The document changed after this restore was prepared.",
+            {
+              expectedUpdatedAt: args.expectedUpdatedAt,
+              currentUpdatedAt: current.updatedAt,
+            },
+          );
+        }
+        preparedUpdatedAt = current.updatedAt;
       }
       const restored = await restoreThroughLiveCopy({
         ctx,
@@ -359,10 +401,10 @@ export default defineAction({
       });
       if (restored) {
         await publishRestoreRefresh();
-        return restoreResult(
-          restored.document,
-          restored.softDeletedDatabaseIds,
-        );
+        return {
+          ...restoreResult(restored.document, restored.softDeletedDatabaseIds),
+          ...(titleFlush ? { titleFlush } : {}),
+        };
       }
     }
     const [versionForScope] = await db
@@ -390,13 +432,21 @@ export default defineAction({
       )
       .limit(1);
     assertEditableDocument(beforeFlush);
-    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+    if (beforeFlush.updatedAt !== preparedUpdatedAt) {
       restoreConflict("The document changed after this restore was prepared.", {
-        expectedUpdatedAt: args.expectedUpdatedAt,
+        expectedUpdatedAt: preparedUpdatedAt,
         currentUpdatedAt: beforeFlush.updatedAt,
       });
     }
-    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const flushed = await flushOpenDocumentEditorToSql({
+      documentId,
+      ownerEmail,
+    });
+    // The page can go back to its live copy after the check above, and then
+    // this flush has its editors save their titles instead.
+    if (flushed.status === "live_copy" && flushed.titleFlush) {
+      titleFlush = flushed.titleFlush;
+    }
     const [afterFlush] = await db
       .select({
         title: schema.documents.title,
@@ -513,7 +563,7 @@ export default defineAction({
           and(
             eq(schema.documents.id, documentId),
             eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+            eq(schema.documents.updatedAt, expectedUpdatedAt),
           ),
         )
         .returning();
@@ -590,6 +640,9 @@ export default defineAction({
     });
 
     await publishRestoreRefresh();
-    return restoreResult(updated, softDeletedDatabaseIds);
+    return {
+      ...restoreResult(updated, softDeletedDatabaseIds),
+      ...(titleFlush ? { titleFlush } : {}),
+    };
   },
 });
