@@ -81,8 +81,10 @@ Uploading is UI-only: no agent tool uploads a video.
   or Clips is making the Clip. Each upload has `recordingId`, `documentId`,
   `fileName`, `phase` (`uploading`, `making`, or `failed`), and `percent`.
   An upload whose block has been gone from the page for a few seconds drops
-  out of `clipUploads`, whatever its phase.
-- Keep a Clip block in place while its file sends: once the block has been
+  out of `clipUploads`, whatever its phase, and once the page is closed in
+  that tab, only an upload it is still sending stays.
+- Keep a Clip block in place while its file sends, or while Clips waits for
+  storage before making the Clip: once the block has been
   gone for those few seconds, the uploading tab cancels the upload in Clips
   and says so, even when the page closed in that time, and the person picks
   the file again. It does the same when the

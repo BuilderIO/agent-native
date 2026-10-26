@@ -63,8 +63,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  giveUpClipUpload("rec_1");
-  clearClipUpload("rec_1");
+  for (const recordingId of ["rec_1", "rec_2"]) {
+    void giveUpClipUpload(recordingId);
+    clearClipUpload(recordingId);
+  }
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -89,13 +91,34 @@ const finishedFirst = (status: string) =>
     { status: 409 },
   );
 
+/** Clips' answer to a final chunk it took, then parked until storage is set up. */
+const parkedAnswer = () =>
+  Response.json(
+    {
+      ok: true,
+      finalized: false,
+      waitingForStorage: true,
+      status: "waiting_storage",
+    },
+    { status: 202 },
+  );
+
+/** Clips' answer to a final chunk it took and is making the Clip from. */
+const finishedAnswer = () =>
+  Response.json({
+    ok: true,
+    finalized: true,
+    waitingForStorage: false,
+    status: "processing",
+  });
+
 describe("sendClipChunks", () => {
   it("posts each chunk in order, with no credentials and nothing but the ticket's URL", async () => {
     const sent = stubFetch([]);
     const progress: number[] = [];
     await expect(
       sendClipChunks(file, ticket, (bytes) => progress.push(bytes), noWait),
-    ).resolves.toBe(true);
+    ).resolves.toBe("making");
 
     expect(
       sent.map(({ url }) => [
@@ -138,7 +161,7 @@ describe("sendClipChunks", () => {
     const sent = stubFetch([503, new TypeError("offline"), 429, 200, 200, 200]);
     const wait = vi.fn(noWait);
     await expect(sendClipChunks(file, ticket, () => {}, wait)).resolves.toBe(
-      true,
+      "making",
     );
     expect(sent.map(({ url }) => url.searchParams.get("index"))).toEqual([
       "0",
@@ -154,13 +177,13 @@ describe("sendClipChunks", () => {
   it("stops at a refusal, and after the last retry", async () => {
     const refused = stubFetch([200, 401]);
     await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
-      false,
+      "failed",
     );
     expect(refused).toHaveLength(2);
 
     const down = stubFetch([500, 500, 500, 500, 500]);
     await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
-      false,
+      "failed",
     );
     expect(down).toHaveLength(5);
   });
@@ -189,14 +212,14 @@ describe("sendClipChunks", () => {
     );
     const slow = sendClipChunks(file, ticket, () => {}, noWait);
     await vi.advanceTimersByTimeAsync(2 * 60_000);
-    await expect(slow).resolves.toBe(true);
+    await expect(slow).resolves.toBe("making");
     expect(sent).toEqual(["0", "0", "1", "2"]);
 
     hangs = Infinity;
     sent.length = 0;
     const stuck = sendClipChunks(file, ticket, () => {}, noWait);
     await vi.advanceTimersByTimeAsync(5 * 2 * 60_000);
-    await expect(stuck).resolves.toBe(false);
+    await expect(stuck).resolves.toBe("failed");
     expect(sent).toEqual(["0", "0", "0", "0", "0"]);
   });
 
@@ -221,7 +244,7 @@ describe("sendClipChunks", () => {
     const upload = sendClipChunks(file, ticket, () => {});
     await vi.advanceTimersByTimeAsync(6 * 5_000);
 
-    await expect(upload).resolves.toBe(true);
+    await expect(upload).resolves.toBe("making");
     expect(sent.map(({ url }) => url.searchParams.get("index"))).toEqual([
       "0",
       "1",
@@ -239,7 +262,7 @@ describe("sendClipChunks", () => {
           : new Response("{}", { status: 200 }),
       ),
     );
-    let sent: boolean | null = null;
+    let sent: string | null = null;
     void sendClipChunks(file, ticket, () => {}).then((result) => {
       sent = result;
     });
@@ -247,7 +270,7 @@ describe("sendClipChunks", () => {
     await vi.advanceTimersByTimeAsync(2 * 60_000);
     expect(sent).toBeNull();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(sent).toBe(false);
+    expect(sent).toBe("failed");
   });
 
   it("counts a last chunk Clips already took as sent when its answer was lost", async () => {
@@ -261,12 +284,24 @@ describe("sendClipChunks", () => {
       );
     stubFetch([200, 200, new TypeError("reset"), finished("processing")]);
     await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
-      true,
+      "making",
     );
 
     stubFetch([200, 200, new TypeError("reset"), finished("failed")]);
     await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
-      false,
+      "failed",
+    );
+  });
+
+  it("says when the last chunk parked the upload until storage is connected, and when Clips is making the Clip", async () => {
+    stubFetch([200, 200, parkedAnswer()]);
+    await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
+      "parked",
+    );
+
+    stubFetch([200, 200, finishedAnswer()]);
+    await expect(sendClipChunks(file, ticket, () => {}, noWait)).resolves.toBe(
+      "making",
     );
   });
 });
@@ -318,7 +353,34 @@ describe("cancelClipUpload", () => {
     ["no answer", new TypeError("offline"), { outcome: "not_cancelled" }],
   ])("says what happened when %s", async (_when, answer, result) => {
     stubFetch([answer]);
-    await expect(cancelClipUpload(ticket)).resolves.toEqual(result);
+    await expect(cancelClipUpload(ticket, noWait)).resolves.toEqual(result);
+  });
+
+  it("cancels again when Clips never answers a cancel, then says it didn't confirm", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const sent: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            sent.push(url);
+            init.signal?.addEventListener("abort", () =>
+              reject(new DOMException("timed out", "TimeoutError")),
+            );
+          }),
+      ),
+    );
+    let result: unknown = null;
+    void cancelClipUpload(ticket).then((answer) => {
+      result = answer;
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sent.length).toBeGreaterThan(1);
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(result).toEqual({ outcome: "not_cancelled" });
+    expect(sent).toEqual(Array.from({ length: 4 }, () => ticket.cancelUrl));
   });
 
   const finishing = () =>
@@ -657,6 +719,78 @@ describe("an upload whose block leaves the page", () => {
       stop();
     },
   );
+
+  it.each([
+    ["parked until storage is connected", parkedAnswer, 1],
+    ["being made into a Clip", finishedAnswer, 0],
+  ])(
+    "cancels an upload whose last chunk Clips %s only while it isn't a Clip yet, once its block is gone",
+    async (_when, lastAnswer, cancels) => {
+      vi.useFakeTimers();
+      const sent = stubFetch([200, 200, lastAnswer(), cancelled()]);
+      await start();
+      expect(lastWritten()).toMatchObject({ uploads: [{ phase: "making" }] });
+      const editor = fakeEditor([BLOCK_ID]);
+      const onGivenUp = vi.fn();
+      const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+
+      editor.change([]);
+      await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS);
+
+      expect(sent.filter(isCancel)).toHaveLength(cancels);
+      expect(onGivenUp).toHaveBeenCalledTimes(cancels);
+      expect(lastWritten()).toBeNull();
+      stop();
+    },
+  );
+
+  it("forgets the page's uploads it isn't sending once the page's last editor closes, and keeps sending the rest", async () => {
+    vi.useFakeTimers();
+    const made = {
+      ...ticket,
+      recordingId: "rec_2",
+      chunkUrl: ticket.chunkUrl.replace("/rec_1/", "/rec_2/"),
+      cancelUrl: ticket.cancelUrl.replace("/rec_1/", "/rec_2/"),
+    };
+    const sent: Sent[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        sent.push({ url: new URL(url), init });
+        if (url.includes("/rec_2/")) return Promise.resolve(finishedAnswer());
+        return new Promise<Response>(() => {});
+      }),
+    );
+    await beginClipUpload({
+      file,
+      ticket: made,
+      documentId: "doc_1",
+      blockId: "clip-embed-made1234",
+    });
+    void start();
+    const blocks = [BLOCK_ID, "clip-embed-made1234"];
+    const first = fakeEditor(blocks);
+    const second = fakeEditor(blocks);
+    const stopFirst = watchClipUploadBlocks(first as never, "doc_1", vi.fn());
+    const stopSecond = watchClipUploadBlocks(second as never, "doc_1", vi.fn());
+
+    stopFirst();
+    expect(lastWritten()).toMatchObject({
+      uploads: [
+        { recordingId: "rec_2", phase: "making" },
+        { phase: "uploading" },
+      ],
+    });
+    stopSecond();
+    await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS * 4);
+
+    expect(lastWritten()).toEqual({
+      uploads: [
+        expect.objectContaining({ recordingId: "rec_1", phase: "uploading" }),
+      ],
+    });
+    expect(sent.filter(isCancel)).toEqual([]);
+  });
 
   it("keeps a finished upload whose block comes back in that moment", async () => {
     vi.useFakeTimers();

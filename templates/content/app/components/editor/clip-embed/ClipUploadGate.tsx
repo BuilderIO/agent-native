@@ -56,16 +56,21 @@ function uploadErrorKey(error: unknown): string {
 }
 
 /**
- * A start that failed with no refusal from Clips: it may still have made the
- * upload, so it goes again with the same key, never a new one.
+ * What a start that failed leaves the file to do. `retry`: Clips gave no
+ * answer and may still have made the upload, so it goes again with the same
+ * key, never a new one. `hold`: Clips refused for now and made nothing. Null:
+ * a refusal that ends the pick.
  */
-function gotNoAnswer(error: unknown): boolean {
+function afterFailedStart(error: unknown): "retry" | "hold" | null {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
-  return (
+  if (
     !isClipUploadErrorCode(code) ||
     code === CLIP_UPLOAD_ERRORS.unreachable ||
     code === CLIP_UPLOAD_ERRORS.failed
-  );
+  ) {
+    return "retry";
+  }
+  return code === CLIP_UPLOAD_ERRORS.rateLimited ? "hold" : null;
 }
 
 /** Why a check on where uploads go failed: nothing has uploaded yet. */
@@ -124,6 +129,15 @@ interface PickedClipFile {
   file: File;
   uploadKey: string;
   blockId: string;
+}
+
+/** A new pick of a file: its own key, and the id its Clip block will have. */
+function newPick(file: File): PickedClipFile {
+  return {
+    file,
+    uploadKey: newUploadKey(),
+    blockId: createContentBlockId(CLIP_EMBED_BLOCK_TYPE),
+  };
 }
 
 export type HeldClipFile = PickedClipFile &
@@ -187,13 +201,20 @@ export function useClipFileUpload(input: {
           startUpload(request).then(
             (result) => ({ result }),
             (error: unknown) => {
-              if (gotNoAnswer(error)) return { failure: error };
-              throw error;
+              const next = afterFailedStart(error);
+              if (!next) throw error;
+              return { failure: error, retry: next === "retry" };
             },
           );
         let answer = await attempt();
         for (const wait of STARTING_RETRY_MS) {
-          if ("result" in answer && answer.result.status !== "starting") break;
+          if (
+            "result" in answer
+              ? answer.result.status !== "starting"
+              : !answer.retry
+          ) {
+            break;
+          }
           await new Promise((resolve) => setTimeout(resolve, wait));
           if (heldRef.current !== heldBefore) return;
           answer = await attempt();
@@ -204,11 +225,16 @@ export function useClipFileUpload(input: {
           }
           return;
         }
-        if (!("result" in answer)) {
+        // Clips may still make an upload a start got no answer for, or is
+        // still starting, so the file keeps its key for Try again.
+        if (!("result" in answer) || answer.result.status === "starting") {
           hold({
             ...pick,
             storage: null,
-            failureKey: uploadErrorKey(answer.failure),
+            failureKey:
+              "failure" in answer
+                ? uploadErrorKey(answer.failure)
+                : "clipEmbed.uploadFailed",
           });
           return;
         }
@@ -226,9 +252,16 @@ export function useClipFileUpload(input: {
           });
         } else if (result.status === "storage_required") {
           hold({ ...pick, storage: result.storage });
-        } else if (result.status === "starting") {
-          toast.error(t("clipEmbed.uploadFailed"));
-        } else {
+        } else if (result.status === "key_used") {
+          // Clips refuses a key from here only once its upload ended: a start
+          // it answers drops the pick, so no key whose upload goes on comes
+          // back. A new key starts the file as a new upload.
+          hold({
+            ...newPick(file),
+            storage: null,
+            failureKey: "clipEmbed.uploadFailed",
+          });
+        } else if (result.status === "too_large") {
           hold(null);
           toast.error(
             t("clipEmbed.uploadTooLarge", {
@@ -247,12 +280,7 @@ export function useClipFileUpload(input: {
   );
 
   const start = useCallback(
-    (file: File) =>
-      startPick({
-        file,
-        uploadKey: newUploadKey(),
-        blockId: createContentBlockId(CLIP_EMBED_BLOCK_TYPE),
-      }),
+    (file: File) => startPick(newPick(file)),
     [startPick],
   );
 

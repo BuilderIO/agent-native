@@ -45,16 +45,36 @@ const startingSchema = z.object({
   code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.uploadStarting),
 });
 
+const keyUsedSchema = z.object({
+  code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.keyUsed),
+});
+
 const tooLargeSchema = z.object({
   code: z.literal(CONTENT_CLIP_UPLOAD_REFUSED.tooLarge),
   maxBytes: z.number().int().positive(),
 });
 
-function readAnswer(status: number, body: unknown): CreateClipUploadResult {
+/** Whether a ticket's chunks hold the file exactly, none left over or short. */
+function coversFile(
+  { chunkSizeBytes, totalChunks }: z.infer<typeof startedSchema>,
+  sizeBytes: number,
+): boolean {
+  return (
+    (totalChunks - 1) * chunkSizeBytes < sizeBytes &&
+    sizeBytes <= totalChunks * chunkSizeBytes
+  );
+}
+
+function readAnswer(
+  status: number,
+  body: unknown,
+  sizeBytes: number,
+): CreateClipUploadResult {
   if (status === 200) {
     const started = startedSchema.safeParse(body);
     if (
       started.success &&
+      coversFile(started.data, sizeBytes) &&
       isClipUploadUrl(
         started.data.chunkUrl,
         started.data.recordingId,
@@ -82,6 +102,7 @@ function readAnswer(status: number, body: unknown): CreateClipUploadResult {
       };
     }
     if (startingSchema.safeParse(body).success) return { status: "starting" };
+    if (keyUsedSchema.safeParse(body).success) return { status: "key_used" };
   }
   if (status === 413) {
     const refused = tooLargeSchema.safeParse(body);
@@ -129,6 +150,6 @@ export default defineAction({
       start: { fileName, sizeBytes, mimeType, blockId, uploadKey },
     });
     if (!answer.ok) failClip(answer.code);
-    return readAnswer(answer.status, answer.body);
+    return readAnswer(answer.status, answer.body, sizeBytes);
   },
 });

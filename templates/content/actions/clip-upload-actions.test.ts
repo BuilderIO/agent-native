@@ -387,6 +387,36 @@ describe("create-clip-upload", () => {
     });
   });
 
+  it("answers that the file's key is spent once Clips says its upload ended", async () => {
+    mocks.requestClipsUpload.mockResolvedValue({
+      ok: true,
+      status: 409,
+      body: { code: "upload_key_used", error: "This upload can't continue" },
+    });
+    await expect(createClipUpload.run(start)).resolves.toEqual({
+      status: "key_used",
+    });
+  });
+
+  it.each([
+    ["one chunk short", { totalChunks: 1 }],
+    ["one chunk too many", { totalChunks: 3 }],
+    ["chunks too small", { chunkSizeBytes: 1_000_000 }],
+  ])(
+    "reads a ticket whose plan is %s of the file as unreadable",
+    async (_label, plan) => {
+      mocks.requestClipsUpload.mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: { ...ticket, ...plan },
+      });
+      await expect(failureOf(createClipUpload.run(start))).resolves.toEqual({
+        errorCode: "clip_upload_failed",
+        statusCode: 502,
+      });
+    },
+  );
+
   it("answers with the largest file Clips takes", async () => {
     mocks.requestClipsUpload.mockResolvedValue({
       ok: true,

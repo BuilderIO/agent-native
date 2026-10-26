@@ -27,7 +27,10 @@ export type ClipUpload = {
   fileName: string;
 } & (
   | { phase: "uploading"; sentBytes: number; totalBytes: number }
-  /** Clips has every byte and is making the Clip. */
+  /**
+   * Clips has every byte, and is making the Clip or waits for storage to be
+   * connected first.
+   */
   | { phase: "making" }
   | { phase: "failed" }
 );
@@ -35,8 +38,12 @@ export type ClipUpload = {
 const uploads = new Map<string, ClipUpload>();
 const listeners = new Set<() => void>();
 
-/** What this tab needs to give up an upload it is still sending. */
-const sending = new Map<
+/**
+ * What this tab needs to give up an upload that isn't a Clip yet: one it is
+ * still sending, or one whose last chunk Clips parked until storage is
+ * connected.
+ */
+const tickets = new Map<
   string,
   { ticket: ClipUploadTicket; stop: AbortController }
 >();
@@ -100,6 +107,7 @@ function set(upload: ClipUpload | null, recordingId: string) {
     uploads.set(recordingId, upload);
   } else {
     uploads.delete(recordingId);
+    tickets.delete(recordingId);
     stopGoneTimer(recordingId);
   }
 
@@ -159,17 +167,44 @@ const CLIP_CHUNK_TIMEOUT_MS = 2 * 60 * 1000;
 const CLIP_FINISHING_WAIT_MS = 150_000;
 const FINISHING_RETRY_MS = 5_000;
 
-/** How long to wait before each repeat of a cancel Clips can't decide yet. */
+/**
+ * How long to wait before each repeat of a cancel Clips can't decide yet, or
+ * didn't answer.
+ */
 const CANCEL_RETRY_MS = [2_000, 5_000, 10_000];
+
+/**
+ * How long one cancel may go unanswered before it counts as unconfirmed. It
+ * carries no body, and Clips answers once its abort has run, in seconds.
+ */
+const CLIP_CANCEL_TIMEOUT_MS = 20_000;
 
 const pause = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 type ChunkAnswer =
-  | { ok: true }
+  /** `parked`: Clips took the file, and waits for storage to make the Clip. */
+  | { ok: true; parked: boolean }
   | { ok: false; retry: boolean }
   /** Clips is still taking an earlier send of this final chunk. */
   | { ok: false; finishing: true };
+
+/**
+ * Whether the chunk Clips took parked the upload until storage is connected.
+ * An answer this can't read counts as parked: the ticket is kept, and a
+ * cancel of an upload Clips is making changes nothing.
+ */
+async function parkedBy(response: Response): Promise<boolean> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return true;
+    throw error;
+  }
+  if (typeof body !== "object" || body === null) return true;
+  return (body as { waitingForStorage?: unknown }).waitingForStorage === true;
+}
 
 /**
  * Why Clips refused a final chunk it already has: `finished` when it took an
@@ -218,9 +253,9 @@ async function postChunk(
         ? AbortSignal.any([signal, timeout.signal])
         : timeout.signal,
     });
-    if (response.ok) return { ok: true };
+    if (response.ok) return { ok: true, parked: await parkedBy(response) };
     const conflict = await finalChunkConflict(response);
-    if (conflict === "finished") return { ok: true };
+    if (conflict === "finished") return { ok: true, parked: false };
     if (conflict === "finishing") return { ok: false, finishing: true };
     return {
       ok: false,
@@ -237,7 +272,9 @@ async function postChunk(
  * Sends a file to Clips in the ticket's chunks, in order, one at a time.
  * A chunk Clips couldn't take for a passing reason, or didn't answer in
  * time, is sent again, as is a final chunk Clips is still taking an earlier
- * send of; any other refusal, or `signal` aborting, ends the upload.
+ * send of; any other refusal, or `signal` aborting, ends the upload. Once
+ * Clips has it all, `parked` says it waits for storage before it makes the
+ * Clip.
  */
 export async function sendClipChunks(
   file: Blob,
@@ -245,7 +282,8 @@ export async function sendClipChunks(
   onSent: (sentBytes: number) => void,
   wait: (ms: number) => Promise<void> = pause,
   signal?: AbortSignal,
-): Promise<boolean> {
+): Promise<"failed" | "making" | "parked"> {
+  let parked = false;
   for (let index = 0; index < ticket.totalChunks; index += 1) {
     const start = index * ticket.chunkSizeBytes;
     const end = Math.min(file.size, start + ticket.chunkSizeBytes);
@@ -272,15 +310,24 @@ export async function sendClipChunks(
       if (signal?.aborted) break;
       answer = await postChunk(url.toString(), body, signal);
     }
-    if (!answer.ok || signal?.aborted) return false;
+    if (!answer.ok || signal?.aborted) return "failed";
+    parked = answer.parked;
     onSent(end);
   }
-  return true;
+  return parked ? "parked" : "making";
 }
 
 type CancelAnswer =
   | ClipCancelResult
-  | { outcome: typeof CLIP_CANCEL_OUTCOME.finishing };
+  /** Clips can't say yet, or didn't answer: the same cancel can go again. */
+  | { outcome: typeof CLIP_CANCEL_OUTCOME.finishing | "unanswered" };
+
+function settled(answer: CancelAnswer): answer is ClipCancelResult {
+  return (
+    answer.outcome !== CLIP_CANCEL_OUTCOME.finishing &&
+    answer.outcome !== "unanswered"
+  );
+}
 
 function cancelResult(httpStatus: number, text: string): CancelAnswer | null {
   let body: unknown;
@@ -311,6 +358,8 @@ function cancelResult(httpStatus: number, text: string): CancelAnswer | null {
 }
 
 async function sendCancel(ticket: ClipUploadTicket): Promise<CancelAnswer> {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), CLIP_CANCEL_TIMEOUT_MS);
   try {
     // No body and no headers, like a chunk: a simple CORS request whose
     // ticket is its only authority. `keepalive` outlives the page.
@@ -320,6 +369,7 @@ async function sendCancel(ticket: ClipUploadTicket): Promise<CancelAnswer> {
       cache: "no-store",
       redirect: "error",
       keepalive: true,
+      signal: timeout.signal,
     });
     const result = cancelResult(response.status, await response.text());
     if (result) return result;
@@ -327,22 +377,25 @@ async function sendCancel(ticket: ClipUploadTicket): Promise<CancelAnswer> {
       recordingId: ticket.recordingId,
       status: response.status,
     });
+    return { outcome: "not_cancelled" };
   } catch (error) {
     console.warn("[content-clips] an upload's cancel didn't reach Clips", {
       recordingId: ticket.recordingId,
       error: error instanceof Error ? error.message : String(error),
     });
+    return { outcome: "unanswered" };
+  } finally {
+    clearTimeout(timer);
   }
-  return { outcome: "not_cancelled" };
 }
 
 /**
  * Tells Clips this tab gave an upload up, so the Clip fails and its free clip
  * comes back now, not when Clips' cleanup finds it an hour later. Clips may
  * have had the whole file first and kept the Clip. While Clips is taking the
- * final chunk it can't say yet, so the same cancel goes again a few times;
- * `not_cancelled` means Clips confirmed neither, and that cleanup still gets
- * there.
+ * final chunk it can't say yet, and a cancel it didn't answer may not have
+ * reached it, so the same cancel goes again a few times; `not_cancelled`
+ * means Clips confirmed neither, and that cleanup still gets there.
  */
 export async function cancelClipUpload(
   ticket: ClipUploadTicket,
@@ -350,30 +403,28 @@ export async function cancelClipUpload(
 ): Promise<ClipCancelResult> {
   let answer = await sendCancel(ticket);
   for (const delay of CANCEL_RETRY_MS) {
-    if (answer.outcome !== CLIP_CANCEL_OUTCOME.finishing) break;
+    if (settled(answer)) break;
     await wait(delay);
     answer = await sendCancel(ticket);
   }
-  if (answer.outcome !== CLIP_CANCEL_OUTCOME.finishing) return answer;
-  console.warn(
-    "[content-clips] Clips was still taking an upload's last chunk",
-    {
-      recordingId: ticket.recordingId,
-    },
-  );
+  if (settled(answer)) return answer;
+  console.warn("[content-clips] Clips didn't settle an upload's cancel", {
+    recordingId: ticket.recordingId,
+    outcome: answer.outcome,
+  });
   return { outcome: "not_cancelled" };
 }
 
 /**
  * Stops sending an upload this tab gave up, and cancels it in Clips. Null
- * when this tab isn't sending it.
+ * when this tab holds no ticket for it.
  */
 export function giveUpClipUpload(
   recordingId: string,
 ): Promise<ClipCancelResult> | null {
-  const entry = sending.get(recordingId);
+  const entry = tickets.get(recordingId);
   if (!entry) return null;
-  sending.delete(recordingId);
+  tickets.delete(recordingId);
   entry.stop.abort();
   clearClipUpload(recordingId);
   return cancelClipUpload(entry.ticket);
@@ -391,7 +442,7 @@ export async function beginClipUpload(input: {
   const { recordingId } = ticket;
   const base = { recordingId, documentId, blockId, fileName: file.name };
   const stop = new AbortController();
-  sending.set(recordingId, { ticket, stop });
+  tickets.set(recordingId, { ticket, stop });
   set(
     { ...base, phase: "uploading", sentBytes: 0, totalBytes: file.size },
     recordingId,
@@ -409,10 +460,13 @@ export async function beginClipUpload(input: {
     undefined,
     stop.signal,
   );
-  if (sending.get(recordingId)?.stop === stop) sending.delete(recordingId);
+  // A parked upload isn't a Clip yet, so its block going still gives it up.
+  if (tickets.get(recordingId)?.stop === stop && sent !== "parked") {
+    tickets.delete(recordingId);
+  }
   // Whatever gave the upload up while it was sending also cancelled it.
   if (stop.signal.aborted || !uploads.has(recordingId)) return;
-  if (sent) {
+  if (sent !== "failed") {
     set({ ...base, phase: "making" }, recordingId);
     return;
   }
@@ -470,9 +524,10 @@ function stillGone(
 /**
  * Forgets each of this page's uploads once its block has been gone from the
  * page for a moment, long enough for a cut and paste or an undo to bring it
- * back. One this tab is still sending is given up too, and `onGivenUp` gets
- * what its cancel did. That moment runs on after the editor closes; an
- * upload whose block is on the page then keeps sending while the tab is open.
+ * back. One this tab is still sending, or Clips parked, is given up too, and
+ * `onGivenUp` gets what its cancel did. That moment runs on after the editor
+ * closes; once the page's last editor closes, an upload whose block is on
+ * the page keeps sending while the tab is open, and the rest are forgotten.
  * Checks the page at once, so start it once the page's content is in.
  */
 export function watchClipUploadBlocks(
@@ -508,7 +563,20 @@ export function watchClipUploadBlocks(
   return () => {
     editor.off("update", check);
     editors.delete(editor);
-    if (editors.size === 0) pageEditors.delete(documentId);
+    if (editors.size > 0) return;
+    pageEditors.delete(documentId);
+    // Nothing shows an upload this tab isn't sending once its page is
+    // closed, and reopening the page learns from Clips how the Clip is
+    // doing. One whose block just went is left to its timer.
+    for (const upload of [...uploads.values()]) {
+      if (
+        upload.documentId === documentId &&
+        upload.phase !== "uploading" &&
+        !goneTimers.has(upload.recordingId)
+      ) {
+        clearClipUpload(upload.recordingId);
+      }
+    }
   };
 }
 

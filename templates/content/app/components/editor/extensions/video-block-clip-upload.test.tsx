@@ -639,18 +639,112 @@ describe("the Upload tab while Clips in pages is on", () => {
     }
   });
 
-  it("says the video didn't upload when Clips is still making the first start's Clip after every retry", async () => {
+  it("holds the file with its key when Clips is still making the first start's Clip after every retry, and starts it with that key from the gate", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      state.callAction.mockResolvedValue({ status: "starting" });
+      state.callAction
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce({ status: "starting" })
+        .mockResolvedValueOnce(ticket);
       render();
       await pick(video());
       await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
 
       expect(starts()).toHaveLength(4);
-      expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.uploadFailed");
+      expect(state.toast.error).not.toHaveBeenCalled();
       expect(state.beginClipUpload).not.toHaveBeenCalled();
       expect(inserted).toEqual([]);
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(5);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the file under a new key, trying nothing again, once Clips says its key's upload ended", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockResolvedValueOnce({ status: "key_used" })
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.uploadFailed");
+      expect(state.toast.error).not.toHaveBeenCalled();
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(2);
+      expect(starts()[1].uploadKey).not.toBe(starts()[0].uploadKey);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket, blockId: starts()[1].blockId }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the file with its key, trying nothing again, while Clips has too many uploads in progress", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Too many uploads"), {
+            errorCode: "clip_rate_limited",
+          }),
+        )
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      const gate = container.querySelector("[data-clip-upload-gate]");
+      expect(gate?.getAttribute("data-clip-upload-gate")).toBe("unanswered");
+      expect(gate?.textContent).toContain("clipEmbed.rateLimited");
+      expect(state.toast.error).not.toHaveBeenCalled();
+
+      await clickTryAgain();
+      expect(starts()).toHaveLength(2);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts again with the same key when Clips' answer can't be read", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Clips' answer couldn't be read"), {
+            errorCode: "clip_upload_failed",
+          }),
+        )
+        .mockResolvedValueOnce(ticket);
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+
+      expect(starts()).toHaveLength(2);
+      expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+      expect(state.beginClipUpload).toHaveBeenCalledWith(
+        expect.objectContaining({ ticket }),
+      );
     } finally {
       vi.useRealTimers();
     }

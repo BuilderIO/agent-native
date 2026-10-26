@@ -160,14 +160,16 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   alreadyFinished: "upload_already_finished",
   /**
    * A start repeated for one picked file while the first start is still
-   * making its Clip. Repeat it in a few seconds; once that start failed, or
-   * has gone about ten minutes without its Clip, a repeat takes it over with
-   * the same Clip.
+   * making its Clip. Repeat it in a few seconds; once that start failed
+   * before making its Clip, or has gone about ten minutes without one, a
+   * repeat takes it over with the same Clip.
    */
   uploadStarting: "upload_starting",
   /**
-   * A start repeated for one picked file whose upload can't continue: it was
-   * cancelled or failed, or waits for storage.
+   * A start repeated for one picked file whose key can't continue, and
+   * nothing was made: the key's upload ended, cancelled or failed, so the
+   * file starts again under a new key. Clips also answers it for an upload
+   * that waits for storage.
    */
   keyUsed: "upload_key_used",
 } as const;
@@ -193,7 +195,7 @@ export const CLIP_UPLOAD_ERRORS = {
   /** Too many uploads in progress, or too many requests. */
   rateLimited: CLIP_PLAYBACK_ERRORS.rateLimited,
   unreachable: CLIP_PLAYBACK_ERRORS.unreachable,
-  /** Clips answered, but with a refusal or an answer Content can't read. */
+  /** Clips answered, but with nothing Content reads as one of its answers. */
   failed: "clip_upload_failed",
 } as const;
 
@@ -231,6 +233,8 @@ export type CreateClipUploadResult =
   | { status: "already_finished"; recordingId: string }
   /** An earlier start of the same file is still making its Clip. */
   | { status: "starting" }
+  /** The upload an earlier start of the same file made has ended. */
+  | { status: "key_used" }
   | { status: "storage_required"; storage: ContentClipStorage }
   | { status: "too_large"; maxBytes: number };
 
