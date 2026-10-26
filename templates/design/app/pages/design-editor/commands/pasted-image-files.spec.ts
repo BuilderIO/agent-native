@@ -505,6 +505,58 @@ describe("runPastedImageFiles durable base", () => {
     );
     expect(getFreshActiveContent).toHaveBeenCalledOnce();
   });
+
+  it("keeps an explicit inactive target routed by the captured active file", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:inactive-target");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const screenOne = '<main data-screen="one"></main>';
+    const screenTwo = '<main data-screen="two"></main>';
+    let activeFileId = "screen-1";
+    let resolveUpload: (url: string) => void = () => {};
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const activeFileIdRef = ref<string | null | undefined>(activeFileId);
+    const applyLocalContentUpdate = vi.fn();
+    const applyFileContentUpdate = vi.fn();
+    const getFreshActiveContent = vi.fn(() => screenOne);
+    const replacePreviewContent = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      getFreshActiveContent,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+    pasteArgs.applyFileContentUpdate = applyFileContentUpdate;
+    pasteArgs.getScreenContent = (screenId) =>
+      screenId === "screen-1" ? screenOne : screenTwo;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-2",
+      point: { x: 0, y: 0 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+
+    activeFileId = "screen-2";
+    activeFileIdRef.current = activeFileId;
+    resolveUpload("https://cdn.example/inactive-target.png");
+
+    await vi.waitFor(() =>
+      expect(applyFileContentUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(applyFileContentUpdate).toHaveBeenCalledWith(
+      "screen-2",
+      expect.stringContaining('data-screen="two"'),
+      expect.objectContaining({ skipPreview: true }),
+    );
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(getFreshActiveContent).not.toHaveBeenCalled();
+    expect(replacePreviewContent).not.toHaveBeenCalled();
+  });
 });
 
 describe("runPastedImageFiles placement", () => {
