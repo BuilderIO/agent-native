@@ -43,13 +43,13 @@ export class RendererErrorBoundary extends Component<
   RendererErrorBoundaryProps,
   RendererErrorBoundaryState
 > {
-  state: RendererErrorBoundaryState = { error: null };
+  override state: RendererErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): RendererErrorBoundaryState {
     return { error };
   }
 
-  componentDidCatch(error: unknown, info: ErrorInfo) {
+  override componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error("[desktop-renderer] Unhandled render error", error, info);
     Sentry.captureException(error, {
       contexts: { react: { componentStack: info.componentStack } },
@@ -60,7 +60,7 @@ export class RendererErrorBoundary extends Component<
     this.setState({ error: null });
   };
 
-  render() {
+  override render() {
     if (!this.state.error) return this.props.children;
 
     return (

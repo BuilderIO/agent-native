@@ -135,6 +135,52 @@ describe("agent tool approval store", () => {
     );
   });
 
+  // oracle-change: Removed helper query-shape assertions are replaced by real approval/slot regressions in agent-chat-plugin.queued-submission-inbox.spec.ts.
+  it("resolves a denial only for the exact pending approval and thread", async () => {
+    const { denyAgentToolApproval } = await import("./tool-approval-store.js");
+    const approvalId = "agent-tool-approval-denied";
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("denied");
+    expect(dbMocks.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringMatching(
+          /UPDATE agent_tool_approvals[\s\S]*status = 'pending'/,
+        ),
+        args: [
+          expect.any(Number),
+          approvalId,
+          binding.ownerEmail,
+          binding.orgId,
+          binding.orgId,
+          binding.threadId,
+        ],
+      }),
+    );
+  });
+
+  it("does not report a denial when approval was consumed by the action", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+    const { denyAgentToolApproval } = await import("./tool-approval-store.js");
+
+    await expect(
+      denyAgentToolApproval({
+        approvalId: "agent-tool-approval-consumed",
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+      }),
+    ).resolves.toBe("not_applied");
+  });
+
   it("does not guess between pending approvals from different turns", async () => {
     dbMocks.execute.mockResolvedValueOnce({
       rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],

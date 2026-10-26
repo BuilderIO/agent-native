@@ -192,6 +192,18 @@ describe("storageSource", () => {
     ).toEqual({ kind: "builder" });
     expect(storageSource(base)).toEqual({ kind: "none" });
   });
+
+  it("keeps an unreadable active-provider check distinct from no storage", () => {
+    expect(
+      storageSource({
+        ...base,
+        configured: true,
+        provider: "cloudflare-r2",
+        bucket: "clips-recordings",
+        activeProviderUnavailable: true,
+      }),
+    ).toEqual({ kind: "unknown" });
+  });
 });
 
 describe("appAddress", () => {

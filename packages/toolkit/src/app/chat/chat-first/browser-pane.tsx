@@ -1,5 +1,7 @@
 import { resolveChatFirstBrowserTarget } from "@agent-native/core/client/chat-first-state";
+import { Skeleton } from "@agent-native/toolkit/ui";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconArrowRight,
   IconExternalLink,
@@ -9,7 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstBrowserPaneProps } from "./types.js";
 
 export function ChatFirstBrowserPane({
@@ -19,8 +21,9 @@ export function ChatFirstBrowserPane({
   statusMessage,
   onClose,
   renderEmbed,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstBrowserPaneProps) {
+  const copy = useChatFirstCopy(copyProp);
   const [currentUrl, setCurrentUrl] = useState(url);
   const [draftUrl, setDraftUrl] = useState(url);
   const [reloadKey, setReloadKey] = useState(0);
@@ -167,24 +170,39 @@ export function ChatFirstBrowserPane({
       </header>
       {navigationError ? (
         <p
-          className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+          className="flex items-center gap-2 border-b border-[hsl(var(--agent-kit-warning)/0.4)] bg-[hsl(var(--agent-kit-warning)/0.1)] px-3 py-1.5 text-xs text-foreground"
           role="alert"
         >
+          <IconAlertTriangle
+            size={16}
+            className="agent-kit-tone-warning shrink-0"
+            aria-hidden="true"
+          />
           {navigationError}
         </p>
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {status === "starting" || status === "error" ? (
+        {status === "starting" ? (
+          <div
+            className="flex h-full flex-col gap-3 p-4"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="sr-only">{copy("browserPreviewStarting")}</span>
+            <Skeleton className="h-6 w-1/3" />
+            <Skeleton className="h-4 w-11/12" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="min-h-0 w-full flex-1" />
+          </div>
+        ) : status === "error" ? (
           <div
             className="flex h-full items-center justify-center px-6 text-center"
-            role={status === "error" ? "alert" : "status"}
+            role="alert"
             aria-live="polite"
           >
             <div className="max-w-xs space-y-1">
               <p className="text-sm font-medium text-foreground">
-                {status === "starting"
-                  ? copy("browserPreviewStarting")
-                  : copy("browserPreviewError")}
+                {copy("browserPreviewError")}
               </p>
               {statusMessage ? (
                 <p className="text-xs text-muted-foreground">{statusMessage}</p>

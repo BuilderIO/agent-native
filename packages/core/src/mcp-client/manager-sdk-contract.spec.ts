@@ -94,6 +94,7 @@ describe("McpClientManager with the real MCP SDK", () => {
         error: expect.stringMatching(new RegExp(`^HTTP ${status}: `)),
         tools: [],
       });
+      expect(manager.getConnectErrorStatus("docs")).toBeUndefined();
       await expect(manager.callTool(SEARCH, {})).rejects.toThrow(
         `MCP server "docs" is not connected: HTTP ${status}: `,
       );
@@ -104,6 +105,7 @@ describe("McpClientManager with the real MCP SDK", () => {
         error: expect.stringContaining(String(status)),
         tools: [],
       });
+      expect(refusedAtConnect.getConnectErrorStatus("docs")).toBe(status);
     },
   );
 

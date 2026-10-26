@@ -7,13 +7,10 @@ import {
   IconDroplet,
   IconEye,
   IconEyeOff,
-  IconLayoutGrid,
   IconMinus,
   IconPlus,
-  IconShadow,
   IconSquare,
   IconSun,
-  IconWaveSine,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -744,12 +741,6 @@ export function EffectsProperties({
       onEmptyTitleClick={() => setAddMenuOpen(true)}
       actions={
         <>
-          <SectionIconButton
-            label={t("editPanel.labels.stylesComingSoon")}
-            disabled
-          >
-            <IconLayoutGrid className="size-3.5" />
-          </SectionIconButton>
           <DropdownMenu
             open={addMenuOpen}
             onOpenChange={(open) => {
@@ -784,34 +775,30 @@ export function EffectsProperties({
               }}
             >
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addDropShadow}
               >
-                <IconShadow className="size-3.5" />
                 {t("editPanel.labels.dropShadow")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addLayerBlur}
               >
-                <IconBlur className="size-3.5" />
                 {t("editPanel.labels.layerBlur")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addBackgroundBlur}
               >
-                <IconBackground className="size-3.5" />
                 {"Background blur" /* i18n-ignore design effect type */}
               </DropdownMenuItem>
               {shaderContext?.nodeId ? (
                 <DropdownMenuItem
-                  className="gap-2 !text-[11px]"
+                  className="!text-[11px]"
                   onSelect={() => {
                     openShaderPickerAfterMenuCloseRef.current = true;
                   }}
                 >
-                  <IconWaveSine className="size-3.5" />
                   {t("editPanel.labels.shaderEffectType")}
                 </DropdownMenuItem>
               ) : null}

@@ -12,6 +12,7 @@ import {
   findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
+  highlightedQuote,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -48,19 +49,21 @@ describe("comments sidebar layout", () => {
       source.indexOf("const historyThreads ="),
       source.indexOf("const pendingFocus ="),
     );
-    expect(
-      history.indexOf('if (historyKind === "suggestions") return [];'),
-    ).toBeLessThan(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    // The selected thread passes every filter, Type included.
+    const selected = history.indexOf("thread.threadId === selectedThreadId ||");
+    const kind = history.indexOf(
+      'if (historyKind === "suggestions") return false;',
     );
-    expect(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
-    ).toBeLessThan(
+    expect(selected).toBeGreaterThan(-1);
+    expect(selected).toBeLessThan(kind);
+    expect(kind).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toMatch(/threads,\s+selectedThreadId,?\s*\]/);
+    expect(history).toMatch(
+      /threads,\s+selectedThreadId,\s+postedThreadIds,?\s*\]/,
+    );
     expect(source).toContain(
-      '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
+      '(presentation === "inline" &&\n              (thread.threadId === selectedThreadId ||',
     );
     const resolve = source.slice(
       source.indexOf("const handleResolve ="),
@@ -111,7 +114,9 @@ describe("comments sidebar layout", () => {
       "utf8",
     );
     expect(source).toContain("replyDrafts.revealHistory(");
-    expect(source).toContain("setRevealedStatus({ documentId, accountKey })");
+    expect(source).toContain(
+      "setRevealed({ documentId, accountKey, status: true, filters: true })",
+    );
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
   it("lays out mixed suggestion and comment identities in one collision flow", () => {
@@ -200,6 +205,19 @@ describe("comments sidebar layout", () => {
       documentTop: 116,
       layoutTop: 76,
     });
+  });
+
+  it("reads a quote across blocks with a space where its highlight crosses", () => {
+    document.body.innerHTML =
+      '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
+    const marked = document.querySelectorAll('[data-comment-thread="t"]');
+
+    expect(highlightedQuote(marked, "ends here.Bravo")).toBe(
+      "ends here. Bravo",
+    );
+    // One block reads as stored, and text edited since no longer matches.
+    expect(highlightedQuote([marked[0]!], "ends here.")).toBeNull();
+    expect(highlightedQuote(marked, "ends there.Bravo")).toBeNull();
   });
 
   it("positions pending comments from the pending highlight rect", () => {
@@ -354,7 +372,9 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    // The second brings an opened comment stack's selected card into view;
+    // CommentsSidebar.stacks.test.tsx covers it.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -493,16 +513,18 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
-    expect(source).toContain("DropdownMenuCheckboxItem");
+    // The filter button lives in the Discussion toolbar; the rendered panel
+    // tests in CommentsSidebar.discussion.test.tsx cover it.
+    expect(source).toContain("<DiscussionToolbar");
+    expect(source).not.toContain('t("comments.filter")');
     expect(source).toContain('"all" | "comments" | "suggestions"');
-    expect(source).toContain('historyKind === "comments"');
+    expect(source).toContain('historyKind !== "comments"');
     expect(source).toContain('historyKind === "suggestions"');
     expect(source).toContain('t("comments.typeFilter")');
     expect(source).not.toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
-    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain('t("comments.targetFilter")');
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
     expect(source).toContain("renderSuggestionCard(thread.suggestion)");

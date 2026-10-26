@@ -10,8 +10,8 @@ import type {
 
 export interface MigrationInputDescriptor {
   sourceRoot: string;
-  inputKind?: MigrationInputKind | (string & {});
-  inputDescription?: string;
+  inputKind?: MigrationInputKind | (string & {}) | undefined;
+  inputDescription?: string | undefined;
 }
 
 export interface SkeletonProjectIROptions extends MigrationInputDescriptor {

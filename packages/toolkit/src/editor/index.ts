@@ -12,6 +12,7 @@ export {
   useCollabReconcile,
   getEditorMarkdown,
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  SNAPSHOT_ADOPTION_MAP,
   type UseCollabReconcileOptions,
   type UseCollabReconcileResult,
 } from "./useCollabReconcile.js";
