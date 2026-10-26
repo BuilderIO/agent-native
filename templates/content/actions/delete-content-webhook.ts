@@ -23,6 +23,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Webhook ID from create- or list-content-webhooks"),
   }),
+  outputSchema: z.object({ ok: z.literal(true), id: z.string() }),
   run: async (args) => {
     const db = getDb();
     const [webhook] = await db

@@ -36,6 +36,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { contentWebhookHeaders } from "../server/lib/content-webhook-signature.js";
@@ -1009,14 +1010,9 @@ export async function resolveContentWebhookScope(target: {
   databaseId?: string;
   documentId?: string;
 }): Promise<ContentWebhookScope> {
-  if (Boolean(target.databaseId) === Boolean(target.documentId)) {
-    throw new ActionContractError(
-      "Pass exactly one of databaseId (every row of a collection) or documentId (one page).",
-      { errorCode: "WEBHOOK_SCOPE_REQUIRED", statusCode: 400 },
-    );
-  }
-  if (target.databaseId) {
-    const database = await getDatabaseById(target.databaseId);
+  const { databaseId, documentId } = target;
+  if (databaseId && !documentId) {
+    const database = await getDatabaseById(databaseId);
     if (!database) {
       throw new ActionContractError("Collection not found.", {
         errorCode: "DATABASE_NOT_FOUND",
@@ -1032,14 +1028,20 @@ export async function resolveContentWebhookScope(target: {
       orgId: database.orgId ?? null,
     };
   }
-  const access = await assertAccess("document", target.documentId!, "admin");
-  return {
-    scopeType: "document",
-    scopeId: target.documentId!,
-    accessDocumentId: target.documentId!,
-    ownerEmail: access.resource.ownerEmail as string,
-    orgId: (access.resource.orgId as string | null) ?? null,
-  };
+  if (documentId && !databaseId) {
+    const access = await assertAccess("document", documentId, "admin");
+    return {
+      scopeType: "document",
+      scopeId: documentId,
+      accessDocumentId: documentId,
+      ownerEmail: access.resource.ownerEmail as string,
+      orgId: (access.resource.orgId as string | null) ?? null,
+    };
+  }
+  throw new ActionContractError(
+    "Pass exactly one of databaseId (every row of a collection) or documentId (one page).",
+    { errorCode: "WEBHOOK_SCOPE_REQUIRED", statusCode: 400 },
+  );
 }
 
 /** Admin access to the watched database or page; null when the caller lacks it. */
@@ -1073,6 +1075,33 @@ export type RecentContentWebhookDelivery = Pick<
   | "createdAt"
   | "deliveredAt"
 >;
+
+/** A webhook as create- and list-content-webhooks return it. */
+export const contentWebhookOutputSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  databaseId: z.string().nullable(),
+  documentId: z.string().nullable(),
+  events: z.array(z.enum(CONTENT_WEBHOOK_EVENT_TYPES)),
+  propertyIds: z.array(z.string()).nullable(),
+  description: z.string().nullable(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  recentDeliveries: z.array(
+    z.object({
+      id: z.string(),
+      type: z.string(),
+      documentId: z.string(),
+      status: z.string(),
+      attempts: z.number(),
+      lastStatusCode: z.number().nullable(),
+      lastError: z.string().nullable(),
+      nextAttemptAt: z.string().nullable(),
+      createdAt: z.string(),
+      deliveredAt: z.string().nullable(),
+    }),
+  ),
+});
 
 export function serializeContentWebhook(
   webhook: WebhookRow,

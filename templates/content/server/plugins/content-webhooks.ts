@@ -35,7 +35,14 @@ async function runContentWebhookSweep(context: RecurringSweepContext) {
  * commits; this sweep is the guarantee, not the fast path. It also clears
  * out old deliveries and the webhooks of permanently deleted pages.
  */
-export default function registerContentWebhookDelivery(nitroApp?: any) {
+/** The part of the Nitro app this plugin uses: its close hook. */
+interface NitroAppCloseHook {
+  hooks?: { hook?: (name: "close", handler: () => void) => unknown };
+}
+
+export default function registerContentWebhookDelivery(
+  nitroApp?: NitroAppCloseHook,
+) {
   unregisterRecurringSweepHandler ??= registerRecurringSweepHandler(
     "content-webhook-delivery",
     runContentWebhookSweep,
