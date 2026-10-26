@@ -582,7 +582,8 @@ export function arrangeOpenStack(
     offsets.set(card.threadId, bottom + gap);
     bottom += gap + card.height;
   }
-  const anchor = focusTop !== null ? cards[focusIndex] : cards[0];
+  const anchorIndex = focusTop !== null ? focusIndex : 0;
+  const anchor = anchorIndex < cards.length ? cards[anchorIndex] : null;
   const anchorTop = anchor
     ? (positions.get(anchor.threadId)?.layoutTop ?? null)
     : null;

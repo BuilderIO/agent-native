@@ -187,7 +187,7 @@ function StackFrontPreview({
   t: Translate;
 }) {
   const timestamp = useCommentTimestamp();
-  const first = thread.comments[0];
+  const first = thread.comments.length > 0 ? thread.comments[0] : null;
   const replies = thread.comments.length - 1;
   return (
     <>

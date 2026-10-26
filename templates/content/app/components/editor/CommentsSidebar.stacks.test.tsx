@@ -75,6 +75,12 @@ const AUTHORS: Record<string, string> = {
   d: "lee@example.test",
 };
 
+/** A queried element the test can't go on without. */
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the element to be on the page");
+  return value;
+}
+
 function thread(
   id: string,
   times: string[],
@@ -307,9 +313,9 @@ describe("comment stacks in the margin", () => {
   it("folds every block with two or more open threads into one card", () => {
     render();
     expect(margin()).toEqual(["stack:d", "solo", "stack:l2", "l3"]);
-    const front = foldedStacks()[0].querySelector(
-      "[data-comment-stack-front-card]",
-    )!;
+    const front = found(
+      foldedStacks()[0].querySelector("[data-comment-stack-front-card]"),
+    );
     // The newest thread is in front: its quote, its first comment, and
     // how many replies it has.
     expect(front.textContent).toContain("quote d");
@@ -361,18 +367,19 @@ describe("comment stacks in the margin", () => {
     expect(margin()).toEqual(["stack:near"]);
     const stack = foldedStacks()[0];
     expect(
-      stack.querySelector('[data-comment-stack-behind="across"]')!.textContent,
+      found(stack.querySelector('[data-comment-stack-behind="across"]'))
+        .textContent,
     ).toContain("end of one start of two");
 
     act(() => harness.hover("across"));
     await wait(220);
     expect(margin()).toEqual(["stack:across"]);
-    const front = foldedStacks()[0].querySelector(
-      "[data-comment-stack-front-card]",
-    )!;
+    const front = found(
+      foldedStacks()[0].querySelector("[data-comment-stack-front-card]"),
+    );
     expect(front.textContent).toContain("end of one start of two");
     expect(
-      foldedStacks()[0].querySelector("[data-comment-stack-description]")!
+      found(foldedStacks()[0].querySelector("[data-comment-stack-description]"))
         .textContent,
     ).toContain("end of one start of two");
   });
@@ -821,20 +828,24 @@ describe("comment stacks in the margin", () => {
     act(() => harness.hover("b"));
     await wait(220);
     actions.create.mockImplementation(async () => {
-      const slot = scroll.querySelector('[data-slot="intro"]')!;
+      const slot = found(scroll.querySelector('[data-slot="intro"]'));
       slot.className = "";
       slot.setAttribute("data-comment-thread", "new");
       render([...THREADS, thread("new", [new Date().toISOString()])]);
       return { id: "new-0", threadId: "new" };
     });
     await setRichEditorValue(
-      richEditor(container.querySelector("[data-comment-pending]")!)!,
+      found(
+        richEditor(found(container.querySelector("[data-comment-pending]"))),
+      ),
       "Posted under a resting pointer",
     );
     await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
-        .click(),
+      found(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="comments.submit"]',
+        ),
+      ).click(),
     );
     await wait(400);
     expect(margin()[0]).toBe("stack:new");
@@ -910,7 +921,7 @@ describe("comment stacks in the margin", () => {
     });
 
     /** Puts each highlight at a top in the margin, and makes every card 100px tall. */
-    function layOut(tops: Record<string, number>) {
+    function layOut(tops: Partial<Record<string, number>>) {
       layout = vi
         .spyOn(Element.prototype, "getBoundingClientRect")
         .mockImplementation(function (this: Element) {
@@ -952,7 +963,7 @@ describe("comment stacks in the margin", () => {
         const shift = Number(
           /translateY\((-?[\d.]+)px\)/.exec(item.style.transform)?.[1] ?? 0,
         );
-        tops.set(item.dataset.commentLayoutThread!, top + shift);
+        tops.set(found(item.dataset.commentLayoutThread), top + shift);
         flow = top + CARD;
       }
       return tops;
@@ -960,9 +971,11 @@ describe("comment stacks in the margin", () => {
 
     function collapseTop() {
       return parseFloat(
-        container.querySelector<HTMLElement>(
-          '[data-comment-stack-state="open"]',
-        )!.style.top,
+        found(
+          container.querySelector<HTMLElement>(
+            '[data-comment-stack-state="open"]',
+          ),
+        ).style.top,
       );
     }
 
@@ -1056,14 +1069,16 @@ describe("comment stacks in the margin", () => {
       act(() => harness.comment({ quotedText: "and more", offsetTop: 180 }));
       await wait(20);
       const pending = () =>
-        container.querySelector<HTMLElement>("[data-comment-pending]")!;
+        found(container.querySelector<HTMLElement>("[data-comment-pending]"));
       expect(pending().dataset.commentStackState).toBe("composing");
       expect(pending().style.top).toBe("180px");
 
       act(() =>
-        pending()
-          .querySelector<HTMLButtonElement>("[data-comment-stack-show-all]")!
-          .click(),
+        found(
+          pending().querySelector<HTMLButtonElement>(
+            "[data-comment-stack-show-all]",
+          ),
+        ).click(),
       );
       expect(collapseButton()).not.toBeNull();
       expect(pending().style.top).toBe("180px");
@@ -1098,7 +1113,9 @@ describe("comment stacks in the margin", () => {
       render();
       expect(leaving()).toHaveLength(0);
       act(() => harness.hover("b"));
-      act(() => vi.advanceTimersByTime(200));
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
       expect(margin()[0]).toBe("stack:b");
       const [card] = leaving();
       expect(card.dataset.commentStackLeaving).toBe("d");
@@ -1111,11 +1128,13 @@ describe("comment stacks in the margin", () => {
       expect(card.hasAttribute("inert")).toBe(true);
       expect(
         document.getElementById(
-          openButton("b").getAttribute("aria-describedby")!,
+          found(openButton("b").getAttribute("aria-describedby")),
         )?.firstElementChild?.textContent,
       ).toBe("quote b");
 
-      act(() => vi.advanceTimersByTime(400));
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
       expect(leaving()).toHaveLength(0);
       expect(margin()[0]).toBe("stack:b");
     });
@@ -1125,14 +1144,18 @@ describe("comment stacks in the margin", () => {
       render();
       for (const threadId of ["b", "c", "a"]) {
         act(() => harness.hover(threadId));
-        act(() => vi.advanceTimersByTime(190));
+        act(() => {
+          vi.advanceTimersByTime(190);
+        });
       }
       // Only the card it just replaced is on its way out; none queue up.
       expect(margin()[0]).toBe("stack:a");
       expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
         ["c"],
       );
-      act(() => vi.advanceTimersByTime(400));
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
       expect(leaving()).toHaveLength(0);
       expect(margin()[0]).toBe("stack:a");
     });
@@ -1140,7 +1163,7 @@ describe("comment stacks in the margin", () => {
     it("plays the change when a stack folds with another thread in front", () => {
       render();
       act(() => harness.select("a"));
-      act(() => collapseButton()!.click());
+      act(() => found(collapseButton()).click());
       expect(margin()[0]).toBe("stack:a");
       expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
         ["d"],
@@ -1150,9 +1173,10 @@ describe("comment stacks in the margin", () => {
     it("plays the change when another person's new thread comes to the front", async () => {
       render();
       act(() =>
-        scroll
-          .querySelector('[data-slot="intro"]')!
-          .setAttribute("data-comment-thread", "new"),
+        found(scroll.querySelector('[data-slot="intro"]')).setAttribute(
+          "data-comment-thread",
+          "new",
+        ),
       );
       render([...THREADS, thread("new", ["2026-10-20T15:00:00Z"])]);
       await wait(60);
@@ -1170,11 +1194,13 @@ describe("comment stacks in the margin", () => {
         render();
         const slot =
           place === "after"
-            ? scroll.querySelector('[data-slot="intro"]')!
+            ? found(scroll.querySelector('[data-slot="intro"]'))
             : document.createElement("span");
         act(() => {
           if (place === "before")
-            scroll.querySelector('[data-comment-thread="a"]')!.before(slot);
+            found(scroll.querySelector('[data-comment-thread="a"]')).before(
+              slot,
+            );
           slot.setAttribute("data-comment-thread", "optimistic-op");
         });
         render([...THREADS, thread("optimistic-op", ["2026-10-20T15:00:00Z"])]);
@@ -1196,12 +1222,12 @@ describe("comment stacks in the margin", () => {
       render();
       act(() => harness.select("a"));
       act(() =>
-        scroll
-          .querySelector(".ProseMirror")!
-          .prepend(document.createElement("p")),
+        found(scroll.querySelector(".ProseMirror")).prepend(
+          document.createElement("p"),
+        ),
       );
       await wait(60);
-      act(() => collapseButton()!.click());
+      act(() => found(collapseButton()).click());
       expect(margin()[0]).toBe("stack:a");
       expect(leaving().map((card) => card.dataset.commentStackLeaving)).toEqual(
         ["d"],
@@ -1211,7 +1237,7 @@ describe("comment stacks in the margin", () => {
     it("folds without a change to play when the same thread stays in front", () => {
       render();
       act(() => harness.select("d"));
-      act(() => collapseButton()!.click());
+      act(() => found(collapseButton()).click());
       expect(margin()[0]).toBe("stack:d");
       expect(leaving()).toHaveLength(0);
     });
