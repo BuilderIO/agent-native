@@ -25,6 +25,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { useChatUnreadThreads } from "../run-awareness/chat-unread-state.js";
 import {
   chatThreadToHistoryItem,
   ownDraftToHistoryItem,
@@ -69,6 +70,7 @@ export interface OwnershipChatHistoryListProps {
   onTogglePin?: (id: string) => Promise<boolean>;
   onRename?: (id: string, title: string) => Promise<boolean>;
   onDelete?: (id: string) => Promise<boolean>;
+  deleteAction?: "archive";
   onCopyLink?: (id: string) => Promise<void>;
   /** Hides a shared chat from the viewer's lists; its toast offers Undo. */
   onHide?: (id: string) => Promise<boolean>;
@@ -260,6 +262,7 @@ export function useOwnershipChatHistory(
   };
   const mine = useChatThreadList({ ...listOptions, ownership: "mine" });
   const shared = useChatThreadList({ ...listOptions, ownership: "shared" });
+  const { unreadThreadIds } = useChatUnreadThreads({ enabled });
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const scopeKey = JSON.stringify([
@@ -366,7 +369,11 @@ export function useOwnershipChatHistory(
         publish((value) => value + 1);
     }
   }, [current, enabled, generation, updateOverrides]);
+  // The list reports one error for any failed request, so remember which kind
+  // of request the user last asked for to name the failure correctly.
+  const loadingMoreRef = useRef({ mine: false, shared: false });
   const refresh = useCallback(async () => {
+    loadingMoreRef.current = { mine: false, shared: false };
     await refreshWithResults();
   }, [refreshWithResults]);
 
@@ -578,11 +585,13 @@ export function useOwnershipChatHistory(
         persist(id, nextTitle),
       );
     };
-  if (options.mutations?.archive)
+  if (options.mutations?.archive) {
     listProps.onDelete = (id) => {
       const persist = options.mutations!.archive!;
       return mutate("archive", id, "hidden", true, () => persist(id));
     };
+    listProps.deleteAction = "archive";
+  }
   const setHidden = (
     id: string,
     hidden: boolean,
@@ -662,6 +671,7 @@ export function useOwnershipChatHistory(
     const item = {
       ...mapped,
       ...(pin === undefined ? {} : { pinned: pin.value }),
+      ...(unreadThreadIds.has(row.id) ? { unread: true } : {}),
     };
     const decorated = decorateItem?.(item, effectiveRow, { section }) ?? item;
     return isShared(row)
@@ -712,20 +722,28 @@ export function useOwnershipChatHistory(
       .filter((row) => !pinnedIds.has(row.id))
       .map((row) => mapItem(row, "mine")),
   ];
-  const sectionState = (list: typeof mine) => ({
+  const sectionState = (list: typeof mine, key: "mine" | "shared") => ({
     loading: enabled && list.loading,
     error: list.error
       ? t(
-          list.threads.length
+          loadingMoreRef.current[key]
             ? "agentChat.history.loadMoreFailed"
-            : "agentChat.history.loadFailed",
+            : list.threads.length
+              ? "agentChat.history.refreshFailed"
+              : "agentChat.history.loadFailed",
         )
       : undefined,
     onRetry: refresh,
     hasMore: enabled && list.hasMore,
     loadingMore: list.loadingMore,
-    onLoadMore: list.loadMore,
+    onLoadMore: () => {
+      loadingMoreRef.current = { ...loadingMoreRef.current, [key]: true };
+      return list.loadMore();
+    },
   });
+  // Both lists fail together when the server is unreachable, and one Retry
+  // refreshes both, so the shared section does not repeat the error.
+  const sharedErrorShown = Boolean(shared.error) && !mine.error;
   const sections: ChatHistoryRailSection[] = [];
   if (pinnedRows.length)
     sections.push({
@@ -742,19 +760,20 @@ export function useOwnershipChatHistory(
     label: t("agentChat.history.mine"),
     items: mineItems,
     previewCount: minePreviewCount,
-    ...sectionState(mine),
+    ...sectionState(mine, "mine"),
     emptyLabel:
       pinnedRows.length || mine.hasMore
         ? undefined
         : t("agentChat.history.emptyMine"),
   });
-  if (sharedItems.length || shared.error || (enabled && shared.hasMore))
+  if (sharedItems.length || sharedErrorShown || (enabled && shared.hasMore))
     sections.push({
       id: "shared",
       label: t("agentChat.history.sharedWithYou"),
       items: sharedItems,
       previewCount: sharedPreviewCount,
-      ...sectionState(shared),
+      ...sectionState(shared, "shared"),
+      ...(sharedErrorShown ? {} : { error: undefined }),
       emptyLabel: shared.hasMore
         ? undefined
         : t("agentChat.history.emptyShared"),

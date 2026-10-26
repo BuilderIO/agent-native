@@ -25,6 +25,13 @@ const toasts = vi.hoisted(() => ({
   ),
 }));
 vi.mock("sonner", () => ({ toast: toasts.toast }));
+const unread = vi.hoisted(() => ({ ids: new Set<string>() }));
+vi.mock("../run-awareness/chat-unread-state.js", () => ({
+  useChatUnreadThreads: () => ({
+    status: "ready",
+    unreadThreadIds: unread.ids,
+  }),
+}));
 
 import {
   OwnershipChatHistoryRail,
@@ -359,6 +366,7 @@ describe("ownership history adapter", () => {
     failMine = false;
     failShared = false;
     renderRail = false;
+    unread.ids = new Set();
     fetchMock = vi.fn(async (url) => pageResponse(url));
     vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
@@ -374,6 +382,22 @@ describe("ownership history adapter", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("marks rows whose chat has an unread reply, in every section", async () => {
+    mine = [row("mine-unread"), row("mine-read")];
+    shared = [row("shared-unread", { accessBasis: "direct" })];
+    unread.ids = new Set(["mine-unread", "shared-unread"]);
+    renderRail = true;
+    await render({ apiUrl: "/test-chat" });
+    expect(item("mine-unread")?.unread).toBe(true);
+    expect(item("shared-unread")?.unread).toBe(true);
+    expect(item("mine-read")?.unread).toBeUndefined();
+    expect(
+      container.querySelectorAll(
+        '.an-chat-history-row__unread[aria-label="Unread"]',
+      ),
+    ).toHaveLength(2);
   });
 
   it("forwards two ownership queries before independent pagination and preserves attribution", async () => {
@@ -844,6 +868,7 @@ describe("ownership history adapter", () => {
       });
       expect(stored.title).toBe("Saved title");
       expect(stored.messageCount).toBe(0);
+      expect(latest.listProps.deleteAction).toBe("archive");
       await act(async () => {
         expect(await latest.listProps.onDelete!("saved")).toBe(true);
       });
@@ -2686,18 +2711,37 @@ describe("ownership history adapter", () => {
     });
     expect(latest.mineRows.map((row) => row.id)).toEqual(["one", "two"]);
     expect(section("mine").hasMore).toBe(true);
-    expect(section("mine").error).toBe("Couldn't load more chats");
+    expect(section("mine").error).toBe("Couldn't refresh chats");
     expect(
       sectionElement("mine").querySelectorAll(".an-chat-history-row"),
     ).toHaveLength(2);
     expect(
       sectionElement("mine").querySelector('[role="alert"]')?.textContent,
-    ).toContain("Couldn't load more chats");
+    ).toContain("Couldn't refresh chats");
     failMine = false;
     await act(async () => {
       await section("mine").onRetry!();
     });
     expect(latest.error).toBeNull();
+  });
+
+  it("names a failed load-more as such", async () => {
+    mine = [row("one"), row("two"), row("three")];
+    await render({ pageSize: 1 });
+    failMine = true;
+    await act(async () => {
+      await section("mine").onLoadMore!();
+    });
+    expect(section("mine").error).toBe("Couldn't load more chats");
+  });
+
+  it("shows one error when both lists fail together", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(new Response("failed", { status: 503 })),
+    );
+    await render();
+    expect(section("mine").error).toBe("Couldn't load chats");
+    expect(latest.sections.map((section) => section.id)).toEqual(["mine"]);
   });
 
   it("hides Shared during its initial empty load, then shows recoverable errors", async () => {

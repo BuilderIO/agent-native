@@ -1309,7 +1309,11 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   expect(
     Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+  // The 13 canvas categories, then Code.
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
+  await expect(
+    dialog.locator("[data-shortcuts-category]").last(),
+  ).toHaveAttribute("data-shortcuts-category", "code");
   await expect(
     dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
   ).toHaveCount(3);
@@ -1344,7 +1348,7 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "No shortcuts match “zzzzzz”",
   );
   await search.fill("");
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
 
   // A category click scrolls the one list to that section.
   const list = dialog.locator("[data-shortcuts-list]");
@@ -1376,11 +1380,7 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await expect(
     dialog.locator('[data-code-shortcut-id="workbench.save"]'),
   ).toBeVisible();
-  await dialog.locator('[data-shortcuts-category="cursor"]').click();
-  const bigNudge = dialog.locator('[data-nudge-amount="big"]');
-  await expect(bigNudge).toBeVisible();
-  await bigNudge.fill("25");
-  await expect(bigNudge).toHaveValue("25");
+  // oracle-change: nudge fields moved out of this dialog into their own popup, covered by the nudge amount popup test below.
 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -1415,11 +1415,45 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
   await expect(dialog).toBeVisible();
   await expect(search).toBeFocused();
-  // The nudge size set above survived the close and reopen.
-  await expect(dialog.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  // oracle-change: the nudge persistence check moved to the nudge amount popup test below.
   await dialog.locator("[data-keyboard-shortcuts-close]").click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+});
+
+test("nudge amount popup opens from Preferences and keeps its values", async ({
+  page,
+}) => {
+  await openAppMenuSubmenu(page, "Preferences");
+  await page.getByRole("menuitem", { name: /Nudge amount/ }).click();
+  const popup = page.getByRole("dialog", { name: "Nudge amount" });
+  await expect(popup).toBeVisible();
+  await expect(popup.locator('[data-nudge-amount="small"]')).toBeFocused();
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toHaveCount(0);
+
+  const bigNudge = popup.locator('[data-nudge-amount="big"]');
+  await bigNudge.fill("25");
+  await expect(bigNudge).toHaveValue("25");
+
+  // The Help chord passes through this popup but must not stack the
+  // shortcuts dialog on top of it.
+  await page.keyboard.press("Control+Shift+?");
+  await expect(
+    page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+  ).toHaveCount(0);
+  await expect(popup).toBeVisible();
+
+  await popup.getByRole("button", { name: "Done" }).click();
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+
+  await openAppMenuSubmenu(page, "Preferences");
+  await page.getByRole("menuitem", { name: /Nudge amount/ }).click();
+  await expect(popup.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  await page.keyboard.press("Escape");
+  await expect(popup).toHaveCount(0);
 });
 
 test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({
@@ -1873,7 +1907,9 @@ test("click text creates auto-width text and survives reload", async ({
   const text =
     "A long responsive card title that needs more horizontal room than the final quarter of this screen provides";
 
-  await insertTextByClick(page, screenShell(page), text, 0.76, {
+  // Right of <main>'s box (328-1112 of 1440), so the text stays free on the
+  // body; drawn over main it would join main's flow.
+  await insertTextByClick(page, screenShell(page), text, 0.8, {
     typeAhead: true,
   });
 
@@ -3214,10 +3250,18 @@ test("pen Escape finishes an open path and Enter selects a new vector on Move", 
     second.d.match(/[a-z]/gi),
     "Enter cancels the still-pressed third anchor and commits the two placed ones as an open path",
   ).toEqual(["M", "L"]);
-  const vectorIds = [...(await app.savedNodes(designId)).values()]
+  const savedNodes = await app.savedNodes(designId);
+  const vectorIds = [...savedNodes.values()]
     .filter((node) => node.attrs["data-agent-native-layer-name"] === "Vector")
     .map((node) => node.id);
   expect(vectorIds).toHaveLength(2);
+  // Drawn over the auto layout <main>, both vectors join its flow, so layout
+  // places them and only each path's shape follows the pointer.
+  expect(
+    vectorIds.map(
+      (vectorId) => savedNodes.get(savedNodes.get(vectorId)!.parent!)?.tag,
+    ),
+  ).toEqual(["main", "main"]);
   const ends = await app
     .node(vectorIds[1])
     .locator("path")
@@ -3229,24 +3273,19 @@ test("pen Escape finishes an open path and Enter selects a new vector on Move", 
       };
       return { start: at(0), end: at(path.getTotalLength()) };
     });
-  const origin = await app.pagePoint(0, 0);
-  for (const [label, rendered, pointer] of [
-    ["first anchor", ends.start, firstAnchor],
-    ["second anchor", ends.end, secondAnchor],
-  ] as const) {
-    const expected = {
-      x: (pointer.x - origin.x) / origin.scale,
-      y: (pointer.y - origin.y) / origin.scale,
-    };
-    expect(
-      Math.abs(rendered.x - expected.x),
-      `${label} x ${rendered.x}, pointer at ${expected.x}`,
-    ).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(rendered.y - expected.y),
-      `${label} y ${rendered.y}, pointer at ${expected.y}`,
-    ).toBeLessThanOrEqual(1);
-  }
+  const { scale } = await app.pagePoint(0, 0);
+  const span = {
+    x: (secondAnchor.x - firstAnchor.x) / scale,
+    y: (secondAnchor.y - firstAnchor.y) / scale,
+  };
+  expect(
+    Math.abs(ends.end.x - ends.start.x - span.x),
+    `anchors ${ends.end.x - ends.start.x} apart in x, pointer ${span.x}`,
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(ends.end.y - ends.start.y - span.y),
+    `anchors ${ends.end.y - ends.start.y} apart in y, pointer ${span.y}`,
+  ).toBeLessThanOrEqual(1);
   const vectorRows = page
     .getByRole("tree", { name: "Layers" })
     .locator('[role="treeitem"]')
@@ -3259,9 +3298,9 @@ test("pen Escape finishes an open path and Enter selects a new vector on Move", 
         vectorRows.evaluateAll((rows) =>
           rows.map((row) => row.getAttribute("aria-selected") === "true"),
         ),
-      "the new vector (top row) is the selection",
+      "the new vector is the selection; main's auto layout lists it after the first",
     )
-    .toEqual([true, false]);
+    .toEqual([false, true]);
 
   await restoreHome(page);
 });
@@ -3385,7 +3424,10 @@ test("pen Bezier vector stays visible and persists through reload", async ({
   await expect(selectedLayerRow(page)).toContainText("Vector");
 
   const vector = await waitForVectorPrimitive(page, "about.html", /\bC\b/);
-  expect(vector.style).toContain("position:absolute");
+  // Drawn over About's auto layout <main>, the vector joins its flow.
+  expect(vector.style).toMatch(
+    /position:\s*relative !important;\s*inset:\s*auto !important/,
+  );
   expectPathStartsInsideViewBox(vector);
   expect(await fileContent(page, "index.html")).not.toContain(vector.d);
 

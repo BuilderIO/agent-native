@@ -7,6 +7,7 @@ import {
   getFrameGroupBounds,
   type FrameEntry,
 } from "@shared/canvas-math";
+import { getScreenPreviewViewport } from "@shared/responsive-frame-layout";
 import type { SetStateAction } from "react";
 
 import {
@@ -14,10 +15,17 @@ import {
   getResponsiveScreenCullGeometry,
 } from "@/components/design/multi-screen/frame-geometry";
 import { OVERVIEW_FRAME_WIDTH } from "@/components/design/multi-screen/overview-layout";
+import { resolveScreenMetadata } from "@/components/design/multi-screen/screen-content-cache";
+import { resolveAutoFitScreenHeight } from "@/components/design/multi-screen/screen-height";
 import type {
   FrameGeometry,
   Point,
+  ScreenFile,
 } from "@/components/design/multi-screen/types";
+import {
+  DEVICE_FRAME_VIEWPORTS,
+  type DeviceFrameType,
+} from "@/components/design/types";
 
 export const DEFAULT_OVERVIEW_ZOOM = 60;
 
@@ -222,6 +230,59 @@ export function getOverviewZoomScale(args: {
       ? args.sourceWidth
       : 1280;
   return frameWidth / sourceWidth;
+}
+
+const isPositiveLength = (value: number | undefined): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0;
+
+/**
+ * The frame width a screen is drawn into and the viewport width its iframe
+ * lays out at, resolved the way the canvas renders the frame. A screen without
+ * viewport metadata lays out at its own frame width, so 100% is 1:1 with its
+ * pixels rather than a 1280px default the iframe never uses.
+ */
+export function getOverviewScreenZoomBasis(args: {
+  screen: ScreenFile;
+  frameGeometry: { width?: number; height?: number } | undefined;
+}): { frameWidth: number; sourceWidth: number } | null {
+  const frameWidth = args.frameGeometry?.width;
+  const frameHeight = args.frameGeometry?.height;
+  if (!isPositiveLength(frameWidth) || !isPositiveLength(frameHeight)) {
+    return null;
+  }
+  const metadata = resolveScreenMetadata(args.screen);
+  const viewport = getScreenPreviewViewport(metadata, {
+    width: frameWidth,
+    height: resolveAutoFitScreenHeight({
+      mode: metadata.heightMode ?? "auto",
+      width: metadata.width,
+      currentHeight: frameHeight,
+      measuredHeight: frameHeight,
+    }),
+  });
+  return {
+    frameWidth: viewport.viewportWidth * viewport.scale,
+    sourceWidth: viewport.viewportWidth,
+  };
+}
+
+/** The overview zoom scale for one screen; null until it has frame geometry. */
+export function getOverviewScreenZoomScale(args: {
+  screen: ScreenFile;
+  frameGeometry: { width?: number; height?: number } | undefined;
+  deviceFrame: DeviceFrameType;
+}): number | null {
+  if (args.deviceFrame !== "none") {
+    const frameWidth = args.frameGeometry?.width;
+    return isPositiveLength(frameWidth)
+      ? getOverviewZoomScale({
+          frameWidth,
+          sourceWidth: DEVICE_FRAME_VIEWPORTS[args.deviceFrame].width,
+        })
+      : null;
+  }
+  const basis = getOverviewScreenZoomBasis(args);
+  return basis ? getOverviewZoomScale(basis) : null;
 }
 
 export function getOverviewDisplayZoom(

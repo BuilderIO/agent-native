@@ -49,6 +49,7 @@ function SectionedChatHistory({
         copyLink: t("agentChat.history.copyLink"),
         onlyYou: t("agentChat.history.onlyYou"),
         hide: t("agentChat.history.hide"),
+        unread: t("agentChat.history.unread"),
         ...labels,
       }}
       railLabels={{
@@ -69,11 +70,12 @@ function SectionedChatHistory({
 }
 
 export function ChatFirstChatHistory({
-  label = "Chats",
+  label,
   headerAction,
   className,
   ...props
 }: ChatFirstChatHistoryProps) {
+  const t = useT();
   if (!props.sections && props.items.length === 0) {
     return (
       <section
@@ -100,11 +102,11 @@ export function ChatFirstChatHistory({
         >
           {showLabel ? (
             <p className="min-w-0 text-[11px] font-medium text-sidebar-foreground/50">
-              {label}
+              {label ?? t("agentChat.chatFirst.chats")}
             </p>
           ) : null}
           {headerAction ? (
-            <div className="ms-auto shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100">
+            <div className="ms-auto shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
               {headerAction}
             </div>
           ) : null}

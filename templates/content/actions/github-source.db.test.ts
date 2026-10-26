@@ -390,6 +390,7 @@ let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
+let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -430,6 +431,7 @@ beforeAll(async () => {
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
+  liveCopyPage = await import("../server/test-support/live-copy-page.js");
   ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
     await import("./_github-source-freshness.js"));
   await as(() =>
@@ -982,6 +984,66 @@ describe("GitHub folder source", () => {
     ).toBe(true);
   });
 
+  it("refuses to write an edited file over a page that takes body writes through its live copy", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    // A page detached from its source can switch, and its record still names it.
+    await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+    try {
+      github.commit({
+        ...BASE_FILES,
+        "docs/faq.md": "# Frequently asked\n\nAnswers moved to the forum.\n",
+      });
+      await expect(
+        as(() => syncFolder.run({ databaseId: database.id })),
+      ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+      const [after] = (await liveRows(database.id)).filter(
+        (row) => row.documentId === faq.documentId,
+      );
+      expect(after).toEqual(faq);
+    } finally {
+      await liveCopyPage.turnLiveCopyFlagsOff();
+    }
+  });
+
+  it.each([
+    [
+      "a new image file",
+      "![Chart](images/chart.png)",
+      { "docs/images/chart.png": "PNGCHART" },
+    ],
+    ["an embedded image", "![Dot](data:image/png;base64,iVBORw0KGgo=)", {}],
+  ])(
+    "uploads none of an edited file's images over a page that takes body writes through its live copy (%s)",
+    async (_, image, files) => {
+      const { database } = await linkBaseFolder();
+      const faq = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!;
+      await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+      try {
+        const uploads = github.state.uploads;
+        github.commit({
+          ...BASE_FILES,
+          ...files,
+          "docs/faq.md": `${FAQ}\n${image}\n`,
+        });
+        await expect(
+          as(() => syncFolder.run({ databaseId: database.id })),
+        ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
+        expect(github.state.uploads).toBe(uploads);
+        const [after] = (await liveRows(database.id)).filter(
+          (row) => row.documentId === faq.documentId,
+        );
+        expect(after).toEqual(faq);
+      } finally {
+        await liveCopyPage.turnLiveCopyFlagsOff();
+      }
+    },
+  );
+
   it("keeps a renamed file's page, and moves a deleted file's page to Trash", async () => {
     const { database } = await linkBaseFolder();
     const pages = await liveRows(database.id);
@@ -1163,6 +1225,60 @@ describe("GitHub folder source", () => {
     );
     expect(followed?.documentId).not.toBe(faq.documentId);
     expect(followed?.content).toContain("Answers moved to the forum.");
+  });
+
+  it("gives a file a new page with its images when a restore releases its switched page while the sync reads it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    const now = new Date().toISOString();
+    const holderId = `holder-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: holderId,
+      spaceId,
+      ownerEmail: owner,
+      title: "Holder",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: holderId })
+      .where(eq(schema.documents.id, faq.documentId));
+    await as(() => deleteDocument.run({ id: holderId }));
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/images/chart.png": "PNGCHART",
+      "docs/faq.md":
+        "# Frequently asked\n\nAnswers moved to the forum.\n\n![Chart](images/chart.png)\n",
+    });
+    // The restore releases the page after the sync planned its file, and the
+    // released page then switches to its live copy.
+    github.state.duringBlobRead = async () => {
+      await as(() => restoreDocument.run({ id: holderId }));
+      await liveCopyPage.putPageOnLiveCopy(faq.documentId);
+    };
+    try {
+      const uploads = github.state.uploads;
+      await as(() => syncFolder.run({ databaseId: database.id }));
+
+      expect(github.state.uploads).toBe(uploads + 1);
+      const followed = (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      );
+      expect(followed?.documentId).not.toBe(faq.documentId);
+      expect(followed?.content).toContain("Answers moved to the forum.");
+      expect(followed?.content).toContain("chart.png");
+      const [released] = await getDb()
+        .select({ content: schema.documents.content })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, faq.documentId));
+      expect(released?.content).not.toContain("forum");
+    } finally {
+      await liveCopyPage.turnLiveCopyFlagsOff();
+    }
   });
 
   it("doesn't count a page a restore releases as moved to Trash", async () => {
@@ -3399,6 +3515,8 @@ describe("GitHub folder freshness", () => {
 
   it("tells readers when a background sync finds or clears a problem", async () => {
     const { database } = await linkBaseFolder();
+    const changesForDatabase = () =>
+      changes.filter((change) => change.resourceId === database.documentId);
     const { GitHubSourceError } =
       await import("../server/lib/github-source-client.js");
     const sweepAgain = async () => {
@@ -3420,22 +3538,22 @@ describe("GitHub folder freshness", () => {
       401,
     );
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
 
     // The same problem again leaves the status line as it was.
     await sweepAgain();
-    expect(changes).toHaveLength(0);
+    expect(changesForDatabase()).toHaveLength(0);
 
     github.state.failure = null;
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
     const status = await as(() => getSource.run({ databaseId: database.id }));
     expect(status.source?.metadata.github).toMatchObject({ problem: null });
 
     // A failure GitHub doesn't name is a problem on the link all the same.
     github.state.failure = new Error("socket hang up");
     await sweepAgain();
-    expect(changes).toEqual(announced);
+    expect(changesForDatabase()).toEqual(announced);
     const failed = await as(() => getSource.run({ databaseId: database.id }));
     expect(failed.source?.metadata.github?.problem).toMatchObject({
       code: "sync_failed",

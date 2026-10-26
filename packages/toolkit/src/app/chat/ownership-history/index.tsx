@@ -51,6 +51,7 @@ export function OwnershipChatHistoryRail({
         copyLink: t("agentChat.history.copyLink"),
         onlyYou: t("agentChat.history.onlyYou"),
         hide: t("agentChat.history.hide"),
+        unread: t("agentChat.history.unread"),
         ...labels,
       }}
       sections={sections}

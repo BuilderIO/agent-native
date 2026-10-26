@@ -26,6 +26,7 @@ import {
   inspectActiveRun,
   inspectPersistedThread,
   isIdle,
+  isQueuedMessageAppendPost,
   isTurnPost,
   parseJson,
   RELIABILITY_TAG,
@@ -305,12 +306,43 @@ export class TrafficRecorder {
       };
       if (isTurnPost(entry)) {
         const body = parseJson(request.postData() ?? "");
-        const threadId =
+        const requestBody =
           body.ok && body.value && typeof body.value === "object"
-            ? (body.value as { threadId?: unknown }).threadId
+            ? (body.value as {
+                threadId?: unknown;
+                agentKitMessageId?: unknown;
+              })
             : undefined;
+        const threadId = requestBody?.threadId;
         if (typeof threadId === "string" && threadId) {
           entry.threadId = threadId;
+        }
+        if (
+          typeof requestBody?.agentKitMessageId === "string" &&
+          requestBody.agentKitMessageId
+        ) {
+          entry.messageId = requestBody.agentKitMessageId;
+        }
+      }
+      if (entry.method === "POST" && url.pathname.endsWith("/queued")) {
+        const body = parseJson(request.postData() ?? "");
+        const requestBody =
+          body.ok && body.value && typeof body.value === "object"
+            ? (body.value as {
+                mutation?: {
+                  type?: unknown;
+                  message?: { id?: unknown; threadId?: unknown };
+                };
+              })
+            : undefined;
+        if (typeof requestBody?.mutation?.type === "string") {
+          entry.queueMutationType = requestBody.mutation.type;
+        }
+        if (typeof requestBody?.mutation?.message?.id === "string") {
+          entry.messageId = requestBody.mutation.message.id;
+        }
+        if (typeof requestBody?.mutation?.message?.threadId === "string") {
+          entry.threadId = requestBody.mutation.message.threadId;
         }
       }
       this.entries.push(entry);
@@ -318,7 +350,48 @@ export class TrafficRecorder {
     });
     page.on("response", (response) => {
       const entry = this.byRequest.get(response.request());
-      if (entry) entry.status = response.status();
+      if (!entry) return;
+      entry.status = response.status();
+      if (
+        response.status() === 202 ||
+        (response.status() === 200 && isQueuedMessageAppendPost(entry))
+      ) {
+        void response
+          .json()
+          .then((value: unknown) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              entry.responseError = "invalid JSON response";
+              return;
+            }
+            const body = value as {
+              state?: unknown;
+              message?: { id?: unknown; threadId?: unknown };
+              queuedMessages?: { id?: unknown }[];
+            };
+            if (typeof body.state === "string") {
+              entry.queuedState = body.state;
+            }
+            if (typeof body.message?.id === "string") {
+              entry.queuedMessageId = body.message.id;
+            }
+            if (typeof body.message?.threadId === "string") {
+              entry.queuedThreadId = body.message.threadId;
+            }
+            if (
+              isQueuedMessageAppendPost(entry) &&
+              Array.isArray(body.queuedMessages) &&
+              typeof body.message?.id === "string" &&
+              body.queuedMessages.some(
+                (message) => message?.id === body.message?.id,
+              )
+            ) {
+              entry.queuedState = "queued";
+            }
+          })
+          .catch(() => {
+            entry.responseError = "unreadable JSON response";
+          });
+      }
     });
     page.on("requestfailed", (request) => {
       const entry = this.byRequest.get(request);
@@ -808,6 +881,41 @@ export class ChatReliabilitySession {
     this.note(`sent prompt containing ${token}`);
   }
 
+  /** The queued message POST returned the durable queue state it appended. */
+  async assertQueuedSubmissionReceipt(afterCount: number): Promise<void> {
+    await this.pollUntil(
+      "the queued message POST to return its durable receipt",
+      30_000,
+      async () => {
+        const posts = this.traffic.entries
+          .filter(isQueuedMessageAppendPost)
+          .slice(afterCount);
+        const post = posts[0];
+        if (!post) return "no queued message POST was observed";
+        if (post.status === null) {
+          return "the queued message POST has no response yet";
+        }
+        if (post.status !== 200) {
+          return `the queued message POST returned HTTP ${post.status}`;
+        }
+        if (post.responseError) return post.responseError;
+        if (!post.queuedMessageId || post.queuedState !== "queued") {
+          return "the response did not contain the appended queued message";
+        }
+        if (!post.messageId || !post.threadId) {
+          return "the queued message POST did not identify its message and thread";
+        }
+        if (post.queuedMessageId !== post.messageId) {
+          return "the queued message ID did not match the submitted message ID";
+        }
+        if (post.queuedThreadId !== post.threadId) {
+          return "the queued message thread did not match the submitted thread";
+        }
+        return null;
+      },
+    );
+  }
+
   async stop(): Promise<void> {
     const { stop } = await this.composer();
     await stop.click({ timeout: 10_000 });
@@ -893,7 +1001,7 @@ export class ChatReliabilitySession {
   // ---- server reads --------------------------------------------------
 
   private async api(
-    method: "GET" | "DELETE",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     data?: unknown,
   ): Promise<ApiRead> {
@@ -929,8 +1037,119 @@ export class ChatReliabilitySession {
     return this.api("GET", path);
   }
 
+  apiPost(path: string, data: unknown): Promise<ApiRead> {
+    return this.api("POST", path, data);
+  }
+
   apiDelete(path: string, data?: unknown): Promise<ApiRead> {
     return this.api("DELETE", path, data);
+  }
+
+  /** Admit and retry a busy turn through the authenticated API, outside the UI. */
+  async assertDirectBusySubmissionReceipt(input: {
+    threadId: string;
+    messageId: string;
+    text: string;
+  }): Promise<void> {
+    const submissionPayload = {
+      threadId: input.threadId,
+      id: input.messageId,
+      text: input.text,
+    };
+    const requestBody = {
+      message: input.text,
+      threadId: input.threadId,
+      turnId: `turn-${input.messageId}`,
+      agentKitMessageId: input.messageId,
+      submissionPayload,
+    };
+    const receiptPath = `${AGENT_CHAT_ROUTE}/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`;
+    const active = await this.apiGet(
+      `${AGENT_CHAT_ROUTE}/runs/active?threadId=${encodeURIComponent(input.threadId)}`,
+    );
+    if (
+      active.kind !== "response" ||
+      active.status !== 200 ||
+      inspectActiveRun(active.json).kind !== "active"
+    ) {
+      throw new Error(
+        `the server did not report an active run before the direct POST (${describeApi(active)})`,
+      );
+    }
+    const assertAccepted = (read: ApiRead, attempt: string) => {
+      if (read.kind !== "response" || read.status !== 202) {
+        throw new Error(
+          `authenticated direct POST ${attempt} did not return HTTP 202 (${describeApi(read)})`,
+        );
+      }
+      const body = read.json as
+        | {
+            state?: unknown;
+            message?: { id?: unknown; threadId?: unknown; text?: unknown };
+          }
+        | undefined;
+      if (
+        body?.state !== "queued" ||
+        body.message?.id !== input.messageId ||
+        body.message.threadId !== input.threadId ||
+        body.message.text !== input.text
+      ) {
+        throw new Error(
+          `authenticated direct POST ${attempt} did not return the matching queued receipt`,
+        );
+      }
+    };
+    const assertDurable = async (attempt: string) => {
+      const read = await this.apiGet(receiptPath);
+      if (
+        read.kind !== "response" ||
+        read.status !== 200 ||
+        (read.json as { state?: unknown } | undefined)?.state !== "queued"
+      ) {
+        throw new Error(
+          `the direct POST ${attempt} receipt was not durably queued (${describeApi(read)})`,
+        );
+      }
+    };
+
+    assertAccepted(
+      await this.apiPost(AGENT_CHAT_ROUTE, requestBody),
+      "admission",
+    );
+    await assertDurable("admission");
+    assertAccepted(
+      await this.apiPost(AGENT_CHAT_ROUTE, requestBody),
+      "same-ID retry",
+    );
+    await assertDurable("same-ID retry");
+    this.note(
+      "authenticated direct POST admission and same-ID retry returned the durable queued receipt",
+    );
+  }
+
+  async assertDirectSubmissionWasSubmitted(input: {
+    threadId: string;
+    messageId: string;
+  }): Promise<void> {
+    const path = `${AGENT_CHAT_ROUTE}/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`;
+    await this.pollUntil(
+      "the direct submission receipt to name its accepted run",
+      30_000,
+      async () => {
+        const read = await this.apiGet(path);
+        if (read.kind !== "response" || read.status !== 200) {
+          return `GET receipt -> ${describeApi(read)}`;
+        }
+        const receipt = read.json as
+          | { state?: unknown; submittedRunId?: unknown }
+          | undefined;
+        return receipt?.state === "submitted" &&
+          typeof receipt.submittedRunId === "string" &&
+          receipt.submittedRunId.length > 0
+          ? null
+          : `receipt was not submitted with a run ID: ${read.text.slice(0, 200)}`;
+      },
+    );
   }
 
   private threadPath(id: string): string {

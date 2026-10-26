@@ -208,8 +208,8 @@ test("draws an overlaid play triangle, fills both, and converts the grouped laye
   );
   expect(
     after.get(groupId)?.parent,
-    "drawn on the screen body, where the shapes were",
-  ).toBe([...after.values()].find((node) => node.tag === "body")!.id);
+    "drawn inside main, the authored container under the shapes",
+  ).toBe("main");
   expect(await savedFills(app, id, ellipseId, vectorId)).toEqual({
     ellipse: "rgb(37, 99, 235)",
     vector: "rgb(255, 255, 255)",

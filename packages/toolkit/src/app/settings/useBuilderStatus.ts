@@ -78,6 +78,10 @@ export interface BuilderStatus {
   branchProjectId?: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
+  /** A credential lookup failed while determining Builder connection status. */
+  keyLookupFailed?: boolean;
+  /** Optional Builder profile metadata could not be read from its saved row. */
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   userId?: string;
   orgName?: string;
   spaces?: Array<{ id: string; name: string }>;

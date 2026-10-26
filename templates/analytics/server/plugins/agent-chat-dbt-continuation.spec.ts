@@ -106,6 +106,7 @@ function context(
       ...(outputMetric ? { metric: outputMetric } : {}),
       queryId: outputQueryId,
       querySpec: outputQuerySpec,
+      truncated: false,
       ...(toolCallId === "initial-call" ? { nextPage } : {}),
       rows: [{ activation_rate: 42, organization_id: "org-1" }],
     }),
@@ -164,6 +165,7 @@ function contextAfterRecoverableProviderError(
     queryId: "query-1",
     querySpec,
     metric,
+    truncated: false,
     rows: [{ activation_rate: 42, organization_id: "org-1" }],
   };
 

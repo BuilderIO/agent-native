@@ -16,6 +16,7 @@ import {
   type ProviderCorpusJobStatus,
 } from "./corpus-jobs-store.js";
 import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
+import { setBodyValueAtPath } from "./request-body.js";
 import {
   getStagedDatasetMeta,
   getStagedDatasetRows,
@@ -956,7 +957,7 @@ function buildPaginatedRequest(
       query = { ...query, [pagination.cursorParam]: state.cursor };
     }
     if (pagination.cursorBodyPath) {
-      body = setAtPath(body, pagination.cursorBodyPath, state.cursor);
+      body = setBodyValueAtPath(body, pagination.cursorBodyPath, state.cursor);
     }
   }
   return { ...request, query, body };
@@ -974,7 +975,7 @@ function buildBatchRequest(
     query = { ...query, [batch.itemQueryParam]: payload };
   }
   if (batch.itemBodyPath) {
-    body = setAtPath(body, batch.itemBodyPath, values);
+    body = setBodyValueAtPath(body, batch.itemBodyPath, values);
   }
   return { ...request, query, body };
 }
@@ -1397,27 +1398,6 @@ function getAtPath(value: unknown, path: string | undefined): unknown {
     current = (current as Record<string, unknown>)[part];
   }
   return current;
-}
-
-function setAtPath(base: unknown, path: string, value: unknown): unknown {
-  const parts = pathParts(path);
-  if (!parts.length) return value;
-  const root =
-    base && typeof base === "object" && !Array.isArray(base)
-      ? (JSON.parse(JSON.stringify(base)) as Record<string, unknown>)
-      : {};
-  let current = root;
-  for (const part of parts.slice(0, -1)) {
-    const existing = current[part];
-    const next =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    current[part] = next;
-    current = next;
-  }
-  current[parts[parts.length - 1]!] = value;
-  return root;
 }
 
 interface TextField {

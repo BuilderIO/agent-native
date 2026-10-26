@@ -214,6 +214,31 @@ describe("org apps directory handler", () => {
     expect(discoverOrgDirectoryAgentsMock).toHaveBeenCalledTimes(1);
   });
 
+  it("denies a different organization even when its domain matches", async () => {
+    verifyA2ATokenMock.mockResolvedValueOnce({
+      email: null,
+      orgDomain: "example.test",
+      orgId: "org-456",
+      identityAssurance: "organization",
+    });
+
+    const response = await request(
+      "https://dispatch.example.test/_agent-native/org/apps",
+      {},
+      "other-org",
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "forbidden",
+      error_description:
+        "Caller organization does not match this Dispatch workspace.",
+    });
+    expect(listWorkspaceAppsMock).not.toHaveBeenCalled();
+    expect(listOrganizationVisibleWorkspaceAppsMock).not.toHaveBeenCalled();
+    expect(discoverOrgDirectoryAgentsMock).not.toHaveBeenCalled();
+  });
+
   it("lets organization principals see org-visible apps without exposing private apps", async () => {
     listOrganizationVisibleWorkspaceAppsMock.mockResolvedValue([
       {

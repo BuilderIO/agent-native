@@ -809,22 +809,13 @@ const messages = {
       elapsed: "{{duration}} elapsed",
     },
     voiceMode: {
-      entryButtonLabel: "Use microphone",
-      promptTitle: "Use your voice",
-      promptDescription:
-        "Voice mode keeps listening while the agent navigates and takes actions.",
-      setupTitle: "Set up voice mode",
-      setupDescription:
-        "Use Builder.io for managed voice with free credits, or add your own keys.",
-      connectBuilder: "Use Builder.io",
-      useOpenAiKey: "Custom keys",
-      startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice chat",
-      keepDictating: "Dictate a message",
-      rememberPreference: "Remember my preference",
-      showChat: "Show chat",
-      hideChat: "Hide chat",
-      end: "End voice mode",
+      endVoiceChat: "End voice chat",
+      placeholder: "Listening…",
+      muteMicrophone: "Mute microphone",
+      unmuteMicrophone: "Unmute microphone",
+      muteSpeaker: "Mute speaker",
+      unmuteSpeaker: "Unmute speaker",
       voiceSettings: "Voice settings",
       settings: {
         microphone: "Microphone",

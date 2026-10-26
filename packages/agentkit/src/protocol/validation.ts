@@ -19,6 +19,7 @@ import {
   type InvokeActionInput,
   type ListThreadsInput,
   type QueueMessageInput,
+  type ReorderQueuedMessagesInput,
   type ResolveApprovalInput,
   type ResolveConnectionRequestInput,
   type AgentResumeEntry,
@@ -440,6 +441,11 @@ function validateMessagePart(value: unknown, path: string): void {
           "unsupported reasoning visibility",
         );
       }
+      if (part.toolCallIds !== undefined) {
+        array(part.toolCallIds, `${path}.toolCallIds`).forEach((id, index) =>
+          string(id, `${path}.toolCallIds[${index}]`),
+        );
+      }
       return;
     case "citation":
       string(part.title, `${path}.title`);
@@ -691,6 +697,16 @@ export function parseAgentQueuedMessage(
   }
   if (message.interruptActiveRun !== undefined) {
     boolean(message.interruptActiveRun, `${path}.interruptActiveRun`);
+  }
+  if (
+    message.delivery !== undefined &&
+    message.delivery !== "steering" &&
+    message.delivery !== "after_reply"
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.delivery`,
+      "expected steering or after_reply",
+    );
   }
   return value as AgentQueuedMessage;
 }
@@ -1849,6 +1865,20 @@ export function parseSteerQueuedMessageResult(
 ): SteerQueuedMessageResult {
   if (value === null || value === undefined) return undefined;
   const result = record(value, path);
+  if (result.delivery !== undefined) {
+    if (
+      (result.delivery !== "steering" && result.delivery !== "after_reply") ||
+      result.runId !== undefined ||
+      result.alreadySubmitted !== undefined ||
+      result.alreadyRemoved !== undefined
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.delivery`,
+        "must be steering or after_reply without a run result",
+      );
+    }
+    return value as SteerQueuedMessageResult;
+  }
   if (result.alreadyRemoved !== undefined) {
     if (
       result.alreadyRemoved !== true ||
@@ -3053,6 +3083,35 @@ export function parseThreadMessageInput(
   const input = record(parseThreadIdInput(value, path), path);
   string(input.messageId, `${path}.messageId`);
   return value as ThreadMessageInput;
+}
+
+/** Queues hold a handful of follow-ups; this only bounds a hostile payload. */
+export const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
+
+export function parseReorderQueuedMessagesInput(
+  value: unknown,
+  path = "reorderQueuedMessages",
+): ReorderQueuedMessagesInput {
+  const input = record(parseThreadIdInput(value, path), path);
+  const ids = array(input.messageIds, `${path}.messageIds`);
+  if (ids.length > MAX_REORDER_QUEUED_MESSAGE_IDS) {
+    throw new AgentProtocolValidationError(
+      `${path}.messageIds`,
+      `expected at most ${MAX_REORDER_QUEUED_MESSAGE_IDS} ids`,
+    );
+  }
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    const messageId = string(id, `${path}.messageIds.${index}`);
+    if (seen.has(messageId)) {
+      throw new AgentProtocolValidationError(
+        `${path}.messageIds.${index}`,
+        "expected each id once",
+      );
+    }
+    seen.add(messageId);
+  });
+  return value as ReorderQueuedMessagesInput;
 }
 
 export function parseGetRunInput(value: unknown, path = "getRun"): GetRunInput {
