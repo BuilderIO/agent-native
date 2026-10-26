@@ -888,11 +888,19 @@ function applyReplaceBetween(
   edit: Extract<SlideContentEdit, { op: "replace-between" }>,
 ): { content: string; summary: string } {
   const ranges = findBetweenRanges(content, edit.start, edit.end);
+  // No start marker at all is a miss: show where the closest text sits so the
+  // retry can rebase on it instead of guessing again.
+  const startMiss = ranges.length
+    ? null
+    : findTargetedMatches(content, edit.start);
   assertMatchCount(
     "replace-between",
     ranges.length,
     edit.expectedMatches,
     edit.required,
+    startMiss?.ok === false && startMiss.reason === "not_found"
+      ? startMiss.candidates
+      : [],
   );
   if (!ranges.length) return { content, summary: "replace-between:0" };
   if (ranges.length > 1 && edit.expectedMatches === undefined) {
@@ -944,14 +952,17 @@ function assertMatchCount(
   actual: number,
   expected: number | undefined,
   required: boolean | undefined,
+  candidates: TargetedCandidate[] = [],
 ): void {
   if (expected !== undefined && actual !== expected) {
     throw new SlideContentEditError(
-      `${op} expected ${expected} match(es), found ${actual}`,
+      `${op} expected ${expected} match(es), found ${actual}${formatCandidates(candidates)}`,
     );
   }
   if (expected === undefined && required !== false && actual === 0) {
-    throw new SlideContentEditError(`${op} found no matches`);
+    throw new SlideContentEditError(
+      `${op} found no matches${formatCandidates(candidates)}`,
+    );
   }
 }
 

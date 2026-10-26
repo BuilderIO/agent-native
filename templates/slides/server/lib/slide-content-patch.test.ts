@@ -162,6 +162,19 @@ describe("applySlideContentEdits", () => {
     expect(result.content).not.toBe("<div>Old</div>");
   });
 
+  it("shows the closest text when a replace-between start marker is missing", async () => {
+    await expect(
+      applySlideContentEdits("<div>Hello World</div>", [
+        {
+          op: "replace-between",
+          start: "<!-- start -->",
+          end: "<!-- end -->",
+          content: "updated",
+        },
+      ]),
+    ).rejects.toThrow("Closest matches in the current slide:");
+  });
+
   it("never applies a whitespace-flexible match — reports the original bytes as a fenced candidate", async () => {
     let error: unknown;
     try {
