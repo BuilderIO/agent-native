@@ -237,10 +237,33 @@ describe("agent clip context helpers", () => {
     });
 
     expect(frames.map((frame) => frame.atMs)).toEqual([
-      0, 30_000, 60_000, 75_000, 90_000,
+      350, 30_000, 60_000, 75_000, 90_000,
     ]);
     expect(frames[1].reason).toBe("chapter: Demo");
     expect(frames[3].reason).toBe("transcript: important screen");
+  });
+
+  it("keeps the 25/50/75% marks when a dense transcript fills the early clip", () => {
+    const segments = Array.from({ length: 40 }, (_, i) => ({
+      startMs: 4_000 + i * 4_000,
+      endMs: 6_000 + i * 4_000,
+      text: `line ${i}`,
+    }));
+
+    const frames = buildRecommendedFrames({
+      durationMs: 1_800_000,
+      segments,
+    });
+
+    expect(frames.map((frame) => frame.reason)).toEqual(
+      expect.arrayContaining(["25% mark", "50% mark", "75% mark"]),
+    );
+  });
+
+  it("opens on 350 ms, not the often-black first frame", () => {
+    const [first] = buildRecommendedFrames({ durationMs: 60_000 });
+
+    expect(first).toMatchObject({ atMs: 350, reason: "opening frame" });
   });
 
   it("escapes JSON embedded in SSR HTML", () => {

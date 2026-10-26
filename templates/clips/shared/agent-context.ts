@@ -17,6 +17,8 @@ export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
 // A contact sheet is one JPEG grid of consecutive frames. 36 cells covers just
 // over a second at 30 fps and stays legible after vision models downscale it.
+// Frame 0 of a recording is often black, before the first screen paint.
+export const RECORDING_THUMBNAIL_AT_MS = 350;
 export const MAX_AGENT_FRAME_SHEET_FRAMES = 36;
 export const MAX_AGENT_FRAME_SHEET_SPAN_MS = 60_000;
 export const MIN_AGENT_FRAME_SHEET_FPS = 0.1;
@@ -523,7 +525,7 @@ export function buildRecommendedFrames({
   const duration = safeMs(durationMs ?? 0);
   const minGapMs = duration > 0 ? Math.max(3000, duration / 40) : 3000;
 
-  addFrame(frames, 0, "opening frame", minGapMs);
+  addFrame(frames, RECORDING_THUMBNAIL_AT_MS, "opening frame", minGapMs);
 
   for (const chapter of chapters ?? []) {
     if (frames.length >= maxFrames) break;
@@ -535,16 +537,8 @@ export function buildRecommendedFrames({
     );
   }
 
-  for (const segment of segments ?? []) {
-    if (frames.length >= maxFrames) break;
-    addFrame(
-      frames,
-      segment.startMs,
-      `transcript: ${segment.text.slice(0, 80)}`,
-      minGapMs,
-    );
-  }
-
+  // Before transcript lines: a long clip's dense transcript would otherwise
+  // fill every slot in its first minutes.
   if (duration > 0) {
     for (const ratio of [0.25, 0.5, 0.75]) {
       if (frames.length >= maxFrames) break;
@@ -555,6 +549,16 @@ export function buildRecommendedFrames({
         minGapMs,
       );
     }
+  }
+
+  for (const segment of segments ?? []) {
+    if (frames.length >= maxFrames) break;
+    addFrame(
+      frames,
+      segment.startMs,
+      `transcript: ${segment.text.slice(0, 80)}`,
+      minGapMs,
+    );
   }
 
   return frames
