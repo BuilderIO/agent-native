@@ -351,7 +351,14 @@ function readHostedBucketConfig(options: {
       ? { ...hostedStorage, enabled: true }
       : hostedStorage,
   );
-  return resolved ? { ...resolved, publicBaseUrl: null } : null;
+  // The hosted bucket should never be public, but if the deployment's env
+  // gives it a public URL, its blobs are stored encrypted like any other's.
+  return resolved
+    ? {
+        ...resolved,
+        publicBaseUrl: envPublicBaseUrlFor(resolved.bucket) ?? null,
+      }
+    : null;
 }
 
 async function readCredentialsForSource(

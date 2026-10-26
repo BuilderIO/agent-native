@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockResolveSecret = vi.fn();
 const mockPrefetchSecrets = vi.fn();
 const mockReadAppSecret = vi.fn();
+const mockHasAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
@@ -38,6 +39,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  hasAppSecret: (...args: any[]) => mockHasAppSecret(...args),
 }));
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   isBlockedExtensionUrlWithDns: (...args: any[]) =>
@@ -62,6 +64,7 @@ describe("s3FileUploadProvider", () => {
     vi.clearAllMocks();
     mockPrefetchSecrets.mockReset().mockResolvedValue(undefined);
     mockReadAppSecret.mockReset().mockResolvedValue(null);
+    mockHasAppSecret.mockReset().mockResolvedValue(false);
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
     hostedEndpoint = "https://hosted-s3.example.com";
@@ -338,6 +341,36 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({ method: "PUT" }),
       expect.anything(),
     );
+  });
+
+  it("doesn't take unreadable logo settings for unsaved ones", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    });
+    // The workspace saved a bucket this process can't decrypt.
+    mockHasAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) =>
+        key === "S3_BUCKET" && scope === "workspace" && scopeId === "org-1",
+    );
+    mockSsrfSafeFetch.mockReset();
+
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.isConfiguredForRequest?.(),
+    ).resolves.toBe(false);
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.put({
+        data: new TextEncoder().encode("logo-bytes"),
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("reads private logos with the owning workspace's S3 credentials anonymously", async () => {

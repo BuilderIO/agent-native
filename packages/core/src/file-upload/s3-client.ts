@@ -34,8 +34,8 @@ export interface SignedS3RequestOptions {
   /**
    * The deployment configured this endpoint and its keys (not a workspace),
    * so it may sit on a private network or use plain HTTP. Without it, only
-   * the `S3_ENDPOINT`/`R2_ENDPOINT` endpoint may sit on a private network,
-   * and only with the deployment's own keys may it use plain HTTP.
+   * the `S3_ENDPOINT`/`R2_ENDPOINT` endpoint with the deployment's own keys
+   * may.
    */
   trustedEndpoint?: boolean;
 }
@@ -96,8 +96,8 @@ export function trustedDeploymentS3Origin(
 /**
  * True when `config` holds the deployment's own S3 settings: the env
  * `S3_ENDPOINT`/`R2_ENDPOINT` and the env keys. A workspace that saved the
- * same endpoint with its own keys doesn't count, so its keys never cross the
- * network over plain HTTP.
+ * same endpoint with its own keys doesn't count, so it can't reach that
+ * endpoint on a private network or send its keys over plain HTTP.
  */
 function usesDeploymentS3Keys(config: S3ClientConfig): boolean {
   const envAccessKeyId =
@@ -453,7 +453,7 @@ export async function signS3Request(
 /**
  * Sends a SigV4-signed request through the SSRF guard. Requests carry signed
  * credentials and private bytes, so only the deployment's own endpoint and
- * keys may use plain HTTP.
+ * keys may sit on a private network or use plain HTTP.
  */
 export async function signedS3Request(
   config: S3ClientConfig,
@@ -462,12 +462,10 @@ export async function signedS3Request(
 ): Promise<Response> {
   const trustedOrigin = options.trustedEndpoint
     ? new URL(config.endpoint).origin
-    : trustedDeploymentS3Origin(config.endpoint);
-  if (
-    new URL(config.endpoint).protocol !== "https:" &&
-    !options.trustedEndpoint &&
-    !usesDeploymentS3Keys(config)
-  ) {
+    : usesDeploymentS3Keys(config)
+      ? trustedDeploymentS3Origin(config.endpoint)
+      : undefined;
+  if (new URL(config.endpoint).protocol !== "https:" && !trustedOrigin) {
     throw new Error("Storage endpoints saved in settings must use HTTPS");
   }
   const { url, headers } = await signS3Request(config, key, options);

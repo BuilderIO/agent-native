@@ -757,6 +757,42 @@ describe("S3 private blob providers", () => {
     );
   });
 
+  it("encrypts hosted blobs when the deployment gives their bucket a public URL", async () => {
+    const { hostedPrivateBlobProvider } = await import("./s3-private.js");
+    const { objects } = fakeBucket();
+    defineAppConfig({
+      hostedStorage: {
+        enabled: true,
+        endpoint: "https://hosted.example.test",
+        bucket: "hosted-private",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    });
+    Object.assign(process.env, {
+      S3_BUCKET: "hosted-private",
+      S3_PUBLIC_BASE_URL: "https://files.example.test",
+    });
+    const put = () =>
+      hostedPrivateBlobProvider.put({
+        data: new TextEncoder().encode("hosted image"),
+        mimeType: "image/png",
+      });
+
+    const handle = await put();
+    expect(handle.encrypted).toBe(true);
+    const [stored] = [...objects.values()];
+    expect(text(stored.body)).not.toContain("hosted image");
+    await expect(
+      hostedPrivateBlobProvider.getReadUrl!(handle, { expiresInSeconds: 60 }),
+    ).resolves.toBeNull();
+
+    // A public URL for another bucket doesn't count.
+    process.env.S3_BUCKET = "public-uploads";
+    expect((await put()).encrypted).toBeFalsy();
+  });
+
   it("refuses saved endpoints without HTTPS, but not the deployment's", async () => {
     const { ensureS3PrivateBlobProviders } = await import("./s3-private.js");
     const registry = await import("./registry.js");

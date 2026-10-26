@@ -9,7 +9,7 @@ import {
   type PrivateBlobHandle,
   type PrivateBlobProvider,
 } from "@agent-native/core/private-blob";
-import { readAppSecret } from "@agent-native/core/secrets";
+import { hasAppSecret, readAppSecret } from "@agent-native/core/secrets";
 import {
   getAppConfig,
   getRequestOrgId,
@@ -200,26 +200,28 @@ function readS3ConfigForMode(
 /**
  * A workspace's logo storage comes from one place: the settings it saved,
  * when it saved any, else the deployment's env. Mixing them field by field
- * could send the deployment's keys to an endpoint the workspace chose.
+ * could send the deployment's keys to an endpoint the workspace chose. A
+ * saved setting that can't be read (its encryption key changed, for example)
+ * leaves no logo storage, rather than passing for unsaved.
  */
 async function readOrganizationLogoS3Config(
   organizationId: string,
 ): Promise<S3Config | null> {
   const saved = new Map<string, string>();
+  let unreadable = false;
   await Promise.all(
     S3_SECRET_KEYS.map(async (key) => {
-      const value = cleanValue(
-        (
-          await readAppSecret({
-            key,
-            scope: "workspace",
-            scopeId: organizationId,
-          })
-        )?.value,
-      );
+      const ref = {
+        key,
+        scope: "workspace" as const,
+        scopeId: organizationId,
+      };
+      const value = cleanValue((await readAppSecret(ref))?.value);
       if (value) saved.set(key, value);
+      else if (await hasAppSecret(ref)) unreadable = true;
     }),
   );
+  if (unreadable) return null;
   if (saved.size === 0) return readS3EnvConfig();
   const read = (primary: string, fallback: string) =>
     saved.get(primary) ?? saved.get(fallback);

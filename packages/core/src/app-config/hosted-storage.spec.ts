@@ -58,7 +58,6 @@ describe("hosted storage config", () => {
     expect(resolveHostedStorageConfig(getAppConfig().hostedStorage)).toEqual(
       shared,
     );
-    expect(getAppConfig().clips.hostedStorage).toMatchObject(shared);
   });
 
   it("isn't turned on by enabling Clips hosted storage", () => {
@@ -80,30 +79,35 @@ describe("hosted storage config", () => {
     ).toThrow(/endpoint, accessKeyId, secretAccessKey, region/);
   });
 
-  it("keeps Clips' existing bucket for both when both names are set", () => {
+  it("never mixes its settings with Clips'", () => {
     process.env.AGENT_NATIVE_HOSTED_STORAGE_ENABLED = "true";
     process.env.AGENT_NATIVE_HOSTED_STORAGE_BUCKET = "private-files";
     process.env.AGENT_NATIVE_HOSTED_STORAGE_ENDPOINT =
-      "https://new-storage.example.test";
-    process.env.AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID = "new-access-key";
+      "https://storage.example.test";
+    process.env.AGENT_NATIVE_HOSTED_STORAGE_ACCESS_KEY_ID = "test-access-key";
     process.env.AGENT_NATIVE_HOSTED_STORAGE_SECRET_ACCESS_KEY =
-      "new-secret-key";
+      "test-secret-key";
     process.env.AGENT_NATIVE_HOSTED_STORAGE_REGION = "auto";
+    // Clips with only its bucket set.
     process.env.CLIPS_HOSTED_STORAGE_BUCKET = "clips";
-    process.env.CLIPS_HOSTED_STORAGE_ENDPOINT = "https://storage.example.test";
-    process.env.CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID = "test-access-key";
-    process.env.CLIPS_HOSTED_STORAGE_SECRET_ACCESS_KEY = "test-secret-key";
-    process.env.CLIPS_HOSTED_STORAGE_REGION = "us-east-1";
 
     const config = getAppConfig();
-    const clips = {
+    expect(resolveHostedStorageConfig(config.hostedStorage)).toMatchObject({
+      bucket: "private-files",
       endpoint: "https://storage.example.test",
-      bucket: "clips",
-      accessKeyId: "test-access-key",
-      secretAccessKey: "test-secret-key",
-      region: "us-east-1",
-    };
-    expect(config.clips.hostedStorage).toMatchObject(clips);
-    expect(resolveHostedStorageConfig(config.hostedStorage)).toEqual(clips);
+    });
+    expect(config.clips.hostedStorage).toMatchObject({ bucket: "clips" });
+    expect(config.clips.hostedStorage.endpoint).toBeUndefined();
+    expect(config.clips.hostedStorage.accessKeyId).toBeUndefined();
+
+    // Clips' names alone don't configure private files.
+    for (const field of ["BUCKET", "ENDPOINT", "ACCESS_KEY_ID"]) {
+      delete process.env[`AGENT_NATIVE_HOSTED_STORAGE_${field}`];
+    }
+    process.env.CLIPS_HOSTED_STORAGE_ENDPOINT = "https://storage.example.test";
+    process.env.CLIPS_HOSTED_STORAGE_ACCESS_KEY_ID = "test-access-key";
+    expect(() =>
+      resolveHostedStorageConfig(getAppConfig().hostedStorage),
+    ).toThrow(/endpoint, bucket, accessKeyId/);
   });
 });

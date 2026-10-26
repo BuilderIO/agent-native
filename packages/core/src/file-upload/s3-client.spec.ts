@@ -137,6 +137,48 @@ describe("signedS3Request", () => {
     ).rejects.toThrow(/saved in settings must use HTTPS/);
   });
 
+  it("only lets the deployment's own keys reach its private-network endpoint", async () => {
+    Object.assign(process.env, {
+      S3_ENDPOINT: "https://minio.internal:9000",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+    });
+    isBlockedMock.mockResolvedValue(true);
+    ssrfSafeFetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const deployment = {
+      ...r2,
+      endpoint: "https://minio.internal:9000",
+      accessKeyId: "deploy-access",
+      secretAccessKey: "deploy-secret",
+    };
+
+    // A workspace that saved the same endpoint with its own keys.
+    await expect(
+      signedS3Request(
+        {
+          ...deployment,
+          accessKeyId: "workspace-access",
+          secretAccessKey: "workspace-secret",
+        },
+        "a.png",
+        { method: "GET", timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow(/SSRF blocked/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+
+    await signedS3Request(deployment, "a.png", {
+      method: "GET",
+      timeoutMs: 1_000,
+    });
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/minio\.internal:9000\//),
+      expect.anything(),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["https://minio.internal:9000"],
+      }),
+    );
+  });
+
   it("only sends the deployment's own keys to its plain HTTP endpoint", async () => {
     Object.assign(process.env, {
       S3_ENDPOINT: "http://minio.internal:9000",
