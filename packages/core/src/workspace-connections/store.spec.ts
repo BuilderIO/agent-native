@@ -1787,6 +1787,7 @@ describe("workspace connection store", () => {
     const {
       listWorkspaceConnectionGrants,
       listWorkspaceConnections,
+      resolveWorkspaceConnectionForApp,
       revokeWorkspaceConnectionGrant,
       upsertWorkspaceConnection,
       upsertWorkspaceConnectionGrant,
@@ -1818,6 +1819,24 @@ describe("workspace connection store", () => {
       },
     );
 
+    const beforeRevocation = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "github",
+          connectionId: "conn-granted",
+          requireConnected: true,
+        }),
+    );
+    expect(beforeRevocation).toMatchObject({
+      available: true,
+      connection: {
+        id: "conn-granted",
+        appAccess: { available: true, mode: "explicit-grant" },
+      },
+    });
+
     const otherOrgRevoked = await runWithRequestContext(
       { userEmail: "carol@example.com", orgId: "org-2" },
       () => revokeWorkspaceConnectionGrant("conn-granted", "dispatch"),
@@ -1835,6 +1854,25 @@ describe("workspace connection store", () => {
       appId: "dispatch",
       ownerEmail: "bob@example.com",
       orgId: "org-1",
+    });
+
+    const afterRevocation = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "github",
+          connectionId: "conn-granted",
+          requireConnected: true,
+        }),
+    );
+    expect(afterRevocation).toMatchObject({
+      available: false,
+      connection: {
+        id: "conn-granted",
+        appAccess: { available: false, mode: "unavailable" },
+      },
+      appAccess: { available: false, mode: "unavailable" },
     });
 
     const grants = await runWithRequestContext(

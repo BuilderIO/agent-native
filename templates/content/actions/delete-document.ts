@@ -16,6 +16,13 @@ import { deleteDocumentImports } from "../server/lib/document-imports.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
+import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
@@ -972,19 +979,26 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  return db.transaction((tx) =>
+  const deletedBlobReferences = new Set<string>();
+  const deleted = await db.transaction((tx) =>
     deleteDocumentRootsRecursive(
       tx as unknown as ReturnType<typeof getDb>,
       [id],
       ownerEmail,
+      deletedBlobReferences,
     ),
   );
+  for (const reference of deletedBlobReferences) {
+    await cleanupBuilderPrivatePayload(reference, "deleted document source");
+  }
+  return deleted;
 }
 
 export async function deleteDocumentRootsRecursive(
   db: ReturnType<typeof getDb>,
   rootIds: string[],
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
 ): Promise<string[]> {
   const collectScope = () =>
     collectDocumentSubtreeForDelete(db, rootIds, ownerEmail);
@@ -998,6 +1012,7 @@ export async function deleteDocumentRootsRecursive(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    deletedBlobReferences,
   );
 }
 
@@ -1006,6 +1021,7 @@ async function deleteCollectedDocuments(
   documentIds: string[],
   ownedDatabaseIds: string[],
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
 ): Promise<string[]> {
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -1041,6 +1057,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(sourceIds, async (sourceIdBatch) => {
+    await assertNoActiveBuilderSourceExecutions(db, sourceIdBatch);
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(
@@ -1049,11 +1066,30 @@ async function deleteCollectedDocuments(
           sourceIdBatch,
         ),
       );
-    await db
+    const deletedExecutions = await db
       .delete(schema.contentDatabaseSourceExecutions)
       .where(
         inArray(schema.contentDatabaseSourceExecutions.sourceId, sourceIdBatch),
-      );
+      )
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+        sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+      });
+    for (const row of deletedExecutions) {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      if (
+        reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          row.sourceId,
+        )
+      ) {
+        deletedBlobReferences.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(db, reference);
+      }
+    }
     await db
       .delete(schema.contentDatabaseSourceChangeReviews)
       .where(
@@ -1187,6 +1223,14 @@ async function deleteCollectedDocuments(
         ),
       );
     await db
+      .delete(schema.documentBodySteps)
+      .where(
+        and(
+          inArray(schema.documentBodySteps.documentId, documentIdBatch),
+          eq(schema.documentBodySteps.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
       .delete(schema.builderDocSidecars)
       .where(
         and(
@@ -1225,6 +1269,7 @@ export async function deleteTrashedDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
   frozen?: ReadonlyArray<{
     documentId: string;
     expectedTrashedAt: string;
@@ -1374,6 +1419,7 @@ export async function deleteTrashedDocumentSubtree(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    deletedBlobReferences,
   );
 }
 

@@ -21,7 +21,9 @@ out of scope. Do not exclude Design feedback just because it is visual or
 subjective. Before leaving a report with another owner, confirm current thread
 status or linked work; an eye alone is not active ownership. If a previous run
 claimed an out-of-scope item, keep `👀` and record **Skipped** once in the
-thread. Never remove reactions; newer thread evidence determines its status.
+thread. Preserve this actor's accurate marks and every other actor's mark.
+After a fresh root reaction read, correct and record this actor's stale or
+misapplied root mark; newer thread evidence determines its status.
 
 ## Choose the fix altitude
 

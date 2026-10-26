@@ -2,17 +2,26 @@ import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
-import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import { updateYFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Awareness } from "y-protocols/awareness";
-import { applyUpdate, type Doc as YDoc, type XmlFragment } from "yjs";
+import {
+  Doc as YDoc,
+  applyUpdate,
+  encodeStateAsUpdate,
+  equalSnapshots,
+  snapshot,
+  type XmlFragment,
+} from "yjs";
 
 import { AGENT_CLIENT_ID, isReconcileLeadClient } from "../collab-ui/index.js";
 import {
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   applyDocSurgically,
   defaultParseValue,
+  planDocReconcile,
   reconcileDocAgainstBase,
+  surgicalApplyTarget,
 } from "./surgical-apply.js";
 
 export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
@@ -59,6 +68,46 @@ const PEER_SETTLE_MS = 2500;
 const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
 const CATCH_UP_ATTEMPTS = 3;
 const CATCH_UP_RETRY_MS = 2000;
+const ADOPTION_RETRY_MS = 1000;
+const ADOPTION_RETRY_MAX_MS = 30_000;
+const ADOPTION_WARN_AFTER_FAILURES = 3;
+// Each rebase follows a change another editor made first. Past a few in a
+// row, the doc is busy, so rebuilds back off like failures.
+const ADOPTION_REBASES_BEFORE_BACKOFF = 3;
+// The Y.Map in which the server records the saved revision the live doc last
+// took in, and its body; SNAPSHOT_ADOPTION_MAP in @agent-native/core/collab.
+export const SNAPSHOT_ADOPTION_MAP = "agentNativeSnapshotAdoption";
+
+function adoptedMarkerOf(doc: YDoc): {
+  revision: string | null;
+  body: string | null;
+} {
+  const marker = doc.getMap(SNAPSHOT_ADOPTION_MAP);
+  const revision = marker.get("revision");
+  const body = marker.get("body");
+  return {
+    revision: typeof revision === "string" ? revision : null,
+    body: typeof body === "string" ? body : null,
+  };
+}
+
+/** Whether the doc `whole` encodes already holds every change in `part`. */
+function stateHoldsAll(whole: Uint8Array, part: Uint8Array): boolean {
+  const before = new YDoc();
+  const merged = new YDoc();
+  try {
+    applyUpdate(before, whole);
+    applyUpdate(merged, whole);
+    applyUpdate(merged, part);
+    return equalSnapshots(snapshot(merged), snapshot(before));
+  } finally {
+    before.destroy();
+    merged.destroy();
+  }
+}
+// The provider sends the server every update but its own; the adopted state
+// came from the server, so it is not sent back.
+const SNAPSHOT_ADOPTION_ORIGIN = "remote";
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -96,6 +145,29 @@ export interface UseCollabReconcileOptions {
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
+  /**
+   * Sends the live doc with a newer saved snapshot taken in, as a Yjs update,
+   * for the server to apply once per revision; returns the server's doc. Every
+   * open editor proposes the same snapshot, and without this each one's
+   * inserts survive the merge, so the text appears once per editor.
+   * `already-adopted` means another editor's proposal won; `rebase` means the
+   * doc took in `adoptedRevision`, or live edits, that the proposal was not
+   * built on, and `state` is the doc to build it on again; `stale` means
+   * a newer body was saved. `adoptedBody` is the saved body at
+   * `adoptedRevision`, which the next proposal is planned against. A
+   * rejection retries with backoff, except a 4xx other than 404, 408 or 429, which
+   * stops; the snapshot is never applied here alone. Leave it unset and the
+   * snapshot is applied locally.
+   */
+  requestSnapshotAdoption?: (request: {
+    revision: string;
+    update: Uint8Array;
+  }) => Promise<{
+    status: "adopted" | "already-adopted" | "rebase" | "stale";
+    adoptedRevision?: string | null;
+    adoptedBody?: string | null;
+    state: Uint8Array;
+  }>;
   /**
    * Flipping editability around the initial seed emits `update` unless this is
    * set. Set it when `update` saves the document, so that the flip is not
@@ -199,6 +271,7 @@ export function useCollabReconcile({
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   requestInitialSeed,
+  requestSnapshotAdoption,
   quietSeedEditability = false,
   onInitialSeedError,
   overlapPolicy = "conflict",
@@ -469,10 +542,20 @@ export function useCollabReconcile({
               const serialized = getMarkdown(editor);
               lastEmittedRef.current = serialized;
               pushEmittedRing(recentEmittedRef.current, serialized);
-              lastAppliedValueRef.current = value;
               lastAppliedSerializedRef.current = serialized;
-              if (contentUpdatedAt)
-                lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+              // Another editor's seed of an older body can win the claim; the
+              // newer body is then still to be taken in, not applied.
+              if (
+                serialized ===
+                reconcileCallbacksRef.current.normalizeValue(value)
+              ) {
+                lastAppliedValueRef.current = value;
+                if (contentUpdatedAt)
+                  lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+              } else {
+                lastAppliedValueRef.current = null;
+                lastAppliedUpdatedAtRef.current = null;
+              }
               markSeeded();
               setInitialSeedFailed(false);
               editor.setEditable(editable, !quietSeedEditability);
@@ -542,6 +625,14 @@ export function useCollabReconcile({
   ]);
 
   const syncedBeforeAdoptRef = useRef<string | null>(null);
+  const adoptionInFlightRef = useRef(false);
+  const adoptionRebasesRef = useRef<{ revision: string; count: number }>({
+    revision: "",
+    count: 0,
+  });
+  // The adoption marker this editor last read from its doc. One that changes
+  // under it came from another editor, and the doc holds that saved body.
+  const seenAdoptionRef = useRef<string | null | undefined>(undefined);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -591,6 +682,37 @@ export function useCollabReconcile({
     const peerWait = peerReconcileWaitRef.current!;
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    // Adoption retries waiting out a backoff, each dropped with its wait.
+    const backoffs = new Set<() => void>();
+    // Another editor's adoption that reached this doc through sync makes its
+    // body the base; measured against an older one, that body would look like
+    // typing here, and the next snapshot's changes to it would be dropped.
+    const takeInReceivedAdoption = () => {
+      if (!ydoc || !requestSnapshotAdoption) return;
+      const marker = adoptedMarkerOf(ydoc);
+      const seen = seenAdoptionRef.current;
+      seenAdoptionRef.current = marker.revision;
+      if (seen === undefined || seen === marker.revision) return;
+      if (marker.revision === null || marker.body === null) return;
+      const base = authoritativeBaseRef.current;
+      if (base?.revision === marker.revision) return;
+      const order = base
+        ? compareContentRevisions?.(marker.revision, base.revision)
+        : null;
+      // A save this editor made since then is the newer base.
+      if (order !== undefined && order !== null && order < 0) return;
+      authoritativeBaseRef.current = {
+        value: marker.body,
+        revision: marker.revision,
+      };
+      reportedConflictRevisionRef.current = null;
+      const callbacks = reconcileCallbacksRef.current;
+      const markdown = callbacks.getMarkdown(editor);
+      if (markdown === callbacks.normalizeValue(marker.body)) {
+        lastAppliedValueRef.current = marker.body;
+        lastAppliedSerializedRef.current = markdown;
+      }
+    };
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       const callbacks = reconcileCallbacksRef.current;
@@ -757,6 +879,12 @@ export function useCollabReconcile({
         retry = setTimeout(() => apply(deferred), 50);
         return;
       }
+      // The doc the server returns decides what this snapshot still changes.
+      if (adoptionInFlightRef.current) {
+        retry = setTimeout(() => apply(deferred), 100);
+        return;
+      }
+      takeInReceivedAdoption();
       if (
         collabBackedSnapshot ||
         (collab && pendingCollabSnapshot?.ydoc === ydoc)
@@ -931,6 +1059,11 @@ export function useCollabReconcile({
 
       const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
+        if (adoptionInFlightRef.current) {
+          retry = setTimeout(() => apply(deferred), 100);
+          return;
+        }
+        takeInReceivedAdoption();
         const scheduledCallbacks = reconcileCallbacksRef.current;
         peerWait.deadline = null;
         const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
@@ -954,7 +1087,204 @@ export function useCollabReconcile({
           }
           return;
         }
-        isSettingContentRef.current = true;
+        const parse =
+          scheduledCallbacks.parseValue === false
+            ? null
+            : (scheduledCallbacks.parseValue ?? defaultParseValue);
+        // Every open editor proposes the same snapshot. Applied locally, each
+        // proposal's inserts survive the merge and the text appears once per
+        // editor, so the server takes in one proposal per revision and every
+        // editor shows the doc it returns.
+        const adoptSnapshot =
+          collab && ydoc && contentRevision && requestSnapshotAdoption
+            ? requestSnapshotAdoption
+            : null;
+        const adoptThroughServer = (
+          target: ProseMirrorNode,
+          settle: () => void,
+        ) => {
+          if (!adoptSnapshot || !ydoc || !contentRevision) return;
+          let update: Uint8Array;
+          const scratch = new YDoc();
+          try {
+            applyUpdate(scratch, encodeStateAsUpdate(ydoc));
+            updateYFragment(
+              scratch,
+              scratch.getXmlFragment("default"),
+              target,
+              {
+                mapping: new Map(),
+                isOMark: new Map(),
+              },
+            );
+            update = encodeStateAsUpdate(scratch);
+          } finally {
+            scratch.destroy();
+          }
+          const proposedMarker = adoptedMarkerOf(ydoc).revision;
+          const proposedBase = authoritativeBaseRef.current;
+          adoptionInFlightRef.current = true;
+          let failures = 0;
+          const release = () => {
+            adoptionInFlightRef.current = false;
+          };
+          const backoff = (attempt: number) =>
+            Math.min(
+              ADOPTION_RETRY_MS * 2 ** (attempt - 1),
+              ADOPTION_RETRY_MAX_MS,
+            );
+          // Only the server's answer may put the snapshot into the doc. A
+          // proposal applied here as well would sit beside the one the server
+          // took, and an answer lost after the server took it would too. So
+          // would one applied here because this editor's server cannot take
+          // it while another editor's server can.
+          const fail = (error: unknown) => {
+            if (cancelled || editor.isDestroyed) {
+              release();
+              return;
+            }
+            const status =
+              error && typeof error === "object" && "status" in error
+                ? error.status
+                : undefined;
+            if (
+              typeof status === "number" &&
+              status >= 400 &&
+              status < 500 &&
+              // An instance from before adoptions existed answers 404 while
+              // a deploy rolls out; a later attempt reaches a newer one.
+              status !== 404 &&
+              status !== 408 &&
+              status !== 429
+            ) {
+              release();
+              console.warn("The server refused a saved snapshot", error);
+              return;
+            }
+            failures += 1;
+            if (failures === ADOPTION_WARN_AFTER_FAILURES) {
+              console.warn(
+                "Still retrying a saved snapshot the server has not taken",
+                error,
+              );
+            }
+            // Not `retry`: cleanup drops the wait and the in-flight mark
+            // together, so a newer snapshot doesn't wait out this one's
+            // backoff. No request is out while it waits.
+            const abandon = () => {
+              backoffs.delete(abandon);
+              clearTimeout(timer);
+              release();
+            };
+            const timer = setTimeout(() => {
+              backoffs.delete(abandon);
+              propose();
+            }, backoff(failures));
+            backoffs.add(abandon);
+          };
+          const propose = () => {
+            if (cancelled || editor.isDestroyed) {
+              release();
+              return;
+            }
+            void adoptSnapshot({ revision: contentRevision, update }).then(
+              (result) => {
+                if (editor.isDestroyed) {
+                  release();
+                  return;
+                }
+                isSettingContentRef.current = true;
+                try {
+                  applyUpdate(ydoc, result.state, SNAPSHOT_ADOPTION_ORIGIN);
+                } catch (error) {
+                  isSettingContentRef.current = false;
+                  fail(error);
+                  return;
+                }
+                isSettingContentRef.current = false;
+                release();
+                const taken =
+                  result.status === "adopted" ||
+                  result.status === "already-adopted";
+                // For `rebase`, a marker past the one this proposal held is
+                // another editor's adoption, whose body is the new base. With
+                // the marker unchanged, the server held live edits the
+                // proposal lacked, and the base stands.
+                const markerMoved =
+                  result.status === "rebase" &&
+                  result.adoptedRevision !== proposedMarker;
+                const adopted = taken
+                  ? { value, revision: contentRevision }
+                  : markerMoved &&
+                      typeof result.adoptedRevision === "string" &&
+                      typeof result.adoptedBody === "string"
+                    ? {
+                        value: result.adoptedBody,
+                        revision: result.adoptedRevision,
+                      }
+                    : null;
+                if (adopted) seenAdoptionRef.current = adopted.revision;
+                if (cancelled) {
+                  // The newer snapshot that cancelled this one is planned
+                  // against the revision the doc holds.
+                  if (
+                    adopted &&
+                    authoritativeBaseRef.current === proposedBase
+                  ) {
+                    authoritativeBaseRef.current = adopted;
+                  }
+                  return;
+                }
+                // A newer body was saved meanwhile; it arrives as its own
+                // snapshot, measured against the base this one would replace.
+                if (result.status === "stale") return;
+                if (result.status === "rebase") {
+                  if (
+                    (markerMoved && !adopted) ||
+                    stateHoldsAll(update, result.state)
+                  ) {
+                    console.warn(
+                      "The server sent a saved snapshot back to rebuild on a doc it did not send",
+                      result.adoptedRevision,
+                    );
+                    return;
+                  }
+                  const rebases = adoptionRebasesRef.current;
+                  if (rebases.revision !== contentRevision) {
+                    rebases.revision = contentRevision;
+                    rebases.count = 0;
+                  }
+                  rebases.count += 1;
+                  if (adopted) {
+                    authoritativeBaseRef.current = adopted;
+                    reportedConflictRevisionRef.current = null;
+                    const callbacks = reconcileCallbacksRef.current;
+                    const markdown = callbacks.getMarkdown(editor);
+                    // A doc that is exactly that revision holds no typing
+                    // this snapshot could overwrite.
+                    if (markdown === callbacks.normalizeValue(adopted.value)) {
+                      lastAppliedValueRef.current = adopted.value;
+                      lastAppliedSerializedRef.current = markdown;
+                    }
+                  }
+                  // Plan this snapshot again on the doc the server sent.
+                  retry = setTimeout(
+                    () => apply(deferred),
+                    rebases.count <= ADOPTION_REBASES_BEFORE_BACKOFF
+                      ? 0
+                      : backoff(
+                          rebases.count - ADOPTION_REBASES_BEFORE_BACKOFF,
+                        ),
+                  );
+                  return;
+                }
+                settle();
+              },
+              fail,
+            );
+          };
+          propose();
+        };
         const authoritativeBase = authoritativeBaseRef.current;
         if (
           contentRevision &&
@@ -962,103 +1292,133 @@ export function useCollabReconcile({
           authoritativeBase &&
           authoritativeBase.revision !== contentRevision
         ) {
-          const parse =
-            scheduledCallbacks.parseValue === false
-              ? null
-              : (scheduledCallbacks.parseValue ?? defaultParseValue);
           const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
           const serverDoc = parse?.(editor, value) ?? null;
-          if (!baseDoc || !serverDoc) {
-            isSettingContentRef.current = false;
-            if (reportedConflictRevisionRef.current !== contentRevision) {
-              reportedConflictRevisionRef.current = contentRevision;
-              scheduledCallbacks.onBaseAwareReconcile({
-                status: "failed",
-                content: beforeMarkdown,
-                serverContent: value,
-                baseRevision: authoritativeBase.revision,
-                serverRevision: contentRevision,
-              });
-            }
-            return;
-          }
-          const reconciled = reconcileDocAgainstBase(
-            editor,
-            baseDoc,
-            serverDoc,
-            { overlapPolicy },
-          );
-          if (
-            reconciled.status === "conflict" ||
-            reconciled.status === "failed"
-          ) {
-            isSettingContentRef.current = false;
-            if (reportedConflictRevisionRef.current !== contentRevision) {
-              reportedConflictRevisionRef.current = contentRevision;
-              scheduledCallbacks.onBaseAwareReconcile({
-                status: reconciled.status,
-                content: beforeMarkdown,
-                serverContent: value,
-                baseRevision: authoritativeBase.revision,
-                serverRevision: contentRevision,
-              });
-            }
-            return;
-          }
-          const merged = scheduledCallbacks.getMarkdown(editor);
-          isSettingContentRef.current = false;
-          authoritativeBaseRef.current = { value, revision: contentRevision };
-          reportedConflictRevisionRef.current = null;
-          lastEmittedRef.current = merged;
-          pushEmittedRing(recentEmittedRef.current, merged);
-          lastAppliedValueRef.current = value;
-          lastAppliedSerializedRef.current = merged;
-          if (contentUpdatedAt)
-            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-          if (merged !== beforeMarkdown)
-            scheduledCallbacks.onRemoteSnapshotChange?.(merged);
-          if (merged !== normalized) {
-            scheduledCallbacks.onBaseAwareReconcile({
-              status: "merged",
-              content: merged,
+          const report = (status: "conflict" | "failed") => {
+            if (reportedConflictRevisionRef.current === contentRevision) return;
+            reportedConflictRevisionRef.current = contentRevision;
+            scheduledCallbacks.onBaseAwareReconcile?.({
+              status,
+              content: beforeMarkdown,
               serverContent: value,
               baseRevision: authoritativeBase.revision,
               serverRevision: contentRevision,
             });
+          };
+          if (!baseDoc || !serverDoc) {
+            report("failed");
+            return;
           }
+          const settleMerged = () => {
+            const merged = scheduledCallbacks.getMarkdown(editor);
+            authoritativeBaseRef.current = { value, revision: contentRevision };
+            reportedConflictRevisionRef.current = null;
+            lastEmittedRef.current = merged;
+            pushEmittedRing(recentEmittedRef.current, merged);
+            lastAppliedValueRef.current = value;
+            lastAppliedSerializedRef.current = merged;
+            if (contentUpdatedAt)
+              lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+            if (merged !== beforeMarkdown)
+              scheduledCallbacks.onRemoteSnapshotChange?.(merged);
+            if (merged !== normalized) {
+              scheduledCallbacks.onBaseAwareReconcile?.({
+                status: "merged",
+                content: merged,
+                serverContent: value,
+                baseRevision: authoritativeBase.revision,
+                serverRevision: contentRevision,
+              });
+            }
+          };
+          const reconcileLocally = () => {
+            isSettingContentRef.current = true;
+            const reconciled = reconcileDocAgainstBase(
+              editor,
+              baseDoc,
+              serverDoc,
+              { overlapPolicy },
+            );
+            isSettingContentRef.current = false;
+            if (
+              reconciled.status === "conflict" ||
+              reconciled.status === "failed"
+            ) {
+              report(reconciled.status);
+              return;
+            }
+            settleMerged();
+          };
+          if (!adoptSnapshot) {
+            reconcileLocally();
+            return;
+          }
+          const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
+            overlapPolicy,
+          });
+          if (plan.status === "conflict" || plan.status === "failed") {
+            report(plan.status);
+            return;
+          }
+          if (plan.status === "noop") {
+            settleMerged();
+            return;
+          }
+          adoptThroughServer(plan.mergedDoc, settleMerged);
           return;
         }
-        let appliedSurgically = false;
-        if (scheduledCallbacks.parseValue !== false) {
-          const parse = scheduledCallbacks.parseValue ?? defaultParseValue;
-          const parsedDoc = parse(editor, value);
+        const settleApplied = () => {
+          const serialized = scheduledCallbacks.getMarkdown(editor);
+          lastEmittedRef.current = serialized;
+          pushEmittedRing(recentEmittedRef.current, serialized);
+          lastAppliedValueRef.current = value;
+          lastAppliedSerializedRef.current = serialized;
+          if (contentRevision) {
+            authoritativeBaseRef.current = { value, revision: contentRevision };
+            reportedConflictRevisionRef.current = null;
+          }
+          if (contentUpdatedAt) {
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          }
+          if (serialized !== beforeMarkdown) {
+            scheduledCallbacks.onRemoteSnapshotChange?.(serialized);
+          }
+        };
+        const applyLocally = () => {
+          isSettingContentRef.current = true;
+          let appliedSurgically = false;
+          const parsedDoc = parse?.(editor, value) ?? null;
           if (parsedDoc) {
             const result = applyDocSurgically(editor, parsedDoc);
             appliedSurgically = result === "applied" || result === "noop";
           }
+          if (!appliedSurgically) {
+            scheduledCallbacks.setContent(editor, value, {
+              emitUpdate: false,
+              addToHistory: false,
+            });
+          }
+          isSettingContentRef.current = false;
+          settleApplied();
+        };
+        const parsedDoc = adoptSnapshot
+          ? (parse?.(editor, value) ?? null)
+          : null;
+        if (!parsedDoc) {
+          applyLocally();
+          return;
         }
-        if (!appliedSurgically) {
-          scheduledCallbacks.setContent(editor, value, {
-            emitUpdate: false,
-            addToHistory: false,
-          });
+        const target = surgicalApplyTarget(editor.state.doc, parsedDoc);
+        if (target === "noop") {
+          settleApplied();
+          return;
         }
-        isSettingContentRef.current = false;
-        const serialized = scheduledCallbacks.getMarkdown(editor);
-        lastEmittedRef.current = serialized;
-        pushEmittedRing(recentEmittedRef.current, serialized);
-        lastAppliedValueRef.current = value;
-        lastAppliedSerializedRef.current = serialized;
-        if (contentRevision) {
-          authoritativeBaseRef.current = { value, revision: contentRevision };
-          reportedConflictRevisionRef.current = null;
-        }
-        if (contentUpdatedAt) {
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-        }
-        if (serialized !== beforeMarkdown) {
-          scheduledCallbacks.onRemoteSnapshotChange?.(serialized);
-        }
+        // Where no surgical change fits, the whole parsed body replaces the
+        // doc, as `setContent` would.
+        adoptThroughServer(
+          target === "failed" ? parsedDoc : target,
+          settleApplied,
+        );
       }, 0);
       retry = applyTimer;
     };
@@ -1067,6 +1427,7 @@ export function useCollabReconcile({
     return () => {
       cancelled = true;
       if (retry) clearTimeout(retry);
+      for (const abandon of [...backoffs]) abandon();
     };
   }, [
     contentUpdatedAt,
@@ -1084,6 +1445,7 @@ export function useCollabReconcile({
     collabBackedSnapshot,
     pendingCollabSnapshot,
     requestCollabSync,
+    requestSnapshotAdoption,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {

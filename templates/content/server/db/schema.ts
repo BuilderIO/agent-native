@@ -804,6 +804,24 @@ export const contentDatabaseSourceExecutions = table(
   },
 );
 
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
+);
+
 export const contentDatabaseSourceExecutionClaims = table(
   "content_database_source_execution_claims",
   {
@@ -994,6 +1012,31 @@ export const documentBodyIntents = table(
       intent.ownerEmail,
       intent.documentId,
       intent.committedRevision,
+    ),
+  ],
+);
+
+/**
+ * For each switched-page commit, how to turn the body it stored back into
+ * the one it replaced at `bodyRevision`, so an edit made on a body History
+ * never recorded can be placed on it exactly. Bounded per page.
+ */
+export const documentBodySteps = table(
+  "document_body_steps",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    bodyRevision: integer("body_revision").notNull(),
+    startOffset: integer("start_offset").notNull(),
+    endOffset: integer("end_offset").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (step) => [
+    index("document_body_steps_document_revision_idx").on(
+      step.documentId,
+      step.bodyRevision,
     ),
   ],
 );

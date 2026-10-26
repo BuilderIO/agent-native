@@ -5,18 +5,34 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-22
 
+### Added
+
+- Blocks with several comment threads fold into one stack in the margin, which opens in place when you click it or a highlight
+
 ### Improved
 
+- A big GitHub folder fills its collection much faster, and keeps filling while the collection is open rather than waiting for the next background sync
+- Collections with large select or multi-select properties open faster and use less memory, because each property definition is sent once instead of with every row
+- Pressing Escape while writing a comment, reply or edit cancels it, and asks first if you've written something.
+- A collection linked to a big GitHub folder fills faster, and pushes to other linked collections aren't held up while it does
 - Accept remaining and Reject remaining show the result for every suggested edit at once
 - Accepting a group of suggested edits saves faster and adds one page version
 
 ### Fixed
 
+- A GitHub folder sync keeps going when file storage fails, filling pages without their images and adding them on a later sync
+- Opening a page no longer saves an edit again after another open tab's save already stored it.
 - Changes made from a menu or popover, such as an image's alt text, are always saved.
 - Agents can read saved page titles and text after an unrelated icon change fails.
 - Text an agent writes inside a callout, column or synced block without indenting it now shows on the page and survives your edits.
 
 ## 2026-10-21
+
+### Added
+
+- Agents' suggested edits show inline in MCP Apps hosts like Claude and ChatGPT, where you can accept or reject them
+- The Comments panel is now **Discussion**: comment on a whole page without selecting text, and sort and filter every comment on the page by status, type, what it points at, or who wrote it
+- List rows can show the first lines of each page under its title: pick **Page text** for Line 2
 
 ### Improved
 
@@ -37,6 +53,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Suggested edits that add, remove, split, or merge paragraphs, line breaks, and list items now show where the break goes and save as one clear suggestion
+- Builder content sync keeps read and write status accurate when API responses fail.
 - HTML table cells preserve a trailing backslash when opening Markdown.
 - Preserve empty paragraph colors and refuse unsupported inline image and oversized math formatting before content is stored.
 
@@ -67,6 +85,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Fill a collection from a GitHub folder through its Sources settings, which an empty collection links to from under its title and which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, with a link back to its folder in Sources, and unlinking asks first
 - Connected AI assistants can make a collection from a GitHub folder, or link an empty one: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
 - Make a collection from a GitHub folder in the sidebar's New menu, or fill an empty one from its Sources settings, which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, and unlinking asks first
 - Connected AI assistants can link a new collection to a GitHub folder: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
@@ -91,6 +110,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Builder Content avoids retrying a write when Builder accepted it but the response could not be saved.
 - Agents reading a page you have open no longer wait or fail when your edits are already saved
 
 ## 2026-10-16
@@ -101,6 +121,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Accepting a suggestion on a Page that changed since it was suggested no longer shows "Something went wrong"
 - A page open in a tab that shows it's in the trash reopens within seconds when someone restores it.
 - A page restored from Trash returns to its place in its collection, and edits to a page in Trash are refused
 - Agent-written Markdown keeps nested lists indented with spaces, underscore bold and italics, and escaped punctuation

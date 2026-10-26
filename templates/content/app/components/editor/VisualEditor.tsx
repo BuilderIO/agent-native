@@ -192,7 +192,7 @@ import {
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
-import { ContentTableView } from "./table-view";
+import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
@@ -864,6 +864,10 @@ const CustomTable = BaseTable.extend({
       },
     };
   },
+  addProseMirrorPlugins() {
+    // Ahead of Table's own `columnResizing`, whose mousedown starts a drag.
+    return [contentTableColumnSizing(), ...(this.parent?.() ?? [])];
+  },
 });
 
 const NotionTableHeader = TableHeader.extend({
@@ -1439,7 +1443,26 @@ function suggestionAnchorRange(
   const collapsedRange = collapsedDeletionTextblock();
   if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
-    const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
+    // An empty paragraph has no text to map, so a span that opens or closes
+    // with one maps the text beside it, or the place it starts when that's
+    // all it holds.
+    const emptyLine = "<empty-block/>";
+    let mapFrom = sourceFrom;
+    let mapTo = sourceTo;
+    for (;;) {
+      if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.slice(mapTo - emptyLine.length - 1, mapTo) === `\n${emptyLine}`
+      )
+        mapTo -= emptyLine.length + 1;
+      else if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.startsWith(`${emptyLine}\n`, mapFrom)
+      )
+        mapFrom += emptyLine.length + 1;
+      else break;
+    }
+    const exactRange = sourceRangeToPm(mapFrom, mapTo);
     if (exactRange) return exactRange;
   }
   const mappedSource = suggestionAnchorText(source);
@@ -1592,11 +1615,18 @@ export function suggestionHighlightSpec(
       editableText: true,
     };
   }
+  // Removed syntax with no text, such as indentation, a list marker, or an
+  // empty paragraph, is not in the document text, so it is drawn instead.
   const structuralDeletion =
     /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
     (beforePresentation &&
       beforePresentation.length > 0 &&
-      beforePresentation.every((node) => node.type === "indent"));
+      beforePresentation.every(
+        (node) =>
+          node.type === "indent" ||
+          node.type === "block" ||
+          (node.type === "text" && /^↵+$/.test(node.value)),
+      ));
   return {
     suggestionId: suggestion.id,
     kind:
@@ -4312,6 +4342,33 @@ export function VisualEditor({
     },
     [documentId],
   );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        adoptedBody: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
+    },
+    [documentId],
+  );
   const onInitialSeedError = useCallback(
     (error: unknown) => {
       if (initialSeedErrorShownRef.current) return;
@@ -4394,6 +4451,8 @@ export function VisualEditor({
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
     onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
@@ -4743,9 +4802,17 @@ export function VisualEditor({
     const apply = (report = true) => {
       if (editor.isDestroyed) return;
       const specs = suggestions
-        .map((suggestion) =>
-          suggestionHighlightSpec(editor.state.doc, suggestion),
-        )
+        .map((suggestion) => {
+          const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+          // While suggesting, a saved suggestion's text outside the document
+          // is somewhere to type beside, not a control to focus.
+          return spec &&
+            suggesting &&
+            editable &&
+            suggestion.presentation === "canonical"
+            ? { ...spec, editableBoundary: true }
+            : spec;
+        })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
       if (report)
         onSuggestionAnchorsChange?.(
@@ -4771,8 +4838,10 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    editable,
     editor,
     onSuggestionAnchorsChange,
+    suggesting,
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
@@ -4796,34 +4865,46 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // Callers build the readbacks inline and render again on every report, so
+  // these checks key on the readbacks' fields and report each divergent body
+  // once: keyed on the objects, each report re-runs its check until React
+  // aborts the render.
+  const acceptedReadbackId = acceptedDecisionReadback?.id ?? null;
+  const acceptedReadbackContent = acceptedDecisionReadback?.content ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      acceptedReadbackId === null ||
+      acceptedReadbackContent === null
+    )
+      return;
     const settlingSuggestion = suggestions.find(
-      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+      (suggestion) => suggestion.id === acceptedReadbackId,
     );
     if (!settlingSuggestion) return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actualContent = docToNfm(editor.getJSON() as any);
       if (
         acceptedSuggestionRendered(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+        onAcceptedDecisionRendered?.(acceptedReadbackId);
       } else if (
+        actualContent !== reported &&
         acceptedSuggestionReadbackOutdated(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionReadbackOutdated?.(
-          acceptedDecisionReadback.id,
-          actualContent,
-        );
+        reported = actualContent;
+        onAcceptedDecisionReadbackOutdated?.(acceptedReadbackId, actualContent);
       }
     };
     editor.on("transaction", check);
@@ -4832,27 +4913,44 @@ export function VisualEditor({
       editor.off("transaction", check);
     };
   }, [
-    acceptedDecisionReadback,
+    acceptedReadbackContent,
+    acceptedReadbackId,
     editor,
     onAcceptedDecisionRendered,
     onAcceptedDecisionReadbackOutdated,
     suggestions,
   ]);
 
+  const proposalReadbackGeneration =
+    proposalDecisionReadback?.generation ?? null;
+  const proposalReadbackContent = proposalDecisionReadback?.content ?? null;
+  const proposalReadbackBefore =
+    proposalDecisionReadback?.beforeContent ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !proposalDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      proposalReadbackGeneration === null ||
+      proposalReadbackContent === null ||
+      proposalReadbackBefore === null
+    )
+      return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
-      if (actual === canonicalizeNfm(proposalDecisionReadback.content))
-        onProposalDecisionRendered?.(proposalDecisionReadback.generation);
+      if (actual === canonicalizeNfm(proposalReadbackContent))
+        onProposalDecisionRendered?.(proposalReadbackGeneration);
       else if (
-        actual !== canonicalizeNfm(proposalDecisionReadback.beforeContent)
-      )
+        actual !== reported &&
+        actual !== canonicalizeNfm(proposalReadbackBefore)
+      ) {
+        reported = actual;
         onProposalDecisionReadbackOutdated?.(
-          proposalDecisionReadback.generation,
+          proposalReadbackGeneration,
           actual,
         );
+      }
     };
     editor.on("transaction", check);
     check();
@@ -4863,7 +4961,9 @@ export function VisualEditor({
     editor,
     onProposalDecisionReadbackOutdated,
     onProposalDecisionRendered,
-    proposalDecisionReadback,
+    proposalReadbackBefore,
+    proposalReadbackContent,
+    proposalReadbackGeneration,
   ]);
 
   useEffect(() => {

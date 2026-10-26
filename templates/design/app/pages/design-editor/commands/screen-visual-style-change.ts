@@ -1,3 +1,4 @@
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { RefObject } from "react";
@@ -116,18 +117,27 @@ export function runScreenVisualStyleChange(
     return;
   }
   if (metadata?.phase === "preview") return;
+  const wholePixelStyles = roundGeometryStylesPx(styles, {
+    containingBlockTransform: elementInfo?.positionContainingBlockTransform,
+  });
   if (screenSourceType === "localhost") {
     if (!canEditScreen) return;
-    recordPendingVisualStyleEdit(screenId, selector, styles, elementInfo, {
-      originalStyles: metadata?.originalStyles,
-      preserveSelection: metadata?.preserveSelection,
-      routePath: metadata?.routePath,
-      relativeOperations: metadata?.relativeOperations,
-    });
+    recordPendingVisualStyleEdit(
+      screenId,
+      selector,
+      wholePixelStyles,
+      elementInfo,
+      {
+        originalStyles: metadata?.originalStyles,
+        preserveSelection: metadata?.preserveSelection,
+        routePath: metadata?.routePath,
+        relativeOperations: metadata?.relativeOperations,
+      },
+    );
     return;
   }
   if (!canEditDesign) return;
-  const entries = Object.entries(styles).filter(
+  const entries = Object.entries(wholePixelStyles).filter(
     ([, value]) => value !== undefined,
   );
   if (entries.length === 0) return;

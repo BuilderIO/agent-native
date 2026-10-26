@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 
+import {
+  fetchPullRequestFilePages,
+  type RunGhApi,
+} from "./github-pull-request-files.ts";
+
 const pullRequestFilesLimit = 3_000;
 
 const allowedReleasePaths = [
@@ -59,28 +64,46 @@ export function assertReleaseOnlyPullRequestFiles(
   return files;
 }
 
-function main(): void {
-  const repo = process.env.REPO;
-  const prNumber = process.env.PR_NUMBER;
-  if (!repo || !prNumber) {
-    throw new Error("Missing release PR file verification context.");
+export function extractPullRequestFileNames(pages: unknown): string[] {
+  if (!Array.isArray(pages) || pages.length === 0) {
+    throw new Error("GitHub returned an invalid pull request file list.");
   }
 
-  const gh = (args: string[]) =>
-    execFileSync("gh", args, {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    }).trim();
-  const files = JSON.parse(
-    gh([
-      "api",
-      "--paginate",
-      "--slurp",
-      `repos/${repo}/pulls/${prNumber}/files`,
-      "--jq",
-      "add | map(.filename)",
-    ]),
-  ) as unknown;
+  const files: string[] = [];
+  for (const page of pages) {
+    if (!Array.isArray(page)) {
+      throw new Error("GitHub returned an invalid pull request file list.");
+    }
+    for (const file of page) {
+      if (
+        file === null ||
+        typeof file !== "object" ||
+        Array.isArray(file) ||
+        !("filename" in file) ||
+        typeof file.filename !== "string"
+      ) {
+        throw new Error("GitHub returned an invalid pull request file list.");
+      }
+      files.push(file.filename);
+    }
+  }
+
+  return files;
+}
+
+const runGhApi: RunGhApi = (args) =>
+  execFileSync("gh", args, {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim();
+
+function verifyReleasePullRequestFiles(
+  repo: string,
+  prNumber: string,
+  gh: RunGhApi = runGhApi,
+): string[] {
+  const pages = fetchPullRequestFilePages(repo, prNumber, gh);
+  const files = extractPullRequestFileNames(pages);
   const pullRequest = JSON.parse(
     gh(["api", `repos/${repo}/pulls/${prNumber}`]),
   ) as { changed_files?: unknown };
@@ -88,6 +111,17 @@ function main(): void {
     files,
     pullRequest.changed_files,
   );
+  return completeFiles;
+}
+
+function main(): void {
+  const repo = process.env.REPO;
+  const prNumber = process.env.PR_NUMBER;
+  if (!repo || !prNumber) {
+    throw new Error("Missing release PR file verification context.");
+  }
+
+  const completeFiles = verifyReleasePullRequestFiles(repo, prNumber);
   console.log(
     `Verified ${completeFiles.length} complete release PR file paths against the allowlist.`,
   );

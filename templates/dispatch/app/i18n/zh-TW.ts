@@ -291,6 +291,10 @@ const messages = {
     },
   },
   dispatch: {
+    sidebar: {
+      showLocalChats: "顯示本機聊天",
+      showAllChats: "顯示所有聊天",
+    },
     nav: {
       admin: "管理",
       automations: "自動化",
@@ -303,6 +307,9 @@ const messages = {
       agent: "代理",
     },
     pages: {
+      chatFirstCopySessionId: "複製工作階段 ID",
+      chatFirstSessionIdCopied: "已複製工作階段 ID",
+      chatFirstWatchSession: "觀看",
       adminDescription: "工作區控制與營運",
       appProfileWhenToUse: "使用時機",
       appProfileWhenToUsePlaceholder: "每行填寫一個範例請求",

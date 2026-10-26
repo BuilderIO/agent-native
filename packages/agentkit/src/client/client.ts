@@ -12,6 +12,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentQueuedMessage,
+  AgentQueuedMessageDelivery,
   AgentQueuedSubmissionStatus,
   AgentSubmissionReference,
   AgentRequestAttachment,
@@ -54,6 +55,7 @@ import {
   isPersistableAttachmentUrl,
   MAX_AGENT_REQUEST_ATTACHMENTS,
   parseAgentEvent,
+  parseAgentMessage,
   parseStartRunInput,
   fingerprintAgentSubmissionAttachment,
   projectAgentCapabilities,
@@ -223,6 +225,8 @@ export interface SendMessageInput {
   queuedWhileRunActive?: boolean;
   /** Host intent for a send that must interrupt the active run if it hits a server-side slot conflict. */
   interruptActiveRun?: boolean;
+  /** Host intent for a send made during a run to go into that run at its next step. */
+  deliverInActiveRun?: boolean;
   /** Host-only acknowledgement after a local message is ready for handoff; never sent to the transport. */
   onLocalSubmit?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
@@ -575,11 +579,20 @@ export interface AgentKitController {
   ): AgentQueuedMessage;
   /** Removes a local-only queue reservation after preparation fails or is canceled. */
   cancelQueuedMessageReservation(threadId: ThreadId, messageId: string): void;
+  /**
+   * Adds or replaces messages that arrive outside a run, such as voice chat
+   * transcripts. A known id updates in place and a new id appends. The
+   * messages stay local until persistThreadSnapshot() saves them.
+   */
+  upsertLocalMessages?(
+    threadId: ThreadId,
+    messages: readonly AgentMessage[],
+  ): void;
   steerQueuedMessage(
     threadId: ThreadId,
     messageId: string,
     context?: AgentRequestContext,
-    options?: { interruptActiveRun?: boolean },
+    options?: AgentKitSteerQueuedMessageOptions,
   ): Promise<AgentRunHandle | void>;
   removeQueuedMessage(
     threadId: ThreadId,
@@ -592,6 +605,14 @@ export interface AgentKitController {
     context?: AgentRequestContext,
   ): Promise<void>;
   supportsQueuedMessageReordering?(): boolean;
+  /** Replace the queue order with every queued id in its new position. */
+  reorderQueuedMessages?(
+    threadId: ThreadId,
+    messageIds: readonly string[],
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  /** True when the transport can persist an arbitrary queue order. */
+  supportsQueuedMessageOrdering?(): boolean;
   continueRun?(
     threadId: ThreadId,
     runId: RunId,
@@ -632,7 +653,23 @@ export interface AgentKitController {
   dispose(): Promise<void>;
 }
 
+export interface AgentKitSteerQueuedMessageOptions {
+  /** Stops the active run before sending. */
+  interruptActiveRun?: boolean;
+  /** Sends into the active run at its next step instead of stopping it. */
+  deliverInActiveRun?: boolean;
+}
+
 export type AgentKitListener = () => void;
+
+/** A send made during a run either stops it or goes into it; never both. */
+function sendSteerOptions(
+  input: Pick<SendMessageInput, "interruptActiveRun" | "deliverInActiveRun">,
+): AgentKitSteerQueuedMessageOptions | undefined {
+  if (input.interruptActiveRun) return { interruptActiveRun: true };
+  if (input.deliverInActiveRun) return { deliverInActiveRun: true };
+  return undefined;
+}
 
 function defaultCreateId(prefix: string): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -781,6 +818,20 @@ export class AgentKitOperationError extends Error {
   public constructor(public readonly operation: string) {
     super(`This AgentKit controller does not support ${operation}.`);
     this.name = "AgentKitOperationError";
+  }
+}
+
+/**
+ * A reorder named a different set of messages than the queue holds, because a
+ * message was sent, removed, or added since the caller read it.
+ */
+export class AgentKitQueueOrderStaleError extends Error {
+  public readonly code = "queue_order_stale" as const;
+  public readonly retryable = false;
+
+  public constructor(public readonly threadId: ThreadId) {
+    super("The message queue changed before it could be reordered.");
+    this.name = "AgentKitQueueOrderStaleError";
   }
 }
 
@@ -2995,7 +3046,9 @@ export class AgentKitClient implements AgentKitController {
     const activeRunId = current.activeRunIds.at(-1);
     if (
       expiresAt === undefined &&
-      (input.queueWhileRunning !== false || input.interruptActiveRun) &&
+      (input.queueWhileRunning !== false ||
+        input.interruptActiveRun ||
+        input.deliverInActiveRun) &&
       activeRunId &&
       hasActiveAgentRuns(current) &&
       this.transport.queueMessage
@@ -3044,13 +3097,14 @@ export class AgentKitClient implements AgentKitController {
           requestContext,
         );
       }
-      if (input.interruptActiveRun) {
+      const steerOptions = sendSteerOptions(input);
+      if (steerOptions) {
         try {
           const steered = await this.steerQueuedMessage(
             input.threadId,
             queued.id,
             requestContext,
-            { interruptActiveRun: true },
+            steerOptions,
           );
           if (steered) return steered;
         } catch {
@@ -3188,13 +3242,14 @@ export class AgentKitClient implements AgentKitController {
             receipt.activeRunId,
           );
         }
-        if (input.interruptActiveRun) {
+        const steerOptions = sendSteerOptions(input);
+        if (steerOptions) {
           try {
             const steered = await this.steerQueuedMessage(
               input.threadId,
               queued.id,
               requestContext,
-              { interruptActiveRun: true },
+              steerOptions,
             );
             if (steered) return steered;
           } catch {
@@ -3241,7 +3296,9 @@ export class AgentKitClient implements AgentKitController {
       if (
         isAgentKitRunSlotBusyError(error) &&
         expiresAt === undefined &&
-        (input.queueWhileRunning !== false || input.interruptActiveRun)
+        (input.queueWhileRunning !== false ||
+          input.interruptActiveRun ||
+          input.deliverInActiveRun)
       ) {
         try {
           let activeRunId = error.activeRunId;
@@ -3285,13 +3342,14 @@ export class AgentKitClient implements AgentKitController {
           }
           if (activeRunId) this.markRunStarted(input.threadId, activeRunId);
           else this.setConnection("connected");
-          if (input.interruptActiveRun) {
+          const steerOptions = sendSteerOptions(input);
+          if (steerOptions) {
             try {
               const steered = await this.steerQueuedMessage(
                 input.threadId,
                 queued.id,
                 requestContext,
-                { interruptActiveRun: true },
+                steerOptions,
               );
               if (steered) return steered;
             } catch {
@@ -3870,6 +3928,25 @@ export class AgentKitClient implements AgentKitController {
       this.queuedMessageReservationCallbacks.set(reservation.id, onLocalSubmit);
     }
     return reservation;
+  }
+
+  public upsertLocalMessages(
+    threadId: ThreadId,
+    messages: readonly AgentMessage[],
+  ): void {
+    this.assertActive();
+    if (messages.length === 0) return;
+    const incoming = messages.map((message, index) =>
+      parseAgentMessage(message, `messages[${index}]`),
+    );
+    const thread = this.getThread(threadId);
+    const next = [...thread.messages];
+    for (const message of incoming) {
+      const index = next.findIndex((candidate) => candidate.id === message.id);
+      if (index < 0) next.push(message);
+      else next[index] = message;
+    }
+    this.setThread(threadId, { ...thread, messages: next });
   }
 
   public cancelQueuedMessageReservation(
@@ -4465,6 +4542,90 @@ export class AgentKitClient implements AgentKitController {
     return typeof this.transport.moveQueuedMessageToTop === "function";
   }
 
+  public supportsQueuedMessageOrdering(): boolean {
+    return typeof this.transport.reorderQueuedMessages === "function";
+  }
+
+  public async reorderQueuedMessages(
+    threadId: ThreadId,
+    messageIds: readonly string[],
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("messageQueue", requestContext);
+    const reorderQueuedMessages = this.transport.reorderQueuedMessages;
+    if (!reorderQueuedMessages) {
+      throw new AgentKitOperationError("queue reordering");
+    }
+    return this.enqueueQueueMutation(threadId, async () => {
+      this.assertActive();
+      const previous = this.getThread(threadId);
+      const byId = new Map(
+        previous.queuedMessages.map((message) => [message.id, message]),
+      );
+      const queuedMessages = messageIds.flatMap((id) => {
+        const message = byId.get(id);
+        return message ? [message] : [];
+      });
+      if (
+        messageIds.length !== byId.size ||
+        new Set(messageIds).size !== messageIds.length ||
+        queuedMessages.length !== messageIds.length
+      ) {
+        throw new AgentKitQueueOrderStaleError(threadId);
+      }
+      if (
+        messageIds.every(
+          (id, index) => previous.queuedMessages[index]?.id === id,
+        )
+      ) {
+        return;
+      }
+
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
+      this.setThread(threadId, { ...previous, queuedMessages });
+      this.queuedMessageOverrides.set(threadId, {
+        messages: queuedMessages,
+        removedIds: new Set(previousOverride?.removedIds),
+      });
+
+      try {
+        await this.invokeRequest(requestContext, (request) =>
+          reorderQueuedMessages({ threadId, messageIds }, request),
+        );
+        this.assertActive();
+      } catch (error) {
+        if (this.disposed) throw error;
+        // Put the queue back in its previous order; messages that arrived or
+        // left while the request was in flight keep their current state.
+        const current = this.getThread(threadId);
+        const previousOrder = new Map(
+          previous.queuedMessages.map((message, index) => [message.id, index]),
+        );
+        const restoredQueue = current.queuedMessages
+          .map((message, index) => ({ message, index }))
+          .sort((left, right) => {
+            const leftIndex = previousOrder.get(left.message.id);
+            const rightIndex = previousOrder.get(right.message.id);
+            if (leftIndex === undefined) {
+              return rightIndex === undefined ? left.index - right.index : 1;
+            }
+            if (rightIndex === undefined) return -1;
+            return leftIndex - rightIndex;
+          })
+          .map(({ message }) => message);
+        this.setThread(threadId, { ...current, queuedMessages: restoredQueue });
+        if (previousOverride) {
+          this.queuedMessageOverrides.set(threadId, previousOverride);
+        } else {
+          this.queuedMessageOverrides.delete(threadId);
+        }
+        throw error;
+      }
+    });
+  }
+
   public async moveQueuedMessageToTop(
     threadId: ThreadId,
     messageId: string,
@@ -4547,7 +4708,7 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messageId: string,
     context?: AgentRequestContext,
-    options?: { interruptActiveRun?: boolean },
+    options?: AgentKitSteerQueuedMessageOptions,
   ): Promise<AgentRunHandle | void> {
     const steeringKey = JSON.stringify([threadId, messageId]);
     const existing = this.queueSteerings.get(steeringKey);
@@ -4591,7 +4752,7 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messageId: string,
     context?: AgentRequestContext,
-    options?: { interruptActiveRun?: boolean },
+    options?: AgentKitSteerQueuedMessageOptions,
   ): Promise<AgentRunHandle | void> {
     this.assertActive();
     const requestContext = this.createRequestContext(context);
@@ -4636,6 +4797,9 @@ export class AgentKitClient implements AgentKitController {
                 ...(options?.interruptActiveRun
                   ? { interruptActiveRun: true }
                   : {}),
+                ...(options?.deliverInActiveRun
+                  ? { deliverInActiveRun: true }
+                  : {}),
               },
               context,
             ),
@@ -4646,6 +4810,11 @@ export class AgentKitClient implements AgentKitController {
           result = { runId: submittedRunId, alreadySubmitted: true };
         }
         this.assertActive();
+        if (result && "delivery" in result) {
+          this.setQueuedMessageDelivery(threadId, messageId, result.delivery);
+          this.patch({ connection: previousConnection, error: previousError });
+          return;
+        }
         if (result && "alreadyRemoved" in result) {
           this.removeQueuedMessageFromState(threadId, messageId);
           await this.loadThread(threadId, requestContext);
@@ -4736,6 +4905,27 @@ export class AgentKitClient implements AgentKitController {
         throw error;
       }
     });
+  }
+
+  private setQueuedMessageDelivery(
+    threadId: ThreadId,
+    messageId: string,
+    delivery: AgentQueuedMessageDelivery,
+  ): void {
+    const current = this.getThread(threadId);
+    const queuedMessages = current.queuedMessages.map((candidate) =>
+      candidate.id === messageId ? { ...candidate, delivery } : candidate,
+    );
+    this.setThread(threadId, { ...current, queuedMessages });
+    const override = this.queuedMessageOverrides.get(threadId);
+    if (override) {
+      this.queuedMessageOverrides.set(threadId, {
+        ...override,
+        messages: override.messages.map((candidate) =>
+          candidate.id === messageId ? { ...candidate, delivery } : candidate,
+        ),
+      });
+    }
   }
 
   private removeQueuedMessageFromState(
@@ -7027,6 +7217,17 @@ export class AgentKitClient implements AgentKitController {
       ? this.preserveTerminalRunDuringCatchUp(reconciled, catchUp)
       : reconciled;
     this.setThread(appliedEvent.threadId, next);
+    // A message sent into a run leaves the queue as it enters the transcript.
+    if (
+      appliedEvent.type === "message.created" &&
+      appliedEvent.message.role === "user" &&
+      next.queuedMessages.some(({ id }) => id === appliedEvent.message.id)
+    ) {
+      this.removeQueuedMessageFromState(
+        appliedEvent.threadId,
+        appliedEvent.message.id,
+      );
+    }
   }
 
   private reconcileSubmittedUserMessage(
@@ -7036,7 +7237,10 @@ export class AgentKitClient implements AgentKitController {
     if (
       (event.type !== "message.created" &&
         event.type !== "message.completed") ||
-      event.message.role !== "user"
+      event.message.role !== "user" ||
+      // A queued message sent into the run is its own message, even when it
+      // repeats the prompt word for word.
+      thread.queuedMessages.some(({ id }) => id === event.message.id)
     ) {
       return thread;
     }

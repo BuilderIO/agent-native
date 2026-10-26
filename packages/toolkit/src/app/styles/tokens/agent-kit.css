@@ -1,5 +1,5 @@
 :root {
-  --agent-kit-conversation-max-width: 46.875rem;
+  --agent-kit-conversation-max-width: 47rem;
   --agent-kit-composer-adjacent-inline-inset: 1.5rem;
 
   --agent-kit-recessed-surface: hsl(var(--background));
@@ -15,6 +15,7 @@
   --agent-kit-accent-text: hsl(var(--primary-foreground));
   --agent-kit-danger: hsl(var(--destructive));
   --agent-kit-success: hsl(var(--success, var(--primary)));
+  --agent-kit-warning-color: hsl(var(--agent-kit-warning));
   --agent-kit-focus: hsl(var(--ring));
 
   --agent-kit-density-font-size: 0.8125rem;
@@ -34,7 +35,7 @@
   --agent-kit-layer-page-header: 60;
   --agent-kit-layer-workspace-panel: 70;
   --agent-kit-page-header-height: 3rem;
-  --agent-kit-workspace-panel-width: 21.25rem;
+  --agent-kit-workspace-panel-width: 21.5rem;
   --agent-kit-workspace-panel-max-width: 22.5rem;
   --agent-kit-workspace-panel-viewport-gutter: 3rem;
   --agent-kit-workspace-panel-transition-duration: 260ms;
@@ -45,7 +46,7 @@
   --agent-kit-composer-radius: 1.25rem;
   --agent-kit-composer-surface: var(--agent-kit-raised-surface);
   --agent-kit-composer-border-mix: 82%;
-  --agent-kit-composer-focus-border-mix: 100%;
+  --agent-kit-composer-focus-ring-mix: 40%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
     hsl(var(--border)) var(--agent-kit-composer-border-mix),
@@ -53,13 +54,13 @@
   );
   --agent-kit-composer-focus-border-color: color-mix(
     in srgb,
-    hsl(var(--border)) var(--agent-kit-composer-focus-border-mix),
-    transparent
+    hsl(var(--ring)) var(--agent-kit-composer-focus-ring-mix),
+    hsl(var(--border))
   );
   --agent-kit-composer-editor-padding-inline: 1rem;
   --agent-kit-composer-editor-padding-block-start: 0.875rem;
   --agent-kit-composer-editor-padding-block-end: 0.125rem;
-  --agent-kit-composer-editor-min-height: 2.75rem;
+  --agent-kit-composer-editor-min-height: 1lh;
   --agent-kit-composer-editor-max-height: 12rem;
   --agent-kit-composer-font-size: 0.875rem;
   --agent-kit-composer-line-height: 1.25rem;
@@ -68,7 +69,7 @@
   --agent-kit-composer-toolbar-padding-inline: 1rem;
   --agent-kit-composer-toolbar-padding-block-start: 0.25rem;
   --agent-kit-composer-toolbar-padding-block-end: 0.5rem;
-  --agent-kit-composer-toolbar-control-size: 1.75rem;
+  --agent-kit-composer-toolbar-control-size: 1.5rem;
   --agent-kit-composer-toolbar-control-gap: 0.25rem;
   --agent-kit-composer-toolbar-control-padding-inline: 0.375rem;
   --agent-kit-composer-toolbar-control-font-size: var(
@@ -92,6 +93,7 @@
     hsl(var(--agent-kit-shadow-color) / 0.14);
 
   --agent-kit-positive: 142 72% 38%;
+  --agent-kit-warning: 30 90% 32%;
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
@@ -104,7 +106,7 @@
 :is(.dark, :root[data-theme="dark"]:not(.light)) {
   --agent-kit-composer-surface: var(--agent-kit-subtle-surface);
   --agent-kit-composer-border-mix: 80%;
-  --agent-kit-composer-focus-border-mix: 100%;
+  --agent-kit-composer-focus-ring-mix: 40%;
   --agent-kit-composer-border-color: color-mix(
     in srgb,
     hsl(var(--border)) var(--agent-kit-composer-border-mix),
@@ -112,8 +114,8 @@
   );
   --agent-kit-composer-focus-border-color: color-mix(
     in srgb,
-    hsl(var(--border)) var(--agent-kit-composer-focus-border-mix),
-    transparent
+    hsl(var(--ring)) var(--agent-kit-composer-focus-ring-mix),
+    hsl(var(--border))
   );
   --agent-kit-shadow-color: var(--background);
   --agent-kit-control-elevation: 0 0.0625rem 0.125rem
@@ -127,4 +129,10 @@
   --agent-kit-drawer-elevation-block: 0 1.125rem 2.5rem
     hsl(var(--agent-kit-shadow-color) / 0.26);
   --agent-kit-positive: 142 62% 56%;
+  --agent-kit-warning: 38 92% 58%;
+  --agent-kit-warning-color: hsl(var(--agent-kit-warning));
+}
+
+.agent-kit-tone-warning {
+  color: hsl(var(--agent-kit-warning));
 }

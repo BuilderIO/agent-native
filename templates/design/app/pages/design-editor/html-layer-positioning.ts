@@ -403,6 +403,11 @@ export function rawAbsoluteContainerOffsetFromDrop(args: {
   };
 }
 
+// Rounding a measured size down can wrap text that exactly fit its flow box.
+function wholePixelSize(measured: number): number {
+  return Math.ceil(Number(measured.toFixed(2)));
+}
+
 export function setAbsolutePositioningForNodeInHtml(
   content: string,
   nodeAttrId: string,
@@ -443,14 +448,14 @@ export function setAbsolutePositioningForNodeInHtml(
         Number.isFinite(computedSize.width) &&
         computedSize.width >= 0
       ) {
-        element.style.width = `${computedSize.width}px`;
+        element.style.width = `${wholePixelSize(computedSize.width)}px`;
       }
       if (
         computedSize?.height !== undefined &&
         Number.isFinite(computedSize.height) &&
         computedSize.height >= 0
       ) {
-        element.style.height = `${computedSize.height}px`;
+        element.style.height = `${wholePixelSize(computedSize.height)}px`;
       }
     },
   );

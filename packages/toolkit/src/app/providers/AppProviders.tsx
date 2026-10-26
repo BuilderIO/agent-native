@@ -39,6 +39,7 @@ import {
   type AppShellSkeletonLayout,
 } from "../shared/AppShellSkeleton.js";
 import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
@@ -401,6 +402,20 @@ function AgentEngineReadinessBootstrap() {
 
 const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
 
+const LazyAgentRunAwareness = React.lazy(() =>
+  import("../chat/run-awareness/AgentRunAwareness.js").then((module) => ({
+    default: module.AgentRunAwareness,
+  })),
+);
+
+function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
+  return (
+    <React.Suspense fallback={null}>
+      <LazyAgentRunAwareness persistUnread={persistUnread} />
+    </React.Suspense>
+  );
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -436,12 +451,17 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
+  // The banner reads the app's locale, so it sits inside the same provider.
   const localizedChildren =
     i18n === false ? (
-      children
+      <>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
+        {ownsDocument ? <ConsentBanner /> : null}
       </AgentNativeI18nProvider>
     );
 
@@ -545,9 +565,13 @@ export function AppProviders({
   const sessionGated = (
     <RequireSession bypass={sessionBypass} fallback={fallback}>
       {sessionBypass ? (
-        children
+        <>
+          {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
+          {children}
+        </>
       ) : (
         <>
+          {ownsDocument ? <AgentRunAwareness /> : null}
           {ownsDocument && enableThemeFamily ? (
             <React.Suspense fallback={null}>
               <ThemeFamilySync />
