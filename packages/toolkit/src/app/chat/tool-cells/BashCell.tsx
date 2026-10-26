@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconChevronDown,
@@ -8,6 +9,8 @@ import {
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+
+import { AnimatedCollapse } from "../chat/tool-call-display.js";
 
 export interface BashCellMeta {
   toolKind: "bash";
@@ -25,6 +28,8 @@ interface BashCellProps {
 }
 
 const MAX_VISIBLE_LINES = 500;
+const TOOL_CELL_ROW_CLASS =
+  "agent-kit-activity-row flex w-full min-w-0 items-center gap-2 py-1 text-start text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/50 focus-visible:outline-none";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -33,6 +38,7 @@ function formatDuration(ms: number): string {
 }
 
 export function BashCell({ meta, output, isRunning }: BashCellProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
@@ -59,51 +65,43 @@ export function BashCell({ meta, output, isRunning }: BashCellProps) {
   const hiddenCount = lines.length - visibleLines.length;
 
   return (
-    <div className="my-1 overflow-hidden rounded-md border border-border/60">
-      {/* Header */}
+    <div className="my-1 w-full">
       <button
         type="button"
         onClick={() => canExpand && setExpanded((e) => !e)}
         className={cn(
-          "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-mono",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent cursor-pointer",
-          !canExpand && "cursor-default",
+          TOOL_CELL_ROW_CLASS,
+          canExpand ? "cursor-pointer" : "cursor-default",
         )}
         aria-expanded={canExpand ? expanded : undefined}
       >
-        {/* Status icon */}
-        <span className="shrink-0">
+        <span className="flex shrink-0">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-4 animate-spin motion-reduce:animate-none" />
           ) : failed ? (
-            <IconCircleX className="h-3 w-3 text-destructive" />
+            <IconCircleX className="size-4 text-destructive" />
           ) : (
-            <IconCircleCheck className="h-3 w-3 text-emerald-500" />
+            <IconCircleCheck className="agent-kit-tone-positive size-4" />
           )}
         </span>
-
-        {/* Terminal icon + command */}
-        <IconTerminal2 className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+        <IconTerminal2 className="size-4 shrink-0 text-muted-foreground/70" />
+        <span className="min-w-0 flex-1 truncate font-mono text-foreground">
           {meta.command}
         </span>
 
-        {/* Badges */}
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        <span className="ms-auto flex shrink-0 items-center gap-1.5 text-xs">
           {!isRunning && meta.durationMs !== undefined && (
-            <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-              <IconClock className="h-2.5 w-2.5" />
+            <span className="flex items-center gap-0.5 tabular-nums">
+              <IconClock className="size-3.5" aria-hidden="true" />
               {formatDuration(meta.durationMs)}
             </span>
           )}
           {!isRunning && exitCode !== undefined && exitCode !== null && (
             <span
               className={cn(
-                "rounded px-1 py-0.5 text-[10px] font-semibold",
+                "rounded px-1 font-medium tabular-nums",
                 succeeded
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  ? "agent-kit-tone-positive bg-[hsl(var(--agent-kit-positive)/0.1)]"
                   : "bg-destructive/10 text-destructive",
               )}
             >
@@ -111,40 +109,47 @@ export function BashCell({ meta, output, isRunning }: BashCellProps) {
             </span>
           )}
           {meta.timedOut && (
-            <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-              timeout
+            <span className="agent-kit-tone-warning rounded bg-[hsl(var(--agent-kit-warning)/0.1)] px-1 font-medium">
+              {t("agentChat.toolCells.timedOut")}
             </span>
           )}
           {canExpand && (
             <IconChevronDown
-              className={cn("h-3 w-3 opacity-40", expanded && "rotate-180")}
+              aria-hidden="true"
+              className={cn(
+                "size-4 opacity-60 transition-transform duration-150 motion-reduce:transition-none",
+                expanded && "rotate-180",
+              )}
             />
           )}
         </span>
       </button>
 
-      {/* Output body */}
-      {expanded && hasOutput && (
-        <div className="border-t border-border/40 bg-background">
-          {hiddenCount > 0 && !showAll && (
-            <div className="border-b border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
-              <button
-                type="button"
-                className="cursor-pointer underline hover:text-foreground"
-                onClick={() => setShowAll(true)}
-              >
-                Show {hiddenCount} earlier lines
-              </button>
-            </div>
-          )}
-          <pre
-            ref={outputRef}
-            className="max-h-[60vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground"
-          >
-            {visibleLines.join("\n")}
-          </pre>
-        </div>
-      )}
+      <AnimatedCollapse open={expanded && Boolean(hasOutput)}>
+        {hasOutput && (
+          <div className="mt-1 overflow-hidden rounded-md border border-border/60 bg-background">
+            {hiddenCount > 0 && !showAll && (
+              <div className="border-b border-border/40 px-3 py-1 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  className="cursor-pointer underline hover:text-foreground"
+                  onClick={() => setShowAll(true)}
+                >
+                  {t("agentChat.toolCells.showEarlierLines", {
+                    count: hiddenCount,
+                  })}
+                </button>
+              </div>
+            )}
+            <pre
+              ref={outputRef}
+              className="max-h-[60vh] overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground"
+            >
+              {visibleLines.join("\n")}
+            </pre>
+          </div>
+        )}
+      </AnimatedCollapse>
     </div>
   );
 }

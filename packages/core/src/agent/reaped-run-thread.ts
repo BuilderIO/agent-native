@@ -9,9 +9,9 @@ import {
   readStoppedRunForThreadFold,
 } from "./run-store.js";
 import {
-  buildAssistantMessage,
+  buildAssistantTurnSegments,
   extractThreadMeta,
-  foldAssistantTurn,
+  foldAssistantTurnWithSteers,
   isRunPrompt,
   normalizeThreadRepository,
 } from "./thread-data-builder.js";
@@ -124,7 +124,7 @@ export async function foldReapedRunIntoThread(
     run.turnId,
     events.map(({ event }) => event),
   );
-  const assistant = buildAssistantMessage(
+  const { assistant, steered } = buildAssistantTurnSegments(
     projectedEvents.map((event, seq) => ({ seq, event })),
     runId,
     {
@@ -132,7 +132,7 @@ export async function foldReapedRunIntoThread(
       suppressInternalContinuation: run.continuedInTurn,
     },
   );
-  if (!assistant) return "projected";
+  if (!assistant && steered.length === 0) return "projected";
   return withThreadDataLock(run.threadId, async () => {
     const thread = await getThread(run.threadId);
     if (!thread) return "superseded";
@@ -141,7 +141,7 @@ export async function foldReapedRunIntoThread(
       run.turnId,
       thread.threadData,
     );
-    const folded = foldAssistantTurn(repo, assistant, {
+    const folded = foldAssistantTurnWithSteers(repo, assistant, steered, {
       runId,
       turnId: run.turnId,
     });

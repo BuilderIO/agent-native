@@ -1,5 +1,6 @@
 export {
   ChatHistoryList,
+  ChatHistoryMenuItem,
   type ChatHistoryAccessBasis,
   type ChatHistoryItem,
   type ChatHistoryListLabels,

@@ -236,7 +236,7 @@ async function combinedSelectionWidth(app: App) {
     .evaluate((element) => Math.round(element.getBoundingClientRect().width));
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 test.describe("keyboard selection traversal", () => {
   test("Layers-first selection persists source identity for a later move and reload", async ({

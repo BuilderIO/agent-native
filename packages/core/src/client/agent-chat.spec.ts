@@ -475,40 +475,13 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
-  it("snapshots stored plan mode into the postMessage payload", () => {
+  // oracle-change: the Agent/Plan picker is gone, so a stored exec mode no longer sets the request mode.
+  it("ignores an exec mode stored by the retired Agent/Plan picker", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
-
-    sendToAgentChat({
-      message: "plan this dashboard",
-      submit: true,
-    });
-
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const payload = parentPostMessageSpy.mock.calls[0][0];
-    expect(payload.data.mode).toBe("plan");
-    expect(payload.data.requestMode).toBe("plan");
-  });
-
-  it("snapshots namespaced stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
 
     sendToAgentChat({
-      message: "plan this workspace app",
-      submit: true,
-    });
-
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const payload = parentPostMessageSpy.mock.calls[0][0];
-    expect(payload.data.mode).toBe("plan");
-    expect(payload.data.requestMode).toBe("plan");
-  });
-
-  it("does not guess from ambiguous namespaced stored modes", () => {
-    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
-    window.localStorage.setItem("agent-native-exec-mode:builder", "build");
-
-    sendToAgentChat({
-      message: "use the current explicit mode only",
+      message: "build this dashboard",
       submit: true,
     });
 
@@ -518,9 +491,7 @@ describe("sendToAgentChat", () => {
     expect(payload.data.requestMode).toBeUndefined();
   });
 
-  it("lets an explicit submitted mode override stored mode", () => {
-    window.localStorage.setItem("agent-native-exec-mode", "build");
-
+  it("sends an explicit submitted mode", () => {
     sendToAgentChat({
       message: "plan this dashboard",
       mode: "plan",
@@ -589,13 +560,13 @@ describe("sendToAgentChat", () => {
 
   it("routes Builder-frame code prompts to Builder chat", () => {
     frameState.inBuilderFrame = true;
-    window.localStorage.setItem("agent-native-exec-mode:builder", "plan");
 
     sendToAgentChat({
       message: "change this app",
       context: "code context",
       submit: true,
       type: "code",
+      mode: "plan",
     });
 
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
@@ -783,12 +754,12 @@ describe("sendToAgentChat", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
-    window.localStorage.setItem("agent-native-exec-mode:mcp-app", "plan");
 
     sendToAgentChat({
       message: "rewrite this",
       context: "Hidden draft context",
       submit: true,
+      mode: "plan",
     });
 
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({

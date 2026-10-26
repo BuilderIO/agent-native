@@ -99,6 +99,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     specifier: "@agent-native/core/agent/actions/list-model-providers",
   },
   {
+    name: "describe-models",
+    specifier: "@agent-native/core/agent/actions/describe-models",
+  },
+  {
     name: "get-hosted-harness-config",
     specifier:
       "@agent-native/core/hosted-harness/actions/get-hosted-harness-config",
@@ -225,6 +229,15 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
     name: "context-report",
     specifier: "@agent-native/core/agent/context-xray/actions/context-report",
+  },
+  {
+    name: "context-compact",
+    specifier: "@agent-native/core/agent/context-xray/actions/context-compact",
+  },
+  {
+    name: "context-compaction-get",
+    specifier:
+      "@agent-native/core/agent/context-xray/actions/context-compaction-get",
   },
   {
     name: "get-localization-preference",

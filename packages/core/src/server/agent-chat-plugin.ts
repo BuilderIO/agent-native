@@ -138,13 +138,13 @@ import {
   readBackgroundRunClaim,
   retryRunThreadProjection,
 } from "../agent/run-store.js";
-import { buildAssistantMessageFromRunJournal } from "../agent/run-thread-projector.js";
+import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
 } from "../agent/runtime-context.js";
 import {
-  buildAssistantMessage,
+  buildAssistantTurnSegments,
   buildUserMessage,
   applySubmittedUserMessage,
   containsInlineAttachmentPayload,
@@ -349,6 +349,8 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+// Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
+const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
@@ -4085,19 +4087,22 @@ export function createAgentChatPlugin(
               ? Math.max(0, Date.now() - run.startedAt)
               : undefined,
         } as const;
-        const assistantMsg =
+        const assistantTurn: ReturnType<typeof buildAssistantTurnSegments> & {
+          parentId?: string;
+        } =
           runThreadId && run.turnId
-            ? await buildAssistantMessageFromRunJournal({
+            ? await buildAssistantTurnFromRunJournal({
                 threadId: runThreadId,
                 turnId: run.turnId,
                 runId: run.runId,
                 runEvents: run.events ?? [],
                 options: assistantOptions,
               })
-            : buildAssistantMessage(run.events ?? [], run.runId, {
+            : buildAssistantTurnSegments(run.events, run.runId, {
                 ...assistantOptions,
                 turnId: run.turnId,
               });
+        const assistantMsg = assistantTurn.assistant;
         const runContext = getRequestRunContext();
         const failureCode =
           run.status === "errored"
@@ -4120,7 +4125,10 @@ export function createAgentChatPlugin(
           options?.appId,
           trackingSource,
         );
-        if (!assistantMsg) {
+        if (
+          !assistantMsg &&
+          assistantTurn.steered.every(({ assistant }) => !assistant)
+        ) {
           trackAgentChatRunLifecycle(
             "run_no_reply",
             runThreadId || undefined,
@@ -4155,7 +4163,14 @@ export function createAgentChatPlugin(
               let repo = JSON.parse(thread.threadData || "{}");
               if (!Array.isArray(repo.messages)) repo.messages = [];
 
-              repo = foldAgentChatRunCompletion(repo, assistantMsg, run);
+              repo = foldAgentChatRunCompletion(
+                repo,
+                assistantMsg,
+                assistantTurn.parentId
+                  ? { ...run, parentId: assistantTurn.parentId }
+                  : run,
+                assistantTurn.steered,
+              );
 
               // Store debug metadata so we can inspect what the LLM actually
               // received (system prompt, model, engine) when diagnosing issues.
@@ -8465,13 +8480,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               } else if (
                 (record?.type === "remove" ||
                   record?.type === "cancel" ||
-                  record?.type === "moveToTop") &&
+                  record?.type === "moveToTop" ||
+                  record?.type === "steer") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                record?.type === "reorder" &&
+                Array.isArray(record.messageIds) &&
+                record.messageIds.length <= MAX_REORDER_QUEUED_MESSAGE_IDS &&
+                record.messageIds.every(
+                  (id: unknown) => typeof id === "string" && id.length > 0,
+                ) &&
+                new Set(record.messageIds).size === record.messageIds.length
+              ) {
+                mutation = {
+                  type: "reorder",
+                  messageIds: record.messageIds as string[],
                 };
               } else if (
                 (record?.type === "claim" || record?.type === "release") &&
@@ -8542,7 +8571,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   };
                 }
                 if (
-                  mutation.type === "claim" &&
+                  (mutation.type === "claim" || mutation.type === "steer") &&
                   error instanceof Error &&
                   error.message ===
                     `Unknown queued message: ${mutation.messageId}`
@@ -8574,6 +8603,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   error: "Queue item is being promoted",
                   code: "queue_item_busy",
                   retryable: true,
+                };
+              }
+              if (result.queueOrderStale) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue changed before it could be reordered",
+                  code: "queue_order_stale",
+                  retryable: false,
                 };
               }
               if (

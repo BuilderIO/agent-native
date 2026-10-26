@@ -4805,6 +4805,8 @@ export function createAgentKitProtocolAdapter(
     transport.removeQueuedMessage = hostOperations.removeQueuedMessage;
   if (hostOperations?.moveQueuedMessageToTop)
     transport.moveQueuedMessageToTop = hostOperations.moveQueuedMessageToTop;
+  if (hostOperations?.reorderQueuedMessages)
+    transport.reorderQueuedMessages = hostOperations.reorderQueuedMessages;
   if (hostOperations?.submitFeedback) {
     transport.submitFeedback = (input, context) => {
       const metadata = mergeTrustedProtocolMetadata(

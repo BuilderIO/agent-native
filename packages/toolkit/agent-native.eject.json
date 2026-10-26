@@ -201,6 +201,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -264,6 +266,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -277,6 +281,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -295,8 +300,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -374,6 +378,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -387,6 +393,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -405,8 +412,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -458,6 +464,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -471,6 +479,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -489,8 +498,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -588,6 +596,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -601,6 +611,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -619,8 +630,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -791,11 +801,13 @@
       "dependencies": [
         "@agent-native/core",
         "@tabler/icons-react",
+        "clsx",
         "react",
         "react-dom",
         "react-markdown",
         "remark-gfm",
-        "shiki"
+        "shiki",
+        "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -813,7 +825,16 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/context-xray"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/context-xray/format",
@@ -874,6 +895,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -887,6 +910,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -905,8 +929,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -988,6 +1011,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -1001,6 +1026,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -1019,8 +1045,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1081,9 +1106,11 @@
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "@tanstack/react-query",
+        "clsx",
         "linkedom",
         "react",
-        "react-router"
+        "react-router",
+        "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1120,6 +1147,8 @@
         "@radix-ui/react-progress",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -1133,6 +1162,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -1151,8 +1181,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1555,6 +1584,8 @@
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
@@ -1618,9 +1649,12 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@radix-ui/react-popover",
+        "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
+        "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "recharts",
         "tailwind-merge"
