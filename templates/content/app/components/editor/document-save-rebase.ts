@@ -73,8 +73,9 @@ export async function saveDocumentWithRebase({
   };
   /**
    * Called once the save persists, for each merge of it over a newer body,
-   * with how many of that body's changed runs of top-level blocks the merge
-   * set aside. A save that ends any other way reports none of its merges.
+   * with how many of that body's hunks the merge set aside (see
+   * `BaseAwareReconcileResult`). A save that ends any other way reports none
+   * of its merges.
    * For counting: it cannot change the save, even by throwing.
    */
   onMerge?: (outcome: { setAside: number }) => void;
