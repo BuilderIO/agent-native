@@ -1,0 +1,105 @@
+template: v2
+slug: ai-bug-reporting-tool
+app: clips
+title: KI-Tool für Fehlerberichte
+seo_title: KI-Tool für Fehlerberichte mit Konsolen- und Netzwerk-Logs
+meta_description: Agent-Native Clips ist ein kostenloses KI-Tool für Fehlerberichte. Nehmen Sie den Fehler in Chrome auf und teilen Sie einen Link mit den Konsolen- und Netzwerk-Logs, die Ihr Coding-Agent lesen kann.
+updated: 2026-10-26
+hero:
+  body: Agent-Native Clips macht aus einer Aufnahme des Fehlers einen Bericht, mit dem Ihre Entwickler und Ihr Coding-Agent arbeiten können. Sie zeigen den Fehler in Chrome, und die Fehler und fehlgeschlagenen Anfragen der Seite kommen mit dem Link.
+  button:
+    label: Fehler aufnehmen
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: Eine Fehleraufnahme in Clips, angehalten auf einer Checkout-Seite mit einer Fehlermeldung. Der Tab „Debug“ neben dem Video listet einen roten Konsolenfehler und eine fehlgeschlagene Anfrage mit Status 500.
+how_to:
+  heading: So melden Sie einen Fehler mit KI
+  steps:
+    - title: Die Aufnahme in Chrome starten
+      body: "Klicken Sie in der Symbolleiste auf die Clips-Chrome-Erweiterung und wählen Sie die Quelle: einen Browser-Tab, ein Fenster oder den ganzen Bildschirm. Schalten Sie Kamera und Mikrofon ein oder aus und klicken Sie auf „Start recording“."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: Nahaufnahme des Clips-Erweiterungs-Popups über einer Web-App, mit „Browser tab“ als Quelle, eingeschalteter Kamera und eingeschaltetem Mikrofon und der Schaltfläche „Start recording“.
+    - title: Den Fehler zeigen und erklären
+      body: Klicken Sie durch die Schritte, die scheitern, und sagen Sie, was Sie erwartet hätten. Während der Aufnahme speichert die Erweiterung die Fehler der Seite und die gesendeten Anfragen, also das, was ein Entwickler sonst mühsam aus den Entwicklertools von Chrome holt.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: Die Clips-Aufnahmesteuerung und die Kamerablase über der Checkout-Seite einer Web-App, auf der die Meldung „Something went wrong“ erscheint.
+    - title: Einen Link teilen
+      body: Beim Stoppen kopiert Clips den Link der Aufnahme für Sie. Fügen Sie ihn in ein Ticket, einen Chat oder Ihren Coding-Agenten ein. Der Tab „Agenten“ im Menü „Teilen“ öffnet ihn auch direkt in Claude, Claude Code oder Codex.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: "Nahaufnahme des Clips-Menüs „Teilen“ im Tab „Agenten“ mit „Agent-Prompt kopieren“ und den Schaltflächen „In Claude öffnen“, „In Claude Code öffnen“ und „In Codex öffnen“."
+features:
+  heading: Alles, was Sie für einen Fehlerbericht brauchen
+  items:
+    - title: Für Ihren Coding-Agenten gemacht
+      body: Fügen Sie den Link in Claude Code, Cursor oder Codex ein. Der Agent liest Transkript, Frames und Logs, ohne das Video herunterzuladen.
+    - title: Konsolen- und Netzwerk-Logs
+      body: Clips speichert Konsolenmeldungen, Fehler und Anfragen aus bis zu fünf Tabs, mit Status und Dauer jeder Anfrage und ob sie fehlgeschlagen ist.
+    - title: Die 30 Sekunden davor
+      body: Clips greift bis zu 30 Sekunden vor den Aufnahmestart zurück, sodass auch ein Fehler beim Laden der Seite im Bericht landen kann.
+    - title: Geheimnisse bleiben draußen
+      body: Clips speichert nie Anfrage-Bodys, Header, Cookies oder Eingaben und schwärzt Werte, die nach Tokens oder Passwörtern aussehen.
+    - title: Direkt zum Fehler springen
+      body: Klicken Sie im Tab „Debug“ des Clips auf die Zeit neben einem Fehler oder einer fehlgeschlagenen Anfrage, und das Video springt zu diesem Moment.
+    - title: Alle Fehlerberichte durchsuchen
+      body: Finden Sie jeden Fehlerbericht über das, was darin gesagt wurde, oder fragen Sie den Clips-Agenten über alle Aufnahmen Ihrer Bibliothek.
+integrations:
+  heading: Verbinden Sie Clips mit den Tools, die Sie schon nutzen
+  cards:
+    - title: An Ihren KI-Agenten übergeben
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: Öffnen Sie den Clip in Claude Code oder Codex oder fügen Sie seinen Link in Cursor oder ChatGPT ein, und der Agent legt los, ohne nachzufragen, was passiert ist.
+    - title: Dort ablegen, wo Fehler gemeldet werden
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: Mit der Clips-Slack-App werden öffentliche Aufnahmen direkt in Slack abgespielt. Mit installierter Erweiterung zeigen auch GitHub-Issues und Jira-Tickets eine Vorschau der Links.
+    - title: Alles per MCP verbinden
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
+other_uses:
+  heading: Was Sie sonst noch mit Clips tun können
+  cards:
+    - title: KI-Meeting-Notizen
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: Erhalten Sie von jedem Meeting Zusammenfassung, Notizen und Aufgaben, ohne Bot im Anruf.
+    - title: KI-Diktat
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Auf dem Mac Taste halten und sprechen, und der bereinigte Text landet dort, wo Ihr Cursor steht.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Clips kostenlos?
+      a: Ja. Agent-Native Clips ist kostenlos und Open Source, auch die Chrome-Erweiterung. Titel, Zusammenfassungen und die Bereinigung des Transkripts laufen standardmäßig über Builder.io-KI-Guthaben, die KI-Nutzung ist also nicht unbegrenzt, und Aufnahmen brauchen einen Speicherort für das Video. Clips ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Was erfasst Clips aus meinem Browser?
+      a: Die Clips-Chrome-Erweiterung erfasst [Konsolenmeldungen, JavaScript-Fehler und Netzwerkanfragen](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) aus bis zu fünf Tabs, bis zu 30 Sekunden vor dem Aufnahmestart. Jede Anfrage behält Adresse, Status, Dauer und ob sie fehlgeschlagen ist. Bearbeiter sehen alles im Tab „Debug“ des Clips, Agenten erhalten es über den Link.
+    - q: Zeichnet Clips Passwörter oder private Daten auf?
+      a: Clips speichert nie Anfrage- oder Antwort-Bodys, Header, Cookies oder eingegebenen Text und schwärzt Werte, die nach Tokens, Passwörtern oder Schlüsseln aussehen. Entwickler-Logs lassen sich in den Einstellungen der Erweiterung abschalten. Neue Aufnahmen sind per Link öffentlich, stellen Sie einen Fehlerbericht daher auf privat oder auf Ihre Organisation, wenn er interne Daten zeigt.
+    - q: Wie gebe ich eine Fehleraufnahme an Claude Code, Cursor oder Codex weiter?
+      a: Fügen Sie den Link des Clips in Claude Code, Cursor oder Codex ein, und der Agent [liest Transkript, Frames und Browser-Logs](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips), ohne das Video herunterzuladen. Bei einem privaten Clip klicken Sie im Tab „Agenten“ des Menüs „Teilen“ auf „Agent-Prompt kopieren“, was dem Agenten einen Link gibt, der zwei Stunden gültig ist. Dieser Tab öffnet den Clip auch in Claude Code oder Codex.
+    - q: Erfasst Clips Logs in anderen Browsern oder in der Desktop-App?
+      a: Nein. Konsolen- und Netzwerk-Logs kommen nur von der Clips-Chrome-Erweiterung. Clips Desktop und die Web-App nehmen weiterhin Bildschirm, Kamera und Stimme mit Transkript und Zusammenfassung auf, aber die Aufnahme enthält keine Browser-Logs.
+    - q: Ist Clips ein Bug-Tracker wie Jira?
+      a: "Nein. Clips erstellt [einen Fehlerbericht, mit dem ein Entwickler arbeiten kann](https://www.agent-native.com/articles/how-to-write-a-bug-report/), und Ihr Tracker speichert ihn: Fügen Sie den Link in Jira, GitHub, Linear oder Slack ein. Ihr Coding-Agent oder der [Clips-Agent](https://www.agent-native.com/docs/template-clips-agent/) erhält die Aufnahme samt Logs, nicht nur den Text eines Tickets. Das macht Clips zu einer [agentischen App](https://www.agent-native.com/articles/what-is-an-agent-native-app/): die Intelligenz eines Agenten, die Intuitivität einer App."

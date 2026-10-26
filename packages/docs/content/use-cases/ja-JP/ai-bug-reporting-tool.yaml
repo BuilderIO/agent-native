@@ -1,0 +1,105 @@
+template: v2
+slug: ai-bug-reporting-tool
+app: clips
+title: AIバグ報告ツール
+seo_title: コンソールログとネットワークログ付きのAIバグ報告ツール
+meta_description: Agent-Native Clipsは無料のAIバグ報告ツールです。Chromeでバグを録画し、コーディングエージェントが読めるコンソールログとネットワークログ付きのリンクを1つ共有できます。
+updated: 2026-10-26
+hero:
+  body: Agent-Native Clipsは、バグの録画を、エンジニアとコーディングエージェントがすぐ対応できる報告に変えます。Chromeでバグを再現すれば、ページのエラーと失敗したリクエストがリンクに付いてきます。
+  button:
+    label: バグを録画する
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: Clipsで開いたバグの録画。エラーメッセージが表示されたチェックアウトページで一時停止しています。動画の横の「デバッグ」タブには、赤いコンソールエラーと、ステータス500で失敗したリクエストが表示されています。
+how_to:
+  heading: AIでバグを報告する方法
+  steps:
+    - title: Chromeから録画を開始する
+      body: ツールバーのClips Chrome拡張機能をクリックし、ブラウザのタブ、ウィンドウ、画面全体のいずれかを録画の対象に選びます。カメラとマイクのオン・オフを切り替えて、「Start recording」をクリックします。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: Webアプリの上に表示されたClips拡張機能のポップアップの拡大図。録画の対象として「Browser tab」が選ばれ、カメラとマイクがオンになっていて、「Start recording」ボタンがあります。
+    - title: バグを再現して説明する
+      body: 不具合が起きる手順をクリックして進め、本来どうなるはずだったかを話します。録画中、拡張機能はページのエラーと送信されたリクエストを保存します。これらは、本来ならエンジニアがChromeのデベロッパーツールから掘り出す情報です。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: WebアプリのチェックアウトページにClipsの録画コントロールとカメラのバブルが重なって表示され、「Something went wrong」というメッセージが出ています。
+    - title: リンクを1つ共有する
+      body: 停止すると、Clipsが録画のリンクをコピーします。チケットやチャット、コーディングエージェントに貼り付けましょう。「共有」メニューの「エージェント」タブからは、ClaudeやClaude Code、Codexで直接開くこともできます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: Clipsの「共有」メニューの「エージェント」タブの拡大図。「エージェント用プロンプトをコピー」と、「Claude で開く」「Claude Code で開く」「Codex で開く」ボタンが表示されています。
+features:
+  heading: バグ報告に必要な機能がすべて揃っています
+  items:
+    - title: コーディングエージェント向けに設計
+      body: リンクをClaude CodeやCursor、Codexに貼り付けるだけです。エージェントは動画をダウンロードせずに、文字起こし、フレーム、ログを読み取ります。
+    - title: コンソールログとネットワークログ
+      body: Clipsは、最大5つのタブからコンソールメッセージ、エラー、リクエストを保存します。各リクエストのステータス、所要時間、失敗したかどうかも記録されます。
+    - title: 録画前の30秒間も
+      body: Clipsは録画ボタンを押す最大30秒前までさかのぼるため、ページの読み込み中に起きたエラーも報告に含められます。
+    - title: 機密情報は保存しない
+      body: Clipsはリクエストの本文、ヘッダー、Cookie、入力したテキストを一切保存せず、トークンやパスワードに見える値は伏せ字にします。
+    - title: エラーの場所へすぐ移動
+      body: クリップの「デバッグ」タブで、エラーや失敗したリクエストの横にある時刻をクリックすると、動画がその瞬間に移動します。
+    - title: すべてのバグ報告を検索
+      body: バグ報告は、その中で話された内容から探せます。ライブラリ内のすべての録画を対象に、Clipsエージェントに尋ねることもできます。
+integrations:
+  heading: いつものツールとClipsを連携
+  cards:
+    - title: AIエージェントに引き継ぐ
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: クリップをClaude CodeやCodexで開くか、そのリンクをCursorやChatGPTに貼り付ければ、エージェントは何があったかを尋ねることなく作業を始められます。
+    - title: バグを登録する場所にそのまま共有
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: Clips Slackアプリを使うと、公開された録画がSlack内でそのまま再生されます。拡張機能をインストールしていれば、そのリンクはGitHubのIssueやJiraのチケットでもプレビューされます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Clipsでできるその他のこと
+  cards:
+    - title: AI議事録
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: ボットを通話に参加させずに、すべての会議から要約、ノート、アクションアイテムを手に入れます。
+    - title: AIディクテーション
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Macでは、キーを押しながら話すだけで、整えたテキストがカーソルの位置に入力されます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Clipsは無料ですか？
+      a: はい。Agent-Native Clipsは、Chrome拡張機能を含めて無料のオープンソースです。タイトル、要約、文字起こしの整形は、デフォルトでBuilder.io AIクレジットを使って実行されるため、AIの利用は無制限ではなく、録画には動画の保存先も必要です。Clipsはアルファ版のため、今後変更が加わる可能性があります。
+    - q: Clipsはブラウザから何を取得しますか？
+      a: Clips Chrome拡張機能は、最大5つのタブから[コンソールメッセージ、JavaScriptエラー、ネットワークリクエスト](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs)を取得し、録画ボタンを押す最大30秒前までさかのぼります。各リクエストについて、アドレス、ステータス、所要時間、失敗したかどうかが記録されます。編集者はクリップの「デバッグ」タブですべて確認でき、エージェントはリンクから読み取れます。
+    - q: Clipsはパスワードや個人情報を記録しますか？
+      a: Clipsは、リクエストやレスポンスの本文、ヘッダー、Cookie、入力したテキストを一切保存せず、トークン、パスワード、キーに見える値は伏せ字にします。開発者向けログは、拡張機能の設定でオフにできます。新しい録画はリンクを知っていれば誰でも見られる状態になるため、社内の情報が映るバグ報告は、非公開または組織内のみに設定してください。
+    - q: バグの録画をClaude Code、Cursor、Codexに渡すには？
+      a: クリップのリンクをClaude Code、Cursor、Codexに貼り付けると、エージェントは動画をダウンロードせずに、[文字起こし、フレーム、ブラウザログを読み取ります](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips)。非公開のクリップは、「共有」メニューの「エージェント」タブで「エージェント用プロンプトをコピー」をクリックすると、2時間有効なリンクがエージェントに渡されます。このタブからは、Claude CodeやCodexでクリップを開くこともできます。
+    - q: Clipsはほかのブラウザやデスクトップアプリのログも取得しますか？
+      a: いいえ。コンソールログとネットワークログを取得できるのは、Clips Chrome拡張機能だけです。Clips Desktopやウェブアプリでも、画面、カメラ、音声を録画して文字起こしと要約を作成できますが、録画にブラウザログは含まれません。
+    - q: ClipsはJiraのようなバグトラッカーですか？
+      a: いいえ。Clipsが作るのは[エンジニアがすぐ対応できるバグ報告](https://www.agent-native.com/articles/how-to-write-a-bug-report/)で、保存はトラッカーが担います。リンクをJira、GitHub、Linear、Slackに貼り付けてください。コーディングエージェントや[Clipsエージェント](https://www.agent-native.com/docs/template-clips-agent/)には、チケットの文面だけでなく、録画とそのログが渡されます。これがClipsを[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)たらしめる点です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。
