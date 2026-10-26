@@ -87,14 +87,23 @@ describe("SF-02 MCP edit beside the editor's trailing empty paragraph", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // The server takes the tab's proposal for a newer saved body in as the
+    // live doc and returns it, as it does for a single open editor.
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response("{}", {
-            headers: { "content-type": "application/json" },
-          }),
-      ),
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const proposal =
+          String(input).includes("adopt-document-snapshot") &&
+          typeof init?.body === "string"
+            ? /"adoptionUpdateBase64":"([^"]+)"/.exec(init.body)?.[1]
+            : undefined;
+        return new Response(
+          JSON.stringify(
+            proposal ? { status: "adopted", stateBase64: proposal } : {},
+          ),
+          { headers: { "content-type": "application/json" } },
+        );
+      }),
     );
     container = document.createElement("div");
     document.body.append(container);
