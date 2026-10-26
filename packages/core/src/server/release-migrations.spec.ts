@@ -325,7 +325,9 @@ describe("runFrameworkReleaseMigrations", () => {
       ).toBe(true);
       expect(
         lines.some((line) =>
-          /^\[db\] Framework release migrations finished in \d+ms$/.test(line),
+          /^\[db\] Framework release migrations finished in \d+ms \(lock wait \d+ms\)$/.test(
+            line,
+          ),
         ),
       ).toBe(true);
     });
@@ -340,7 +342,9 @@ describe("runFrameworkReleaseMigrations", () => {
       const lines = loggedLines(log);
       expect(
         lines.some((line) =>
-          /^\[db\] Framework release migrations failed after \d+ms$/.test(line),
+          /^\[db\] Framework release migrations failed after \d+ms \(lock wait \d+ms\)$/.test(
+            line,
+          ),
         ),
       ).toBe(true);
       expect(lines.some((line) => line.includes("finished in"))).toBe(false);
