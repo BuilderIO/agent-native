@@ -33,11 +33,12 @@ async function renderDialog(
 ) {
   const container = document.createElement("div");
   document.body.append(container);
-  root = createRoot(container);
+  const nextRoot = createRoot(container);
+  root = nextRoot;
   const onClose = vi.fn();
   const onNudgeAmountsChange = vi.fn();
   await act(async () => {
-    root!.render(
+    nextRoot.render(
       <NudgeAmountDialog
         open
         onClose={onClose}
@@ -62,12 +63,15 @@ describe("NudgeAmountDialog", () => {
     const { onNudgeAmountsChange } = await renderDialog();
     const field = document.querySelector<HTMLInputElement>(
       '[data-nudge-amount="big"]',
-    )!;
+    );
+    if (!field) throw new Error("big nudge field not rendered");
     expect(field.value).toBe("10");
+    // React tracks the value setter, so assign through the prototype.
     const setter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
       "value",
-    )!.set!;
+    )?.set;
+    if (!setter) throw new Error("input value setter unavailable");
     await act(async () => {
       setter.call(field, "25");
       field.dispatchEvent(new Event("input", { bubbles: true }));
@@ -79,7 +83,8 @@ describe("NudgeAmountDialog", () => {
     const { onClose } = await renderDialog();
     const done = [...document.querySelectorAll("button")].find(
       (button) => button.textContent === "Done",
-    )!;
+    );
+    if (!done) throw new Error("Done button not rendered");
     await act(async () => done.click());
     expect(onClose).toHaveBeenCalled();
   });

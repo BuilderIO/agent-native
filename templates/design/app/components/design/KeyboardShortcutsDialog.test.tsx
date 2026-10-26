@@ -204,6 +204,7 @@ describe("KeyboardShortcutsDialog", () => {
     expect(categoryButtons()[0]?.getAttribute("aria-current")).toBeNull();
   });
 
+  // oracle-change: nudge fields moved out of this dialog into NudgeAmountDialog, whose own test covers them.
   it("closes on Escape and consumes the event so editor hotkeys never see it", async () => {
     const { onClose } = await renderDialog();
     const event = new KeyboardEvent("keydown", {
