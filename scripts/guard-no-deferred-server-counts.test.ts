@@ -238,6 +238,62 @@ describe("deferred server counts guard", () => {
     assert.deepEqual(flagged(source), [9, 10, 11, 12, 13]);
   });
 
+  it("judges a method the file defines by its body, not its name", () => {
+    const source = [
+      "const registry = {",
+      "  map(fn: () => void) {",
+      "    handlers.push(fn);",
+      "  },",
+      "};",
+      "const runner = {",
+      "  map(fn: () => void) {",
+      "    fn();",
+      "  },",
+      "};",
+      'setTimeout(() => registry.map(() => track("page_saved")), 0);',
+      'setTimeout(() => runner.map(() => track("page_saved")), 0);',
+      "setTimeout(() => Array.from(trackIds), 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [12]);
+  });
+
+  it("follows a parameter a helper runs through a closure or an alias", () => {
+    const source = [
+      "function run(fn: () => void) {",
+      "  const invoke = () => fn();",
+      "  invoke();",
+      "}",
+      "function alias(fn: () => void) {",
+      "  const go = fn;",
+      "  go();",
+      "}",
+      "function keepLater(fn: () => void) {",
+      "  const invoke = () => fn();",
+      "  handlers.push(invoke);",
+      "}",
+      'setTimeout(() => run(() => track("page_saved")), 0);',
+      'setTimeout(() => alias(() => track("page_saved")), 0);',
+      'setTimeout(() => keepLater(() => track("page_saved")), 0);',
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [13, 14]);
+  });
+
+  it("judges a track-named function the file defines by its body", () => {
+    const source = [
+      "function trackRetry() {",
+      "  return fetchAgain();",
+      "}",
+      'const trackSave = createTracker("save");',
+      "setTimeout(trackRetry, 1_000);",
+      "setTimeout(() => trackRetry(), 0);",
+      "setTimeout(() => trackSave(), 0);",
+    ].join("\n");
+
+    assert.deepEqual(flagged(source), [7]);
+  });
+
   it("follows a count helper imported under another name", () => {
     const source = [
       'import { countOutcome as record } from "@agent-native/core/server";',
