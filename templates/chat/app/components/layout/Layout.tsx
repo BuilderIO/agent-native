@@ -56,8 +56,10 @@ function routeOwnsToolbar(pathname: string): boolean {
 
 /**
  * A voice chat follows the user into a chat thread, so Get started can hand
- * one off. Other pages render no voice controls, so any other navigation ends
- * the session rather than leave the microphone open with nothing to stop it.
+ * one off. Other pages show no controls for this session, so any other
+ * navigation ends it rather than leave the microphone open with nothing to
+ * stop it. The agent sidebar owns a separate session and keeps its own
+ * controls on screen, so this leaves that one alone.
  */
 function EndVoiceChatOutsideChat() {
   const { pathname } = useLocation();

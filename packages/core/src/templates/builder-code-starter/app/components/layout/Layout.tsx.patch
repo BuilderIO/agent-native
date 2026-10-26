@@ -1,7 +1,7 @@
 ===================================================================
 --- a/app/components/layout/Layout.tsx
 +++ b/app/components/layout/Layout.tsx
-@@ -1,222 +1,28 @@
+@@ -1,224 +1,28 @@
 -import { useT } from "@agent-native/core/client/i18n";
 -import {
 -  HeaderActionsProvider,
@@ -61,8 +61,10 @@
 -
  /**
 - * A voice chat follows the user into a chat thread, so Get started can hand
-- * one off. Other pages render no voice controls, so any other navigation ends
-- * the session rather than leave the microphone open with nothing to stop it.
+- * one off. Other pages show no controls for this session, so any other
+- * navigation ends it rather than leave the microphone open with nothing to
+- * stop it. The agent sidebar owns a separate session and keeps its own
+- * controls on screen, so this leaves that one alone.
 + * Clean Agent-Native app shell: a single full-height canvas with no chat or
 + * agent UI mounted by default. The app already satisfies the Agent-Native
 + * contract (data in SQL, actions as the source of truth, application state for
