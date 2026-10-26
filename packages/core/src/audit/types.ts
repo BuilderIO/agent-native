@@ -7,9 +7,10 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
  * person's approval in agent chat. `a2a-review` records the owner's approval
  * of a paused A2A call on its review page. `mcp-client-accepted` records an
  * accepted MCP elicitation response; the server cannot verify who responded.
- * `cli-prompt` records a yes at the `pnpm action` terminal prompt.
- * `cli-flag` records a `pnpm action` call rerun with `--approved`, which
- * whoever ran the command added; nothing checks that a person approved it.
+ * `cli-prompt` records a yes at the `pnpm action` terminal prompt, as the CLI
+ * reports it; the server never sees the prompt. `cli-flag` records a
+ * `pnpm action` call rerun with `--approved`, which whoever ran the command
+ * added. Nothing checks that a person approved either one.
  */
 export type AuditApproval =
   | "agent-chat"

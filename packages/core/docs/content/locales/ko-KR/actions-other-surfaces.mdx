@@ -110,9 +110,9 @@ TTY에서 확인한 후 CLI는 승인 요청 응답의 `argumentsHash`로 재시
 }
 ```
 
-브리지는 당사자가 검토한 호출을 그대로 실행하므로, 타임스탬프처럼 호출마다 달라지는 기본값도 표시된 값을 유지합니다. 브리지가 그 호출을 더 이상 갖고 있지 않고(재시작했거나 10분이 지난 경우) 준비된 인수가 바뀌었다면, 브리지는 HTTP `409`와 `errorCode: "approval_arguments_changed"`를 반환합니다. 현재 인수를 검토하고 다시 시도하세요.
+브리지는 당사자가 검토한 호출을 한 번만 그대로 실행하므로, 타임스탬프처럼 호출마다 달라지는 기본값도 표시된 값을 유지합니다. 실행할 보관된 호출이 없는 확인(이미 실행됐거나, 10분이 지났거나, 개발 서버가 재시작된 경우)은 HTTP `409`와 `errorCode: "approval_expired"`를 받습니다. 명령을 다시 실행해 검토하세요.
 
-`arguments`에는 준비된 인수가 담깁니다. 이 로컬 개발 브리지 계약은 [공개 HTTP action API의 승인 규칙](/docs/actions-access-control#needs-approval)을 변경하지 않습니다. 승인된 승인 대상 CLI 호출은 action 자체의 감사 행에 caller `cli`와 함께 `approval: "cli-prompt"` 또는 `approval: "cli-flag"`를 기록합니다. 감사 로그는 `cli-flag`를 확인되지 않음으로 표시합니다.
+`arguments`에는 준비된 인수가 담깁니다. 이 로컬 개발 브리지 계약은 [공개 HTTP action API의 승인 규칙](/docs/actions-access-control#needs-approval)을 변경하지 않습니다. 승인된 승인 대상 CLI 호출은 action 자체의 감사 행에 caller `cli`와 함께 `approval: "cli-prompt"` 또는 `approval: "cli-flag"`를 기록합니다. 확인 프롬프트는 CLI만 보므로, 감사 로그는 둘 다 확인되지 않음으로 표시합니다.
 
 ## 다른 에이전트에서 호출하기 (A2A) {#a2a}
 

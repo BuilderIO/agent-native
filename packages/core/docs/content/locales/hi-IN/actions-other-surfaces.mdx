@@ -112,9 +112,9 @@ TTY में पुष्टि के बाद, CLI अनुमोदन म
 }
 ```
 
-Bridge वही call चलाता है जिसे व्यक्ति ने review किया था, इसलिए हर call में बदलने वाला default, जैसे timestamp, वही value रखता है जो व्यक्ति ने देखी थी। अगर bridge के पास वह call अब नहीं है (restart हुआ हो या 10 मिनट बीत गए हों) और तैयार किए गए तर्क बदल गए हों, तो ब्रिज HTTP `409` के साथ `errorCode: "approval_arguments_changed"` लौटाता है। मौजूदा तर्कों की समीक्षा करें और फिर से प्रयास करें।
+Bridge वही call एक बार चलाता है जिसे व्यक्ति ने review किया था, इसलिए हर call में बदलने वाला default, जैसे timestamp, वही value रखता है जो व्यक्ति ने देखी थी। जिस confirmation के लिए चलाने को कोई held call नहीं है (वह पहले ही चल चुका है, 10 मिनट बीत गए हैं, या dev server restart हुआ है), उसे HTTP `409` के साथ `errorCode: "approval_expired"` मिलता है। Review करने के लिए command फिर से चलाएँ।
 
-`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI call, action की अपनी audit row पर caller `cli` के साथ `approval: "cli-prompt"` या `approval: "cli-flag"` दर्ज करती है। Audit log `cli-flag` को असत्यापित दिखाता है।
+`arguments` में तैयार arguments होते हैं। Local dev bridge का यह contract [public HTTP action API के approval rules](/docs/actions-access-control#needs-approval) को नहीं बदलता। Approved gated CLI call, action की अपनी audit row पर caller `cli` के साथ `approval: "cli-prompt"` या `approval: "cli-flag"` दर्ज करती है। Prompt केवल CLI देखता है, इसलिए audit log दोनों को असत्यापित दिखाता है।
 
 ## इसे किसी अन्य एजेंट से कॉल करना (A2A) {#a2a}
 

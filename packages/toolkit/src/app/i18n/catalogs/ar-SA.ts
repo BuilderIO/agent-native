@@ -2039,7 +2039,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
   "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
-  "settings.audit.approvalCliPrompt": "تمت الموافقة في مطالبة CLI",
+  "settings.audit.approvalCliPrompt": "تمت الموافقة في مطالبة CLI (غير موثّق)",
   "settings.audit.approvalCliFlag": "أُعيد تشغيله مع --approved (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",

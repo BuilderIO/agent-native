@@ -109,9 +109,9 @@ Nach der TTY-Bestätigung wiederholt die CLI den Aufruf mit `argumentsHash` aus 
 }
 ```
 
-Die Bridge führt den Aufruf aus, den die Person geprüft hat. Ein Standardwert, der sich pro Aufruf ändert, etwa ein Zeitstempel, behält also den angezeigten Wert. Hat die Bridge diesen Aufruf nicht mehr (nach einem Neustart oder nach 10 Minuten) und haben sich die vorbereiteten Argumente geändert, gibt sie HTTP `409` mit `errorCode: "approval_arguments_changed"` zurück. Prüfe die aktuellen Argumente und versuche es erneut.
+Die Bridge führt den Aufruf, den die Person geprüft hat, genau einmal aus. Ein Standardwert, der sich pro Aufruf ändert, etwa ein Zeitstempel, behält also den angezeigten Wert. Eine Bestätigung ohne gehaltenen Aufruf (er lief schon, 10 Minuten sind vergangen oder der Dev-Server wurde neu gestartet) erhält HTTP `409` mit `errorCode: "approval_expired"`. Führe den Befehl erneut aus, um ihn zu prüfen.
 
-`arguments` enthält die vorbereiteten Argumente. Dieser Vertrag der lokalen Dev-Bridge ändert die [Freigaberegeln der öffentlichen HTTP-Aktions-API](/docs/actions-access-control#needs-approval) nicht. Ein genehmigter freigabepflichtiger CLI-Aufruf vermerkt `approval: "cli-prompt"` oder `approval: "cli-flag"` im eigenen Audit-Eintrag der Aktion, mit Aufrufer `cli`. Das Audit-Log zeigt `cli-flag` als nicht verifiziert.
+`arguments` enthält die vorbereiteten Argumente. Dieser Vertrag der lokalen Dev-Bridge ändert die [Freigaberegeln der öffentlichen HTTP-Aktions-API](/docs/actions-access-control#needs-approval) nicht. Ein genehmigter freigabepflichtiger CLI-Aufruf vermerkt `approval: "cli-prompt"` oder `approval: "cli-flag"` im eigenen Audit-Eintrag der Aktion, mit Aufrufer `cli`. Das Audit-Log zeigt beide als nicht verifiziert, da nur die CLI die Abfrage sieht.
 
 ## Von einem anderen Agenten aufrufen (A2A) {#a2a}
 

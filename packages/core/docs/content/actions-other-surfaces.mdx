@@ -110,9 +110,9 @@ After TTY confirmation, the CLI retries with the challenge response’s `argumen
 }
 ```
 
-The bridge runs the call the person reviewed, so a default that differs per call, such as a timestamp, keeps the value they saw. If the bridge no longer holds that call (it restarted, or 10 minutes passed) and the prepared arguments changed, it returns HTTP `409` with `errorCode: "approval_arguments_changed"`. Review the current arguments and try again.
+The bridge runs the call the person reviewed, once, so a default that differs per call, such as a timestamp, keeps the value they saw. A confirmation with no held call to run (it already ran, 10 minutes passed, or the dev server restarted) gets HTTP `409` with `errorCode: "approval_expired"`. Run the command again to review it.
 
-`arguments` contains the prepared arguments. This local dev bridge contract does not change the [public HTTP action API's approval rules](/docs/actions-access-control#needs-approval). An approved gated CLI call records `approval: "cli-prompt"` or `approval: "cli-flag"` on the action's own audit row, with caller `cli`. The audit log shows `cli-flag` as unverified.
+`arguments` contains the prepared arguments. This local dev bridge contract does not change the [public HTTP action API's approval rules](/docs/actions-access-control#needs-approval). An approved gated CLI call records `approval: "cli-prompt"` or `approval: "cli-flag"` on the action's own audit row, with caller `cli`. The audit log shows both as unverified, since only the CLI sees the prompt.
 
 ## Calling it from another agent (A2A) {#a2a}
 

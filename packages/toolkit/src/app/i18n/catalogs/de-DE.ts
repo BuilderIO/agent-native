@@ -2017,7 +2017,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Auf der Prüfseite für Agent-Aktionen genehmigt",
   "settings.audit.approvalMcpClient":
     "Vom MCP-Client akzeptiert (nicht verifiziert)",
-  "settings.audit.approvalCliPrompt": "In der CLI-Abfrage genehmigt",
+  "settings.audit.approvalCliPrompt":
+    "In der CLI-Abfrage genehmigt (nicht verifiziert)",
   "settings.audit.approvalCliFlag":
     "Mit --approved erneut ausgeführt (nicht verifiziert)",
   "settings.audit.changedBy": "Geändert von",

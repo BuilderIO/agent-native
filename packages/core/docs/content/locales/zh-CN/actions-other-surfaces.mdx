@@ -104,9 +104,9 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 }
 ```
 
-桥接会执行本人审阅过的那次调用，因此每次调用都会变化的默认值（例如时间戳）会保留本人看到的值。如果桥接已不再保留那次调用（已重启或已过 10 分钟），且准备好的参数发生了变化，桥接会返回 HTTP `409` 和 `errorCode: "approval_arguments_changed"`。请检查当前参数并重试。
+桥接只会执行一次本人审阅过的那次调用，因此每次调用都会变化的默认值（例如时间戳）会保留本人看到的值。没有可执行的保留调用的确认（已执行过、已过 10 分钟或开发服务器已重启）会收到 HTTP `409` 和 `errorCode: "approval_expired"`。请重新运行命令进行审阅。
 
-`arguments` 包含准备好的参数。本地开发桥接的这一约定不会改变[公共 HTTP action API 的审批规则](/docs/actions-access-control#needs-approval)。获批的受限 CLI 调用会在该 action 自己的审计记录中写入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，调用方为 `cli`。审计日志会将 `cli-flag` 显示为未验证。
+`arguments` 包含准备好的参数。本地开发桥接的这一约定不会改变[公共 HTTP action API 的审批规则](/docs/actions-access-control#needs-approval)。获批的受限 CLI 调用会在该 action 自己的审计记录中写入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，调用方为 `cli`。由于只有 CLI 能看到确认提示，审计日志会将两者都显示为未验证。
 
 ## 从另一个代理调用它(A2A) {#a2a}
 

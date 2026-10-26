@@ -88,11 +88,11 @@ export async function requestCliApproval(
  * the action's own audit row, as agent chat and A2A approvals do.
  */
 export async function runApprovedCliAction(
-  entry: { run(args: any, ctx?: ActionRunContext): unknown },
+  entry: Parameters<typeof runPreparedActionCall>[0],
   prepared: PreparedActionCall,
   ctx: ActionRunContext,
   approval?: CliApprovalSource,
-): Promise<any> {
+): Promise<unknown> {
   return runPreparedActionCall(
     entry,
     prepared,

@@ -110,9 +110,9 @@ Après la confirmation en TTY, la CLI réessaie avec le `argumentsHash` de la r�
 }
 ```
 
-Le pont exécute l’appel que la personne a examiné : une valeur par défaut qui change à chaque appel, comme un horodatage, garde la valeur affichée. Si le pont ne détient plus cet appel (après un redémarrage ou au bout de 10 minutes) et que les arguments préparés ont changé, il renvoie HTTP `409` avec `errorCode: "approval_arguments_changed"`. Vérifiez les arguments actuels et réessayez.
+Le pont exécute une seule fois l’appel que la personne a examiné : une valeur par défaut qui change à chaque appel, comme un horodatage, garde la valeur affichée. Une confirmation sans appel conservé à exécuter (il a déjà été exécuté, 10 minutes sont passées ou le serveur de développement a redémarré) reçoit HTTP `409` avec `errorCode: "approval_expired"`. Relancez la commande pour l’examiner.
 
-`arguments` contient les arguments préparés. Ce contrat du pont de développement local ne modifie pas les [règles d’approbation de l’API HTTP publique des actions](/docs/actions-access-control#needs-approval). Un appel CLI protégé et approuvé inscrit `approval: "cli-prompt"` ou `approval: "cli-flag"` sur la ligne d’audit propre à l’action, avec l’appelant `cli`. Le journal d’audit affiche `cli-flag` comme non vérifié.
+`arguments` contient les arguments préparés. Ce contrat du pont de développement local ne modifie pas les [règles d’approbation de l’API HTTP publique des actions](/docs/actions-access-control#needs-approval). Un appel CLI protégé et approuvé inscrit `approval: "cli-prompt"` ou `approval: "cli-flag"` sur la ligne d’audit propre à l’action, avec l’appelant `cli`. Le journal d’audit affiche les deux comme non vérifiés, car seule la CLI voit l’invite.
 
 ## L’appeler depuis un autre agent (A2A) {#a2a}
 

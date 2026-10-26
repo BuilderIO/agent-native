@@ -246,8 +246,7 @@ export function mountDevActionForwardRoute(
   options?: MountDevActionForwardRouteOptions,
 ): void {
   // The call each refusal showed, so a prompted retry runs what the person
-  // reviewed. Preparing it again would re-run its defaults, and one that
-  // differs per call (a timestamp, say) would fail every retry.
+  // reviewed, defaults included, instead of preparing it again.
   const reviewedCalls = new Map<
     string,
     { entry: ActionEntry; prepared: PreparedActionCall; expires: number }
@@ -361,19 +360,27 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const promptedHash =
-            body?.approved === true &&
-            body.approvalSource === "prompt" &&
-            typeof body.approvalArgumentsHash === "string"
-              ? body.approvalArgumentsHash
+          // A yes at the prompt answers one refusal, so it runs the call that
+          // refusal showed, once.
+          const promptApproval =
+            body?.approved === true && body.approvalSource === "prompt";
+          const approvalHash = body?.approvalArgumentsHash;
+          const reviewed =
+            promptApproval && typeof approvalHash === "string"
+              ? takeReviewedCall(
+                  reviewedCallKey(name, ctx, approvalHash),
+                  entry,
+                )
               : undefined;
-          const prepared =
-            (promptedHash &&
-              takeReviewedCall(
-                reviewedCallKey(name, ctx, promptedHash),
-                entry,
-              )) ||
-            (await actionCallIntent(entry, params));
+          if (promptApproval && !reviewed) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_expired",
+              error: `Action "${name}" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.`,
+            };
+          }
+          const prepared = reviewed ?? (await actionCallIntent(entry, params));
           if (!prepared.valid) {
             await recordInvalidActionCall(entry, params, ctx, prepared.error);
             throw prepared.error;
@@ -398,20 +405,8 @@ export function mountDevActionForwardRoute(
               argumentsHash: prepared.argumentsHash,
             };
           }
-          if (
-            body?.approved === true &&
-            body.approvalSource === "prompt" &&
-            body.approvalArgumentsHash !== prepared.argumentsHash
-          ) {
-            setResponseStatus(event, 409);
-            return {
-              ok: false,
-              errorCode: "approval_arguments_changed",
-              error: `Action "${name}" arguments changed after confirmation. Review the current arguments and try again.`,
-            };
-          }
           const approval = needsApproval
-            ? body?.approvalSource === "prompt"
+            ? promptApproval
               ? "prompt"
               : "flag"
             : undefined;

@@ -376,53 +376,175 @@ describe("mountDevActionForwardRoute", () => {
     });
     expect(run).toHaveBeenCalledTimes(1);
 
-    // The reviewed call runs once; a replay prepares the call again.
+    // The reviewed call runs once.
     const replay = retry();
     expect(await handler(replay)).toMatchObject({
       ok: false,
-      errorCode: "approval_arguments_changed",
+      errorCode: "approval_expired",
     });
     expect(replay._status).toBe(409);
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a prompted retry whose dynamic defaults changed when the server lost the reviewed call", async () => {
+  it("refuses a replayed prompt approval whose arguments didn't change", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
-    let destination = "reviewed@example.test";
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "delete-data",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { action: "delete" },
+    });
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a reviewed call for 10 minutes", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const now = vi.spyOn(Date, "now");
+    try {
+      const confirmAfter = async (elapsedMs: number) => {
+        now.mockReturnValue(1_000_000);
+        const challenge = await handler({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        });
+        now.mockReturnValue(1_000_000 + elapsedMs);
+        return handler({
+          _headers: headers,
+          _body: {
+            name: "delete-data",
+            input: {},
+            approved: true,
+            approvalSource: "prompt",
+            approvalArgumentsHash: challenge.argumentsHash,
+          },
+        });
+      };
+      expect(await confirmAfter(10 * 60_000 - 1)).toMatchObject({ ok: true });
+      expect(await confirmAfter(10 * 60_000)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("refuses a prompted retry after the action reloads", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const define = (run: () => unknown) =>
+      defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+    const stale = vi.fn();
+    const reloaded = vi.fn();
+    const actions: Record<string, ReturnType<typeof define>> = {
+      "delete-data": define(stale),
+    };
+    const handler = mountedHandler(actions);
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    actions["delete-data"] = define(reloaded);
+    expect(
+      await handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_expired" });
+    expect(stale).not.toHaveBeenCalled();
+    expect(reloaded).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the server lost the reviewed call", true],
+    ["no refusal showed the call", false],
+  ])("refuses a prompt approval when %s", async (_case, refusedFirst) => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const run = vi.fn();
     const actions = {
-      send: defineAction({
-        schema: z.object({
-          destination: z.string().default(() => destination),
-        }),
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
         needsApproval: true,
         audit: { enabled: false },
         run,
       }),
     };
     const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
-    const challenge = await mountedHandler(actions)({
-      _headers: headers,
-      _body: { name: "send", input: {} },
-    });
-    destination = "changed@example.test";
+    const challenge = refusedFirst
+      ? await mountedHandler(actions)({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        })
+      : undefined;
     // A restarted dev server mounts the route again with nothing held.
     const handler = mountedHandler(actions);
     const event: any = {
       _headers: headers,
       _body: {
-        name: "send",
+        name: "delete-data",
         input: {},
         approved: true,
         approvalSource: "prompt",
-        approvalArgumentsHash: challenge.argumentsHash,
+        ...(challenge
+          ? { approvalArgumentsHash: challenge.argumentsHash }
+          : {}),
       },
     };
     expect(await handler(event)).toEqual({
       ok: false,
-      errorCode: "approval_arguments_changed",
+      errorCode: "approval_expired",
       error:
-        'Action "send" arguments changed after confirmation. Review the current arguments and try again.',
+        'Action "delete-data" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.',
     });
     expect(event._status).toBe(409);
     expect(run).not.toHaveBeenCalled();

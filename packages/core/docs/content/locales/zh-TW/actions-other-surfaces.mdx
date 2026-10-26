@@ -106,9 +106,9 @@ pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
 }
 ```
 
-橋接會執行本人審閱過的那次呼叫，因此每次呼叫都會變動的預設值（例如時間戳記）會保留本人看到的值。如果橋接已不再保留那次呼叫（已重新啟動或已過 10 分鐘），且準備好的引數已變更，橋接會傳回 HTTP `409` 和 `errorCode: "approval_arguments_changed"`。請檢查目前的引數並重試。
+橋接只會執行一次本人審閱過的那次呼叫，因此每次呼叫都會變動的預設值（例如時間戳記）會保留本人看到的值。沒有可執行的保留呼叫的確認（已執行過、已過 10 分鐘或開發伺服器已重新啟動）會收到 HTTP `409` 和 `errorCode: "approval_expired"`。請重新執行命令進行審閱。
 
-`arguments` 包含準備好的引數。本機開發橋接的此約定不會改變[公開 HTTP action API 的核准規則](/docs/actions-access-control#needs-approval)。已核准的受限 CLI 呼叫會在該 action 自己的稽核記錄列中寫入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，呼叫者為 `cli`。稽核記錄會將 `cli-flag` 顯示為未驗證。
+`arguments` 包含準備好的引數。本機開發橋接的此約定不會改變[公開 HTTP action API 的核准規則](/docs/actions-access-control#needs-approval)。已核准的受限 CLI 呼叫會在該 action 自己的稽核記錄列中寫入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，呼叫者為 `cli`。由於只有 CLI 能看到確認提示，稽核記錄會將兩者都顯示為未驗證。
 
 ## 從另一個代理呼叫它（A2A）{#a2a}
 

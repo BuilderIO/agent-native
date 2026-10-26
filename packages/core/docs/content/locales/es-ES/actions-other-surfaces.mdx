@@ -112,9 +112,9 @@ Tras la confirmación en TTY, la CLI reintenta con el `argumentsHash` de la resp
 }
 ```
 
-El puente ejecuta la llamada que la persona revisó, así que un valor predeterminado que cambia en cada llamada, como una marca de tiempo, conserva el valor que vio. Si el puente ya no tiene esa llamada (se reinició o pasaron 10 minutos) y los argumentos preparados cambiaron, devuelve HTTP `409` con `errorCode: "approval_arguments_changed"`. Revisa los argumentos actuales e inténtalo de nuevo.
+El puente ejecuta una sola vez la llamada que la persona revisó, así que un valor predeterminado que cambia en cada llamada, como una marca de tiempo, conserva el valor que vio. Una confirmación sin llamada retenida que ejecutar (ya se ejecutó, pasaron 10 minutos o el servidor de desarrollo se reinició) recibe HTTP `409` con `errorCode: "approval_expired"`. Vuelve a ejecutar el comando para revisarla.
 
-`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Una llamada CLI protegida y aprobada registra `approval: "cli-prompt"` o `approval: "cli-flag"` en la propia fila de auditoría de la acción, con caller `cli`. El registro de auditoría muestra `cli-flag` como no verificado.
+`arguments` contiene los argumentos preparados. Este contrato del puente local de desarrollo no cambia las [reglas de aprobación de la API HTTP pública de acciones](/docs/actions-access-control#needs-approval). Una llamada CLI protegida y aprobada registra `approval: "cli-prompt"` o `approval: "cli-flag"` en la propia fila de auditoría de la acción, con caller `cli`. El registro de auditoría muestra ambos como no verificados, porque solo la CLI ve la confirmación.
 
 ## Llamarla desde otro agente (A2A) {#a2a}
 

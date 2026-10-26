@@ -1780,7 +1780,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "已在代理聊天中核准",
   "settings.audit.approvalA2AReview": "已在代理操作審查頁面核准",
   "settings.audit.approvalMcpClient": "由 MCP 用戶端接受（未驗證）",
-  "settings.audit.approvalCliPrompt": "在 CLI 提示中核准",
+  "settings.audit.approvalCliPrompt": "在 CLI 提示中核准（未驗證）",
   "settings.audit.approvalCliFlag": "使用 --approved 重新執行（未驗證）",
   "settings.audit.changedBy": "變更者",
   "settings.audit.close": "關閉",
