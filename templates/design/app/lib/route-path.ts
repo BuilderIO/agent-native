@@ -31,10 +31,10 @@ export function isSameOriginRoutePath(value: unknown): value is string {
 export const FRAME_BRIDGE_KEY_PARAM = "agentNativeBridgeKey";
 
 /**
- * A live route as the editor shows and opens it, without the frame's bridge
- * key. Only that query pair is removed and the rest keeps its raw encoding, so
- * a byte-sensitive query (a signed URL) survives. Route matching compares the
- * raw route, so this is for display and Open in browser only.
+ * A live route without the frame's bridge key. Only that query pair is removed
+ * and the rest keeps its raw encoding, so a byte-sensitive query (a signed URL)
+ * survives. DesignCanvas applies it once to every route a frame reports, so
+ * editor state, pending edits and route matching never hold the key.
  */
 export function routePathWithoutBridgeKey(routePath: string): string {
   const hashStart = routePath.indexOf("#");
@@ -44,8 +44,11 @@ export function routePathWithoutBridgeKey(routePath: string): string {
   const queryStart = beforeHash.indexOf("?");
   if (queryStart === -1) return routePath;
   const pairs = beforeHash.slice(queryStart + 1).split("&");
+  // The bridge reads the key with searchParams, which percent-decodes names,
+  // so `%61gentNativeBridgeKey` is the key too and must be matched decoded.
   const kept = pairs.filter(
-    (pair) => pair.split("=", 1)[0] !== FRAME_BRIDGE_KEY_PARAM,
+    (pair) =>
+      new URLSearchParams(pair).keys().next().value !== FRAME_BRIDGE_KEY_PARAM,
   );
   if (kept.length === pairs.length) return routePath;
   const query = kept.length > 0 ? `?${kept.join("&")}` : "";
