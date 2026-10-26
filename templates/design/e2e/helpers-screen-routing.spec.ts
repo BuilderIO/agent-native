@@ -1,8 +1,6 @@
-import { activeOverlays, openEditor, setBaseURL } from "./drag-and-drop.shared";
+import { activeOverlays, openEditor } from "./drag-and-drop.shared";
 import { appPath, designFrame, enterDirectMode, selectByText } from "./helpers";
 import { expect, test } from "./rails";
-
-test.beforeEach(async ({}, testInfo) => setBaseURL(testInfo));
 
 const DUPLICATE_TEXT = "Duplicate route target";
 
@@ -18,8 +16,6 @@ test("screen route aliases target the authored iframe, not a board or neighborin
   app,
   page,
 }) => {
-  // Opens or reloads the editor several times; each cold open takes ~12 s on CI runners.
-  test.setTimeout(180_000);
   const designId = await app.seed(screenHtml("first-target"), {
     files: { "settings.html": screenHtml("second-target") },
   });
@@ -82,7 +78,7 @@ test("screen route aliases target the authored iframe, not a board or neighborin
     ).toBeNull();
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
 
     const checksHandshakeBeforeSelection =
       parameter === "screen" && value === firstScreen!.id;

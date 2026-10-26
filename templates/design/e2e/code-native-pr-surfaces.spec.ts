@@ -647,6 +647,38 @@ test("turning the Motion lab off hides the dock for a design with a saved track 
   }
 });
 
+test("deleting the final screen while Motion is open does not crash the editor", async ({
+  app,
+  page,
+}) => {
+  const restoreLab = await setLab(page, DESIGN_MOTION_LAB.key, true);
+  try {
+    const id = await app.seed(SURFACES_HTML);
+    await openAndFit(app, id);
+    await openMotionDockFromMenu(page);
+
+    const screenId = (await app.savedRecord(id)).files.find(
+      (file) => file.filename === "index.html",
+    )?.id;
+    if (!screenId) throw new Error("seeded design has no index.html screen");
+    await page
+      .locator(`[data-frame-id="${screenId}"] [data-frame-title]`)
+      .click();
+    await page.keyboard.press("Delete");
+    await expect
+      .poll(async () =>
+        (await app.savedRecord(id)).files.filter(
+          (file) => file.filename !== "__board__.html",
+        ),
+      )
+      .toHaveLength(0);
+    await app.settled();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  } finally {
+    await restoreLab();
+  }
+});
+
 test("DesignCanvas renders and saves source-token literals in user markup verbatim and installs its bridge", async ({
   app,
 }) => {
