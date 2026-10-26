@@ -468,6 +468,7 @@ export async function beginClipUpload(input: {
   if (stop.signal.aborted || !uploads.has(recordingId)) return;
   if (sent !== "failed") {
     set({ ...base, phase: "making" }, recordingId);
+    forgetIfUnshown(recordingId);
     return;
   }
   // Clips would wait an hour for the rest. It can also have had the whole
@@ -476,6 +477,7 @@ export async function beginClipUpload(input: {
   if (!uploads.has(recordingId)) return;
   const finished = cancelled.outcome === CLIP_CANCEL_OUTCOME.alreadyFinished;
   set({ ...base, phase: finished ? "making" : "failed" }, recordingId);
+  forgetIfUnshown(recordingId);
 }
 
 /** How long an upload's block may be gone before the upload is forgotten. */
@@ -485,6 +487,24 @@ type ClipUploadEditor = Pick<Editor, "on" | "off" | "state" | "isDestroyed">;
 
 /** The editors open on each page in this tab. */
 const pageEditors = new Map<string, Set<ClipUploadEditor>>();
+
+/**
+ * Forgets an upload this tab isn't sending once no editor has its page open,
+ * with any ticket kept for a parked one: nothing shows it, and reopening the
+ * page learns from Clips how the Clip is doing. One whose block just went is
+ * left to its timer.
+ */
+function forgetIfUnshown(recordingId: string) {
+  const upload = uploads.get(recordingId);
+  if (
+    upload &&
+    upload.phase !== "uploading" &&
+    !pageEditors.has(upload.documentId) &&
+    !goneTimers.has(recordingId)
+  ) {
+    clearClipUpload(recordingId);
+  }
+}
 
 function registryBlockIds(editor: ClipUploadEditor): Set<string> {
   const ids = new Set<string>();
@@ -527,7 +547,8 @@ function stillGone(
  * back. One this tab is still sending, or Clips parked, is given up too, and
  * `onGivenUp` gets what its cancel did. That moment runs on after the editor
  * closes; once the page's last editor closes, an upload whose block is on
- * the page keeps sending while the tab is open, and the rest are forgotten.
+ * the page keeps sending while the tab is open and is forgotten when its
+ * sending ends, and the rest are forgotten at once.
  * Checks the page at once, so start it once the page's content is in.
  */
 export function watchClipUploadBlocks(
@@ -565,16 +586,9 @@ export function watchClipUploadBlocks(
     editors.delete(editor);
     if (editors.size > 0) return;
     pageEditors.delete(documentId);
-    // Nothing shows an upload this tab isn't sending once its page is
-    // closed, and reopening the page learns from Clips how the Clip is
-    // doing. One whose block just went is left to its timer.
     for (const upload of [...uploads.values()]) {
-      if (
-        upload.documentId === documentId &&
-        upload.phase !== "uploading" &&
-        !goneTimers.has(upload.recordingId)
-      ) {
-        clearClipUpload(upload.recordingId);
+      if (upload.documentId === documentId) {
+        forgetIfUnshown(upload.recordingId);
       }
     }
   };

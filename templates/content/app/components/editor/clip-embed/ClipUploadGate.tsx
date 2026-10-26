@@ -56,21 +56,37 @@ function uploadErrorKey(error: unknown): string {
 }
 
 /**
- * What a start that failed leaves the file to do. `retry`: Clips gave no
- * answer and may still have made the upload, so it goes again with the same
- * key, never a new one. `hold`: Clips refused for now and made nothing. Null:
- * a refusal that ends the pick.
+ * What a start that failed leaves the file to do. `retry`: nothing readable
+ * came back, from Content or from Clips, and Clips may still have made the
+ * upload, so it goes again with the same key, never a new one. `hold`: Clips
+ * refused for now and made nothing. Null: a refusal, from Clips or from
+ * Content's own action, that ends the pick.
  */
 function afterFailedStart(error: unknown): "retry" | "hold" | null {
-  const code = (error as { errorCode?: unknown } | null)?.errorCode;
-  if (
-    !isClipUploadErrorCode(code) ||
-    code === CLIP_UPLOAD_ERRORS.unreachable ||
-    code === CLIP_UPLOAD_ERRORS.failed
-  ) {
-    return "retry";
+  const failure = error as {
+    errorCode?: unknown;
+    status?: unknown;
+    timedOut?: unknown;
+  } | null;
+  const code = failure?.errorCode;
+  if (isClipUploadErrorCode(code)) {
+    if (
+      code === CLIP_UPLOAD_ERRORS.unreachable ||
+      code === CLIP_UPLOAD_ERRORS.failed
+    ) {
+      return "retry";
+    }
+    return code === CLIP_UPLOAD_ERRORS.rateLimited ? "hold" : null;
   }
-  return code === CLIP_UPLOAD_ERRORS.rateLimited ? "hold" : null;
+  // A request that never got an answer has no status, and one that timed
+  // out is given 408 by the client, not by Content.
+  const status = failure?.status;
+  const refused =
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    failure?.timedOut !== true;
+  return refused ? null : "retry";
 }
 
 /** Why a check on where uploads go failed: nothing has uploaded yet. */
@@ -184,6 +200,10 @@ export function useClipFileUpload(input: {
         toast.error(t("clipEmbed.uploadType"));
         return;
       }
+      if (file.size === 0) {
+        toast.error(t("clipEmbed.uploadFailed"));
+        return;
+      }
       busyRef.current = true;
       setBusy(true);
       const heldBefore = heldRef.current;
@@ -196,7 +216,7 @@ export function useClipFileUpload(input: {
           blockId,
           uploadKey,
         };
-        // A refusal from Clips ends the start at once.
+        // A refusal, from Clips or from Content, ends the start at once.
         const attempt = () =>
           startUpload(request).then(
             (result) => ({ result }),

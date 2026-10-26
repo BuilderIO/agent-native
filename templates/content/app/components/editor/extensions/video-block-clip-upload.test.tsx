@@ -480,6 +480,14 @@ describe("the Upload tab while Clips in pages is on", () => {
     expect(inserted).toEqual([]);
   });
 
+  it("refuses an empty file, before asking Clips", async () => {
+    render();
+    await pick(new File([], "empty.mp4", { type: "video/mp4" }));
+    expect(state.callAction).not.toHaveBeenCalled();
+    expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
+    expect(inserted).toEqual([]);
+  });
+
   it.each([
     [
       { state: "used_up", limit: 3 },
@@ -859,6 +867,71 @@ describe("the Upload tab while Clips in pages is on", () => {
       vi.useRealTimers();
     }
   });
+
+  it("starts nothing again after Content itself refuses a start, and holds nothing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      state.callAction.mockRejectedValueOnce(
+        Object.assign(
+          new Error("Action create-clip-upload failed: Invalid input"),
+          { status: 400 },
+        ),
+      );
+      render();
+      await pick(video());
+      await act(() => vi.advanceTimersByTimeAsync(2_000 + 5_000 + 10_000));
+
+      expect(starts()).toHaveLength(1);
+      expect(state.toast.error).toHaveBeenCalledWith("clipEmbed.uploadFailed");
+      expect(container.querySelector("[data-clip-upload-gate]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    [
+      "never reaches Content",
+      () => new Error("Action create-clip-upload failed: Failed to fetch"),
+    ],
+    [
+      "times out",
+      () =>
+        Object.assign(
+          new Error("Action create-clip-upload timed out after 30s"),
+          { status: 408, timedOut: true },
+        ),
+    ],
+    [
+      "fails in Content's server",
+      () =>
+        Object.assign(
+          new Error("Action create-clip-upload failed: Bad Gateway"),
+          { status: 502 },
+        ),
+    ],
+  ])(
+    "starts again with the same key when a start %s",
+    async (_how, failure) => {
+      vi.useFakeTimers({ toFake: ["setTimeout"] });
+      try {
+        state.callAction
+          .mockRejectedValueOnce(failure())
+          .mockResolvedValueOnce(ticket);
+        render();
+        await pick(video());
+        await act(() => vi.advanceTimersByTimeAsync(2_000));
+
+        expect(starts()).toHaveLength(2);
+        expect(new Set(starts().map((each) => each.uploadKey)).size).toBe(1);
+        expect(state.beginClipUpload).toHaveBeenCalledWith(
+          expect.objectContaining({ ticket }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("places the Clip, uploading nothing, when Clips already has the whole file from this pick", async () => {
     state.callAction.mockResolvedValue({

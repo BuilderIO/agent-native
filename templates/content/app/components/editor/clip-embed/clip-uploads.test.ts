@@ -112,6 +112,39 @@ const finishedAnswer = () =>
     status: "processing",
   });
 
+function fakeEditor(blockIds: string[]) {
+  const listeners = new Set<() => void>();
+  const editor = {
+    isDestroyed: false,
+    blockIds,
+    state: {
+      get doc() {
+        return {
+          descendants: (
+            visit: (node: {
+              type: { name: string };
+              attrs: Record<string, unknown>;
+            }) => unknown,
+          ) => {
+            visit({ type: { name: "paragraph" }, attrs: {} });
+            for (const blockId of editor.blockIds) {
+              visit({ type: { name: "registryBlock" }, attrs: { blockId } });
+            }
+          },
+        };
+      },
+    },
+    on: (_event: string, listener: () => void) => listeners.add(listener),
+    off: (_event: string, listener: () => void) => listeners.delete(listener),
+    /** The page changing, as a local edit or another editor's would. */
+    change(next: string[]) {
+      editor.blockIds = next;
+      for (const listener of listeners) listener();
+    },
+  };
+  return editor;
+}
+
 describe("sendClipChunks", () => {
   it("posts each chunk in order, with no credentials and nothing but the ticket's URL", async () => {
     const sent = stubFetch([]);
@@ -431,6 +464,17 @@ describe("cancelClipUpload", () => {
 });
 
 describe("beginClipUpload", () => {
+  // An upload this tab isn't sending is kept only while its page is open.
+  let closePage = () => {};
+  beforeEach(() => {
+    closePage = watchClipUploadBlocks(
+      fakeEditor([BLOCK_ID]) as never,
+      "doc_1",
+      vi.fn(),
+    );
+  });
+  afterEach(() => closePage());
+
   it("tells the agent how the upload is going, without the file", async () => {
     stubFetch([]);
     await beginClipUpload({
@@ -605,39 +649,6 @@ describe("an upload whose block leaves the page", () => {
     return sent;
   }
 
-  function fakeEditor(blockIds: string[]) {
-    const listeners = new Set<() => void>();
-    const editor = {
-      isDestroyed: false,
-      blockIds,
-      state: {
-        get doc() {
-          return {
-            descendants: (
-              visit: (node: {
-                type: { name: string };
-                attrs: Record<string, unknown>;
-              }) => unknown,
-            ) => {
-              visit({ type: { name: "paragraph" }, attrs: {} });
-              for (const blockId of editor.blockIds) {
-                visit({ type: { name: "registryBlock" }, attrs: { blockId } });
-              }
-            },
-          };
-        },
-      },
-      on: (_event: string, listener: () => void) => listeners.add(listener),
-      off: (_event: string, listener: () => void) => listeners.delete(listener),
-      /** The page changing, as a local edit or another editor's would. */
-      change(next: string[]) {
-        editor.blockIds = next;
-        for (const listener of listeners) listener();
-      },
-    };
-    return editor;
-  }
-
   function start() {
     return beginClipUpload({
       file,
@@ -701,12 +712,12 @@ describe("an upload whose block leaves the page", () => {
     async (phase, answers) => {
       vi.useFakeTimers();
       const sent = stubFetch(answers);
-      await start();
-      expect(lastWritten()).toMatchObject({ uploads: [{ phase }] });
-      const cancels = sent.filter(isCancel).length;
       const editor = fakeEditor([BLOCK_ID]);
       const onGivenUp = vi.fn();
       const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+      await start();
+      expect(lastWritten()).toMatchObject({ uploads: [{ phase }] });
+      const cancels = sent.filter(isCancel).length;
 
       editor.change([]);
       await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS - 1);
@@ -728,11 +739,11 @@ describe("an upload whose block leaves the page", () => {
     async (_when, lastAnswer, cancels) => {
       vi.useFakeTimers();
       const sent = stubFetch([200, 200, lastAnswer(), cancelled()]);
-      await start();
-      expect(lastWritten()).toMatchObject({ uploads: [{ phase: "making" }] });
       const editor = fakeEditor([BLOCK_ID]);
       const onGivenUp = vi.fn();
       const stop = watchClipUploadBlocks(editor as never, "doc_1", onGivenUp);
+      await start();
+      expect(lastWritten()).toMatchObject({ uploads: [{ phase: "making" }] });
 
       editor.change([]);
       await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS);
@@ -761,6 +772,11 @@ describe("an upload whose block leaves the page", () => {
         return new Promise<Response>(() => {});
       }),
     );
+    const blocks = [BLOCK_ID, "clip-embed-made1234"];
+    const first = fakeEditor(blocks);
+    const second = fakeEditor(blocks);
+    const stopFirst = watchClipUploadBlocks(first as never, "doc_1", vi.fn());
+    const stopSecond = watchClipUploadBlocks(second as never, "doc_1", vi.fn());
     await beginClipUpload({
       file,
       ticket: made,
@@ -768,11 +784,6 @@ describe("an upload whose block leaves the page", () => {
       blockId: "clip-embed-made1234",
     });
     void start();
-    const blocks = [BLOCK_ID, "clip-embed-made1234"];
-    const first = fakeEditor(blocks);
-    const second = fakeEditor(blocks);
-    const stopFirst = watchClipUploadBlocks(first as never, "doc_1", vi.fn());
-    const stopSecond = watchClipUploadBlocks(second as never, "doc_1", vi.fn());
 
     stopFirst();
     expect(lastWritten()).toMatchObject({
@@ -792,12 +803,55 @@ describe("an upload whose block leaves the page", () => {
     expect(sent.filter(isCancel)).toEqual([]);
   });
 
+  it.each([
+    ["Clips is making the Clip", finishedAnswer],
+    ["Clips parked it until storage is connected", parkedAnswer],
+    ["Clips refused it", () => new Response("{}", { status: 401 })],
+  ])(
+    "forgets an upload that ends its sending after its page's last editor closed: %s",
+    async (_how, lastAnswer) => {
+      let answerLast: (answer: Response) => void = () => {};
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((url: string) =>
+          url.includes("/content-cancel")
+            ? Promise.resolve(cancelled())
+            : new Promise<Response>((resolve) => {
+                answerLast = resolve;
+              }),
+        ),
+      );
+      const stop = watchClipUploadBlocks(
+        fakeEditor([BLOCK_ID]) as never,
+        "doc_1",
+        vi.fn(),
+      );
+      const upload = beginClipUpload({
+        file,
+        ticket: { ...ticket, totalChunks: 1, chunkSizeBytes: 10 },
+        documentId: "doc_1",
+        blockId: BLOCK_ID,
+      });
+      stop();
+      expect(lastWritten()).toMatchObject({
+        uploads: [{ phase: "uploading" }],
+      });
+
+      answerLast(lastAnswer());
+      await upload;
+
+      expect(lastWritten()).toBeNull();
+      // Nothing is left to give up, a parked one included.
+      expect(giveUpClipUpload("rec_1")).toBeNull();
+    },
+  );
+
   it("keeps a finished upload whose block comes back in that moment", async () => {
     vi.useFakeTimers();
     stubFetch([]);
-    await start();
     const editor = fakeEditor([BLOCK_ID]);
     const stop = watchClipUploadBlocks(editor as never, "doc_1", vi.fn());
+    await start();
 
     editor.change([]);
     await vi.advanceTimersByTimeAsync(CLIP_UPLOAD_BLOCK_GONE_MS / 2);

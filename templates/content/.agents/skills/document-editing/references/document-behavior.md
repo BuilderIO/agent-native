@@ -72,7 +72,8 @@ sends the file straight to Clips, and only the page's editors can upload.
 Uploading is UI-only: no agent tool uploads a video.
 
 - Clips takes MP4, WebM, and MOV. Another video type is refused with a
-  message naming those, and leaves no block.
+  message naming those, and an empty file as a video that didn't upload;
+  neither leaves a block.
 - When Clips can't take the file yet (free clips used up, no storage, or no
   Clips account), the file waits in the video block with setup links that open
   Clips in a new tab. Point the user at those links; the upload carries on by
@@ -82,7 +83,7 @@ Uploading is UI-only: no agent tool uploads a video.
   `fileName`, `phase` (`uploading`, `making`, or `failed`), and `percent`.
   An upload whose block has been gone from the page for a few seconds drops
   out of `clipUploads`, whatever its phase, and once the page is closed in
-  that tab, only an upload it is still sending stays.
+  that tab, only an upload it is still sending stays, until its sending ends.
 - Keep a Clip block in place while its file sends, or while Clips waits for
   storage before making the Clip: once the block has been
   gone for those few seconds, the uploading tab cancels the upload in Clips
