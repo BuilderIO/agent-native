@@ -8,6 +8,24 @@ export {
   type BackgroundAgentSessionStartOptions,
   type BackgroundAgentSessionStatus,
 } from "../background-agent-session.js";
+export {
+  FrameworkRouteError,
+  isFrameworkRouteError,
+  type FrameworkRouteFailureKind,
+} from "../framework-route-request.js";
+export { fetchAvailableClis, type AvailableCli } from "../available-clis.js";
+export {
+  listChatCheckpoints,
+  restoreChatCheckpoint,
+  type ChatCheckpoint,
+  type ChatCheckpointRestoreTarget,
+} from "../chat-checkpoints.js";
+export {
+  BUILDER_AGENT_NOT_CONNECTED_ERROR_CODE,
+  startBuilderAgentsRun,
+  type BuilderAgentsRunReceipt,
+  type BuilderAgentsRunRequest,
+} from "../builder-agents-run.js";
 
 export {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
@@ -123,6 +141,7 @@ export {
   type PersistedModelSelection,
   type EngineModelGroup,
 } from "../use-chat-models.js";
+export { resolveDefaultModelSelection } from "../chat-model-groups.js";
 export {
   fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
@@ -198,6 +217,8 @@ export {
   ChatThreadMutationError,
   hideChatThread,
   fetchChatThreadListPage,
+  isClientDraftThread,
+  markClientDraftThread,
   notifyChatThreadsUpdated,
   useChatThreads,
   type ChatThreadAccessBasis,
@@ -254,6 +275,7 @@ export {
   getAgentSidebarMaxWidth,
   getAgentSidebarWideWidth,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarState,
   getInitialAgentSidebarOpen,
   requestAgentSidebarOpen,
   subscribeAgentSidebarUrlChanges,

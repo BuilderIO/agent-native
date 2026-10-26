@@ -566,10 +566,10 @@ describe("approvalKeyForHistory", () => {
 });
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("defaults missing effort to High", () => {
+  it("sends no effort when neither the request nor the config sets one", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("high");
+    ).toBeUndefined();
   });
 
   it("preserves explicit none through the production request path", () => {
@@ -20138,7 +20138,11 @@ describe("runAgentLoop", () => {
       new Request("http://app.example.com/_agent-native/agent-chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-effort",
+          effort: "high",
+        }),
       }),
     );
 
@@ -20247,6 +20251,7 @@ describe("runAgentLoop", () => {
         body: JSON.stringify({
           message: "go",
           threadId: "thread-profile-models",
+          effort: "high",
           references: [
             { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
             { type: "custom-agent", name: "Editor", refId: "editor" },

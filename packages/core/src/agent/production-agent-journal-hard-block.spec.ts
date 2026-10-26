@@ -213,6 +213,7 @@ describe("tool-call journal hard-block", () => {
           },
         ],
         events: ledger,
+        steeredUserContent: (message) => [{ type: "text", text: message.text }],
         journal: classifyToolCallJournal(ledger),
       });
       const checkEmail = {

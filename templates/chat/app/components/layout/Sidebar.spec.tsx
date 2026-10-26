@@ -52,15 +52,6 @@ vi.mock("@/components/ui/tooltip", () => ({
   ),
   TooltipContent: () => null,
 }));
-vi.mock("@/components/ui/hover-card", () => ({
-  HoverCard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  HoverCardTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  HoverCardContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-hover-details="">{children}</div>
-  ),
-}));
 
 import { Sidebar } from "./Sidebar";
 
@@ -117,6 +108,7 @@ describe("Sidebar ownership history decorator", () => {
       { section: "mine" },
     );
     act(() => root.render(<>{item.title}</>));
+    return item;
   }
 
   function localDraft(options: UseOwnershipChatHistoryOptions) {
@@ -152,15 +144,6 @@ describe("Sidebar ownership history decorator", () => {
     expect(
       container.querySelector('[role="status"]')?.getAttribute("aria-label"),
     ).toBe("agentChat.status.working");
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("Draft preview");
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("2");
-    expect(container.querySelector("time")?.dateTime).toBe(
-      new Date(row.updatedAt).toISOString(),
-    );
     expect(container.textContent).not.toContain("Server-only scope");
     expect(container.textContent).not.toContain("server-only-app");
 
@@ -184,13 +167,6 @@ describe("Sidebar ownership history decorator", () => {
         ?.textContent,
     ).toBe("chat.untitledChat");
     expect(container.querySelector('[role="status"]')).not.toBeNull();
-    expect(container.querySelector("time")?.dateTime).toBe(
-      new Date(startedAt).toISOString(),
-    );
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("0");
-    expect(container.querySelector("[data-hover-details] p")).toBeNull();
   });
 
   it("uses the effective optimistic draft title instead of the original item title", () => {
@@ -205,21 +181,19 @@ describe("Sidebar ownership history decorator", () => {
       container.querySelector(".chat-sidebar-thread-title__content")
         ?.textContent,
     ).toBe("Optimistic rename");
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("Optimistic rename");
     expect(container.textContent).not.toContain("Previous item title");
   });
 
-  it("preserves hover context, preview, pin and timestamps from server metadata", () => {
+  // oracle-change: chat rows no longer open a hover card with context, preview, pin state and timestamps; rows carry the title only.
+  it("decorates rows with a title only, so hovering a row repeats nothing", () => {
     const options = captureDecorator();
-    renderTitle(options, {
+    const item = renderTitle(options, {
       id: "persisted",
       title: "Server title",
       preview: "Server preview",
       messageCount: 7,
       createdAt: startedAt,
-      updatedAt: Number.NaN,
+      updatedAt: startedAt,
       pinnedAt: startedAt,
       scope: { type: "account", id: "example", label: "Example account" },
       source: { appId: "example-app", platform: "web" },
@@ -228,18 +202,39 @@ describe("Sidebar ownership history decorator", () => {
       visibility: "private",
     });
 
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("Example account · account · example-app · web");
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("Server preview");
-    expect(
-      container.querySelector("[data-hover-details]")?.textContent,
-    ).toContain("chat.pinned");
-    expect(container.querySelector("time")?.dateTime).toBe(
-      new Date(startedAt).toISOString(),
+    expect(item).not.toHaveProperty("hoverDetails");
+    expect(container.textContent).toBe("Server title");
+    expect(container.querySelector("time")).toBeNull();
+  });
+
+  it("keeps primary nav rows at 32px, expanded and collapsed", () => {
+    act(() =>
+      root.render(
+        <MemoryRouter>
+          <Sidebar />
+        </MemoryRouter>,
+      ),
     );
-    expect(container.querySelector('[role="status"]')).toBeNull();
+    const home = container.querySelector('a[href="/home"]');
+    const newChat = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "chat.newChat",
+    );
+    expect(home?.classList.contains("h-8")).toBe(true);
+    expect(newChat?.classList.contains("h-8")).toBe(true);
+
+    act(() =>
+      root.render(
+        <MemoryRouter>
+          <Sidebar collapsed />
+        </MemoryRouter>,
+      ),
+    );
+    const collapsedButtons = container.querySelectorAll(
+      "nav a[aria-label], nav button[aria-label]",
+    );
+    expect(collapsedButtons.length).toBeGreaterThan(0);
+    for (const button of collapsedButtons) {
+      expect(button.classList.contains("size-8")).toBe(true);
+    }
   });
 });
