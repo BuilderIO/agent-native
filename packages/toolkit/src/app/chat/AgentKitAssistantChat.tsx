@@ -5332,10 +5332,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       (surface.isSubmissionInFlight &&
         lastMessage?.role === "user" &&
         lastMessage.metadata?.hideUserMessage !== true));
-  const showHomeSuggestions =
-    surface.props.centerComposerWhenEmpty &&
-    !surface.hasRenderedMessages &&
-    surface.threadRestore.status === "ready";
   if (surface.authError) {
     const authTitle = surface.authSessionAvailable
       ? t("agentChat.auth.refreshTitle")
