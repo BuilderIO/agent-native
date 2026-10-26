@@ -12,6 +12,7 @@ import {
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
   isNativeKeyboardActivationTarget,
+  isNativePlainPasteHotkey,
   isOptedInDesignHistoryHotkey,
   useDesignHotkeys,
   type UseDesignHotkeysProps,
@@ -879,6 +880,47 @@ describe("useDesignHotkeys — selection toggles (Cmd+Shift+H / Cmd+Shift+L)", (
   });
 });
 
+describe("useDesignHotkeys — rulers (Shift+R)", () => {
+  it("Shift+R toggles rulers and leaves plain R to the Rectangle tool", async () => {
+    const onToggleRulers = vi.fn();
+    const onRectangleTool = vi.fn();
+    await withHotkeys({ onToggleRulers, onRectangleTool }, () => {
+      dispatchKey("R", { shiftKey: true, code: "KeyR" });
+    });
+    expect(onToggleRulers).toHaveBeenCalledTimes(1);
+    expect(onRectangleTool).not.toHaveBeenCalled();
+    await withHotkeys({ onToggleRulers, onRectangleTool }, () => {
+      dispatchKey("r", { code: "KeyR" });
+    });
+    expect(onRectangleTool).toHaveBeenCalledTimes(1);
+    expect(onToggleRulers).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useDesignHotkeys — bold and italic (Cmd+B / Cmd+I)", () => {
+  it("fires onToggleBold for Cmd+B and keeps Cmd+Alt+B for detach", async () => {
+    const onToggleBold = vi.fn();
+    const onDetachInstance = vi.fn();
+    await withHotkeys({ onToggleBold, onDetachInstance }, () => {
+      dispatchKey("b", { metaKey: true });
+      dispatchKey("b", { metaKey: true, altKey: true });
+    });
+    expect(onToggleBold).toHaveBeenCalledTimes(1);
+    expect(onDetachInstance).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires onToggleItalic for Cmd+I and keeps plain I for the eyedropper", async () => {
+    const onToggleItalic = vi.fn();
+    const onEyedropper = vi.fn();
+    await withHotkeys({ onToggleItalic, onEyedropper }, () => {
+      dispatchKey("i", { metaKey: true });
+      dispatchKey("i");
+    });
+    expect(onToggleItalic).toHaveBeenCalledTimes(1);
+    expect(onEyedropper).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("useDesignHotkeys — typography toggles (Cmd+U / Cmd+Shift+X)", () => {
   it("fires onToggleUnderline for Cmd+U", async () => {
     const onToggleUnderline = vi.fn();
@@ -1022,6 +1064,16 @@ describe("useDesignHotkeys Boolean Subtract", () => {
 });
 
 describe("useDesignHotkeys — zoom keys", () => {
+  it("Shift+0 zooms to 100% without also setting opacity", async () => {
+    const onZoomReset = vi.fn();
+    const onOpacityChange = vi.fn();
+    await withHotkeys({ onZoomReset, onOpacityChange }, () => {
+      dispatchKey(")", { shiftKey: true, code: "Digit0" });
+    });
+    expect(onZoomReset).toHaveBeenCalledTimes(1);
+    expect(onOpacityChange).not.toHaveBeenCalled();
+  });
+
   it("plain = / + zoom in with no modifiers", async () => {
     const onZoomIn = vi.fn();
     await withHotkeys({ onZoomIn }, () => {
@@ -1551,5 +1603,35 @@ describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
       event = dispatchKey("v", { metaKey: true, code: "KeyV" });
     });
     expect(event?.defaultPrevented).toBe(false);
+  });
+
+  it("leaves a parent-document Cmd+V to the native paste event but runs one forwarded from a canvas iframe", async () => {
+    const onPaste = vi.fn();
+    let native: KeyboardEvent | undefined;
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys(
+        {
+          onPaste,
+          shouldHandleEvent: (event) => !isNativePlainPasteHotkey(event),
+        },
+        () => {
+          native = dispatchKey("v", { metaKey: true, code: "KeyV" });
+          expect(onPaste).not.toHaveBeenCalled();
+          const forwarded = new KeyboardEvent("keydown", {
+            key: "v",
+            code: "KeyV",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          });
+          Object.defineProperty(forwarded, "__agentNativeIframeHotkey", {
+            value: true,
+          });
+          window.dispatchEvent(forwarded);
+        },
+      ),
+    );
+    expect(native?.defaultPrevented).toBe(false);
+    expect(onPaste).toHaveBeenCalledTimes(1);
   });
 });

@@ -254,10 +254,14 @@ export const orgAppsHandler = defineEventHandler(
               id: agent.id,
               name: agent.name,
               description: agent.description,
-              whenToUse: agent.whenToUse,
-              aliases: agent.aliases,
+              ...(agent.whenToUse === undefined
+                ? {}
+                : { whenToUse: agent.whenToUse }),
+              ...(agent.aliases === undefined
+                ? {}
+                : { aliases: agent.aliases }),
               url: agent.url,
-              source: agent.source,
+              ...(agent.source === undefined ? {} : { source: agent.source }),
             }));
           });
         },

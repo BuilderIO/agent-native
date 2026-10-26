@@ -284,11 +284,11 @@ export interface IdentityClaims {
 
 export function buildIdentityClaims(input: {
   email: string;
-  name?: string | null;
-  orgDomain?: string | null;
-  orgId?: string | null;
-  orgName?: string | null;
-  orgRole?: "owner" | "admin" | "member" | null;
+  name?: string | null | undefined;
+  orgDomain?: string | null | undefined;
+  orgId?: string | null | undefined;
+  orgName?: string | null | undefined;
+  orgRole?: "owner" | "admin" | "member" | null | undefined;
 }): IdentityClaims {
   const claims: IdentityClaims = {
     sub: input.email,
@@ -342,13 +342,13 @@ export interface CreateIdentityAuthorizationCodeInput {
   authority: string;
   codeChallenge: string;
   email: string;
-  name?: string | null;
-  orgDomain?: string | null;
-  orgId?: string | null;
-  orgName?: string | null;
-  orgRole?: "owner" | "admin" | "member" | null;
-  bootstrapHandle?: string | null;
-  bootstrapAuthProvider?: "google" | null;
+  name?: string | null | undefined;
+  orgDomain?: string | null | undefined;
+  orgId?: string | null | undefined;
+  orgName?: string | null | undefined;
+  orgRole?: "owner" | "admin" | "member" | null | undefined;
+  bootstrapHandle?: string | null | undefined;
+  bootstrapAuthProvider?: "google" | null | undefined;
 }
 
 export interface ConsumedIdentityAuthorizationCode {
@@ -603,9 +603,9 @@ export interface CreateIdentityBootstrapHandleInput {
   authority: string;
   codeChallenge: string;
   email: string;
-  name?: string | null;
-  orgId?: string | null;
-  authProvider?: "google" | null;
+  name?: string | null | undefined;
+  orgId?: string | null | undefined;
+  authProvider?: "google" | null | undefined;
   browserBindingHash: string;
 }
 

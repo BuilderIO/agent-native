@@ -155,6 +155,37 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+Some pages take body writes through their live copy, the copy open tabs edit.
+A page linked to a local file never does. `edit-document` writes those bodies.
+Other writers, such as `update-document --content`, a property or collection
+block stored in the body, row migrations, and Notion or Builder syncs, refuse
+with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in Content.
+Retrying that writer won't help: make the body change with `edit-document`
+where it can, or tell the user which action refused and on which page. When the
+refusal's `details` name a Notion page (`remotePageId`) or a local file
+(`sourcePath`), that copy already changed; say so. A local-folder sync that
+would link such a page to a file, or a folder disconnect or accepted file
+deletion that would relink it to another folder's file, refuses with
+`LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.
+`import-content-source` lists that file in its `errors` and imports the rest.
+You can't switch the page back, so tell the user which page and file it was.
+`LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
+flight; read the page again and retry.
+Before a version restore, a move to another space, or a `pull-document`, the
+open editors of such a page that can save a title alone are asked to save it;
+its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
+`retryable: true`) means one of them didn't confirm that save or couldn't make
+it. The restore, move or pull didn't go ahead, and titles the editors saved
+stay saved: retry, and if it refuses again, tell the user the open
+editor of page `details.documentId` didn't save its title. A move to another
+space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
+title changed after its editors saved it; nothing moved, so retry. A page
+deleted while its editors saved the title refuses with `DOCUMENT_NOT_FOUND`.
+When editors were asked, a restore or move result's `titleFlush`, or a pull
+result's `editorFlush.titleFlush`, lists each page's editors. One with
+`flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
+missing; tell the user.
+
 A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
 `get-document` refuses to read it, including a page moved to Trash while the
 edit commits. Restore it before editing. A local-folder sync
@@ -401,26 +432,26 @@ missing page or list documents to find the right id. Never retry the same id
 or invent a similar-looking one — fabricated ids cannot resolve, and repeated
 failures stop the run.
 
-| User request              | What to do                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| User request              | What to do                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)                                               |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`                         |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"`                                   |
 | "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
-| User says                    | What to do                                                                          |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
-| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
-| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| User says                    | What to do                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`   |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                                |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                                    |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"`           |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`                        |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
-| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
-| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
-| "Show me the document tree"  | `list-documents`                                                                    |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.
 

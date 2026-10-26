@@ -1,21 +1,34 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  BUILDER_AGENT_NOT_CONNECTED_ERROR_CODE,
+  isFrameworkRouteError,
+  startBuilderAgentsRun,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPackageExport,
   IconCode,
   IconExternalLink,
-  IconX,
-  IconLoader2,
 } from "@tabler/icons-react";
-import { useEffect, useCallback, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { Button } from "../../../ui/button.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../../../ui/dialog.js";
+import { Skeleton } from "../../../ui/skeleton.js";
+import { Spinner } from "../../../ui/spinner.js";
 import {
   BuilderConnectPopover as DeferredBuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../../settings/index.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
+
+const OPTION_ROW_CLASS =
+  "h-auto w-full items-start justify-start gap-3 whitespace-normal p-3 text-start font-normal [&_svg]:size-5";
 
 export interface CodeRequiredDialogProps {
   open: boolean;
@@ -39,28 +52,19 @@ export function CodeRequiredDialog({
     builderFlow.statusResolved &&
     builderFlow.builderEnabled &&
     builderFlow.codeChangeConfigured;
+  // An unreadable status falls through to the connect option rather than
+  // holding the placeholder forever.
+  const statusPending =
+    !builderFlow.statusResolved && !builderFlow.statusUnavailable;
   const [submitting, setSubmitting] = useState(false);
-  const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  // Builder can accept a run without returning a branch page.
+  const [started, setStarted] = useState<{ url: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleKeyDown);
-      return () => document.removeEventListener("keydown", handleKeyDown);
-    }
-  }, [open, handleKeyDown]);
 
   useEffect(() => {
     if (open) {
       setSubmitting(false);
-      setBranchUrl(null);
+      setStarted(null);
       setError(null);
     }
   }, [open]);
@@ -75,378 +79,186 @@ export function CodeRequiredDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/builder/agents-run"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userMessage: featureLabel || t("codeRequired.defaultFeature"),
-          }),
-        },
+      const receipt = await startBuilderAgentsRun({
+        userMessage: featureLabel || t("codeRequired.defaultFeature"),
+      });
+      setStarted({ url: receipt.url });
+    } catch (err) {
+      setError(
+        !isFrameworkRouteError(err)
+          ? t("codeRequired.branchError")
+          : err.errorCode === BUILDER_AGENT_NOT_CONNECTED_ERROR_CODE
+            ? t("agentChat.codeRequired.builderAgentNotConnected")
+            : err.kind === "http"
+              ? err.serverMessage ||
+                t("agentChat.codeRequired.requestFailed", {
+                  status: err.status,
+                })
+              : t("codeRequired.branchError"),
       );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        if (body?.errorCode === "builder_agent_not_connected") {
-          throw new Error(t("agentChat.codeRequired.builderAgentNotConnected"));
-        }
-        throw new Error(body?.error || `Failed (${res.status})`);
-      }
-      const data = await res.json();
-      setBranchUrl(data.url || null);
-    } catch (err: any) {
-      setError(err?.message || t("codeRequired.branchError"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div style={s.backdrop} onClick={onClose}>
-      <div
-        style={s.dialog}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent
+        className="max-w-[464px] gap-5"
+        closeLabel={t("codeRequired.close")}
       >
-        {/* Header */}
-        <div style={s.header}>
-          <div style={s.iconWrap}>
-            <IconPackageExport size={20} />
+        <div className="flex items-start gap-3 pe-6">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <IconPackageExport size={20} aria-hidden />
           </div>
-          <div>
-            <h2 style={s.title}>{t("codeRequired.title")}</h2>
-            <p style={s.subtitle}>
+          <div className="flex min-w-0 flex-col gap-1">
+            <DialogTitle className="text-base leading-snug">
+              {t("codeRequired.title")}
+            </DialogTitle>
+            <DialogDescription>
               {featureLabel
                 ? t("codeRequired.subtitleWithFeature", {
                     feature: featureLabel,
                   })
                 : t("codeRequired.subtitle")}
-            </p>
+            </DialogDescription>
           </div>
         </div>
 
-        {/* Options */}
-        <div style={s.options}>
-          <a
-            href={DESKTOP_DOWNLOAD_URL}
-            target="_blank"
-            rel="noreferrer"
-            style={{ ...s.optionCard, ...s.optionLink }}
-            onMouseEnter={(e) =>
-              Object.assign(e.currentTarget.style, s.optionCardHover)
-            }
-            onMouseLeave={(e) =>
-              Object.assign(e.currentTarget.style, {
-                borderColor: "hsl(var(--border))",
-              })
-            }
-          >
-            <div style={s.optionIcon}>
-              <IconCode size={24} />
-            </div>
-            <div style={s.optionText}>
-              <span style={s.optionTitle}>
-                {t("codeRequired.desktopTitle")}
-              </span>
-              <span style={s.optionDesc}>
-                {t("codeRequired.desktopDescription")}
-              </span>
-            </div>
-          </a>
+        <div className="flex flex-col gap-2">
+          <Button asChild variant="outline" className={OPTION_ROW_CLASS}>
+            <a href={DESKTOP_DOWNLOAD_URL} target="_blank" rel="noreferrer">
+              <OptionRowContent
+                icon={<IconCode size={20} />}
+                title={t("codeRequired.desktopTitle")}
+                description={t("codeRequired.desktopDescription")}
+              />
+            </a>
+          </Button>
 
-          {builderConnected && cloudAgentsAvailable ? (
-            <button
-              style={{
-                ...s.optionCard,
-                ...(submitting
-                  ? { opacity: 0.7, pointerEvents: "none" as const }
-                  : {}),
-              }}
-              onMouseEnter={(e) =>
-                Object.assign(e.currentTarget.style, s.optionCardHover)
-              }
-              onMouseLeave={(e) =>
-                Object.assign(e.currentTarget.style, {
-                  borderColor: "hsl(var(--border))",
-                })
-              }
-              onClick={handleBuilderAgent}
-            >
-              <div style={s.optionIcon}>
-                {submitting ? (
-                  <IconLoader2
-                    size={24}
-                    style={{ animation: "spin 1s linear infinite" }}
-                  />
-                ) : (
-                  <IconExternalLink size={24} />
-                )}
-              </div>
-              <div style={s.optionText}>
-                <span style={s.optionTitle}>
-                  {t("codeRequired.builderAgentTitle")}
-                </span>
-                <span style={s.optionDesc}>
-                  {t("codeRequired.builderAgentDescription")}
-                </span>
-              </div>
-            </button>
-          ) : builderConnected ? (
+          {statusPending ? (
             <div
-              style={{
-                ...s.optionCard,
-                cursor: "default",
-                opacity: 0.85,
-              }}
+              className="flex items-start gap-3 rounded-md border border-border p-3"
+              aria-hidden
             >
-              <div style={s.optionIcon}>
-                <IconExternalLink size={24} />
+              <Skeleton className="size-5 shrink-0" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="h-3 w-11/12" />
+                <Skeleton className="h-3 w-3/5" />
               </div>
-              <div style={s.optionText}>
-                <span style={s.optionTitle}>
-                  {t("codeRequired.codeChangeTitle")}
-                </span>
-                <span style={s.optionDesc}>
-                  {t("codeRequired.fallbackDetail")}
-                </span>
-              </div>
-              <span style={s.badge}>{t("codeRequired.codeChangeBadge")}</span>
+            </div>
+          ) : builderConnected && cloudAgentsAvailable ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={OPTION_ROW_CLASS}
+              disabled={submitting}
+              aria-busy={submitting || undefined}
+              onClick={() => void handleBuilderAgent()}
+            >
+              <OptionRowContent
+                icon={
+                  submitting ? (
+                    <Spinner className="size-5" />
+                  ) : (
+                    <IconExternalLink size={20} />
+                  )
+                }
+                title={t("codeRequired.builderAgentTitle")}
+                description={t("codeRequired.builderAgentDescription")}
+              />
+            </Button>
+          ) : builderConnected ? (
+            <div className="flex items-start gap-3 rounded-md border border-border p-3 [&_svg]:size-5">
+              <OptionRowContent
+                icon={<IconExternalLink size={20} />}
+                title={t("codeRequired.codeChangeTitle")}
+                description={t("codeRequired.fallbackDetail")}
+                badge={t("codeRequired.codeChangeBadge")}
+              />
             </div>
           ) : (
             <DeferredBuilderConnectPopover flow={builderFlow}>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                className={OPTION_ROW_CLASS}
                 disabled={builderFlow.connecting}
-                style={{
-                  ...s.optionCard,
-                  ...s.optionLink,
-                  ...(builderFlow.connecting ? s.optionCardDisabled : {}),
-                }}
-                onMouseEnter={(e) =>
-                  Object.assign(e.currentTarget.style, s.optionCardHover)
-                }
-                onMouseLeave={(e) =>
-                  Object.assign(e.currentTarget.style, {
-                    borderColor: "hsl(var(--border))",
-                  })
-                }
+                aria-busy={builderFlow.connecting || undefined}
               >
-                <div style={s.optionIcon}>
-                  {builderFlow.connecting ? (
-                    <IconLoader2
-                      size={24}
-                      style={{ animation: "spin 1s linear infinite" }}
-                    />
-                  ) : (
-                    <IconExternalLink size={24} />
-                  )}
-                </div>
-                <div style={s.optionText}>
-                  <span style={s.optionTitle}>
-                    {t("codeRequired.connectBuilderTitle")}
-                  </span>
-                  <span style={s.optionDesc}>
-                    {t("codeRequired.connectBuilderDescription")}
-                  </span>
-                </div>
-                <span style={s.badge}>{t("codeRequired.setupRequired")}</span>
-              </button>
+                <OptionRowContent
+                  icon={
+                    builderFlow.connecting ? (
+                      <Spinner className="size-5" />
+                    ) : (
+                      <IconExternalLink size={20} />
+                    )
+                  }
+                  title={t("codeRequired.connectBuilderTitle")}
+                  description={t("codeRequired.connectBuilderDescription")}
+                  badge={t("codeRequired.setupRequired")}
+                />
+              </Button>
             </DeferredBuilderConnectPopover>
           )}
         </div>
 
-        {/* Branch result */}
-        {branchUrl && (
-          <div style={s.result}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>
+        {started && (
+          <div className="flex flex-col gap-1 rounded-md border border-[hsl(var(--agent-kit-positive)/0.3)] bg-[hsl(var(--agent-kit-positive)/0.08)] p-3">
+            <span className="text-sm font-semibold">
               {t("codeRequired.branchCreated")}
             </span>
-            <a
-              href={branchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={s.resultLink}
-            >
-              {branchUrl}
-            </a>
+            {started.url ? (
+              <a
+                href={started.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-xs text-primary hover:underline"
+              >
+                {started.url}
+              </a>
+            ) : null}
           </div>
         )}
 
         {error && (
-          <p
-            style={{
-              color: "hsl(var(--destructive))",
-              fontSize: 12,
-              marginTop: 12,
-            }}
-          >
+          <p className="text-xs text-destructive" role="alert">
             {error}
           </p>
         )}
-
-        {/* Close */}
-        <button
-          style={s.closeButton}
-          onClick={onClose}
-          aria-label={t("codeRequired.close")}
-        >
-          <IconX size={16} />
-        </button>
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }
 
-const s: Record<string, React.CSSProperties> = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0, 0, 0, 0.5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 99999,
-    padding: "16px",
-  },
-  dialog: {
-    position: "relative",
-    background: "hsl(var(--popover))",
-    borderRadius: "12px",
-    border: "1px solid hsl(var(--border))",
-    maxWidth: "460px",
-    width: "100%",
-    padding: "24px",
-    boxShadow:
-      "0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1)",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    color: "hsl(var(--popover-foreground))",
-  },
-  header: {
-    display: "flex",
-    gap: "14px",
-    alignItems: "flex-start",
-    marginBottom: "20px",
-  },
-  iconWrap: {
-    flexShrink: 0,
-    width: "40px",
-    height: "40px",
-    borderRadius: "10px",
-    background: "hsl(var(--muted))",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "hsl(var(--muted-foreground))",
-  },
-  title: {
-    margin: 0,
-    fontSize: "16px",
-    fontWeight: 600,
-    lineHeight: "1.4",
-  },
-  subtitle: {
-    margin: "4px 0 0",
-    fontSize: "13px",
-    color: "hsl(var(--muted-foreground))",
-    lineHeight: "1.5",
-  },
-  options: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-  },
-  optionCard: {
-    position: "relative",
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "14px",
-    padding: "14px",
-    border: "1px solid hsl(var(--border))",
-    borderRadius: "10px",
-    background: "transparent",
-    cursor: "pointer",
-    textAlign: "left",
-    width: "100%",
-    fontSize: "inherit",
-    fontFamily: "inherit",
-    color: "inherit",
-  },
-  optionCardHover: {
-    borderColor: "hsl(var(--ring))",
-  },
-  optionCardDisabled: {
-    opacity: 0.7,
-    cursor: "wait",
-  },
-  optionLink: {
-    textDecoration: "none",
-    boxSizing: "border-box",
-  },
-  optionIcon: {
-    flexShrink: 0,
-    color: "#00B5FF",
-    marginTop: "2px",
-  },
-  optionText: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "2px",
-  },
-  optionTitle: {
-    fontSize: "14px",
-    fontWeight: 600,
-  },
-  optionDesc: {
-    fontSize: "12px",
-    color: "hsl(var(--muted-foreground))",
-    lineHeight: "1.5",
-  },
-  badge: {
-    position: "absolute",
-    top: "10px",
-    right: "10px",
-    fontSize: "10px",
-    fontWeight: 600,
-    color: "#00B5FF",
-    background: "hsl(var(--primary) / 0.08)",
-    padding: "2px 8px",
-    borderRadius: "99px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
-  },
-  closeButton: {
-    position: "absolute",
-    top: "12px",
-    right: "12px",
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    padding: "6px",
-    borderRadius: "6px",
-    color: "hsl(var(--muted-foreground))",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  result: {
-    marginTop: "16px",
-    padding: "12px",
-    borderRadius: "8px",
-    border: "1px solid #22c55e40",
-    background: "rgba(34,197,94,0.08)",
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  resultLink: {
-    fontSize: "12px",
-    color: "#00B5FF",
-    textDecoration: "none",
-    wordBreak: "break-all",
-  },
-};
+function OptionRowContent({
+  icon,
+  title,
+  description,
+  badge,
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  badge?: string;
+}) {
+  return (
+    <>
+      <span className="mt-0.5 flex shrink-0 text-primary">{icon}</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-sm font-semibold text-foreground">{title}</span>
+        {description ? (
+          <span className="text-xs leading-normal text-muted-foreground">
+            {description}
+          </span>
+        ) : null}
+      </span>
+      {badge ? (
+        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+          {badge}
+        </span>
+      ) : null}
+    </>
+  );
+}

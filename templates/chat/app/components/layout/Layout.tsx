@@ -1,16 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell/header-actions";
+import {
+  HeaderActionsProvider,
+  useHeaderActions,
+  useHeaderTitle,
+} from "@agent-native/toolkit/app-shell/header-actions";
 import {
   isAgentChatHomeHandoffActive,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
-import { IconMenu2 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
-import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -20,6 +22,7 @@ import {
 import { APP_TITLE } from "@/lib/app-config";
 import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
 
+import { MobileAppBar } from "./MobileAppBar";
 import { Sidebar } from "./Sidebar";
 
 const Header = lazy(() =>
@@ -99,36 +102,31 @@ export function Layout({ children }: LayoutProps) {
     }
   }, [sidebarCollapsed]);
 
+  const pageTitle = useHeaderTitle();
+  const pageActions = useHeaderActions();
+  // Until the chat route publishes its title and toolbar here, the AgentKit
+  // header must stay visible on phones or the thread loses both.
+  const chatHeaderInAppBar =
+    isChatRoute && (pageTitle != null || pageActions != null);
+  const openMobileSidebar = () => setMobileSidebarOpen(true);
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const contentFrame = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {isChatRoute ? (
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-3 md:hidden">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label={t("navigation.openNavigation")}
-          >
-            <IconMenu2 className="size-4" />
-          </Button>
-          <span className="truncate text-sm font-semibold">{APP_TITLE}</span>
-        </div>
+        <MobileAppBar
+          className="md:hidden"
+          onOpenNavigation={openMobileSidebar}
+          title={pageTitle ?? APP_TITLE}
+          actions={pageActions}
+        />
       ) : ownsToolbar ? (
-        <div className="flex h-12 shrink-0 items-center border-b border-border px-4 md:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label={t("navigation.openNavigation")}
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <IconMenu2 className="h-4 w-4" />
-          </button>
-        </div>
+        <MobileAppBar
+          className="md:hidden"
+          onOpenNavigation={openMobileSidebar}
+        />
       ) : settingsOwnsChrome ? null : (
         <Suspense fallback={<div className="h-12 shrink-0" />}>
-          <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
+          <Header onOpenMobileSidebar={openMobileSidebar} />
         </Suspense>
       )}
       <main className="agent-native-app-main min-w-0 flex-1 overflow-y-auto overscroll-contain">
@@ -168,6 +166,9 @@ export function Layout({ children }: LayoutProps) {
         {isChatRoute ? (
           <div
             data-agent-chat-canvas="true"
+            data-chat-header-in-app-bar={
+              chatHeaderInAppBar ? "true" : undefined
+            }
             className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden"
           >
             {contentFrame}

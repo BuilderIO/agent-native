@@ -854,3 +854,24 @@ describe("AgentKit composer context submission", () => {
     },
   );
 });
+
+describe("AgentKit composer setup card", () => {
+  it("passes the host's setup card state through to the prompt composer", async () => {
+    client = new AgentKitClient({ transport: transport() });
+    const render = (setupCardVisible?: boolean) =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            autoFocus={false}
+            setupCardVisible={setupCardVisible}
+          />
+        </AgentKitProvider>,
+      );
+    await act(async () => render(true));
+    expect(capture.props?.setupCardVisible).toBe(true);
+    await act(async () => render(false));
+    expect(capture.props?.setupCardVisible).toBe(false);
+    await act(async () => render(undefined));
+    expect(capture.props?.setupCardVisible).toBeUndefined();
+  });
+});

@@ -1302,6 +1302,9 @@ async function assertQueueIdentity(input: {
   if (promoted && "alreadyRemoved" in promoted) {
     throw new Error("Queue item was removed before promotion completed.");
   }
+  if (promoted && "delivery" in promoted) {
+    throw new Error("An idle thread must promote the queue item directly.");
+  }
 
   if (promoted) {
     const events = await collect(

@@ -40,7 +40,7 @@ final class WatchCaptureController: NSObject, ObservableObject, WCSessionDelegat
   }
 
   private func startRecording() {
-    AVAudioApplication.requestRecordPermission { [weak self] granted in
+    requestMicrophonePermission { [weak self] granted in
       Task { @MainActor in
         guard let self else {
           return
@@ -91,6 +91,16 @@ final class WatchCaptureController: NSObject, ObservableObject, WCSessionDelegat
           self.message = "Could not start recording"
         }
       }
+    }
+  }
+
+  private func requestMicrophonePermission(
+    completion: @escaping (Bool) -> Void
+  ) {
+    if #available(iOS 17.0, watchOS 10.0, *) {
+      AVAudioApplication.requestRecordPermission(completionHandler: completion)
+    } else {
+      AVAudioSession.sharedInstance().requestRecordPermission(completion)
     }
   }
 
@@ -173,6 +183,14 @@ final class WatchCaptureController: NSObject, ObservableObject, WCSessionDelegat
       }
     }
   }
+
+#if os(iOS)
+  nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+  nonisolated func sessionDidDeactivate(_ session: WCSession) {
+    session.activate()
+  }
+#endif
 
   nonisolated func session(
     _ session: WCSession,

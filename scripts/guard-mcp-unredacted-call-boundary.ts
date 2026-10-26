@@ -413,7 +413,11 @@ function listSourceFiles(root: string): string[] | { error: string } {
         (listed.stderr.trim() || `git ls-files exited ${listed.status}`),
     };
   }
-  return listed.stdout.split("\0").filter((file) => SOURCE_FILE.test(file));
+  return listed.stdout
+    .split("\0")
+    .filter(
+      (file) => SOURCE_FILE.test(file) && existsSync(path.join(root, file)),
+    );
 }
 
 export function checkBoundary(root: string): BoundaryCheck {

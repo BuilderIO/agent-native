@@ -262,6 +262,8 @@ describe("comment tabs", () => {
         thread("body-resolved", null, { resolved: true }),
         thread("notes-1", "notes"),
         propertyThread(),
+        // A comment on the whole page is in no tab, as the margin shows it.
+        thread("page-1", null, { quotedText: null }),
       ],
       suggestions: [
         suggestion("single"),

@@ -230,7 +230,9 @@ import {
 import {
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
+  buildVideoStorageSetupUrl,
   isStorageSetupFailureMessage,
+  onStorageSetupRequired,
 } from "./lib/recording-request";
 import {
   listenForRecordingShortcutStopAcks,
@@ -1392,6 +1394,8 @@ export function App({
     );
   }, [videoStorageIdentity, serverUrl, signedInAs]);
 
+  const videoStorageProbeSeqRef = useRef(0);
+
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
@@ -1400,11 +1404,15 @@ export function App({
     }
 
     const probedIdentity = videoStorageIdentity;
+    // Probes are slow enough to overlap; only the newest result may land, or a
+    // pre-connect "missing" overwrites the "configured" that came after it.
+    const probeSeq = ++videoStorageProbeSeqRef.current;
     const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
       serverUrl,
       signedInAs,
     );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
+    if (videoStorageProbeSeqRef.current !== probeSeq) return false;
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
@@ -1433,8 +1441,10 @@ export function App({
       });
     };
     const interval = window.setInterval(tick, 5000);
+    // Showing the popover always re-probes, even past an in-flight probe: the
+    // newest probe wins.
     const onVisibilityChange = () => {
-      if (!document.hidden) tick();
+      if (!document.hidden) void refreshVideoStorageStatus();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
@@ -3855,6 +3865,7 @@ export function App({
   ) => {
     if (recordFirstUploading || !recordFirstKey || !signedInAs) return;
     if (videoStorageStatus !== "configured") {
+      setRecError(STORAGE_SETUP_HELP_TEXT);
       openVideoStorageSetup();
       return;
     }
@@ -4147,18 +4158,61 @@ export function App({
   const openVideoStorageSetup = useCallback(
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
-      setRecError(STORAGE_SETUP_HELP_TEXT);
-      void openExternal(`${base}/record?connectStorage=1`).catch((err) => {
+      void openExternal(buildVideoStorageSetupUrl(base)).catch((err) => {
         setRecError(
           err instanceof Error
             ? err.message
             : "Could not open Clips storage setup.",
         );
       });
-      void refreshVideoStorageStatus();
     },
-    [refreshVideoStorageStatus, serverUrl],
+    [serverUrl],
   );
+
+  // Drops the "missing" banner until the next probe. A probe already in flight
+  // would land after this and restore it, so it is invalidated too.
+  const forgetMissingVideoStorage = useCallback(() => {
+    videoStorageProbeSeqRef.current += 1;
+    setRecError((message) =>
+      isStorageSetupFailureMessage(message) ? null : message,
+    );
+    setVideoStorageStatus((status) =>
+      status === "missing" ? "checking" : status,
+    );
+  }, []);
+
+  // The banner goes away on click; reopening the popover re-probes, and the
+  // banner returns only if storage is still missing.
+  const connectVideoStorage = useCallback(() => {
+    forgetMissingVideoStorage();
+    openVideoStorageSetup();
+  }, [forgetMissingVideoStorage, openVideoStorageSetup]);
+
+  useEffect(
+    () =>
+      onStorageSetupRequired(() => {
+        setRecError(STORAGE_SETUP_HELP_TEXT);
+        invoke("show_popover").catch(() => {});
+        void refreshVideoStorageStatus();
+      }),
+    [refreshVideoStorageStatus],
+  );
+
+  useEffect(() => {
+    if (videoStorageStatus !== "configured") return;
+    setRecError((message) =>
+      isStorageSetupFailureMessage(message) ? null : message,
+    );
+  }, [videoStorageStatus]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden) forgetMissingVideoStorage();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [forgetMissingVideoStorage]);
 
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
@@ -4877,14 +4931,14 @@ export function App({
         delete next[key];
         return next;
       });
-      void openExternal(
-        `${targetServerUrl.replace(/\/+$/, "")}/record?connectStorage=1`,
-      ).catch((error) => {
-        setRecoveryActionErrors((errors) => ({
-          ...errors,
-          [key]: error instanceof Error ? error.message : String(error),
-        }));
-      });
+      void openExternal(buildVideoStorageSetupUrl(targetServerUrl)).catch(
+        (error) => {
+          setRecoveryActionErrors((errors) => ({
+            ...errors,
+            [key]: error instanceof Error ? error.message : String(error),
+          }));
+        },
+      );
     },
   };
   const pendingUploadBanner = shouldShowRecordingRecoveryBanner(
@@ -5475,9 +5529,7 @@ export function App({
               onRetry={() => beginRecording()}
             />
           ) : isStorageSetupFailureMessage(recError) ? (
-            <StorageConnectionBanner
-              onConnect={() => openVideoStorageSetup()}
-            />
+            <StorageConnectionBanner onConnect={connectVideoStorage} />
           ) : recError === RECORDING_SESSION_EXPIRED ? (
             <SessionExpiredBanner onReconnect={() => void reconnectSession()} />
           ) : recError === RECORDING_SERVER_UNAVAILABLE ? (
@@ -5485,6 +5537,12 @@ export function App({
           ) : (
             <div className="error-banner">{recError}</div>
           )
+        ) : null}
+        {!recError &&
+        localRecordingMode === "off" &&
+        authStatus === "authed" &&
+        videoStorageStatus === "missing" ? (
+          <StorageConnectionBanner onConnect={connectVideoStorage} />
         ) : null}
         {cameraError && !recError ? (
           cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||

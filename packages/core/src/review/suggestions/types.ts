@@ -74,8 +74,22 @@ export interface SuggestionDecisionContext {
   operations: SuggestionOperation[];
   decision: SuggestionDecision;
   proposalDecision?: boolean;
+  /**
+   * The members a proposal decision decides, in the order it calls `apply`
+   * for them. `suggestion` is the first.
+   */
+  proposalMemberIds?: string[];
   access: SuggestionAccess;
   ctx?: Record<string, unknown>;
+}
+export interface SuggestionDecisionRunOptions {
+  /**
+   * Runs the decision in this transaction instead of its own, so the
+   * decision commits or rolls back with the adapter's write. A decision that
+   * replays an earlier one returns without calling `apply`; an adapter whose
+   * write must not commit without the decision has to check for that.
+   */
+  transaction?: unknown;
 }
 export interface SuggestionAdapter {
   kind: string;
@@ -91,7 +105,10 @@ export interface SuggestionAdapter {
   preview?(context: SuggestionContext): Promise<unknown> | unknown;
   coordinateDecision?<T>(
     context: SuggestionDecisionContext,
-    run: (coordination?: unknown) => Promise<T>,
+    run: (
+      coordination?: unknown,
+      options?: SuggestionDecisionRunOptions,
+    ) => Promise<T>,
   ): Promise<T>;
   finalizeProposalDecision?(context: {
     resourceType: string;

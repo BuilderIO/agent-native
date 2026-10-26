@@ -38,7 +38,15 @@ function resolve(
   rest: Partial<SettingsLocation> = {},
   pages: readonly SettingsPageDefinition[] = CORE_SETTINGS_PAGES,
 ) {
-  return resolveSettingsRoute({ pathname, hash, ...rest }, pages);
+  return resolveSettingsRoute({ pathname, hash, ...rest }, pages, {
+    templateTabPageIds: new Map(
+      pages.flatMap((page) =>
+        page.group === "app"
+          ? (page.legacyTabIds ?? []).map((tabId) => [tabId, page.id] as const)
+          : [],
+      ),
+    ),
+  });
 }
 
 describe("settings shell routing", () => {
@@ -244,6 +252,27 @@ describe("legacy settings links", () => {
         "recordings",
       ]),
     ).toMatchObject({ page: "app", sub: "recordings" });
+    const collidingPages = [...CORE_SETTINGS_PAGES, appPage("alerts")];
+    expect(
+      resolveSettingsTabValue("alerts", collidingPages, ["alerts"]),
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings", hash: "" },
+        collidingPages,
+        {
+          appAreaIds: ["alerts"],
+          tabValue: "alerts",
+        },
+      ),
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/alerts", hash: "" },
+        collidingPages,
+        { appAreaIds: ["alerts"] },
+      ),
+    ).toMatchObject({ page: "alerts", sub: null, legacy: false });
     // Today's tab path for an area (Analytics' Alerts tab).
     expect(
       resolveSettingsRoute(
@@ -267,6 +296,67 @@ describe("legacy settings links", () => {
     ).toMatchObject({ page: "usage", legacy: false });
   });
 
+  it("keeps app and derived template pages addressable when ids collide", () => {
+    const pages = [
+      ...CORE_SETTINGS_PAGES,
+      appPage("app-drafting", "drafting"),
+      appPage("drafting"),
+    ];
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/drafting", hash: "" },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toEqual({
+      page: "drafting",
+      sub: null,
+      anchor: null,
+      legacy: false,
+    });
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/app-drafting", hash: "" },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toMatchObject({ page: "app-drafting", legacy: false });
+    expect(
+      resolveSettingsTabValue(
+        "drafting",
+        pages,
+        [],
+        new Map([["drafting", "app-drafting"]]),
+      ),
+    ).toMatchObject({ page: "app-drafting", legacy: true });
+    expect(
+      resolveSettingsRoute(
+        {
+          pathname: "/settings",
+          hash: "",
+          search: "?section=drafting",
+        },
+        pages,
+        { templateTabPageIds: new Map([["drafting", "app-drafting"]]) },
+      ),
+    ).toMatchObject({ page: "app-drafting", legacy: true });
+  });
+
+  it("preserves nested routes for app-owned page ids that match legacy patterns", () => {
+    const pages = [...CORE_SETTINGS_PAGES, appPage("secrets")];
+    expect(
+      resolveSettingsRoute(
+        { pathname: "/settings/secrets/credentials", hash: "" },
+        pages,
+      ),
+    ).toEqual({
+      page: "secrets",
+      sub: "credentials",
+      anchor: null,
+      legacy: false,
+    });
+  });
+
   it("prefers the agent panel's section over the hash it navigated to", () => {
     // The panel sends `secrets` to #integrations for today's Settings.
     expect(
@@ -284,6 +374,7 @@ describe("legacy settings links", () => {
     expect(
       resolveSettingsRoute({ pathname: "/settings", hash: "" }, MAIL_PAGES, {
         tabValue: "drafting",
+        templateTabPageIds: new Map([["drafting", "drafting"]]),
       }),
     ).toMatchObject({ page: "drafting", legacy: true });
   });

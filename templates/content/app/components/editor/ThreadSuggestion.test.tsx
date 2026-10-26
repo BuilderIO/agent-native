@@ -103,8 +103,22 @@ describe("ThreadSuggestionBody", () => {
 
     act(() => button("editor.acceptSuggestion", 1).click());
     expect(onDecide).toHaveBeenCalledWith(suggestions[1], "accepted");
-    act(() => button("comments.acceptRemaining").click());
+    act(() => button("comments.acceptAll").click());
     expect(onDecideRemaining).toHaveBeenCalledWith("accepted");
+  });
+
+  it("decides the rest of a proposal once one edit is decided", () => {
+    const [first, second, third] = [...proposal(), ...proposal()].map(
+      (suggestion, index) => ({ ...suggestion, id: `edit-${index}` }),
+    );
+    const onDecideRemaining = vi.fn();
+    render([{ ...first!, status: "accepted" }, second!, third!], {
+      onDecideRemaining,
+    });
+
+    expect(button("comments.acceptAll")).toBeUndefined();
+    act(() => button("comments.rejectRemaining").click());
+    expect(onDecideRemaining).toHaveBeenCalledWith("rejected");
   });
 
   it("says a shared outcome once instead of under every edit", () => {
@@ -125,15 +139,15 @@ describe("ThreadSuggestionBody", () => {
       conflict: (suggestion) => suggestion.id === suggestions[1]!.id,
     });
 
-    expect(button("comments.acceptRemaining").disabled).toBe(true);
-    expect(button("comments.rejectRemaining").disabled).toBe(false);
+    expect(button("comments.acceptAll").disabled).toBe(true);
+    expect(button("comments.rejectAll").disabled).toBe(false);
   });
 
   it("offers no group decision for a single edit", () => {
     const [only] = proposal();
     render([only!], { onDecideRemaining: vi.fn() });
 
-    expect(button("comments.acceptRemaining")).toBeUndefined();
+    expect(button("comments.acceptAll")).toBeUndefined();
     expect(button("editor.acceptSuggestion")).toBeDefined();
   });
 });

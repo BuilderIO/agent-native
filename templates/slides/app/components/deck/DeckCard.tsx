@@ -3,7 +3,7 @@ import {
   CreativeContextShareSheet,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import {
   IconBuildingCommunity,
   IconDots,

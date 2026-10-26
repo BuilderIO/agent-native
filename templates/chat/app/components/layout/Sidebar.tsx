@@ -1,39 +1,30 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   navigateWithAgentChatViewTransition,
   useAgentChatRunningThreads,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import {
+  ownDraftRows,
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
-  ChatHistoryList,
-  type ChatHistoryItem,
-  type ChatHistorySection,
-} from "@agent-native/toolkit/chat-history/ChatHistoryList";
-import {
-  IconApps,
-  IconClock,
   IconEdit,
   IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLoader2,
-  IconMessages,
-  IconPin,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import {
   Tooltip,
   TooltipContent,
@@ -41,7 +32,6 @@ import {
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 import { chatThreadPath, HOME_PATH, threadIdFromPath } from "@/lib/chat-paths";
-import { visibleChatThreads } from "@/lib/sidebar-thread-state";
 import { cn } from "@/lib/utils";
 
 const CHAT_STORAGE_KEY = "chat";
@@ -53,60 +43,10 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
-  return thread.title || untitledLabel;
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function compareRecentThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
-}
-
-function comparePinnedThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  return (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0);
-}
-
-function formatRelativeTime(timestamp: number) {
-  const elapsed = timestamp - Date.now();
-  const intervals = [
-    { limit: 60, divisor: 1, unit: "second" },
-    { limit: 60, divisor: 60, unit: "minute" },
-    { limit: 24, divisor: 60 * 60, unit: "hour" },
-    { limit: 7, divisor: 60 * 60 * 24, unit: "day" },
-    { limit: 5, divisor: 60 * 60 * 24 * 7, unit: "week" },
-    { limit: 12, divisor: 60 * 60 * 24 * 30, unit: "month" },
-  ] as const;
-  const elapsedSeconds = elapsed / 1000;
-
-  for (const interval of intervals) {
-    const value = elapsedSeconds / interval.divisor;
-    if (Math.abs(value) < interval.limit) {
-      return new Intl.RelativeTimeFormat(undefined, {
-        numeric: "auto",
-        style: "narrow",
-      }).format(Math.round(value), interval.unit);
-    }
-  }
-
-  return new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-    style: "narrow",
-  }).format(Math.round(elapsedSeconds / (60 * 60 * 24 * 365)), "year");
-}
-
 function ThreadHistoryTitle({
-  thread,
   title,
   running,
 }: {
-  thread: ChatThreadSummary;
   title: string;
   running: boolean;
 }) {
@@ -114,17 +54,6 @@ function ThreadHistoryTitle({
   const viewportRef = useRef<HTMLSpanElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
-  const updatedAt = threadUpdatedAt(thread);
-  const contextLabels = Array.from(
-    new Set(
-      [
-        thread.scope?.label,
-        thread.scope?.type !== "general" ? thread.scope?.type : null,
-        thread.source?.appId,
-        thread.source?.platform,
-      ].filter((value): value is string => Boolean(value)),
-    ),
-  );
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -149,79 +78,28 @@ function ThreadHistoryTitle({
   }, [title]);
 
   return (
-    <HoverCard openDelay={500} closeDelay={120}>
-      <HoverCardTrigger asChild>
-        <span className="chat-sidebar-thread-title-shell">
-          <span
-            ref={viewportRef}
-            className="chat-sidebar-thread-title"
-            data-overflow={isOverflowing ? "true" : "false"}
-          >
-            <span
-              ref={contentRef}
-              className="chat-sidebar-thread-title__content"
-            >
-              {title}
-            </span>
-          </span>
-          {running ? (
-            <IconLoader2
-              className="chat-sidebar-thread-running size-3.5 shrink-0 motion-safe:animate-spin"
-              strokeWidth={1.8}
-              role="status"
-              aria-label={t(
-                // i18n-key-ignore shared framework catalog
-                "agentChat.status.working",
-              )}
-            />
-          ) : null}
-        </span>
-      </HoverCardTrigger>
-      <HoverCardContent
-        side="right"
-        align="start"
-        sideOffset={8}
-        className="chat-sidebar-thread-details w-80 rounded-xl p-3"
+    <span className="chat-sidebar-thread-title-shell">
+      <span
+        ref={viewportRef}
+        className="chat-sidebar-thread-title"
+        data-overflow={isOverflowing ? "true" : "false"}
       >
-        <div className="line-clamp-3 text-sm font-medium leading-snug">
+        <span ref={contentRef} className="chat-sidebar-thread-title__content">
           {title}
-        </div>
-        {thread.preview && thread.preview !== title ? (
-          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {thread.preview}
-          </p>
-        ) : null}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-          {updatedAt ? (
-            <span className="inline-flex items-center gap-1.5">
-              <IconClock className="size-3.5" strokeWidth={1.8} />
-              <time dateTime={new Date(updatedAt).toISOString()}>
-                {formatRelativeTime(updatedAt)}
-              </time>
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1.5">
-            <IconMessages className="size-3.5" strokeWidth={1.8} />
-            <span>{thread.messageCount.toLocaleString()}</span>
-            <span className="sr-only">{t("chat.chats")}</span>
-          </span>
-          {thread.pinnedAt ? (
-            <span className="inline-flex items-center gap-1.5">
-              <IconPin className="size-3.5" strokeWidth={1.8} />
-              {t("chat.pinned")}
-            </span>
-          ) : null}
-        </div>
-        {contextLabels.length > 0 ? (
-          <div className="mt-2.5 flex items-start gap-1.5 border-t border-border pt-2.5 text-xs text-muted-foreground">
-            <IconApps className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.8} />
-            <span className="min-w-0 break-words">
-              {contextLabels.join(" · ")}
-            </span>
-          </div>
-        ) : null}
-      </HoverCardContent>
-    </HoverCard>
+        </span>
+      </span>
+      {running ? (
+        <IconLoader2
+          className="chat-sidebar-thread-running size-4 shrink-0 motion-safe:animate-spin"
+          strokeWidth={1.8}
+          role="status"
+          aria-label={t(
+            // i18n-key-ignore shared framework catalog
+            "agentChat.status.working",
+          )}
+        />
+      ) : null}
+    </span>
   );
 }
 
@@ -252,8 +130,8 @@ function HomeNavLink({ collapsed }: { collapsed: boolean }) {
         "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         active && "bg-sidebar-accent",
         collapsed
-          ? "size-10 justify-center rounded-md"
-          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+          ? "size-8 justify-center rounded-md"
+          : "h-8 w-full gap-3 rounded-lg px-3 text-sm font-medium",
       )}
     >
       <IconHome className="size-4 shrink-0" strokeWidth={1.8} />
@@ -287,7 +165,7 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
     pinThread,
     archiveThread,
     renameThread,
-    refreshThreads,
+    isNewThread,
   } = useChatThreads(undefined, CHAT_STORAGE_KEY, undefined, {
     autoCreate: false,
     restoreActiveThread: false,
@@ -295,66 +173,45 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   const { workingThreadIds, observedThreadStarts } =
     useAgentChatRunningThreads();
 
-  const visibleThreads = useMemo(
-    () => visibleChatThreads(threads, observedThreadStarts),
-    [observedThreadStarts, threads],
-  );
+  const localMineRows = ownDraftRows({
+    threads,
+    isNewThread,
+    observedThreadStarts,
+  });
+  const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
+    activeId:
+      threadIdFromPath(location.pathname) ??
+      activeThreadId ??
+      persistedActiveThreadId(),
+    localMineRows,
+    pinned: { label: t("chat.pinned") },
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      if (kind === "archive") toast.error(t("chat.archiveFailed"));
+      if (kind === "rename") toast.error(t("chat.renameFailed"));
+    },
+    decorateItem: (item, row) => {
+      const title = row.title || row.preview || t("chat.untitledChat");
+      return {
+        ...item,
+        title: (
+          <ThreadHistoryTitle
+            title={title}
+            running={workingThreadIds.has(row.id)}
+          />
+        ),
+      };
+    },
+  });
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
     activeThreadId ??
     persistedActiveThreadId();
-
-  const historySections = useMemo<ChatHistorySection[]>(() => {
-    const untitledLabel = t("chat.untitledChat");
-    const toItem = (thread: ChatThreadSummary): ChatHistoryItem => {
-      const title = threadTitle(thread, untitledLabel);
-      return {
-        id: thread.id,
-        title: (
-          <ThreadHistoryTitle
-            thread={thread}
-            title={title}
-            running={workingThreadIds.has(thread.id)}
-          />
-        ),
-        titleText: title,
-        pinned: Boolean(thread.pinnedAt),
-      };
-    };
-    const pinned = visibleThreads
-      .filter((thread) => Boolean(thread.pinnedAt))
-      .sort(comparePinnedThreads)
-      .map(toItem);
-    const recent = visibleThreads
-      .filter((thread) => !thread.pinnedAt)
-      .sort(compareRecentThreads)
-      .slice(0, 30)
-      .map(toItem);
-
-    return [
-      { id: "pinned", label: t("chat.pinned"), items: pinned },
-      { id: "recents", label: t("chat.recents"), items: recent },
-    ];
-  }, [t, visibleThreads, workingThreadIds]);
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -382,23 +239,6 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
     if (threadId) openThread(threadId, { isNew: true });
   }
 
-  async function handleArchiveThread(threadId: string) {
-    const wasActive =
-      threadId === activeThreadId || threadId === persistedActiveThreadId();
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("chat.archiveFailed"));
-      return;
-    }
-    if (wasActive) await handleNewChat();
-  }
-
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("chat.renameFailed"));
-    });
-  }
-
   const newChatButton = (
     <button
       type="button"
@@ -406,8 +246,8 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
       className={cn(
         "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         collapsed
-          ? "size-10 justify-center rounded-md"
-          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+          ? "size-8 justify-center rounded-md"
+          : "h-8 w-full gap-3 rounded-lg px-3 text-sm font-medium",
       )}
       aria-label={collapsed ? t("chat.newChat") : undefined}
     >
@@ -430,17 +270,20 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pb-3">{newChatButton}</div>
-      <ChatHistoryList
-        sections={historySections}
+      <OwnershipChatHistoryRail
+        {...history}
+        onNewChat={() => void handleNewChat()}
+        showNewChat={false}
         activeId={displayedActiveThreadId}
         onSelect={openThread}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        onDelete={async (threadId) => {
+          const wasActive =
+            threadId === activeThreadId ||
+            threadId === persistedActiveThreadId();
+          const archived = await history.listProps.onDelete?.(threadId);
+          if (archived && wasActive) await handleNewChat();
         }}
-        onRename={handleRenameThread}
         renameMaxLength={160}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
         labels={{
           options: (item) =>
             t("chat.optionsFor", { title: item.titleText ?? "" }),
@@ -451,8 +294,9 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
           unpin: t("chat.unpinChat"),
           delete: t("chat.archiveChat"),
         }}
-        variant="rail"
-        emptyLabel={null}
+        railLabels={{
+          newChat: t("chat.newChat"),
+        }}
         className="chat-sidebar-history min-h-0 flex-1"
         listClassName="pb-4"
       />

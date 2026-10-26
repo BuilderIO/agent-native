@@ -1,4 +1,4 @@
-import { IconFile, IconPlus, IconTextRecognition } from "@tabler/icons-react";
+import { IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -27,6 +27,7 @@ import {
   type ComposerContextPickerConfig,
 } from "./ComposerContextPicker.js";
 import { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import { useComposerPanelPlacement } from "./use-composer-panel-placement.js";
 
@@ -215,7 +216,7 @@ function ContextSubmenu({
   icon?: ReactNode;
   disabled?: boolean;
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, reason?: "escape") => void;
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLDivElement>(null);
@@ -227,7 +228,7 @@ function ContextSubmenu({
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
         style={{ boxShadow: "none" }}
-        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
+        className={`max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
         data-agent-native-composer-popover="true"
         onFocusOutside={(event) => {
           const target = event.target;
@@ -244,7 +245,7 @@ function ContextSubmenu({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          onOpenChange(false);
+          onOpenChange(false, "escape");
           trigger.current?.focus();
         }}
       >
@@ -312,10 +313,14 @@ export function ComposerContextMenu({
   const onDisabledFocusRef = useRef(onDisabledFocus);
   onDisabledFocusRef.current = onDisabledFocus;
   const disabledFocusFrame = useRef<number | null>(null);
+  const resumedPageClose = useRef<string | null>(null);
+  const resumedPageCloseFrame = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (disabledFocusFrame.current !== null)
         window.cancelAnimationFrame(disabledFocusFrame.current);
+      if (resumedPageCloseFrame.current !== null)
+        window.cancelAnimationFrame(resumedPageCloseFrame.current);
     },
     [],
   );
@@ -545,7 +550,19 @@ export function ComposerContextMenu({
               label={entry.label}
               disabled={entry.disabled}
               open={expanded}
-              onOpenChange={(next) => {
+              onOpenChange={(next, reason) => {
+                if (
+                  !next &&
+                  reason !== "escape" &&
+                  resumedPageClose.current === entry.id
+                ) {
+                  resumedPageClose.current = null;
+                  if (resumedPageCloseFrame.current !== null) {
+                    window.cancelAnimationFrame(resumedPageCloseFrame.current);
+                    resumedPageCloseFrame.current = null;
+                  }
+                  return;
+                }
                 const isOpen = branch.every(
                   (id, index) => pathRef.current[index] === id,
                 );
@@ -588,6 +605,19 @@ export function ComposerContextMenu({
                         );
                         return;
                       }
+                      // Radix can emit one stale close after native-picker focus returns.
+                      resumedPageClose.current = entry.id;
+                      if (resumedPageCloseFrame.current !== null)
+                        window.cancelAnimationFrame(
+                          resumedPageCloseFrame.current,
+                        );
+                      resumedPageCloseFrame.current =
+                        window.requestAnimationFrame(() => {
+                          resumedPageCloseFrame.current = null;
+                          if (resumedPageClose.current === entry.id)
+                            resumedPageClose.current = null;
+                        });
+                      triggerRef.current?.focus();
                       changeOpen(true);
                       activate(action, origin, false);
                     },
@@ -665,7 +695,7 @@ export function ComposerContextMenu({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0"
+                className="size-[var(--agentkit-composer-toolbar-control-size,1.5rem)] shrink-0 rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] text-muted-foreground hover:text-foreground"
                 data-agent-composer-slot="plus-button"
                 disabled={disabled}
                 aria-label={label}
@@ -687,7 +717,7 @@ export function ComposerContextMenu({
             maxHeight: placement.maxHeight,
             boxShadow: "none",
           }}
-          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
+          className={`@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
@@ -728,14 +758,12 @@ export function ComposerContextMenu({
                     }
                   }}
                 >
-                  <IconFile size={16} />
                   {uploadLabel}
                 </DropdownMenuItem>
               )}
               {(items.length > 0 || loading || searchError) && (
                 <ContextSubmenu
                   label={label}
-                  icon={<IconTextRecognition size={16} />}
                   open={path[0] === "add-context"}
                   onOpenChange={(next) => {
                     if (next === (pathRef.current[0] === "add-context")) return;

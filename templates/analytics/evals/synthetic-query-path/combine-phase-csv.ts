@@ -89,6 +89,7 @@ const REASON_CODES = new Set([
 ]);
 
 const SAFE_CASE_KEYS = [
+  "synthetic-row-level-roster-beats-seat-utilization",
   "synthetic-unbuilt-index-does-not-claim-absence",
   "synthetic-content-api-requests-not-visual-views",
   "synthetic-source-provenance-ambiguity",
