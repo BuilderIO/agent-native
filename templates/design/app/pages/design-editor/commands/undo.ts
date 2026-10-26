@@ -1008,11 +1008,8 @@ export function runUndo({
       });
       setSelectedLayerIdsState((prev) =>
         restoredSelection
-          ? resolveLocalHistorySelection(
-              restoredSelection,
-              activeFile.id,
-              next,
-            ).selectedLayerIds
+          ? resolveLocalHistorySelection(restoredSelection, activeFile.id, next)
+              .selectedLayerIds
           : refreshSelectedLayerIdsFromContent(next, prev, {
               kind: "design-file",
               fileId: activeFile.id,

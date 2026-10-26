@@ -247,10 +247,8 @@ export function useEditorClipboard({
     applyLocalContentUpdate,
     applyFileContentUpdate,
   } = editorContentAndComponents;
-  const {
-    runtimeStructureInsertRevisionRef,
-    selectionRevisionRef,
-  } = editorToolsAndVectors;
+  const { runtimeStructureInsertRevisionRef, selectionRevisionRef } =
+    editorToolsAndVectors;
   const {
     selectedLayerTargetsRef,
     lastDuplicateTransformRef,
