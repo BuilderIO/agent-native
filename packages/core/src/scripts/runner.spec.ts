@@ -20,26 +20,23 @@ import { defineAction } from "../action.js";
 import { openCliHandoff, runScript } from "./runner.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
 const fileUploadIndex = path.resolve(__dirname, "../file-upload/index.ts");
 
+// Searches upward from this file rather than from a fixed repo root, so the
+// spec also finds tsx from a copy of Core, such as Stryker's sandbox.
 function resolveTsxCli(): string {
-  const binCandidates = [
-    path.join(repoRoot, "node_modules", ".bin", "tsx"),
-    path.join(repoRoot, "packages", "core", "node_modules", ".bin", "tsx"),
-  ];
-  for (const candidate of binCandidates) {
-    if (process.platform !== "win32" && fs.existsSync(candidate))
-      return candidate;
-  }
-  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
-  if (fs.existsSync(pnpmDir)) {
-    const tsxEntry = fs
-      .readdirSync(pnpmDir)
-      .filter((name) => name.startsWith("tsx@"))
-      .sort()
-      .pop();
+  for (let dir = __dirname; ; dir = path.dirname(dir)) {
+    const bin = path.join(dir, "node_modules", ".bin", "tsx");
+    if (process.platform !== "win32" && fs.existsSync(bin)) return bin;
+    const pnpmDir = path.join(dir, "node_modules", ".pnpm");
+    const tsxEntry = fs.existsSync(pnpmDir)
+      ? fs
+          .readdirSync(pnpmDir)
+          .filter((name) => name.startsWith("tsx@"))
+          .sort()
+          .pop()
+      : undefined;
     if (tsxEntry) {
       const cli = path.join(
         pnpmDir,
@@ -51,8 +48,8 @@ function resolveTsxCli(): string {
       );
       if (fs.existsSync(cli)) return cli;
     }
+    if (path.dirname(dir) === dir) return "tsx";
   }
-  return binCandidates[0];
 }
 
 const tsxCli = resolveTsxCli();
