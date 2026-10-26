@@ -647,12 +647,14 @@ export function useEditorScreenChangeHandlers({
           refreshPreview: false,
           forcePreviewFullDocument: true,
         });
-        if (publication.status !== "accepted") return;
-        previewInteractionState(
-          Object.fromEntries(
-            Object.keys(styles).map((property) => [property, ""]),
-          ),
+        const clearPreview = Object.fromEntries(
+          Object.keys(styles).map((property) => [property, ""]),
         );
+        if (publication.status !== "accepted") {
+          previewInteractionState(clearPreview);
+          return;
+        }
+        previewInteractionState(clearPreview);
         return;
       }
       // A runtime style lands inline in every frame it reaches, so a

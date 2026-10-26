@@ -490,7 +490,6 @@ export function runPastedImageFiles(
             forceFullDocument: true,
           });
         }
-        selectInsertedLayers(targetFileId, previewContent, [insertedNodeId]);
 
         try {
           const imageUrl = await uploadMediaFileForHtml(file);
@@ -539,6 +538,11 @@ export function runPastedImageFiles(
             nextContent !== durableContent &&
             !applyDurableContent(nextContent)
           ) {
+            if (targetFileId === activeFile.id) {
+              replacePreviewContent(durableContent, null, {
+                forceFullDocument: true,
+              });
+            }
             toast.error(t("common.genericError"));
             continue;
           }
@@ -547,6 +551,7 @@ export function runPastedImageFiles(
               forceFullDocument: true,
             });
           }
+          selectInsertedLayers(targetFileId, nextContent, [insertedNodeId]);
         } catch {
           const currentContent =
             targetFileId === activeFile?.id

@@ -183,6 +183,50 @@ describe("runPastedImageFiles", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview");
   });
 
+  it("restores the active preview and leaves selection unchanged when publication is refused", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:refused-preview");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const previews: string[] = [];
+    const replacePreviewContent = vi.fn((content: string) => {
+      previews.push(content);
+    });
+    const applyLocalContentUpdate = vi.fn(() => ({
+      status: "refused" as const,
+    }));
+    const selectInsertedLayers = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+    );
+    pasteArgs.selectInsertedLayers = selectInsertedLayers;
+
+    expect(
+      runPastedImageFiles(pasteArgs, [file], {
+        fileId: "screen-1",
+        point: { x: 40, y: 60 },
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(previews).toHaveLength(1));
+    expect(selectInsertedLayers).not.toHaveBeenCalled();
+
+    resolveUpload("https://cdn.example/photo.png");
+    await vi.waitFor(() =>
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:refused-preview"),
+    );
+
+    expect(previews[0]).toContain('src="blob:refused-preview"');
+    expect(previews[1]).toBe("<main></main>");
+    expect(selectInsertedLayers).not.toHaveBeenCalled();
+  });
+
   it("preserves a small 17 by 9 image's native dimensions", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:small-icon");
     const previews: string[] = [];
