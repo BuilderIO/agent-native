@@ -962,12 +962,22 @@ export function useEditorToolsAndVectors({
             skipPreview: current.screenId !== activeFile?.id,
             historyBeforeContent: baseContent,
           });
+          if (result.status === "deferred") {
+            setVectorEditingState((latest) =>
+              latest?.layerId === current.layerId &&
+              latest.screenId === current.screenId
+                ? { ...latest, path: nextPath, primitiveSource }
+                : latest,
+            );
+            return true;
+          }
           if (result.status !== "accepted") return exitIfCurrent();
           if (current.primitiveSource) primitiveSource = null;
         }
       }
       setVectorEditingState((latest) =>
-        latest?.layerId === current.layerId
+        latest?.layerId === current.layerId &&
+        latest.screenId === current.screenId
           ? { ...latest, path: nextPath, primitiveSource }
           : latest,
       );
@@ -1041,7 +1051,7 @@ export function useEditorToolsAndVectors({
                 historyBeforeContent: baseContent,
               },
             );
-            if (publication.status !== "accepted") return null;
+            if (publication.status === "refused") return null;
           }
         }
         return { ...current, path: nextPath };

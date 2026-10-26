@@ -1537,7 +1537,7 @@ export function useEditorContentAndComponents({
     ) => {
       if (!activeFile) return { status: "refused" as const };
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
-        return { status: "refused" as const };
+        return { status: "deferred" as const };
       }
       const result = runApplyFileContentUpdate(
         {
