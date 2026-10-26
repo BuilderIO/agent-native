@@ -440,6 +440,8 @@ export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
  */
 export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
+/** How much of a new entry must show in a capped card to count as in view. */
+const NEW_ENTRY_MIN_VISIBLE = 64;
 /** An open stack's Collapse row, laid out like a card above its threads. */
 const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
 const STACK_HEADER_HEIGHT = 28;
@@ -947,7 +949,22 @@ export function usePendingCommentDraft(documentId: string) {
   const currentDocumentId = useRef(documentId);
   currentDocumentId.current = documentId;
   const setPendingComment = useCallback(
-    (selection: PendingCommentSelection | null) => {
+    (
+      selection: PendingCommentSelection | null,
+      options?: { keepWritten?: boolean },
+    ) => {
+      // Opening another thread leaves a comment someone has started, so
+      // nothing they wrote is lost; an empty one closes as before.
+      if (!selection && options?.keepWritten && current.current) {
+        const { text, mentions, aiDraft } = pendingDraftRef.current.draft;
+        if (
+          current.current.submitting ||
+          text.trim() ||
+          mentions.length ||
+          aiDraft
+        )
+          return;
+      }
       pendingDraftRef.current.discard();
       current.current = selection
         ? {
@@ -1514,8 +1531,9 @@ export function CommentsSidebar({
       ) ?? null)
     : null;
   // A new comment outside the open stack folds it, as does leaving it with
-  // nothing selected.
+  // nothing selected. A thread opened while the comment waits keeps its own.
   const pendingFoldsOpenStack =
+    !selectedThreadId &&
     pendingStackKey !== undefined &&
     pendingStackKey !== (openedStack?.key ?? null);
   const expandedStack =
@@ -2587,9 +2605,12 @@ export function CommentsSidebar({
       pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
     );
   }
-  const layoutFocusId = pendingLayout
-    ? PENDING_COMMENT_LAYOUT_ID
-    : selectedLayoutThreadId;
+  // A thread opened while a new comment waits takes the slot; the waiting
+  // comment keeps its place beside its own highlight.
+  const layoutFocusId =
+    pendingLayout && !selectedThreadId
+      ? PENDING_COMMENT_LAYOUT_ID
+      : selectedLayoutThreadId;
   // An open stack is laid out as one block, its Collapse row on top: its
   // threads' cards, and a new comment in it.
   // The stack has its threads in document order, which their highlights'
@@ -4806,13 +4827,30 @@ function ThreadView({
   const seenEntryCount = useRef(thread.comments.length);
 
   // A capped card hides what arrives below the fold, such as the AI's revised
-  // suggestion after a follow-up, so bring new entries into view.
+  // suggestion after a follow-up, so bring a new entry into view from its
+  // start: a long suggestion opens on its reason, not its last edit.
   useEffect(() => {
     const added = thread.comments.length > seenEntryCount.current;
     seenEntryCount.current = thread.comments.length;
     const body = bodyRef.current;
-    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
-    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+    const latest = thread.comments[thread.comments.length - 1];
+    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
+      return;
+    const entry = body.querySelector<HTMLElement>(
+      `[data-comment-entry="${cssEscape(latest.id)}"]`,
+    );
+    if (!entry) return;
+    const entryTop =
+      entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    // Its start already shows, under the comment that asked for it: leave
+    // the reader where they are.
+    if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
+      return;
+    const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+    body.scrollTo({
+      top: body.scrollTop + entryTop - padding,
+      behavior: "smooth",
+    });
   }, [thread.comments.length]);
 
   useEffect(() => {
@@ -5000,7 +5038,9 @@ function ThreadView({
           "relative grid grid-cols-1 gap-3.5",
           isPanel
             ? "px-4 py-3.5"
-            : "max-h-96 min-h-0 overflow-y-auto px-4 pb-3.5 pt-3.5",
+            : // Scrolling past either end of a long thread stays in the card
+              // instead of moving the page behind it.
+              "max-h-96 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
         )}
         data-comment-thread-body
       >
@@ -5082,7 +5122,7 @@ function ThreadView({
           return renderEntry ? (
             <Fragment key={c.id}>
               {earlier}
-              <div className={indent}>
+              <div className={indent} data-comment-entry={c.id}>
                 {renderEntry(c.id, {
                   headerActions: index === 0 ? firstRowActions : undefined,
                   revealActions: index === 0 ? "always" : "hover",
@@ -5095,6 +5135,7 @@ function ThreadView({
               {earlier}
               <CommentRow
                 className={indent}
+                data-comment-entry={c.id}
                 avatar={
                   <CommentAvatar
                     email={c.author_email}

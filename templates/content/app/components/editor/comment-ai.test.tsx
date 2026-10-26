@@ -219,6 +219,31 @@ describe("comment AI controls", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it("names the model a comment was sent to while it works", async () => {
+    const label = async (overrides: Partial<CommentAiRequest>) => {
+      await act(async () => {
+        root.render(
+          createElement(CommentAiRequestStatus, {
+            request: request({ errorCode: null, error: null, ...overrides }),
+            onRetry: vi.fn(),
+            onStop: vi.fn(),
+          }),
+        );
+      });
+      return document.querySelector('[role="status"] > span.truncate')
+        ?.textContent;
+    };
+    expect(await label({ status: "running", model: "claude-haiku-5-5" })).toBe(
+      "comments.aiWorkingNamed",
+    );
+    expect(await label({ status: "queued", model: "claude-haiku-5-5" })).toBe(
+      "comments.aiQueuedNamed",
+    );
+    expect(await label({ status: "running", model: null })).toBe(
+      "comments.aiWorking",
+    );
+  });
+
   it("shows what an applied change replaced, with Undo and Done", async () => {
     const applied = request({
       intent: "apply-resolve",

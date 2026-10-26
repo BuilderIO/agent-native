@@ -69,7 +69,10 @@ function SuggestionStatus({
   );
 }
 
-/** One edit's word diff, with its own Accept and Reject or outcome. */
+/**
+ * One edit's word diff, with its own Accept and Reject or outcome, in one box
+ * so each pair of buttons reads as belonging to the change above it.
+ */
 function ThreadSuggestionEdit({
   suggestion,
   canDecide,
@@ -97,9 +100,17 @@ function ThreadSuggestionEdit({
     [excerpt],
   );
   const pending = suggestion.status === "pending";
+  const conflicted = conflict || suggestion.status === "stale";
+  if (
+    !segments.length &&
+    !conflicted &&
+    !(pending && canDecide) &&
+    !(showStatus && statusLabel(suggestion.status))
+  )
+    return null;
   return (
     <div
-      className="grid grid-cols-1 gap-2"
+      className="grid grid-cols-1 gap-2 rounded-lg bg-muted/60 px-3 py-2.5"
       data-thread-suggestion={suggestion.id}
       data-thread-suggestion-status={suggestion.status}
     >
@@ -107,7 +118,7 @@ function ThreadSuggestionEdit({
         <p
           aria-label={t("comments.suggestedChange")}
           className={cn(
-            "whitespace-pre-wrap break-words rounded-lg bg-muted/60 px-3 py-2 leading-6",
+            "whitespace-pre-wrap break-words leading-6",
             !pending && suggestion.status !== "accepted" && "opacity-70",
           )}
           data-thread-suggestion-diff
@@ -133,7 +144,7 @@ function ThreadSuggestionEdit({
           )}
         </p>
       ) : null}
-      {conflict || suggestion.status === "stale" ? (
+      {conflicted ? (
         <p role="alert" className="text-xs text-destructive">
           {t("editor.toolbar.conflict")}
         </p>
@@ -226,11 +237,13 @@ export function ThreadSuggestionBody({
         <SuggestionStatus status={statusLabel(sharedStatus)} />
       ) : null}
       {canDecide && onDecideRemaining && pending.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div
+          className="flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-2.5"
+          data-thread-suggestion-bulk
+        >
           <Button
             type="button"
             size="sm"
-            variant="ghost"
             disabled={pending.some(busy) || pending.some(conflict)}
             onClick={(event) => {
               event.stopPropagation();
@@ -243,8 +256,7 @@ export function ThreadSuggestionBody({
           <Button
             type="button"
             size="sm"
-            variant="ghost"
-            className="text-muted-foreground"
+            variant="outline"
             disabled={pending.some(busy)}
             onClick={(event) => {
               event.stopPropagation();

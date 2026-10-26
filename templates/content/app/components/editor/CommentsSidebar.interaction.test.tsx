@@ -579,14 +579,16 @@ describe("comment review interactions", () => {
       freshResolutions: new Map(),
       dismissResolution: vi.fn(),
     }) satisfies CommentAiController;
-  const clickAiSend = () =>
-    act(async () =>
-      (
-        container.querySelector(
-          '[aria-label="comments.aiSend"]',
-        ) as HTMLButtonElement
-      ).click(),
-    );
+  const clickAiSend = () => {
+    const send = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-send-mode]",
+    )!;
+    // Send names the response it asks for, not a bare "Send".
+    expect(send.getAttribute("data-comment-ai-send-mode")).toBe("suggest");
+    expect(send.textContent).toBe("comments.aiSendSuggest");
+    expect(send.getAttribute("aria-label")).toBe("comments.aiSendMode");
+    return act(async () => send.click());
+  };
 
   const sendAiReply = async (
     start: CommentAiController["start"],

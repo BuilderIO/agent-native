@@ -1044,14 +1044,27 @@ export function useCommentAiRequests(
   );
 }
 
+/** "Claude Haiku 5.5 is working…": the model the comment was sent to. */
+function workingLabel(
+  model: string | null | undefined,
+  t: ReturnType<typeof useT>,
+  queued = false,
+) {
+  if (!model?.trim())
+    return t(queued ? "comments.aiQueued" : "comments.aiWorking");
+  return t(queued ? "comments.aiQueuedNamed" : "comments.aiWorkingNamed", {
+    name: modelDisplayName(model),
+  });
+}
+
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
 ) {
   if (request.status === "classifying" || request.status === "classified")
-    return t("comments.aiWorking");
-  if (request.status === "queued") return t("comments.aiQueued");
-  if (request.status === "running") return t("comments.aiWorking");
+    return workingLabel(request.model, t);
+  if (request.status === "queued") return workingLabel(request.model, t, true);
+  if (request.status === "running") return workingLabel(request.model, t);
   if (request.status === "refreshing") return t("comments.aiRefreshing");
   if (request.status === "failed") return t("comments.aiFailed");
   if (request.status === "cancelled") return t("comments.aiCancelled");
@@ -1107,7 +1120,7 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? t("comments.aiWorking")
+      ? workingLabel(request.model, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
