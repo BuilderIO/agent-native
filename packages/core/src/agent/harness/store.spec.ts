@@ -2383,7 +2383,7 @@ describe("agent harness session store", () => {
     });
   });
 
-  it("uses generation fencing for approval expiry without retaining stale claims", async () => {
+  it("does not stop a session while an approval resolution claim is active", async () => {
     const id = "session-expired-approval-resolution";
     await saveAgentHarnessSession({
       id,
@@ -2420,10 +2420,25 @@ describe("agent harness session store", () => {
         resolving!.generation,
         "stopped",
       ),
-    ).resolves.toMatchObject({
-      status: "stopped",
-      approvalResolutionId: null,
-    });
+    ).resolves.toBeNull();
+
+    const released =
+      await releaseAgentHarnessSessionApprovalResolutionBeforeDispatch({
+        sessionId: id,
+        approvalId: "approval-in-progress",
+        expectedStatus: "idle",
+        expectedGeneration: resolving!.generation,
+        expectedFollowUpClaimId: null,
+      });
+    expect(released?.approvalResolutionId).toBeNull();
+    await expect(
+      markAgentHarnessSessionStoppedIfUnclaimed(
+        id,
+        "idle",
+        released!.generation,
+        "stopped",
+      ),
+    ).resolves.toMatchObject({ status: "stopped", approvalResolutionId: null });
   });
 
   it("stops the session even after a concurrent generation advance", async () => {

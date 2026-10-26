@@ -292,11 +292,11 @@ async function readSnapshot(
                   WHERE e.event_data::jsonb ->> 'type' IN
                     ('done', 'error', 'missing_api_key', 'loop_limit', 'auto_continue')
                 ) AS terminal_count,
-                COUNT(*) FILTER (
+                ARRAY_AGG(
+                  COALESCE(e.event_data::jsonb ->> 'text', '') ORDER BY e.seq
+                ) FILTER (
                   WHERE e.event_data::jsonb ->> 'type' = 'text'
-                    AND position(${expectedMarker} in
-                      COALESCE(e.event_data::jsonb ->> 'text', '')) > 0
-                ) AS marker_count
+                ) AS text_chunks
            FROM agent_runs r
            LEFT JOIN agent_run_events e ON e.run_id = r.id
           WHERE r.thread_id = ${ids.threadId}
@@ -322,7 +322,10 @@ async function readSnapshot(
         {
           checkpointCount: asNumber(row.checkpoint_count) ?? 0,
           terminalCount: asNumber(row.terminal_count) ?? 0,
-          markerCount: asNumber(row.marker_count) ?? 0,
+          markerCount: countMarkerOccurrencesAcrossTextChunks(
+            parseTextChunks(row.text_chunks),
+            expectedMarker,
+          ),
         },
       ]),
     );
@@ -369,6 +372,34 @@ async function readSnapshot(
       })),
     };
   });
+}
+
+function parseTextChunks(value: unknown): string[] {
+  if (value == null) return [];
+  if (
+    !Array.isArray(value) ||
+    value.some((chunk) => typeof chunk !== "string")
+  ) {
+    throw new Error("Persisted run text chunks are unreadable.");
+  }
+  return value;
+}
+
+export function countMarkerOccurrencesAcrossTextChunks(
+  chunks: readonly string[],
+  marker: string,
+): number {
+  if (!marker) throw new Error("The expected marker cannot be empty.");
+  const text = chunks.join("");
+  let count = 0;
+  for (
+    let offset = text.indexOf(marker);
+    offset !== -1;
+    offset = text.indexOf(marker, offset + marker.length)
+  ) {
+    count += 1;
+  }
+  return count;
 }
 
 export function validateScheduledRecoveryPreflight(

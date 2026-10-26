@@ -514,7 +514,8 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.followUpClaimId != null
+          stored.followUpClaimId != null ||
+          stored.approvalResolutionId != null
         ) {
           return null;
         }
@@ -763,6 +764,50 @@ describe("agent harness lifecycle", () => {
     expect(session.approve).toHaveBeenCalledOnce();
     expect(stored.pendingApproval).toBeNull();
     expect(stored.resolvedApprovalIds).toContain(approvalId);
+  });
+
+  it("stops a rehydrated provider session when approval dispatch is refused", async () => {
+    const approvalId = "approval-rehydrated-dispatch-refused";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+    mocks.startApprovalDispatch.mockResolvedValueOnce(null);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+  });
+
+  it("stops a rehydrated provider session after a pre-dispatch exception", async () => {
+    const approvalId = "approval-rehydrated-dispatch-exception";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    const dispatchError = new Error("approval dispatch admission failed");
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+    mocks.startApprovalDispatch.mockRejectedValueOnce(dispatchError);
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).rejects.toBe(dispatchError);
+
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
   });
 
   it("renews an approval claim while its provider call is still running", async () => {
@@ -1436,6 +1481,41 @@ describe("agent harness lifecycle", () => {
     expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
 
     finishApproval();
+    await expect(resolution).resolves.toMatchObject({ ok: true });
+  });
+
+  it("guards an existing live session while approval capability checks are pending", async () => {
+    const session = fakeSession();
+    const approvalId = "approval-capability-check-expiry-race";
+    let finishCapabilityCheck!: (canResolve: boolean) => void;
+    let capabilityCheckStarted!: () => void;
+    const capabilityCheck = new Promise<boolean>((resolve) => {
+      finishCapabilityCheck = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      capabilityCheckStarted = resolve;
+    });
+    session.canResolveApproval = vi.fn(async () => {
+      capabilityCheckStarted();
+      return capabilityCheck;
+    });
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+
+    const resolution = resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+    await started;
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(0);
+    expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
+    expect(session.stop).not.toHaveBeenCalled();
+
+    finishCapabilityCheck(true);
     await expect(resolution).resolves.toMatchObject({ ok: true });
   });
 

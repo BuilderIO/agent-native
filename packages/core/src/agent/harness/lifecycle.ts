@@ -240,7 +240,14 @@ export async function resolveAgentHarnessApproval(input: {
     let approvalClaimAcquired = false;
     let approvalResolutionStarted: StoredAgentHarnessSession | null = null;
     let rehydratedSession: AgentHarnessSession | undefined;
+    let rehydratedSessionCleanupAttempted = false;
     let providerDispatchStarted = false;
+    const stopRehydratedSession = async () => {
+      if (!rehydratedSession || rehydratedSessionCleanupAttempted) return;
+      rehydratedSessionCleanupAttempted = true;
+      await stopAcquiredHarnessSession(session.id, rehydratedSession);
+    };
+    if (live) live.approvalResolutionInProgress = true;
     try {
       const resolutionStarted = await beginApprovalResolution(
         input.runId,
@@ -281,6 +288,7 @@ export async function resolveAgentHarnessApproval(input: {
           );
         }
         live = acquired.live;
+        live.approvalResolutionInProgress = true;
         if (acquired.rehydrated) {
           rehydratedSession = acquired.live.session;
         }
@@ -293,9 +301,7 @@ export async function resolveAgentHarnessApproval(input: {
           approvalId: input.approval.id,
           liveSession: activeLive.session,
         });
-        if (rehydratedSession) {
-          await stopAcquiredHarnessSession(session.id, rehydratedSession);
-        }
+        await stopRehydratedSession();
         return failure(
           input.runId,
           latest ?? session,
@@ -339,9 +345,7 @@ export async function resolveAgentHarnessApproval(input: {
             failed.generation,
           );
         }
-        if (rehydratedSession) {
-          await stopAcquiredHarnessSession(session.id, rehydratedSession);
-        }
+        await stopRehydratedSession();
         const latest =
           failed ?? (await getAgentHarnessSessionByRunId(input.runId));
         return failure(
@@ -351,8 +355,6 @@ export async function resolveAgentHarnessApproval(input: {
           "The provider session resumed without the pending approval request. The approval was not sent and the session cannot resume it.",
         );
       }
-      activeLive.approvalResolutionInProgress = true;
-
       const dispatch = await startAgentHarnessSessionApprovalDispatch(
         session.id,
         resolutionStarted.status,
@@ -393,6 +395,7 @@ export async function resolveAgentHarnessApproval(input: {
           approvalId: input.approval.id,
           liveSession: activeLive.session,
         });
+        await stopRehydratedSession();
         return failure(
           input.runId,
           latest ?? session,
@@ -506,6 +509,7 @@ export async function resolveAgentHarnessApproval(input: {
         events,
       };
     } catch (error) {
+      const cleanupErrors: unknown[] = [error];
       if (
         approvalClaimAcquired &&
         !finalizing &&
@@ -533,11 +537,21 @@ export async function resolveAgentHarnessApproval(input: {
             );
           }
         } catch (cleanupError) {
-          throw new AggregateError(
-            [error, cleanupError],
-            "Harness approval failed and its resolution claim could not be released.",
-          );
+          cleanupErrors.push(cleanupError);
         }
+      }
+      if (!providerDispatchStarted && rehydratedSession) {
+        try {
+          await stopRehydratedSession();
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (cleanupErrors.length > 1) {
+        throw new AggregateError(
+          cleanupErrors,
+          "Harness approval failed and pre-dispatch cleanup was incomplete.",
+        );
       }
       throw error;
     } finally {

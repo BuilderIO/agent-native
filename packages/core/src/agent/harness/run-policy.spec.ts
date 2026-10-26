@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const timeoutMocks = vi.hoisted(() => ({
-  resolveRunSoftTimeoutMs: vi.fn((overrideMs?: number) => overrideMs ?? 11_000),
+  resolveRunSoftTimeoutMs: vi.fn(
+    (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
+      overrideMs ?? (options?.useHostedDefault ? 11_000 : 0),
+  ),
   resolveRunNoProgressTimeoutMs: vi.fn(
     (options: { overrideMs?: number; backgroundOverrideMs?: number }) =>
       options.backgroundOverrideMs ?? options.overrideMs ?? 7_000,
@@ -22,9 +25,9 @@ const {
 describe("agent harness run policy", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("uses hosted defaults and the adapter engine when no run options exist", () => {
+  it("matches initial run timeout defaults and the adapter engine", () => {
     expect(resolveAgentHarnessRunPolicy(undefined, "acp")).toEqual({
-      softTimeoutMs: 11_000,
+      softTimeoutMs: 0,
       noProgressTimeoutMs: 7_000,
       backgroundFunction: false,
       recoverChunkBoundaries: true,
@@ -32,10 +35,10 @@ describe("agent harness run policy", () => {
     });
     expect(timeoutMocks.resolveRunSoftTimeoutMs).toHaveBeenCalledWith(
       undefined,
-      { useHostedDefault: true, backgroundFunction: false },
+      { useHostedDefault: false, backgroundFunction: false },
     );
     expect(timeoutMocks.resolveRunNoProgressTimeoutMs).toHaveBeenCalledWith({
-      softTimeoutMs: 11_000,
+      softTimeoutMs: 0,
       backgroundFunction: false,
     });
   });

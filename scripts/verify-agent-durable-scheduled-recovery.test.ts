@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  countMarkerOccurrencesAcrossTextChunks,
   parseJsonRecord,
   parseScheduledRecoveryArguments,
   validateScheduledRecoveryArguments,
@@ -102,6 +103,28 @@ describe("scheduled-recovery observer arguments", () => {
     assert.throws(
       () => validateScheduledRecoveryArguments(unsafe),
       /remain inside \.tmp/,
+    );
+  });
+});
+
+describe("scheduled-recovery text markers", () => {
+  it("counts markers split across adjacent persisted text events", () => {
+    assert.equal(
+      countMarkerOccurrencesAcrossTextChunks(
+        ["durability-result-", "8471"],
+        marker,
+      ),
+      1,
+    );
+  });
+
+  it("counts repeated markers across the joined text stream", () => {
+    assert.equal(
+      countMarkerOccurrencesAcrossTextChunks(
+        [marker.slice(0, 10), `${marker.slice(10)} ${marker}`],
+        marker,
+      ),
+      2,
     );
   });
 });

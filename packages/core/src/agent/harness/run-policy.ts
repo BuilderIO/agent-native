@@ -11,7 +11,7 @@ export function resolveAgentHarnessRunPolicy(
 ): AgentHarnessRunPolicy {
   const backgroundFunction = options?.backgroundFunction === true;
   const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
-    useHostedDefault: options?.useHostedSoftTimeoutDefault ?? true,
+    useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
     backgroundFunction,
   });
   const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({

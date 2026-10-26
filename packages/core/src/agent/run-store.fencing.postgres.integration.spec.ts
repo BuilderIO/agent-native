@@ -72,7 +72,9 @@ import {
 } from "./thread-data-builder.js";
 
 const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
-if (process.env.CI && !databaseUrl) {
+const coreIntegrationJob = process.env.GITHUB_JOB === "core-integration-tests"; // config-ok: selects the PostgreSQL-backed test lane, not a credential
+// This PostgreSQL suite belongs to the service-backed Core integration job.
+if (process.env.CI && coreIntegrationJob && !databaseUrl) {
   throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required in CI");
 }
 const repositoryRoot = resolve(
