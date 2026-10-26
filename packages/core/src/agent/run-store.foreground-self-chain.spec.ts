@@ -413,7 +413,7 @@ describe("execution lease revocation by control-plane transitions", () => {
     });
   });
 
-  it("keeps a late terminal event out of a completed turn replay", async () => {
+  it("rejects a terminal event write after the run completes", async () => {
     const { successor: runId, thread } = ids();
     const turnId = `${thread}-turn`;
     await insertRun(runId, thread, turnId);
@@ -425,8 +425,42 @@ describe("execution lease revocation by control-plane transitions", () => {
     await withExecutionFence(fence, () =>
       updateRunStatusIfRunning(runId, "completed"),
     );
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 1, JSON.stringify({ type: "done" }), {
+          requireInserted: true,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentRunEventNotPersistedError",
+      terminalRun: true,
+    });
+
+    const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
+    expect(replay.map(({ event }) => event)).toEqual([
+      { type: "text", text: "saved" },
+    ]);
+  });
+
+  it("replays events by sequence despite a future application timestamp", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    const futureEventAt = Date.now() + 60_000;
     await withExecutionFence(fence, () =>
-      insertRunEvent(runId, 1, JSON.stringify({ type: "done" })),
+      insertRunEvent(
+        runId,
+        0,
+        JSON.stringify({ type: "text", text: "saved" }),
+        {
+          eventAt: futureEventAt,
+        },
+      ),
+    );
+    await withExecutionFence(fence, () =>
+      updateRunStatusIfRunning(runId, "completed"),
     );
 
     const replay = await getCurrentTurnRunEventsForThread(thread, turnId);

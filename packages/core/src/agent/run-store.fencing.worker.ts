@@ -19,7 +19,10 @@ import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   claimAgentHarnessSessionFollowUp,
   ensureAgentHarnessSessionTables,
+  markAgentHarnessSessionFollowUpDispatched,
   markAgentHarnessSessionStopped,
+  persistAgentHarnessApprovalEvent,
+  persistAgentHarnessFollowUpEvent,
   startAgentHarnessSessionApprovalDispatch,
   startAgentHarnessSessionExpiryCleanup,
   type AgentHarnessSessionStatus,
@@ -109,7 +112,9 @@ async function main(): Promise<void> {
   const sql = postgres(databaseUrl, { max: 1 });
   try {
     await withDbExec(executor(sql), async () => {
-      await withMigrationRuntime(() => ensureRunTables());
+      if (!mode.startsWith("harness-")) {
+        await withMigrationRuntime(() => ensureRunTables());
+      }
       if (mode === "stale-write") {
         const staleFence = JSON.parse(extra ?? "null") as ExecutionFence;
         await withExecutionFence(staleFence, () =>
@@ -123,7 +128,7 @@ async function main(): Promise<void> {
         writeSync(1, JSON.stringify({ status: "unexpected-write" }));
         return;
       }
-      if (mode === "queue-submit") {
+      if (mode === "queue-submit" || mode === "queue-submit-ack-barrier") {
         await withMigrationRuntime(() => ensureChatThreadTables());
         const input = JSON.parse(extra ?? "null") as {
           message: QueuedMessage;
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
           queuedMessageId: input.message.id,
         });
         let submissionFailure: string | undefined;
-        let pauseBeforeWrite = true;
+        let pauseBeforeWrite = mode === "queue-submit";
         const updated = await updateThreadData(
           threadId,
           "{}",
@@ -187,6 +192,15 @@ async function main(): Promise<void> {
             },
           },
         );
+        if (mode === "queue-submit-ack-barrier") {
+          if (submissionFailure || !updated) {
+            throw new Error(
+              `Queued submission did not commit before ack barrier: ${submissionFailure ?? "thread update rejected"}`,
+            );
+          }
+          writeSync(1, `${JSON.stringify({ ready: true, committed: true })}\n`);
+          await waitForContinue();
+        }
         writeSync(
           1,
           JSON.stringify({
@@ -208,6 +222,12 @@ async function main(): Promise<void> {
           threadId,
           Number(expectedGeneration),
           claimId,
+          {
+            followUpId: claimId,
+            prompt: `Follow-up ${claimId}`,
+            claimLeaseMs: 60_000,
+            deadlineDurationMs: 24 * 60 * 60 * 1_000,
+          },
         );
         writeSync(
           1,
@@ -217,6 +237,54 @@ async function main(): Promise<void> {
             status: claimed?.status,
           }),
         );
+        return;
+      }
+
+      if (mode === "harness-follow-up-crash-after-dispatch") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const input = JSON.parse(extra ?? "null") as {
+          expectedGeneration: number;
+          claimId: string;
+          followUpId: string;
+          prompt: string;
+          effectId: string;
+        };
+        const claimed = await claimAgentHarnessSessionFollowUp(
+          threadId,
+          input.expectedGeneration,
+          input.claimId,
+          {
+            followUpId: input.followUpId,
+            prompt: input.prompt,
+            claimLeaseMs: 60_000,
+            deadlineDurationMs: 24 * 60 * 60 * 1_000,
+          },
+        );
+        if (!claimed) throw new Error("Follow-up claim was not admitted");
+        const dispatched = await markAgentHarnessSessionFollowUpDispatched(
+          threadId,
+          claimed.generation,
+          input.claimId,
+        );
+        if (!dispatched) throw new Error("Follow-up dispatch was not admitted");
+        await sql`
+          INSERT INTO agent_harness_test_effects (effect_id, effect_count)
+          VALUES (${input.effectId}, 1)
+          ON CONFLICT (effect_id) DO UPDATE
+          SET effect_count = agent_harness_test_effects.effect_count + 1
+        `;
+        await persistAgentHarnessFollowUpEvent(
+          threadId,
+          input.followUpId,
+          input.claimId,
+          { type: "text", text: "External effect completed" },
+        );
+        const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+        writeSync(
+          1,
+          `${JSON.stringify({ ready: true, databaseBackendPid: Number(pid) })}\n`,
+        );
+        await waitForContinue();
         return;
       }
 
@@ -264,6 +332,25 @@ async function main(): Promise<void> {
             generation: dispatch?.session.generation,
           }),
         );
+        return;
+      }
+
+      if (mode === "harness-approval-crash-after-event") {
+        await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        const { approvalId } = JSON.parse(extra ?? "null") as {
+          approvalId: string;
+        };
+        await persistAgentHarnessApprovalEvent(threadId, approvalId, {
+          type: "text",
+          text: "Approval continuation started",
+        });
+        await persistAgentHarnessApprovalEvent(threadId, approvalId, {
+          type: "tool_start",
+          tool: "read_file",
+          input: { path: "README.md" },
+        });
+        await announceDatabaseBackend(sql);
+        await waitForContinue();
         return;
       }
 

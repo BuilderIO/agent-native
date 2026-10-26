@@ -12,7 +12,7 @@ import {
   reconcileMotionCodeDocument,
   withMotionCodeMetadata,
 } from "./motion-code";
-import { motionEaseVariableToken } from "./motion-easing";
+import { motionEaseVariableToken, springToCssLinear } from "./motion-easing";
 import { createMotionNativeStyleInstance } from "./motion-native-style-runtime";
 import type { MotionTimeline } from "./motion-timeline";
 
@@ -66,6 +66,109 @@ describe("Motion source document CSS codec", () => {
       document: motionCodeDocumentFromTimeline(timeline),
     });
     expect(compiled.css).toContain("@keyframes an-motion-");
+  });
+
+  it("preserves spring authoring values while reconciling their CSS approximation", () => {
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [{ ...timeline.tracks[0]!, targetNodeId: "hero" }],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(reconciled.tracks[0]?.keyframes[1]?.ease).toBe("spring(0.25)");
+    const metadataComment = `/* ${MOTION_SOURCE_MARKER_NAME}:`;
+    const roundTripCss = compileMotionCode({
+      ...springTimeline,
+      tracks: reconciled.tracks,
+    }).css.split(metadataComment, 1)[0];
+    expect(roundTripCss).toBe(compiled.css.split(metadataComment, 1)[0]);
+
+    const springCss = springToCssLinear({ bounce: 0.25, settle: 1 });
+    const editedCss = compiled.css.replace(
+      `animation-timing-function: ${springCss};`,
+      "animation-timing-function: ease-in;",
+    );
+    const edited = reconcileMotionCodeDocument(editedCss, stored);
+
+    expect(edited.tracks[0]?.keyframes[1]?.ease).toBe("ease-in");
+  });
+
+  it("keeps inherited keyframes unset when reconciling a spring timeline default", () => {
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      defaultEase: "spring(0.25)",
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 0.5, value: "0.5" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const stored = motionCodeDocumentFromTimeline(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+
+    expect(
+      reconciled.tracks[0]?.keyframes.every(
+        (keyframe) => !Object.prototype.hasOwnProperty.call(keyframe, "ease"),
+      ),
+    ).toBe(true);
+    expect(reconciled.defaultEase).toBe("spring(0.25)");
+    expect(
+      compileMotionCode({ ...springTimeline, tracks: reconciled.tracks }).css,
+    ).toBe(compiled.css);
+  });
+
+  it("reconciles spring easing at compiler-quantized keyframe offsets", () => {
+    const roundedOffset = 1000 / 3601;
+    const nearbyOffset = roundedOffset + 0.000001;
+    const springTimeline: MotionTimeline = {
+      ...timeline,
+      tracks: [
+        {
+          ...timeline.tracks[0]!,
+          targetNodeId: "hero",
+          property: "opacity",
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: roundedOffset, value: "0.5", ease: "spring(0.25)" },
+            { t: nearbyOffset, value: "0.75", ease: "spring(0.69)" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const compiled = compileMotionCode(springTimeline);
+    const reconciled = reconcileMotionCodeDocument(
+      compiled.css,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(compiled.css.match(/27\.77% \{/g)).toHaveLength(2);
+    expect(reconciled.tracks[0]?.keyframes[1]?.ease).toBe("spring(0.25)");
+    expect(reconciled.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
+
+    const editedCss = compiled.css.replace(
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.25, settle: 1 })};`,
+      `animation-timing-function: ${springToCssLinear({ bounce: 0.69, settle: 1 })};`,
+    );
+    const edited = reconcileMotionCodeDocument(
+      editedCss,
+      motionCodeDocumentFromTimeline(springTimeline),
+    );
+
+    expect(edited.tracks[0]?.keyframes[1]?.ease).toBe(
+      springToCssLinear({ bounce: 0.69, settle: 1 }),
+    );
+    expect(edited.tracks[0]?.keyframes[2]?.ease).toBe("spring(0.69)");
   });
 
   it("keeps an authored track and a native style on the same node and property apart through a round trip", () => {
@@ -1469,6 +1572,7 @@ describe("Motion source document CSS codec", () => {
       tracks: [
         {
           ...timeline.tracks[0]!,
+          targetNodeId: "hero",
           keyframes: [
             { t: 0, value: "translateX(0px)", ease },
             { t: 1, value: "translateX(22px)" },
@@ -1477,6 +1581,9 @@ describe("Motion source document CSS codec", () => {
       ],
     };
     const compiled = compileMotionCode(variableTimeline, { easingVariables });
+    const stored = motionCodeDocumentFromTimeline(variableTimeline, {
+      easingVariables,
+    });
     const result = decodeMotionCodeMetadata(compiled.css);
 
     expect(compiled.css).toMatch(
@@ -1485,10 +1592,20 @@ describe("Motion source document CSS codec", () => {
     expect(compiled.css).toContain(`animation-timing-function: ${ease};`);
     expect(result).toEqual({
       status: "valid",
-      document: motionCodeDocumentFromTimeline(variableTimeline, {
-        easingVariables,
-      }),
+      document: stored,
     });
+    const reconciled = reconcileMotionCodeDocument(compiled.css, stored);
+    expect(reconciled.easingVariables).toEqual(easingVariables);
+    expect(reconciled.tracks[0]?.keyframes[0]?.ease).toBe(ease);
+
+    const springCss = springToCssLinear({ bounce: 0.3, settle: 0.8 });
+    const editedCss = compiled.css.replace(
+      `--an-motion-ease-ease-out: ${springCss};`,
+      "--an-motion-ease-ease-out: ease-in;",
+    );
+    const edited = reconcileMotionCodeDocument(editedCss, stored);
+    expect(edited.easingVariables?.[0]?.value).toBe("ease-in");
+    expect(edited.tracks[0]?.keyframes[0]?.ease).toBe(ease);
     expect(compiled.css).toContain(
       encodeMotionCodeMetadata(
         motionCodeDocumentFromTimeline(variableTimeline, { easingVariables }),

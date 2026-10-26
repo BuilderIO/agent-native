@@ -71,6 +71,7 @@ vi.mock("../org/app-roles.js", async (importOriginal) => ({
 }));
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: writeLedgerMock,
   readLedgerEntry: readLedgerMock,
   clearLedgerForThread: clearLedgerMock,

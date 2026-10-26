@@ -265,6 +265,21 @@ The agent loop reads active experiments via `resolveActiveExperimentConfig()` an
 
 Compute results with `POST /_agent-native/observability/experiments/:id/results`.
 
+#### Hosted default-model experiment (code-level)
+
+`observability/hosted-model-experiment.ts` runs one cross-app A/B on first-party
+hosted domains with no DB row: users on the default Builder model at default
+effort are split by a stable hash of their email. Each run carries the arm in
+`experiment_ids` / `experiment_variants`, and in `hosted_model_experiment_variant`
+regardless of other experiments on the turn. The singular `experiment_id` /
+`experiment_variant` tags keep naming only the other experiment, as they did
+before the hosted test. The DB
+path above skips requests that pin a model; this one does not, because chat
+clients always send the default model, so it keys off the resolved default.
+Other model or effort choices are left alone. The kill switch is the declared
+`observability.hostedModelExperiment` config (`auto` | `on` | `off`), env alias
+`AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT`.
+
 In production, experiment management routes require the caller's email in the
 comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is
 separate from normal app/org admin roles because an experiment affects every

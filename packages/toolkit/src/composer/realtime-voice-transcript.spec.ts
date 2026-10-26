@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  appendRealtimeVoiceTranscriptToRepository,
   createRealtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "./realtime-voice-transcript.js";
@@ -50,43 +49,54 @@ describe("realtime voice transcript registry", () => {
     registry.publish(transcript());
     expect(append).toHaveBeenCalledOnce();
   });
-});
 
-describe("appendRealtimeVoiceTranscriptToRepository", () => {
-  it("links completed user and assistant messages without starting a run", () => {
-    const first = appendRealtimeVoiceTranscriptToRepository({}, transcript());
-    const second = appendRealtimeVoiceTranscriptToRepository(
-      first.repository,
-      transcript({
-        id: "voice-2",
-        role: "assistant",
-        text: "Opening Sources.",
-      }),
+  it("streams updates for one id until the final transcript lands", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    const append = vi.fn(() => true);
+    registry.register({ threadId: "thread-1", active: true, append });
+
+    registry.publish(transcript({ text: "Open", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sour", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sources" }));
+    registry.publish(
+      transcript({ text: "Open sources late", status: "streaming" }),
     );
-    expect(second.repository.headId).toBe("voice-2");
-    expect(second.repository.messages).toMatchObject([
-      {
-        parentId: null,
-        message: {
-          id: "voice-1",
-          role: "user",
-          metadata: { custom: { source: "realtime-voice" } },
-        },
-      },
-      {
-        parentId: "voice-1",
-        message: {
-          id: "voice-2",
-          role: "assistant",
-          status: { type: "complete", reason: "stop" },
-        },
-      },
+
+    expect(append.mock.calls.map(([message]) => message)).toEqual([
+      expect.objectContaining({ text: "Open", status: "streaming" }),
+      expect.objectContaining({ text: "Open sour", status: "streaming" }),
+      expect.objectContaining({ text: "Open sources", status: "complete" }),
     ]);
-    expect(
-      appendRealtimeVoiceTranscriptToRepository(
-        second.repository,
-        transcript({ id: "voice-2" }),
-      ).appended,
-    ).toBe(false);
+  });
+
+  it("keeps only the newest queued text while the sink defers", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    registry.register({
+      threadId: "thread-1",
+      active: true,
+      append: () => false,
+    });
+    registry.publish(transcript({ text: "Open", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sources", status: "streaming" }));
+    expect(registry.pendingCount()).toBe(1);
+
+    const append = vi.fn(() => true);
+    registry.register({ threadId: "thread-1", active: true, append });
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Open sources", status: "streaming" }),
+    );
+  });
+
+  it("asks a sink whether it is on screen when picking the active thread", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    let visible = false;
+    registry.register({
+      threadId: "thread-1",
+      active: () => visible,
+      append: () => true,
+    });
+    expect(registry.activeThreadId()).toBeUndefined();
+    visible = true;
+    expect(registry.activeThreadId()).toBe("thread-1");
   });
 });

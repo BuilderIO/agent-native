@@ -423,11 +423,45 @@ Follow review-latest-feedback for ownership, claims, reporter replies, and the
 exact disposition vocabulary; follow babysit-pr for review comments and merge
 blocking. Use the connected Slack integration for any Slack work; never use
 computer use, a browser, screenshots, or UI automation to operate Slack.
-Shipping does not independently take ownership of new Slack feedback. For
-feedback already owned by review-latest-feedback, keep all reactions in place:
-never remove or clean them up; add `✅` when accepted scope is complete and
-verified, and `🎫` only for distinct remaining work needing follow-up or an
-owner. Keep each Slack reply to one short sentence in plain, non-technical
+Shipping does not independently take ownership of new Slack feedback, except
+when the user explicitly authorizes the full follow-up work defined in
+review-latest-feedback. Require an exact-root grant naming the channel and
+timestamp or permalink, or a bounded grant covering both replies and reactions;
+reaction-only or other partial permission is insufficient. Preserve existing
+marks and record the authorization and exact roots. Before
+the ship handoff and final disposition, enumerate every in-scope root with this
+actor's `👀`, `✅`, or `🎫`; each eligible owned root must have a current
+same-actor status after the latest human reply. Record held-thread skips,
+person-assigned skips, and unowned canonical-linked `Clustered` roots in the
+coverage count without claiming or replying on them only when they are outside
+the direct user authorization. For roots covered by a bounded grant, record
+each exact root, add this actor's `👀` where needed, and require current
+same-thread status after the latest human reply, including person-assigned,
+duplicate, and foreign-marked roots. When Steve says all Slack items were
+replied to, count every bounded-inventory root with a root-level `👀`, regardless
+of who added it, and require that same-thread status. Exclude `✅`/`🎫`-only
+roots from that reply count; include them in the status gate. Report eye-owned
+roots and gated skips separately. Before final disposition, run
+`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages .tmp/feedback-scope-confirmation.json`
+against the final read-backs for this fixed sweep and require exit 0. Continue
+reconciling any covered root the checker reports without a current status or
+complete read-back. If merge advances an
+eye-owned status from local verification to fixed or partially fixed, send one
+concise same-thread update with the PR link; never imply publication or live
+behavior without separate verification.
+Use `👀` for a claimed or handled root, `✅` for verified scope, and `🎫` for a
+distinct pending action and owner. Keep `👀` on each root handled in an
+authorized sweep; use `🎫` only for a real outstanding human action, not merely
+to show that a root has not yet been reviewed. Keep accurate marks as history. After a fresh
+reaction read, remove and record this actor's stale or misapplied mark. Change
+another actor's mark only when a direct user grant covers that root and
+reaction change; a bounded grant needs no separate per-reaction confirmation.
+Use root reactions as item-level coverage: after handling an in-scope root, add
+and read back this actor's `👀`. If a distinct human action remains, add and
+read back `🎫` as well, and name that action and its owner in the same-thread
+status. Do not use `🎫` as a generic seen marker or as a substitute for `👀` on
+a handled root.
+Keep each Slack reply to one short sentence in plain, non-technical
 language, followed by the exact bot disclosure `this was sent from a bot.` Say
 what changed. If `🎫` is used, briefly name what still needs investigation or
 action and its owner when known. Do not explain absent reactions or include

@@ -46,7 +46,7 @@ export interface SqlQueryResult extends Omit<
 }
 
 /** Why a query runs; the server applies the matching billed-byte cap. */
-export type SqlQueryPurpose = "row-breakdown";
+export type SqlQueryPurpose = "row-breakdown" | "panel-drilldown";
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -196,6 +196,7 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
+  partial?: boolean;
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
@@ -204,6 +205,12 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
     metadata.providerCacheHit = data.providerCacheHit;
   }
   if (typeof data.truncated === "boolean") metadata.truncated = data.truncated;
+  // Provider warnings can cut results short without setting the row-limit flag.
+  // Use the same incomplete signal so snapshots cannot restore them as complete.
+  if (data.partial === true) {
+    metadata.partial = true;
+    metadata.truncated = true;
+  }
   if (data.fetchedAt !== undefined) {
     if (
       typeof data.fetchedAt === "string" &&
@@ -384,6 +391,13 @@ export function useSqlQuery(
      * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    /**
+     * Treats a `partial` result as stale at once, so mounting or enabling the
+     * query again reruns it. Only for views a user opens on demand: a query
+     * enabled by viewport visibility would rescan a partial panel every time
+     * it scrolls back into view. Ignored when `staleTime` is set.
+     */
+    rerunPartial?: boolean;
     purpose?: SqlQueryPurpose;
     /**
      * Saves each successful result in this tab's session storage and, after a
@@ -462,6 +476,7 @@ export function useSqlQuery(
     result: SqlQueryResult | null;
   } | null>(null);
   const queryClient = useQueryClient();
+  const freshFor = options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000;
   const query = useQuery<SqlQueryResult>({
     queryKey: scopedQueryKey,
     queryFn: async ({ signal }) => {
@@ -536,7 +551,7 @@ export function useSqlQuery(
     },
     enabled,
     refetchInterval: options?.refetchInterval,
-    refetchOnMount: options?.refetchOnMount ?? false,
+    refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     retry: (failureCount, error) => {
@@ -546,7 +561,9 @@ export function useSqlQuery(
     },
     staleTime:
       options?.staleTime ??
-      (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
+      (options?.rerunPartial
+        ? (cached) => (cached.state.data?.partial ? 0 : freshFor)
+        : freshFor),
   });
   const refetch = query.refetch;
   const accessDenied = isSqlQueryAccessDenied(query.error);

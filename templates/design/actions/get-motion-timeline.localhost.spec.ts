@@ -226,6 +226,12 @@ const managedSource = applyMotionReactSourceEdit({
   preview: { sourceHash: sourceHash(source) },
   timeline,
 }).source;
+const managedTrackOnlySource = applyMotionReactSourceEdit({
+  currentSource: source,
+  expectedSource: source,
+  preview: { sourceHash: sourceHash(source) },
+  timeline: { ...timeline, animationStyles: [] },
+}).source;
 const audioClips = [
   {
     id: "music-track",
@@ -510,6 +516,24 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0].animationStyles).toEqual(
       timeline.animationStyles,
     );
+    expect(result.sourceWriteCapability).toMatchObject({
+      status: "supported",
+      targetNodeIds: [],
+      modulePath: "app/routes/home.tsx",
+    });
+  });
+
+  it("reports write capability when an existing React CSS track can be cleared", async () => {
+    mocks.readLocal.mockResolvedValue({
+      content: managedTrackOnlySource,
+      versionHash: bridgeVersionHash,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+    });
+
     expect(result.sourceWriteCapability).toMatchObject({
       status: "supported",
       targetNodeIds: [],

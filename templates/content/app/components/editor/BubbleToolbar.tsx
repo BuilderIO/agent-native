@@ -319,9 +319,10 @@ function useCommentFromSelection(
       editor.state.selection.from,
       editor.state.selection.to,
     );
-    const text = editor.state.doc.textBetween(from, to, " ");
-    if (!text.trim()) return false;
+    // The quote is the anchor's text, which runs blocks together: a selection
+    // across a paragraph break is highlighted and found again in that form.
     const anchor = captureAnchor(editor.state.doc, from, to);
+    if (!anchor.quotedText.trim()) return false;
     const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
@@ -333,7 +334,7 @@ function useCommentFromSelection(
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
+    onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 }
