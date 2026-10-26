@@ -1,0 +1,102 @@
+template: v2
+slug: ai-dictation
+app: clips
+title: AI 받아쓰기
+seo_title: 코딩 에이전트, Slack, 문서를 위한 AI 받아쓰기
+meta_description: "긴 프롬프트를 타이핑하는 대신 Claude Code, Slack, 문서에 말로 입력하세요. Agent-Native Clips는 모든 받아쓰기를 저장해 주는 무료 오픈 소스 AI 받아쓰기예요."
+updated: 2026-10-26
+hero:
+  body: "프롬프트를 타이핑하는 대신 통째로 말하면 Claude Code부터 Slack까지 커서 위치에 바로 입력돼요. Agent-Native Clips는 모든 받아쓰기를 저장하고, 요청하면 에이전트가 다시 다듬어 줘요."
+  button:
+    label: 받아쓰기 시작
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: "오늘의 받아쓰기가 보이는 Clips 받아쓰기 페이지. 코딩 에이전트용 긴 프롬프트, 버그 티켓, Slack 업데이트가 있어요. 프롬프트 카드가 열려 원본과 정리됨 텍스트가 보여요."
+how_to:
+  heading: AI 받아쓰기 사용 방법
+  steps:
+    - title: 어떤 앱에든 받아쓰기
+      body: "Clips Desktop을 설치하고 Claude Code, Linear, Slack을 클릭한 뒤, 말하는 동안 단축키(기본값은 Fn, 설정에서 바꿀 수 있어요)를 누르고 계세요. 손을 떼면 Clips가 커서 위치에 내 말을 입력해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: "코딩 에이전트 채팅. 웹훅 재시도에 관한 받아쓰기 프롬프트를 보내자 에이전트가 변경을 마쳤어요. 메시지 입력창에는 커서가 대기 중이고, 아래 Clips 알약 모양 표시가 초록색 파형으로 다음 프롬프트를 듣고 있어요."
+    - title: Clips에 내 용어 알려 주기
+      body: "받아쓰기 페이지에서 사전을 열고 제품, 라이브러리, 동료 이름을 추가하세요. Clips가 계속 잘못 알아듣는 단어는 “용어 → 대체어” 형식으로 넣으면 돼요. CSV 파일을 가져오면 목록을 한꺼번에 추가할 수 있어요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: "Clips의 사전 패널. 용어 추가, 가져오기, CSV 내보내기 버튼이 있고, 아래에 Agent-Native, “web hooks → webhooks”, “kube control → kubectl” 같은 용어가 보여요."
+    - title: 지난 받아쓰기 찾기
+      body: "Clips에서 Cmd+K를 누르고 말했던 단어를 입력하면, 일치하는 받아쓰기가 말했던 앱과 함께 나타나요. 하나를 고르면 받아쓰기 페이지에서 열려요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: "“webhook”을 입력한 Clips 검색 메뉴. 받아쓰기 아래에 Cursor에 받아쓴 프롬프트와 Slack에 받아쓴 메시지, 지난 받아쓰기 두 개가 나열돼요."
+features:
+  heading: 타이핑 대신 받아쓰기에 필요한 모든 것
+  items:
+    - title: 클립보드는 그대로예요
+      body: "Clips는 앱에 붙여넣은 뒤 클립보드를 원래대로 돌려놓아서, 복사해 둔 링크가 그대로 남아 있어요. 터미널에서는 붙여넣지 않고 직접 입력해요."
+    - title: 되돌릴 수 있는 AI 정리
+      body: "Clips는 잘못 들은 단어, 쉼표, 대문자를 고치고 말 더듬은 부분을 잘라 줘요. 클라우드 엔진으로 자동 실행하거나 한 번 클릭해서 쓸 수 있고, 원본은 그대로 남아요."
+    - title: 내가 고친 내용을 배워요
+      body: "Clips가 붙여넣은 직후 잘못 들은 단어를 고치면 데스크톱 앱이 그 수정을 사전에 추가해서, 다음 받아쓰기부터는 제대로 알아들어요."
+    - title: 긴 프롬프트를 위한 핸즈프리
+      body: "단축키를 두 번 누르면 생각하며 말하는 동안 계속 듣고, 한 번 더 누르면 멈춰요. Esc를 누르면 받아쓰기를 버려요."
+    - title: 다시 붙여넣기
+      body: "Cmd+Ctrl+V를 누르면 마지막 받아쓰기를 다른 입력란에 다시 붙여넣어요. 커서가 엉뚱한 곳에 있었을 때 편해요."
+    - title: 에이전트에게 물어보기
+      body: "“3분기 예산에 대해 내가 뭐라고 했지?”나 “이 횡설수설을 글머리 기호로 정리해 줘”라고 물으면, 에이전트가 내 기록을 바탕으로 답해요."
+integrations:
+  heading: 이미 쓰는 도구와 Clips 연결하기
+  cards:
+    - title: 코딩 에이전트에게 프롬프트 전달
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "Claude Code, Cursor, Codex에 작업 전체를 말로 전하세요. 파일, 예외 상황, 실행할 테스트까지요."
+    - title: 이미 일하는 곳에 바로 쓰기
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: "업데이트, 답장, 초안을 메시지나 문서에 바로 받아쓰세요. Slack에서는 Clips가 끝에 붙는 마침표를 빼 줘요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Clips로 할 수 있는 다른 일
+  cards:
+    - title: AI 회의 노트
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: "내 컴퓨터에서 회의를 녹음하고 요약, 노트, 작업 항목을 받아 보세요."
+    - title: AI 버그 리포트 도구
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: "브라우저 콘솔과 네트워크 로그가 담긴 버그 녹화를 코딩 에이전트에게 바로 넘겨 보세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Clips는 무료인가요?
+      a: "네. Agent-Native Clips는 무료 오픈 소스이고, 데스크톱 앱에서는 음성 받아쓰기가 기본으로 켜져 있어요. AI 정리는 Builder.io AI 크레딧이나 내 키로 실행되므로 무제한은 아니에요. Clips는 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
+    - q: Clips는 컴퓨터에 내장된 받아쓰기와 무엇이 다른가요?
+      a: "내장 받아쓰기는 설정 없이 쓸 수 있지만 [말한 내용의 검색 가능한 기록](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)은 남기지 않아요. Clips는 모든 받아쓰기를 원본과 정리된 텍스트로 저장하고, 내 용어를 배우고, AI로 텍스트를 다듬어요. Clips 에이전트는 내가 한 말을 찾아 횡설수설을 글머리 기호로 바꾸는 식으로 다시 정리해 줄 수도 있어요."
+    - q: Clips가 우리 팀의 전문 용어도 정확하게 쓰나요?
+      a: "네, 용어를 사전에 추가하면 돼요. 한 줄에 하나씩 추가하거나, 계속 잘못 알아듣는 단어는 “용어 → 대체어” 형식으로 넣으세요. 용어 CSV 파일을 가져올 수도 있어요. Clips가 붙여넣은 직후 단어를 고치면 데스크톱 앱이 그 수정을 사전에 저장해서 다음에 활용해요."
+    - q: 받아쓰기는 저장되나요? 예전 것을 찾을 수 있나요?
+      a: "모든 받아쓰기는 원본과 정리된 텍스트, 시간, 길이와 함께 저장되고, 받아쓰기 페이지에 날짜별로 묶여 나타나요. Cmd+K로 말한 내용으로 검색하거나 [Clips 에이전트](https://www.agent-native.com/docs/template-clips-agent/)에게 “어제 받아쓴 내용 보여 줘”처럼 물어보세요. 받아쓰기는 언제든 삭제할 수 있어요."
+    - q: 내 목소리가 컴퓨터 밖으로 나가나요?
+      a: "꼭 그렇지는 않아요. Clips Desktop은 내장 음성 인식이나 Local Whisper로 기기에서 직접 전사할 수 있어요([Clips의 전사 엔진](https://www.agent-native.com/docs/template-clips-features/)). Builder.io나 내 키를 쓰면 정리를 위해 받아쓰기가 해당 AI 서비스로 전송돼요. 각 받아쓰기의 텍스트는 내 Clips 계정에 저장돼요."

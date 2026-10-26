@@ -1,0 +1,102 @@
+template: v2
+slug: ai-dictation
+app: clips
+title: Ditado com IA
+seo_title: Ditado com IA para agentes de código, Slack e docs
+meta_description: Fale prompts longos no Claude Code, no Slack ou em um doc em vez de digitar. O Agent-Native Clips é um ditado com IA gratuito e open source que salva cada ditado.
+updated: 2026-10-26
+hero:
+  body: Fale o prompt inteiro em vez de digitar, e ele aparece onde está o cursor, do Claude Code ao Slack. O Agent-Native Clips salva cada ditado, e o agente dele refaz um quando você pede.
+  button:
+    label: Comece a ditar
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: "A página Ditar do Clips com os ditados de hoje: um prompt longo para um agente de código, um ticket de bug e uma atualização no Slack. O card do prompt está aberto, com o texto Original e o Limpo."
+how_to:
+  heading: Como usar o ditado com IA
+  steps:
+    - title: Dite em qualquer app
+      body: Instale o Clips Desktop, clique no Claude Code, no Linear ou no Slack e segure seu atalho (Fn por padrão, ou o que você escolher em Configurações) enquanto fala. Solte, e o Clips coloca suas palavras no cursor.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: "O chat de um agente de código: um prompt ditado sobre novas tentativas de webhook foi enviado, e o agente fez a mudança. O cursor espera na caixa de mensagem, enquanto a pílula do Clips logo abaixo escuta o próximo prompt, com a onda verde ativa."
+    - title: Ensine suas palavras ao Clips
+      body: Abra o Dicionário na página Ditar e adicione o nome do seu produto, de bibliotecas e de colegas, ou "termo → substituição" para uma palavra que o Clips insiste em ouvir errado. Importe um arquivo CSV para adicionar uma lista inteira de uma vez.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: O painel Dicionário do Clips, com Adicionar termos, Importar e Exportar CSV. Abaixo estão termos como Agent-Native, "web hooks → webhooks" e "kube control → kubectl".
+    - title: Encontre um ditado antigo
+      body: Pressione Cmd+K no Clips e digite uma palavra que você disse, e os ditados correspondentes aparecem com o app em que você os disse. Escolha um para abri-lo na página Ditar.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: 'O menu de busca do Clips com "webhook" digitado, listando dois ditados antigos em Ditar: um prompt ditado no Cursor e uma mensagem ditada no Slack.'
+features:
+  heading: Tudo o que você precisa para ditar em vez de digitar
+  items:
+    - title: Sua área de transferência fica intacta
+      body: O Clips cola nos apps e devolve o que estava na sua área de transferência, então o link que você copiou continua lá. Em terminais, ele digita.
+    - title: Limpeza com IA que você pode desfazer
+      body: "O Clips corrige palavras mal ouvidas, vírgulas e maiúsculas e corta hesitações: automaticamente com um mecanismo na nuvem, ou com um clique. O original fica guardado."
+    - title: Aprende com suas correções
+      body: Corrija uma palavra mal ouvida logo depois que o Clips colar, e o app desktop adiciona essa correção ao seu Dicionário, para o próximo ditado acertar.
+    - title: Mãos livres para prompts longos
+      body: Toque duas vezes no atalho para continuar ouvindo enquanto você pensa em voz alta, e toque mais uma vez para parar. Pressione Esc para descartar um ditado.
+    - title: Cole de novo
+      body: Pressione Cmd+Ctrl+V para colar seu último ditado de novo em outro campo de texto, útil quando o cursor estava no lugar errado.
+    - title: Pergunte ao agente sobre ele
+      body: Pergunte "O que eu disse sobre o orçamento do 3º trimestre?" ou "Transforme esse desabafo em tópicos", e o agente trabalha com o seu histórico.
+integrations:
+  heading: Conecte o Clips às ferramentas que você já usa
+  cards:
+    - title: Dê prompts ao seu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "Fale a tarefa inteira para o Claude Code, o Cursor ou o Codex: os arquivos, os casos de borda e o teste a rodar."
+    - title: Escreva onde você já trabalha
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: Dite atualizações, respostas e rascunhos direto na mensagem ou no doc. No Slack, o Clips tira o ponto final.
+    - title: Conecte qualquer coisa via MCP
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
+other_uses:
+  heading: Outras coisas que você pode fazer com o Clips
+  cards:
+    - title: Notas de reunião com IA
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: Grave suas reuniões do seu próprio computador e receba resumo, notas e itens de ação.
+    - title: Ferramenta de relatório de bugs com IA
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Grave um bug com os logs de console e de rede do navegador, pronto para o seu agente de código.
+faqs:
+  heading: Dúvidas? Temos respostas
+  items:
+    - q: O Clips é gratuito?
+      a: Sim. O Agent-Native Clips é gratuito e open source, e o ditado por voz vem ativado por padrão no app desktop. A limpeza com IA usa créditos de IA do Builder.io ou sua própria chave, então não é ilimitada. O Clips está em alfa, então espere mudanças conforme ele cresce.
+    - q: Qual a diferença entre o Clips e o ditado que já vem no meu computador?
+      a: O ditado nativo não exige configuração, mas não guarda um [histórico pesquisável do que você disse](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). O Clips salva cada ditado com o texto original e o limpo, aprende suas palavras e deixa o texto em ordem com IA. O agente do Clips acha o que você disse e refaz, como transformar um desabafo em tópicos.
+    - q: O Clips vai escrever direito o jargão da minha equipe?
+      a: Sim, assim que os termos estiverem no seu Dicionário. Adicione um por linha, ou como "termo → substituição" para uma palavra que ele insiste em ouvir errado. Você também pode importar um arquivo CSV de termos. Quando você corrige uma palavra logo depois que o Clips cola, o app desktop salva essa correção no seu Dicionário para a próxima vez.
+    - q: Meus ditados ficam salvos, e consigo achar um antigo?
+      a: Cada ditado é salvo com o texto original e o limpo, a hora e a duração, e aparece na página Ditar, agrupado por dia. Pressione Cmd+K para pesquisar pelo que você disse, ou pergunte ao [agente do Clips](https://www.agent-native.com/docs/template-clips-agent/), por exemplo "Mostre o que eu ditei ontem". Você pode excluir qualquer ditado.
+    - q: Minha voz sai do meu computador?
+      a: Não precisa. O Clips Desktop pode transcrever no seu dispositivo, com o reconhecimento de fala nativo ou o Local Whisper ([mecanismos de transcrição no Clips](https://www.agent-native.com/docs/template-clips-features/)). Com o Builder.io ou sua própria chave, o Clips envia seu ditado a esse serviço de IA para a limpeza. O texto de cada ditado é salvo na sua conta do Clips.
