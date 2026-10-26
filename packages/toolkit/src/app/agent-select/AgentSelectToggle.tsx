@@ -26,7 +26,7 @@ export interface AgentSelectToggleProps {
    * Context this composer sends besides core's items, such as its context
    * provider's chips, so picks respect the submission limits.
    */
-  reservedContextItems?: readonly AgentChatContextItem[];
+  reservedContextItems?: readonly AgentChatContextItem[] | undefined;
 }
 
 export function AgentSelectToggle({

@@ -33,20 +33,20 @@ const CONTEXT_PUBLISH_DELAY_MS = 250;
 export interface DashboardChatContextArgs {
   id: string | null | undefined;
   kind: "explorer" | "sql";
-  title?: string | null;
-  panelCount?: number;
-  canEdit?: boolean;
-  editing?: boolean;
+  title?: string | null | undefined;
+  panelCount?: number | undefined;
+  canEdit?: boolean | undefined;
+  editing?: boolean | undefined;
 }
 
 export interface DashboardPanelChatContextArgs {
   panelId: string;
   panelTitle: string;
   panelKind: "chart" | "table" | "extension";
-  chartType?: string | null;
-  source?: string | null;
-  configId?: string | null;
-  extensionId?: string | null;
+  chartType?: string | null | undefined;
+  source?: string | null | undefined;
+  configId?: string | null | undefined;
+  extensionId?: string | null | undefined;
 }
 
 export interface SelectDashboardPanelOptions {

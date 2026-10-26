@@ -611,8 +611,7 @@ function elementsUnderPoint(x: number, y: number): Element[] {
     ...(top instanceof HTMLIFrameElement ? [top] : []),
     ...Array.from(top.querySelectorAll("iframe")),
   ];
-  for (let index = frames.length - 1; index >= 0; index -= 1) {
-    const frame = frames[index];
+  for (const frame of frames.reverse()) {
     const box = measureAgentSelectElement(frame);
     if (!box || !boxContains(box, x, y)) continue;
     const frameDocument = sameOriginFrameDocument(frame);
@@ -658,7 +657,7 @@ interface AgentSelectHit {
 
 function hitTest(x: number, y: number): AgentSelectHit | null {
   const targets = elementsUnderPoint(x, y);
-  const target = targets[0];
+  const target = targets.at(0);
   if (!target) return null;
   const current = store();
   let best: AgentSelectHit | null = null;

@@ -9,7 +9,8 @@ import {
   findDesignLayer,
 } from "./design-agent-select";
 
-const screens = [{ id: "file-1", filename: "home.html" }];
+const homeScreen = { id: "file-1", filename: "home.html" };
+const screens = [homeScreen];
 
 function renderScreen() {
   document.body.innerHTML = `
@@ -38,7 +39,7 @@ afterEach(() => {
 describe("Design Select adapter", () => {
   it("offers a screen through its canvas frame", () => {
     renderScreen();
-    const screen = designScreenSelectable("design-1", "Launch", screens[0]);
+    const screen = designScreenSelectable("design-1", "Launch", homeScreen);
     expect(screen.title).toBe("home");
     expect(screen.getElement()).toBe(designScreenElement("file-1"));
     expect(screen.getContext()).toBe(

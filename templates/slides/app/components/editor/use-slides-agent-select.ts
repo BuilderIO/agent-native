@@ -98,7 +98,7 @@ function slideObjectFingerprint(element: Element | null): string {
   if (!element) return "";
   return [
     element.tagName,
-    (element.textContent ?? "").replace(/\s+/g, " ").trim(),
+    element.textContent.replace(/\s+/g, " ").trim(),
     element.getAttribute("src") ?? "",
   ].join("\u0000");
 }
@@ -186,9 +186,9 @@ export function slideObjectPath(
   contentRoot: HTMLElement,
 ): string {
   const steps: string[] = [];
-  let current: HTMLElement | null = element;
-  while (current && current !== contentRoot) {
-    const parent: HTMLElement | null = current.parentElement;
+  let current = element;
+  while (current !== contentRoot) {
+    const parent = current.parentElement;
     if (!parent) break;
     const index = Array.from(parent.children).indexOf(current) + 1;
     steps.unshift(`${current.tagName.toLowerCase()}:nth-child(${index})`);
@@ -201,7 +201,7 @@ export function slideObjectPath(
 function renderedText(element: Element): string {
   // Not instanceof: an element inside a screen iframe has its own HTMLElement.
   const rendered = (element as Partial<HTMLElement>).innerText;
-  return typeof rendered === "string" ? rendered : (element.textContent ?? "");
+  return typeof rendered === "string" ? rendered : element.textContent;
 }
 
 function excerpt(text: string, limit: number): string {

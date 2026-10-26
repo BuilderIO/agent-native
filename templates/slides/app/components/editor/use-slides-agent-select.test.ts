@@ -30,6 +30,22 @@ function renderDeck() {
     </main>`;
 }
 
+/** The element for `selector`, failing the test when it is missing. */
+function query<T extends HTMLElement = HTMLElement>(
+  selector: string,
+  root: ParentNode = document,
+): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing ${selector}`);
+  return element;
+}
+
+function nth<T extends Element>(list: ArrayLike<T>, index: number): T {
+  const element = Array.from(list).at(index);
+  if (!element) throw new Error(`Missing item ${index}`);
+  return element;
+}
+
 const slideNumberOf = (slideId: string) => (slideId === "s1" ? 1 : null);
 
 afterEach(() => {
@@ -46,7 +62,7 @@ describe("Slides Select adapter", () => {
 
   it("picks the block an inline target belongs to, by its path in the slide HTML", () => {
     renderDeck();
-    const strong = document.querySelector("main strong")!;
+    const strong = query("main strong");
     const selectable = slideObjectSelectable("deck-1", slideNumberOf, strong);
 
     expect(selectable).toMatchObject({
@@ -74,15 +90,13 @@ describe("Slides Select adapter", () => {
     const selectable = slideObjectSelectable(
       "deck-1",
       slideNumberOf,
-      document.querySelector("main strong")!,
+      query("main strong"),
     );
-    const content = document.querySelector<HTMLElement>(
-      "main [data-slide-content-scope]",
-    )!;
+    const content = query("main [data-slide-content-scope]");
     content.innerHTML = content.innerHTML;
     expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
 
-    content.querySelector("h1")!.remove();
+    query("h1", content).remove();
     expect(selectable?.getElement()).toBeNull();
   });
 
@@ -91,26 +105,26 @@ describe("Slides Select adapter", () => {
     const selectable = slideObjectSelectable(
       "deck-1",
       slideNumberOf,
-      document.querySelector("main h1")!,
+      query("main h1"),
     );
-    document.querySelector("main h1")!.textContent = "Quarterly wins";
+    query("main h1").textContent = "Quarterly wins";
     expect(selectable?.getElement()).toBe(document.querySelector("main h1"));
   });
 
   it("does not rebind an edited pick when its neighbours shift", () => {
     renderDeck();
-    const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;
+    const slide = query("main .fmd-slide");
     slide.insertAdjacentHTML(
       "beforeend",
       "<p>Alpha</p><p>Bravo</p><p>Charlie</p>",
     );
-    const bravo = slide.querySelectorAll("p")[1];
+    const bravo = nth(slide.querySelectorAll("p"), 1);
     const selectable = slideObjectSelectable("deck-1", slideNumberOf, bravo);
 
     // Edit Bravo, delete Alpha, append one: Charlie lands on Bravo's path
     // with the same sibling count.
     bravo.textContent = "Bravo edited";
-    slide.querySelectorAll("p")[0].remove();
+    nth(slide.querySelectorAll("p"), 0).remove();
     slide.insertAdjacentHTML("beforeend", "<p>Delta</p>");
 
     expect(selectable?.getElement()).toBeNull();
@@ -118,30 +132,30 @@ describe("Slides Select adapter", () => {
 
   it("does not rebind a path pick to a neighbour after a sibling is removed", () => {
     renderDeck();
-    const slide = document.querySelector<HTMLElement>("main .fmd-slide")!;
+    const slide = query("main .fmd-slide");
     slide.insertAdjacentHTML("beforeend", "<p>First</p><p>Second</p>");
-    const second = slide.querySelectorAll("p")[1];
+    const second = nth(slide.querySelectorAll("p"), 1);
     const selectable = slideObjectSelectable("deck-1", slideNumberOf, second);
 
-    slide.querySelectorAll("p")[0].remove();
+    nth(slide.querySelectorAll("p"), 0).remove();
     // The path now points at the old third child; the pick follows "Second".
     expect((selectable?.getElement() as Element | null)?.textContent).toBe(
       "Second",
     );
 
-    slide.querySelector("p")!.remove();
+    query("p", slide).remove();
     expect(selectable?.getElement()).toBeNull();
   });
 
   it("prefers a persisted object id", () => {
     renderDeck();
-    const image = document.querySelector("main img")!;
+    const image = query("main img");
     const selectable = slideObjectSelectable("deck-1", slideNumberOf, image);
     expect(selectable?.id).toBe(
       "s1/path:div:nth-child(1) > div:nth-child(2) > img:nth-child(1)",
     );
 
-    const object = document.querySelector('[data-slide-object-id="chart-1"]')!;
+    const object = query('[data-slide-object-id="chart-1"]');
     const objectSelectable = slideObjectSelectable(
       "deck-1",
       slideNumberOf,
@@ -156,17 +170,13 @@ describe("Slides Select adapter", () => {
   it("ignores thumbnails and the slide root itself", () => {
     renderDeck();
     expect(
-      slideObjectSelectable(
-        "deck-1",
-        slideNumberOf,
-        document.querySelector("aside h1")!,
-      ),
+      slideObjectSelectable("deck-1", slideNumberOf, query("aside h1")),
     ).toBeNull();
     expect(
       slideObjectSelectable(
         "deck-1",
         slideNumberOf,
-        document.querySelector("main [data-slide-content-scope]")!,
+        query("main [data-slide-content-scope]"),
       ),
     ).toBeNull();
   });

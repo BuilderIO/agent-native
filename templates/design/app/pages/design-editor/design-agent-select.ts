@@ -31,7 +31,7 @@ function escapeAttribute(value: string): string {
 function renderedText(element: Element): string {
   // Not instanceof: an element inside a screen iframe has its own HTMLElement.
   const rendered = (element as Partial<HTMLElement>).innerText;
-  return typeof rendered === "string" ? rendered : (element.textContent ?? "");
+  return typeof rendered === "string" ? rendered : element.textContent;
 }
 
 function excerpt(text: string, limit: number): string {
@@ -186,11 +186,16 @@ export function useDesignAgentSelect(
 
   useEffect(() => {
     if (!designId || !screenKey) return;
-    const entries = screenKey.split("\n").map((entry) => entry.split("\u0000"));
-    const unregister = entries.map(([id, filename]) => {
-      return registerAgentSelectable(
-        designScreenSelectable(designId, title, { id, filename }),
-      );
+    const unregister = screenKey.split("\n").flatMap((entry) => {
+      const parts = entry.split("\u0000");
+      const id = parts.at(0);
+      const filename = parts.at(1);
+      if (!id || filename === undefined) return [];
+      return [
+        registerAgentSelectable(
+          designScreenSelectable(designId, title, { id, filename }),
+        ),
+      ];
     });
     return () => unregister.forEach((release) => release());
   }, [designId, screenKey, title]);
