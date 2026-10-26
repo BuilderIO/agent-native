@@ -30,6 +30,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
+  chatHandoffComposerOptions,
   chatThreadPath,
   type ChatInitialComposerOptions,
   type ChatRouteState,
@@ -162,21 +163,13 @@ function HomeAgentComposerInput({
               })),
             )
           : [];
-        const {
-          onLocalSubmit: clearLocalDraft,
-          attachments: _rawAttachments,
-          requestMode,
-          ...submitOptions
-        } = options;
         onSubmit(
           text,
-          {
-            ...submitOptions,
-            mode: requestMode ?? "act",
+          chatHandoffComposerOptions(options, {
             references,
             ...(uploadedAttachments.length ? { uploadedAttachments } : {}),
-          },
-          clearLocalDraft,
+          }),
+          options.onLocalSubmit,
         );
       }}
     />
