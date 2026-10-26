@@ -5074,6 +5074,49 @@ describe("server/auth", () => {
       );
     });
 
+    it("renders the sign-in page for the request that shows it, not at mount", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const renderSignInPage = vi.fn(() => '<main data-qa="sign-in"></main>');
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        marketing: {
+          appName: "Calendar",
+          tagline: "Coordinate your calendar.",
+        },
+        renderSignInPage,
+      });
+
+      expect(renderSignInPage).not.toHaveBeenCalled();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      expect(await (result as Response).text()).toContain(
+        '<main data-qa="sign-in"></main>',
+      );
+      expect(renderSignInPage).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps the cached login document independent of workspace mount", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");

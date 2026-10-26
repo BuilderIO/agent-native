@@ -181,6 +181,13 @@ export class GmailQuotaCooldownError extends Error {
   }
 }
 
+/**
+ * A cooldown Mail enforced itself, refusing the request before sending it, so
+ * Gmail never saw it. A Gmail 429 stays a plain `GmailQuotaCooldownError`: that
+ * request was sent.
+ */
+export class GmailQuotaRefusedError extends GmailQuotaCooldownError {}
+
 export function gmailCooldownBody(
   error: GmailQuotaCooldownError,
 ): GmailCooldownBody {
@@ -249,7 +256,7 @@ export async function assertGmailNotCoolingDown(
   const cooldown = await readGmailCooldown(accountEmails, now);
   if (cooldown?.allAccounts) {
     countGmailCooldown("rejected_agent_precheck");
-    throw new GmailQuotaCooldownError(cooldown.retryAfterMs, undefined, now);
+    throw new GmailQuotaRefusedError(cooldown.retryAfterMs, undefined, now);
   }
 }
 
@@ -267,7 +274,7 @@ export async function acquireGmailQuota(
   );
   if (reservation.retryAfterMs > 0) {
     countGmailCooldown("rejected_local");
-    throw new GmailQuotaCooldownError(reservation.retryAfterMs);
+    throw new GmailQuotaRefusedError(reservation.retryAfterMs);
   }
   return reservation.quotaCooldownAttempts > 0;
 }
