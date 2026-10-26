@@ -122,7 +122,7 @@ export function runRecordPendingVisualStyleEdit(
   const stylePatch = Object.fromEntries(entries);
   const screen = files.find((file) => file.id === screenId);
   if (!screen) return;
-  const fallbackName = screen.filename ?? screenId;
+  const fallbackName = screen.filename || screenId;
   const sourceId =
     elementInfo?.sourceId ??
     (screenId === activeFile?.id ? selectedElement?.sourceId : null);
