@@ -44,6 +44,9 @@ const state = vi.hoisted(() => {
     // Runs once just before the next read of a final chunk's claim: the
     // final chunk finishing between a reader's reads.
     beforeClaimRead: null as null | (() => Promise<void>),
+    // Runs once just after the next read of where an upload stands: another
+    // request landing between a repeated start's read and what it does next.
+    afterPhaseRead: null as null | (() => Promise<void>),
     // Runs once inside the next storage check: another request landing
     // between an upload start's key lookup and its binding.
     duringStorageCheck: null as null | (() => Promise<void>),
@@ -82,6 +85,21 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => {
         await before?.();
       }
       return real.readAppState(key);
+    },
+  };
+});
+vi.mock("./final-chunk-claim.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./final-chunk-claim.js")>();
+  return {
+    ...real,
+    readUploadPhase: async (
+      ...args: Parameters<typeof real.readUploadPhase>
+    ) => {
+      const standing = await real.readUploadPhase(...args);
+      const after = state.afterPhaseRead;
+      state.afterPhaseRead = null;
+      await after?.();
+      return standing;
     },
   };
 });
@@ -471,6 +489,7 @@ beforeEach(async () => {
   state.aborts = [];
   state.finalizedFirst = null;
   state.beforeClaimRead = null;
+  state.afterPhaseRead = null;
   state.duringStorageCheck = null;
   state.duringCreate = null;
   state.rowStorageMode = null;
@@ -896,7 +915,103 @@ describe("a start Content repeats for one picked file", () => {
     expect(again.body.recordingId).toBe(first.body.recordingId);
   });
 
-  it("refuses a key whose binding never got its recording, once that's stale", async () => {
+  /** create-recording failing as it does when it can't say what it left. */
+  async function failCreate(failure: "unconfirmed" | "confirmed" | "untyped") {
+    if (failure === "untyped") throw new Error("connection reset");
+    const { fail } = await import("@agent-native/core/action");
+    const cleanupConfirmed = failure === "confirmed";
+    fail("Recording could not be created. Refresh and try again.", {
+      errorCode: "recording_create_failed",
+      statusCode: 503,
+      details: { retryable: cleanupConfirmed, cleanupConfirmed },
+    });
+  }
+
+  async function failedStart(failure: "unconfirmed" | "confirmed" | "untyped") {
+    const editor = await clipsEditor();
+    const bearer = await token({ sub: editor });
+    state.duringCreate = () => failCreate(failure);
+    await expect(
+      startUpload(bearer, { ...START, uploadKey: KEY }),
+    ).rejects.toThrow();
+    return { editor, bearer };
+  }
+
+  it("makes the next start of a file the same recording when its first start couldn't say it left nothing, so one free clip is held", async () => {
+    const { bearer } = await failedStart("unconfirmed");
+    const [kept] = await rows("recording_content_bindings");
+    expect(kept).toMatchObject({ upload_key: KEY });
+    expect(kept.upload_start_failed_at).not.toBeNull();
+
+    const retake = await startUpload(bearer, { ...START, uploadKey: KEY });
+
+    expect(retake.status).toBe(200);
+    expect(retake.body.recordingId).toBe(kept.recording_id);
+    // Clips reserves a free clip per recording id: both starts share one.
+    expect(state.created.map(({ args }) => args.id)).toEqual([
+      kept.recording_id,
+      kept.recording_id,
+    ]);
+    expect(await rows("recordings")).toEqual([
+      expect.objectContaining({ id: kept.recording_id }),
+    ]);
+    expect(await rows("recording_content_bindings")).toEqual([
+      expect.objectContaining({
+        recording_id: kept.recording_id,
+        upload_start_failed_at: null,
+      }),
+    ]);
+  });
+
+  it.each(["unconfirmed", "untyped"] as const)(
+    "keeps the binding of a start that failed %s",
+    async (failure) => {
+      await failedStart(failure);
+      expect(await rows("recording_content_bindings")).toEqual([
+        expect.objectContaining({
+          upload_key: KEY,
+          upload_start_failed_at: expect.any(String),
+        }),
+      ]);
+    },
+  );
+
+  it("drops the binding of a start Clips says left nothing, so the next start makes its own recording", async () => {
+    const { bearer } = await failedStart("confirmed");
+    expect(await rows("recording_content_bindings")).toEqual([]);
+
+    const next = await startUpload(bearer, { ...START, uploadKey: KEY });
+    expect(next.status).toBe(200);
+    expect(next.body.recordingId).not.toBe(state.created[0].args.id);
+  });
+
+  it("runs one retake of a failed start when two repeats overlap", async () => {
+    const { bearer } = await failedStart("unconfirmed");
+    const [failedId] = state.created.map(({ args }) => args.id);
+    // Both read the failed start before either takes it over.
+    let overlapping: Awaited<ReturnType<typeof startUpload>> | undefined;
+    state.afterPhaseRead = async () => {
+      overlapping = await startUpload(bearer, { ...START, uploadKey: KEY });
+    };
+
+    const outer = await startUpload(bearer, { ...START, uploadKey: KEY });
+
+    expect(overlapping).toMatchObject({
+      status: 200,
+      body: { recordingId: failedId },
+    });
+    expect(outer).toMatchObject({
+      status: 409,
+      body: { code: "upload_starting" },
+    });
+    expect(state.created.map(({ args }) => args.id)).toEqual([
+      failedId,
+      failedId,
+    ]);
+    expect(await rows("recordings")).toHaveLength(1);
+  });
+
+  it("takes over a key whose binding never got its recording, once that's stale, with the same recording", async () => {
     const editor = await clipsEditor();
     const longAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
     await state.db.insert(schema.recordingContentBindings).values({
@@ -921,11 +1036,11 @@ describe("a start Content repeats for one picked file", () => {
       uploadKey: KEY,
     });
 
-    expect(repeat).toMatchObject({
-      status: 409,
-      body: { error: "upload_key_used", code: "upload_key_used" },
-    });
-    expect(state.created).toEqual([]);
+    expect(repeat.status).toBe(200);
+    expect(repeat.body.recordingId).toBe("rec-never-made");
+    expect(state.created.map(({ args }) => args.id)).toEqual([
+      "rec-never-made",
+    ]);
   });
 
   it("answers even when the first start took the last free clip", async () => {
@@ -1092,6 +1207,61 @@ describe("a page's final chunk and its cancel", () => {
       });
     });
   }
+
+  it("asks a final chunk that lands while Clips takes an earlier send of it to try again, and takes its bytes once", async () => {
+    const upload = await started();
+    state.finalChunkOutcome = "finish";
+    let during: Awaited<ReturnType<typeof finalChunk>> | undefined;
+    state.duringFinalChunk = async () => {
+      during = await finalChunk(upload);
+    };
+
+    const first = await finalChunk(upload);
+
+    expect(first.status).toBe(200);
+    expect(during).toMatchObject({
+      status: 409,
+      body: { outcome: "upload_finishing", recordingId: upload.recordingId },
+    });
+    expect(state.chunks).toHaveLength(1);
+  });
+
+  it.each([
+    ["finished", "finish", 200, { finalized: true, status: "ready" }],
+    [
+      "parked",
+      "park",
+      202,
+      { finalized: false, waitingForStorage: true, status: "waiting_storage" },
+    ],
+  ] as const)(
+    "answers a final chunk sent again once the first %s the upload with the first one's success, without taking it again",
+    async (_phase, outcome, httpStatus, answer) => {
+      const upload = await started();
+      state.finalChunkOutcome = outcome;
+      const first = await finalChunk(upload);
+      expect(first).toMatchObject({ status: httpStatus, body: answer });
+
+      const again = await finalChunk(upload);
+
+      expect(again).toMatchObject({
+        status: httpStatus,
+        body: { ok: true, ...answer },
+      });
+      expect(state.chunks).toHaveLength(1);
+    },
+  );
+
+  it("lets a final chunk take over a claim older than a final chunk's longest run", async () => {
+    const upload = await started();
+    await holdClaim(upload, new Date(Date.now() - 10 * 60_000).toISOString());
+    state.finalChunkOutcome = "finish";
+
+    const answer = await finalChunk(upload);
+
+    expect(answer).toMatchObject({ status: 200, body: { ok: true } });
+    expect(state.chunks).toHaveLength(1);
+  });
 
   it("asks a cancel that lands while Clips takes the final chunk to try again, changes nothing, and says it finished once the chunk did", async () => {
     const upload = await started();

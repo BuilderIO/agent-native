@@ -1361,6 +1361,11 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_mime_type TEXT;
       ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_size_bytes BIGINT`,
     },
+    {
+      version: 96,
+      name: "recording-content-binding-upload-start-failed",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );
