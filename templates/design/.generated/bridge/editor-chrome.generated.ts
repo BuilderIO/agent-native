@@ -903,6 +903,79 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/export-image-source.ts
+  var EXPORT_IMAGE_NATURAL_WIDTH = "data-agent-native-export-image-natural-width";
+  function isResponsiveExportImage(image) {
+    return image.hasAttribute("srcset") || Boolean(image.closest("picture")?.querySelector("source[srcset]")) || image.hasAttribute(EXPORT_IMAGE_NATURAL_WIDTH);
+  }
+  function copyExportImageSource(source, clone) {
+    if (source.currentSrc) clone.setAttribute("src", source.currentSrc);
+    if (isResponsiveExportImage(source)) {
+      clone.setAttribute(EXPORT_IMAGE_NATURAL_WIDTH, String(source.naturalWidth));
+    }
+    clone.removeAttribute("srcset");
+  }
+  async function decodeExportImage(image, signal) {
+    signal.throwIfAborted();
+    let onAbort;
+    try {
+      await Promise.race([
+        image.decode(),
+        new Promise((_resolve, reject) => {
+          onAbort = () => reject(signal.reason);
+          signal.addEventListener("abort", onAbort, { once: true });
+        })
+      ]);
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+  async function prepareExportImageSource(source, signal) {
+    let image = source;
+    if (source.loading === "lazy" && !source.complete) {
+      const picture = source.closest("picture");
+      if (picture) {
+        const sourceImages = Array.from(picture.querySelectorAll("img"));
+        const imageIndex = sourceImages.indexOf(source);
+        const clonedImages = picture.cloneNode(true).querySelectorAll("img");
+        const clonedImage = clonedImages[imageIndex];
+        if (!clonedImage) {
+          throw new Error("Export image source is unavailable.");
+        }
+        image = clonedImage;
+      } else {
+        image = source.cloneNode(true);
+      }
+      image.loading = "eager";
+    }
+    await decodeExportImage(image, signal);
+    return image;
+  }
+  async function resolveExportImageSource(image, source, signal) {
+    const naturalWidth = image.getAttribute(EXPORT_IMAGE_NATURAL_WIDTH);
+    if (naturalWidth === null) {
+      image.removeAttribute("srcset");
+      return;
+    }
+    const width = Number(naturalWidth);
+    if (!Number.isFinite(width) || width <= 0) {
+      throw new Error("Responsive export image is not ready.");
+    }
+    const intrinsic = new Image();
+    intrinsic.src = source;
+    await decodeExportImage(intrinsic, signal);
+    const density = intrinsic.naturalWidth / width;
+    if (!Number.isFinite(density) || density <= 0) {
+      throw new Error("Responsive export image dimensions are unavailable.");
+    }
+    image.removeAttribute("src");
+    const srcsetSource = source.replace(
+      /[ \\t\\n\\f\\r]/g,
+      (character) => \`%\${character.charCodeAt(0).toString(16).padStart(2, "0")}\`
+    );
+    image.setAttribute("srcset", \`\${srcsetSource} \${density}x\`);
+  }
+
   // shared/relative-position-containing-block.ts
   function relativePositionContainingBlockDirection(element, getComputedStyle) {
     let ancestor = element.parentElement;
@@ -1025,6 +1098,41 @@ export const editorChromeBridgeScript: string = `"use strict";
     if (context.margins.some((margin) => margin !== 0)) return true;
     const inFlow = context.position !== "absolute" && context.position !== "fixed";
     return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
+  // shared/srcset.ts
+  function parseSrcset(value) {
+    const candidates = [];
+    let position = 0;
+    while (position < value.length) {
+      while (position < value.length && /[\\s,]/.test(value[position]))
+        position += 1;
+      if (position >= value.length) break;
+      const urlStart = position;
+      while (position < value.length && !/\\s/.test(value[position]))
+        position += 1;
+      let url = value.slice(urlStart, position);
+      const hasTrailingSeparator = url.endsWith(",");
+      while (url.endsWith(",")) url = url.slice(0, -1);
+      let descriptor = "";
+      if (!hasTrailingSeparator) {
+        while (position < value.length && /\\s/.test(value[position]))
+          position += 1;
+        const descriptorStart = position;
+        let parentheses = 0;
+        while (position < value.length) {
+          const character = value[position];
+          if (character === "(") parentheses += 1;
+          if (character === ")" && parentheses > 0) parentheses -= 1;
+          if (character === "," && parentheses === 0) break;
+          position += 1;
+        }
+        descriptor = value.slice(descriptorStart, position).trim();
+        if (value[position] === ",") position += 1;
+      }
+      if (url) candidates.push({ url, descriptor });
+    }
+    return candidates;
   }
 
   // shared/text-layer-rule.ts
@@ -2583,7 +2691,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotPendingPostReadinessRequestId = null;
     var lastRuntimeLayerSnapshotHtml = "";
     var lastRuntimeLayerSnapshotReservationToken = "";
+    var runtimeLayerSnapshotImageSources = /* @__PURE__ */ new WeakMap();
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    function runtimeLayerImageSource(image) {
+      return image.currentSrc || image.src || "";
+    }
     function runtimeLayerHash(value) {
       var hash = 2166136261;
       for (var index = 0; index < value.length; index += 1) {
@@ -2637,7 +2749,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
     }
-    function serializeRuntimeLayerSnapshot(excludedRoot) {
+    function serializeRuntimeLayerSnapshot(excludedRoot, preparedImageSources, unavailableImageSources) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotFailures = [];
       function cloneRuntimeStylesheet(sourceNode2, cloneNode2) {
@@ -2734,10 +2846,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapshotFailures.push("foreign-object-unavailable");
         }
         if (sourceNode instanceof HTMLImageElement && cloneNode instanceof HTMLImageElement) {
-          if (sourceNode.currentSrc) {
-            cloneNode.setAttribute("src", sourceNode.currentSrc);
+          var preparedImage = preparedImageSources?.get(sourceNode);
+          copyExportImageSource(preparedImage || sourceNode, cloneNode);
+          if (unavailableImageSources?.has(sourceNode)) {
+            snapshotFailures.push("image-unavailable");
           }
-          cloneNode.removeAttribute("srcset");
         }
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
@@ -3284,18 +3397,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var imageNodes = Array.from(
         parsed.querySelectorAll(
-          "img[src], image[href], image[xlink\\\\:href]"
+          "img[src], img[data-agent-native-export-image-natural-width], image[href], image[xlink\\\\:href]"
         )
       );
       for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
         var image = imageNodes[imageIndex];
-        var attribute = image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
-        var source = image.getAttribute(attribute);
-        if (!source || /^(?:data|about):/i.test(source)) continue;
-        var dataSource = await resourceDataUrl(source, document.baseURI);
-        if (dataSource) image.setAttribute(attribute, dataSource);
-        else markFailure("image-fetch");
-        if (image.localName === "img") image.removeAttribute("srcset");
+        var markedResponsiveImage = image.localName === "img" && image.hasAttribute("data-agent-native-export-image-natural-width");
+        var responsiveSrcset = markedResponsiveImage && !image.hasAttribute("src") ? parseSrcset(image.getAttribute("srcset") || "")[0] : null;
+        var attribute = responsiveSrcset ? "srcset" : image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
+        var source = responsiveSrcset ? responsiveSrcset.url : image.getAttribute(attribute);
+        if (!source) {
+          if (markedResponsiveImage) markFailure("image-unavailable");
+          continue;
+        }
+        var dataSource = /^(?:data|about):/i.test(source) ? source : await resourceDataUrl(source, document.baseURI);
+        if (dataSource) {
+          image.setAttribute(
+            attribute,
+            responsiveSrcset ? \`\${dataSource} \${responsiveSrcset.descriptor}\` : dataSource
+          );
+        } else markFailure("image-fetch");
+        if (image.localName === "img") {
+          try {
+            if (dataSource) {
+              await resolveExportImageSource(image, dataSource, resourceSignal);
+            }
+          } catch {
+            markFailure(
+              resourceTimedOut ? "resource-timeout" : "image-unavailable"
+            );
+          }
+        }
       }
       var tooLarge = failures.includes("export-resource-size-limit");
       var outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
@@ -3363,39 +3495,47 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         clearPendingPostReadiness();
       }
-      var snapshot = serializeRuntimeLayerSnapshot();
-      if (!snapshot.ok) {
-        window.parent.postMessage(
-          {
-            type: "agent-native:runtime-layer-snapshot-error",
-            payload: {
-              ...snapshot,
-              requestId,
-              documentId: runtimeDocumentId,
-              ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
-              ...reservationToken ? { reservationToken } : {}
-            }
-          },
-          "*"
-        );
-        clearPendingPostReadiness();
-        return;
-      }
-      void inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(function(inlined) {
+      var imagePreparationSignal = AbortSignal.timeout(15e3);
+      var responsiveImages = Array.prototype.slice.call(document.querySelectorAll("img")).filter(isResponsiveExportImage);
+      void Promise.all(
+        responsiveImages.map(async function(image) {
+          try {
+            return [
+              image,
+              await prepareExportImageSource(image, imagePreparationSignal)
+            ];
+          } catch {
+            return [image, null];
+          }
+        })
+      ).then(function(preparedResults) {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
-        snapshot.html = inlined.html;
-        if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        var snapshotReservationToken = reservationToken || "";
-        if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+        var preparedImageSources = /* @__PURE__ */ new Map();
+        var unavailableImageSources = /* @__PURE__ */ new Set();
+        var snapshotImageSources = /* @__PURE__ */ new Map();
+        preparedResults.forEach(function([image, prepared]) {
+          if (prepared) preparedImageSources.set(image, prepared);
+          else unavailableImageSources.add(image);
+        });
+        Array.from(document.querySelectorAll("img")).forEach(function(image) {
+          snapshotImageSources.set(
+            image,
+            runtimeLayerImageSource(preparedImageSources.get(image) || image)
+          );
+        });
+        var snapshot = serializeRuntimeLayerSnapshot(
+          void 0,
+          preparedImageSources,
+          unavailableImageSources
+        );
+        if (!snapshot.ok) {
           window.parent.postMessage(
             {
-              type: "agent-native:runtime-layer-snapshot-unchanged",
+              type: "agent-native:runtime-layer-snapshot-error",
               payload: {
+                ...snapshot,
                 requestId,
-                documentId: snapshot.documentId,
+                documentId: runtimeDocumentId,
                 ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
                 ...reservationToken ? { reservationToken } : {}
               }
@@ -3405,23 +3545,60 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearPendingPostReadiness();
           return;
         }
-        if (requestId !== void 0) snapshot.requestId = requestId;
-        if (Number.isSafeInteger(postReadinessRequestId)) {
-          snapshot.readinessRequestId = postReadinessRequestId;
-        }
-        if (reservationToken) snapshot.reservationToken = reservationToken;
-        var snapshotMessage = {
-          type: "agent-native:runtime-layer-snapshot",
-          payload: snapshot
-        };
-        if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
-          postSnapshotTooLargeError();
-          return;
-        }
-        lastRuntimeLayerSnapshotHtml = snapshot.html;
-        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-        window.parent.postMessage(snapshotMessage, "*");
-        clearPendingPostReadiness();
+        return inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(
+          function(inlined) {
+            if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+            snapshot.html = inlined.html;
+            if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            var snapshotReservationToken = reservationToken || "";
+            if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+              if (inlined.complete) {
+                snapshotImageSources.forEach(function(source, image) {
+                  runtimeLayerSnapshotImageSources.set(image, source);
+                });
+              }
+              window.parent.postMessage(
+                {
+                  type: "agent-native:runtime-layer-snapshot-unchanged",
+                  payload: {
+                    requestId,
+                    documentId: snapshot.documentId,
+                    ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+                    ...reservationToken ? { reservationToken } : {}
+                  }
+                },
+                "*"
+              );
+              clearPendingPostReadiness();
+              return;
+            }
+            if (requestId !== void 0) snapshot.requestId = requestId;
+            if (Number.isSafeInteger(postReadinessRequestId)) {
+              snapshot.readinessRequestId = postReadinessRequestId;
+            }
+            if (reservationToken) snapshot.reservationToken = reservationToken;
+            var snapshotMessage = {
+              type: "agent-native:runtime-layer-snapshot",
+              payload: snapshot
+            };
+            if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
+              postSnapshotTooLargeError();
+              return;
+            }
+            if (inlined.complete) {
+              snapshotImageSources.forEach(function(source, image) {
+                runtimeLayerSnapshotImageSources.set(image, source);
+              });
+            }
+            lastRuntimeLayerSnapshotHtml = snapshot.html;
+            lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+            window.parent.postMessage(snapshotMessage, "*");
+            clearPendingPostReadiness();
+          }
+        );
       }).catch(function() {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         window.parent.postMessage(
@@ -25075,6 +25252,20 @@ export const editorChromeBridgeScript: string = `"use strict";
           "style",
           "title"
         ]
+      });
+      ["load", "error"].forEach(function(type) {
+        document.addEventListener(
+          type,
+          function(event) {
+            if (!(event.target instanceof HTMLImageElement)) return;
+            var image = event.target;
+            if (isOverlayElement(image)) return;
+            if (event.type === "error" || isResponsiveExportImage(image) || runtimeLayerSnapshotImageSources.get(image) !== runtimeLayerImageSource(image)) {
+              scheduleRuntimeLayerSnapshot();
+            }
+          },
+          true
+        );
       });
     }
     var frameLabelRefreshScheduled = false;

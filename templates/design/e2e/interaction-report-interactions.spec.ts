@@ -330,12 +330,8 @@ async function openOverview(page: Page, designId: string) {
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
-    timeout: 30_000,
-  });
+  ).toBeVisible();
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(page.locator("[data-screen-card]").first()).toBeVisible();
   await page.getByRole("button", { name: /%$/, exact: false }).first().click();
   await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
@@ -1336,9 +1332,7 @@ test("report path: Option-dragging a root Screen preserves naming, placement, se
     })
     .toBe(redoCopy?.id);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: "50%", exact: true }),
   ).toBeVisible();

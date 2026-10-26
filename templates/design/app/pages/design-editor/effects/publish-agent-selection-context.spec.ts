@@ -49,6 +49,7 @@ function argsFor(overrides: Partial<Args> = {}): Args {
       previewing: false,
       selectedTrackId: null,
       selectedKeyframeIds: [],
+      selectedEasingSegment: null,
     },
     motionDurationMs: 2000,
     motionPlayhead: 0,
@@ -163,6 +164,7 @@ describe("runPublishAgentSelectionContext layout grid", () => {
         motionDockLiveState: {
           previewing: true,
           selectedTrackId: "node-1\u001ftranslate",
+          selectedEasingSegment: null,
           selectedKeyframeIds: [
             '["node-1\\u001ftranslate",0.5]',
             '["node-1\\u001ftranslate",1]',
@@ -184,6 +186,7 @@ describe("runPublishAgentSelectionContext layout grid", () => {
       autoKeyframe: true,
       selectedTrackId: "node-1\u001ftranslate",
       selectedKeyframeId: null,
+      selectedEasingSegment: null,
       selectedKeyframeIds: [
         '["node-1\\u001ftranslate",0.5]',
         '["node-1\\u001ftranslate",1]',

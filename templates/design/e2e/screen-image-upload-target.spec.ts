@@ -1399,7 +1399,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await page.reload();
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await app.zoomToFit();
     await expect
       .poll(async () => readScreenHtml(page, designId, screenAId))

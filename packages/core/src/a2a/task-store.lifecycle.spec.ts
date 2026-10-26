@@ -1076,8 +1076,8 @@ describe("task-store lifecycle (real pglite)", () => {
       ).resolves.toEqual({ status: "execute", wasDispatched: false });
 
       await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
-        id: task.id,
-        status: { state: "canceled" },
+        status: "canceled",
+        task: { id: task.id, status: { state: "canceled" } },
       });
       await expect(renewTaskExecutionLease(taskFence)).rejects.toMatchObject({
         code: "stale_execution_fence",
@@ -1089,6 +1089,62 @@ describe("task-store lifecycle (real pglite)", () => {
           ),
         ),
       ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    });
+
+    it("cancels a working task, and a second cancel reports it is already canceled", async () => {
+      const { cancelA2ATask, createTask, updateTask } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await updateTask(task.id, { state: "working" });
+
+      await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
+        status: "canceled",
+        task: { id: task.id, status: { state: "canceled" } },
+      });
+      await expect(cancelA2ATask(task.id)).resolves.toEqual({
+        status: "not_cancelable",
+        state: "canceled",
+      });
+    });
+
+    it("leaves a completed task's state, result, and artifacts unchanged", async () => {
+      const {
+        cancelA2ATask,
+        claimA2ATaskForProcessing,
+        createTask,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("done", "agent"),
+        artifacts: [{ name: "report", parts: [{ type: "text", text: "42" }] }],
+      });
+      const before = await getTask(task.id);
+
+      await expect(cancelA2ATask(task.id)).resolves.toEqual({
+        status: "not_cancelable",
+        state: "completed",
+      });
+      await expect(getTask(task.id)).resolves.toEqual(before);
+      expect(before?.status.state).toBe("completed");
+      expect(before?.artifacts).toHaveLength(1);
+    });
+
+    it("reports a missing or inaccessible task as not found", async () => {
+      const { cancelA2ATask, createTask } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+
+      await expect(cancelA2ATask("no-such-task")).resolves.toEqual({
+        status: "not_found",
+      });
+      await expect(
+        cancelA2ATask(task.id, {
+          ownerEmail: "someone-else@example.com",
+          ownerScope: null,
+        }),
+      ).resolves.toEqual({ status: "not_found" });
     });
   });
 
@@ -1291,6 +1347,40 @@ describe("task-store lifecycle (real pglite)", () => {
       const scoped = await listTasks("ctx-1");
       expect(scoped).toHaveLength(2);
       expect(scoped.every((t) => t.contextId === "ctx-1")).toBe(true);
+    });
+  });
+
+  describe("cancel racing a synchronous send", () => {
+    it("keeps the task canceled when the handler completes after the cancel", async () => {
+      const {
+        A2ATaskCanceledError,
+        cancelA2ATask,
+        createTask,
+        getTask,
+        updateTask,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("slow"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await updateTask(task.id, { state: "working" });
+
+      await expect(cancelA2ATask(task.id)).resolves.toMatchObject({
+        status: "canceled",
+      });
+      const completion = updateTask(task.id, {
+        state: "completed",
+        message: makeMessage("late result", "agent"),
+      });
+      await expect(completion).rejects.toBeInstanceOf(A2ATaskCanceledError);
+      await expect(completion).rejects.toMatchObject({
+        task: { id: task.id, status: { state: "canceled" } },
+      });
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "canceled" },
+      });
     });
   });
 });

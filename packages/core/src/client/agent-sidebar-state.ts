@@ -10,9 +10,11 @@ export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 export const SIDEBAR_URL_CHANGE_EVENT = "agent-panel:url-change";
-export const AGENT_SIDEBAR_MIN_WIDTH = 280;
-export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 700;
+export const AGENT_SIDEBAR_MIN_WIDTH = 320;
+export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 704;
 export const AGENT_SIDEBAR_WIDE_WIDTH_RATIO = 0.75;
+/** Panel widths land on the 8px layout grid. */
+export const AGENT_SIDEBAR_WIDTH_STEP = 8;
 
 const HISTORY_PATCHED_KEY = "__agentNativeSidebarHistoryPatched";
 
@@ -37,12 +39,19 @@ function resolveViewportWidth(viewportWidth?: number): number {
   return Math.max(0, resolved);
 }
 
+export function snapAgentSidebarWidth(width: number): number {
+  return (
+    Math.round(width / AGENT_SIDEBAR_WIDTH_STEP) * AGENT_SIDEBAR_WIDTH_STEP
+  );
+}
+
 export function getAgentSidebarWideWidth(viewportWidth?: number): number {
   return Math.max(
     AGENT_SIDEBAR_MIN_WIDTH,
-    Math.round(
-      resolveViewportWidth(viewportWidth) * AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
-    ),
+    Math.floor(
+      (resolveViewportWidth(viewportWidth) * AGENT_SIDEBAR_WIDE_WIDTH_RATIO) /
+        AGENT_SIDEBAR_WIDTH_STEP,
+    ) * AGENT_SIDEBAR_WIDTH_STEP,
   );
 }
 
@@ -154,10 +163,22 @@ function replaceAgentSidebarUrlOpenOverride(open: boolean | null): boolean {
   }
 }
 
+let lastAgentSidebarState: AgentSidebarStateChangeDetail | null = null;
+
+/**
+ * The state the panel last announced, or `null` before any panel has. A
+ * control that mounts after the panel opened reads this instead of waiting
+ * for the next change.
+ */
+export function getAgentSidebarState(): AgentSidebarStateChangeDetail | null {
+  return lastAgentSidebarState;
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
   if (typeof window === "undefined") return;
+  lastAgentSidebarState = detail;
   window.dispatchEvent(
     new CustomEvent<AgentSidebarStateChangeDetail>(SIDEBAR_STATE_CHANGE_EVENT, {
       detail,

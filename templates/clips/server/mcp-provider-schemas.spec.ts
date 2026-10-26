@@ -17,6 +17,20 @@ describe("Clips MCP catalogs", () => {
     template = await loadTemplateMcpConformance(projectRoot);
   }, 180_000);
 
+  it("offers chapter editing, comment threads and video imports in the compact catalog", async () => {
+    const names = (await template.listCatalog("default")).map(
+      (tool) => tool.name,
+    );
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "set-chapters",
+        "reply-to-comment",
+        "list-comments",
+        "import-loom-recording",
+      ]),
+    );
+  }, 60_000);
+
   it.each(templateMcpCatalogModes(projectRoot))(
     "advertises only schemas that pass every pinned provider rule in the %s catalog",
     async (mode) => {

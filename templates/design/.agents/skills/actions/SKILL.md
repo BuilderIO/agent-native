@@ -22,6 +22,8 @@ Before creating any custom route for app data, check `actions/` and the action t
 
 An action may call a provider API, validate data, and persist records without being an AI feature — keep it deterministic, focused, and independently useful to the agent. Don't put LLM calls or a second model runtime in app actions.
 
+The sanctioned model-backed exception is `@agent-native/core/decisions` for capability-aware classification and scoring, and it returns a result without performing or authorizing the selected action.
+
 When a workflow is research, analysis, generation, recommendation, or synthesis — or spans several provider calls and writes — route it to the AgentSidebar via `sendToAgentChat({ openSidebar: true })` and let the agent orchestrate focused actions instead of hiding an AI-shaped workflow behind one opaque `generate-*`/`create-*` action just because its implementation happens to be deterministic.
 
 ## How to Create an Action
@@ -106,6 +108,8 @@ for interrupted-run recovery.
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
 Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
+
+To test an action, start with `checkActionProperties(action, { context })` from `@agent-native/core/action-properties`. It generates inputs from the zod `schema`, and fails on any throw that is not an action contract error, on a return its `outputSchema` rejects, and on an invalid input that reaches `run`. It needs `fast-check` as a devDependency, and it throws `UnsupportedSchemaError` for a schema shape it cannot generate unless you pass an override.
 
 ### Write receipts
 

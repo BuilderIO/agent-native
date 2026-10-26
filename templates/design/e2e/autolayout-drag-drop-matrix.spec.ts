@@ -339,9 +339,7 @@ async function settleReload(page: Page, screenId: string): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(
     page.locator(`[data-screen-shell][data-frame-id="${screenId}"]`),
   ).toBeVisible();

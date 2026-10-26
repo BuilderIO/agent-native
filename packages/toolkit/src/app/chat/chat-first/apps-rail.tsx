@@ -24,8 +24,6 @@ import {
   IconChevronUp,
   IconPin,
   IconPlus,
-  IconRefresh,
-  IconTrash,
 } from "@tabler/icons-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -34,7 +32,7 @@ import {
   chatFirstAppIconState,
   type ChatFirstActiveSurface,
 } from "./active-surface.js";
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type {
   ChatFirstAppItem,
   ChatFirstAppIconRenderOptions,
@@ -123,12 +121,10 @@ function AppContextMenuContent({
   return (
     <ContextMenuContent>
       <ContextMenuItem onSelect={() => onTogglePinned(app.id)}>
-        <IconPin size={14} aria-hidden="true" />
         {pinned ? copy("removePinned") : copy("pinTop")}
       </ContextMenuItem>
       {onReloadApp ? (
         <ContextMenuItem onSelect={() => onReloadApp(app)}>
-          <IconRefresh size={14} aria-hidden="true" />
           {copy("reloadApp")}
         </ContextMenuItem>
       ) : null}
@@ -137,14 +133,12 @@ function AppContextMenuContent({
         disabled={index === 0}
         onSelect={() => onMove(app.id, -1)}
       >
-        <IconChevronUp size={14} aria-hidden="true" />
         {copy("moveUp")}
       </ContextMenuItem>
       <ContextMenuItem
         disabled={index === total - 1}
         onSelect={() => onMove(app.id, 1)}
       >
-        <IconChevronDown size={14} aria-hidden="true" />
         {copy("moveDown")}
       </ContextMenuItem>
       {onRemoveApp ? (
@@ -154,7 +148,6 @@ function AppContextMenuContent({
             onSelect={() => onRemoveApp(app)}
             className="text-destructive focus:text-destructive"
           >
-            <IconTrash size={14} aria-hidden="true" />
             {copy("removeApp")}
           </ContextMenuItem>
         </>
@@ -322,8 +315,9 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   onCreateApp,
   createAppTrigger,
   renderIcon,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstAppRailProps) {
+  const copy = useChatFirstCopy(copyProp);
   const [localLayout, setLocalLayout] = useState<ChatFirstAppLayoutPreference>(
     () => readChatFirstAppLayout(),
   );
@@ -498,7 +492,8 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           ) : null}
           {error ? (
             <span
-              className="size-1.5 rounded-full bg-destructive"
+              role="img"
+              className="size-1.5 rounded-full bg-[hsl(var(--agent-kit-warning))]"
               title={error}
               aria-label={error}
             />
@@ -595,11 +590,11 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="mt-1 flex items-center gap-1 px-2 text-[10px] text-destructive/80"
+              className="agent-kit-tone-warning mt-1 flex items-center gap-1 px-2 text-[10px]"
               onClick={onRetry}
               aria-label={error}
             >
-              <span className="size-1.5 rounded-full bg-destructive" />
+              <span className="size-1.5 rounded-full bg-[hsl(var(--agent-kit-warning))]" />
               {onRetry ? copy("retry") : copy("appsLoadError")}
             </button>
           </TooltipTrigger>
