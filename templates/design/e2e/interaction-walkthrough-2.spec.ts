@@ -91,8 +91,14 @@ function boardBodyId(nodes: Map<string, SavedNode>) {
   return body.id;
 }
 
+// The board file is created lazily, sometimes by the draw itself, so its
+// html and body can be new without being layers anyone drew.
+const DOCUMENT_TAGS = new Set(["html", "head", "body"]);
+
 function newIds(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
-  return [...after.keys()].filter((id) => !before.has(id));
+  return [...after.entries()]
+    .filter(([id, node]) => !before.has(id) && !DOCUMENT_TAGS.has(node.tag))
+    .map(([id]) => id);
 }
 
 /** Below 100% zoom one page pixel spans several design pixels, so drawn and dropped geometry rounds. */
@@ -123,7 +129,7 @@ async function openOnBoard(app: App, id: string) {
   await app.page.goto(appPath(`/design/${id}?view=overview&zoom=30`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible({ timeout: 30_000 });
+  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible();
   await expect(app.node("page")).toBeVisible();
   await expect(app.page.getByRole("tree", { name: "Layers" })).toBeVisible();
 }
@@ -155,7 +161,7 @@ function boardNode(page: Page, nodeId: string) {
 async function clickCenter(
   app: App,
   nodeId: string,
-  modifiers: ("Shift" | "Alt")[] = [],
+  modifiers: ("Shift" | "Alt" | typeof MOD)[] = [],
 ) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
@@ -202,7 +208,7 @@ async function chooseWidthMenuItem(page: Page, item: RegExp) {
 }
 
 test.describe("interaction: responsive card with auto layout and constraints", () => {
-  test("step 1-2: Frame tool draws a board frame outside any screen; rename, corner radius, and drop shadow commit via the inspector", async ({
+  test("Frame tool draws a board frame outside any screen; inspector edits commit rename, corner radius, and drop shadow", async ({
     app,
     page,
   }) => {
@@ -325,7 +331,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  test("step 3-4 (crossing the screen boundary): Option-dragging a board frame into an in-screen frame drops a copy at the drop point and leaves the original; Shift+Arrow nudges the copy 10px", async ({
+  test("Option-dragging a board frame into an in-screen frame drops a copy at the drop point, keeps the original, and Shift+Arrow nudges the copy 10px", async ({
     app,
     page,
   }) => {
@@ -394,8 +400,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
-  // fixme: product bug: Add auto layout stretches the creator text from its 30px hug width to the wrapper's 117px. The wrapper is saved without align-items, so
-  test.fixme("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
+  // Hug-sized children keep their width when Shift+A creates an auto-layout wrapper.
+  test("Shift+A wraps the shift-clicked title and creator in a vertical auto-layout frame without moving them, and saves a gap of 4", async ({
     app,
     page,
   }) => {
@@ -405,6 +411,8 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     const before = await app.savedNodes(id);
     const title = await app.designRect("title");
     const creator = await app.designRect("creator");
+    expect(title.width).toBeGreaterThan(creator.width);
+    expect(creator.width).toBeGreaterThan(0);
 
     await clickCenter(app, "title");
     await clickCenter(app, "creator", ["Shift"]);
@@ -423,6 +431,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       top: "40px",
       display: "flex",
       "flex-direction": "column",
+      "align-items": "flex-start",
       gap: "8px",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
@@ -442,6 +451,10 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       x: creator.x,
       y: creator.y,
     });
+    expect(
+      wrappedCreator.width,
+      "the creator keeps its hug width when wrapped",
+    ).toBe(creator.width);
 
     const gap = page.locator('input[aria-label="Gap" i]').first();
     await gap.fill("4");
@@ -459,10 +472,38 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       await app.designRect("creator"),
       "the creator sits 4px under the title and keeps its own hug width",
     ).toEqual({ ...creator, y: title.y + title.height + 4 });
+
+    await app.open(id);
+    await app.settled();
+
+    const reloaded = await app.savedNodes(id);
+    expectOnlyChanged(end, reloaded, []);
+    expect(styleOf(reloaded.get(wrapperId))).toMatchObject({
+      gap: "4px",
+      "align-items": "flex-start",
+    });
+    const reloadedTitle = await app.designRect("title");
+    const reloadedCreator = await app.designRect("creator");
+    expect(reloadedTitle).toEqual(title);
+    expect(
+      reloadedTitle.width,
+      "the title keeps its original hug width after reload",
+    ).toBe(title.width);
+    expect(
+      reloadedCreator.width,
+      "the creator keeps its original hug width after reload",
+    ).toBe(creator.width);
+    expect(reloadedCreator).toEqual({
+      ...creator,
+      y: title.y + title.height + 4,
+    });
+    expect(
+      reloadedCreator.y - (reloadedTitle.y + reloadedTitle.height),
+      "the reloaded vertical layout keeps a 4px rendered gap",
+    ).toBe(4);
   });
 
-  // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
-  test.fixme("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  test("Fill width stretches a card child to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {
@@ -471,7 +512,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     await app.zoomToFit();
     const before = await app.savedNodes(id);
 
-    await clickCenter(app, "album-art");
+    await clickCenter(app, "album-art", [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["album-art"]);
     await chooseWidthMenuItem(page, /^Fill/i);
     await app.settled();
@@ -502,7 +543,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
     expectOnlyChanged(filled, end, ["card"]);
     expect(await app.designRect("card")).toEqual(card);
-    await expect(minWidth).toHaveValue("200px");
+    await expect(minWidth).toHaveValue("200");
     expect(
       await minWidth.evaluate(
         (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,

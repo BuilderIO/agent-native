@@ -9,7 +9,7 @@ export type JobLastStatus =
   | "running"
   | "skipped"
   | "paused";
-export type JobTriggerType = "schedule" | "event" | "webhook";
+export type JobTriggerType = "schedule" | "event" | "manual" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
 export interface JobFrontmatter {
@@ -57,6 +57,8 @@ export interface JobFrontmatter {
   domain?: string;
   appId?: string;
   executionHostId?: string;
+  /** Id of a job runner registered with `registerJobRunner`; absent means the agent loop. */
+  runner?: string;
   executionEngine?: string;
   executionCwd?: string;
   remoteRequestId?: string;
@@ -183,6 +185,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "domain",
   "appId",
   "executionHostId",
+  "runner",
   "executionEngine",
   "executionCwd",
   "remoteRequestId",
@@ -239,6 +242,21 @@ export function assertJobExecutionTargetFields(
   ) {
     throw new Error(
       "Execution workspace paths must be at most 1024 characters.",
+    );
+  }
+}
+
+/**
+ * A runner job executes in this process; a remote host would run its stub body
+ * as an agent prompt. Raw resource edits skip this check, so the scheduler
+ * refuses the pair again at run time.
+ */
+export function assertJobRunnerTarget(
+  meta: Pick<JobFrontmatter, "runner" | "executionHostId">,
+): void {
+  if (meta.runner && meta.executionHostId) {
+    throw new Error(
+      "A job with a runner cannot also target an execution host.",
     );
   }
 }
@@ -404,8 +422,12 @@ function parseKnownField(
       meta.mcpTools = normalizeJobMcpTools(value);
       break;
     case "triggerType":
+      // The field's presence is the durable legacy-job/automation boundary.
+      // Preserve that marker even if an old writer stored an invalid value.
       meta.triggerType =
-        value === "event" || value === "webhook" ? value : "schedule";
+        value === "event" || value === "manual" || value === "webhook"
+          ? value
+          : "schedule";
       break;
     case "event":
       meta.event = value;
@@ -429,6 +451,9 @@ function parseKnownField(
       break;
     case "executionHostId":
       meta.executionHostId = value || undefined;
+      break;
+    case "runner":
+      meta.runner = value || undefined;
       break;
     case "executionEngine":
       meta.executionEngine = value || undefined;
@@ -499,6 +524,14 @@ export function parseJobResource(content: string): ParsedJobResource {
     meta[EXTRA_FRONTMATTER_LINES] = extraLines;
   }
 
+  if (meta.triggerType === "manual") {
+    meta.schedule = "";
+    delete meta.timezone;
+    delete meta.event;
+    delete meta.condition;
+    delete meta.nextRun;
+  }
+
   return {
     meta,
     body: match[2].trim(),
@@ -532,6 +565,7 @@ export function buildJobResourceContent(
 ): string {
   assertDelegatedPolicyId(meta.delegatedPolicyId);
   assertJobExecutionTargetFields(meta);
+  assertJobRunnerTarget(meta);
   assertBoundedFrontmatterValue(
     meta.remoteRequestId,
     "Remote request IDs",
@@ -555,17 +589,20 @@ export function buildJobResourceContent(
 
   const lines = [
     "---",
-    `schedule: ${JSON.stringify(meta.schedule)}`,
+    `schedule: ${JSON.stringify(meta.triggerType === "manual" ? "" : meta.schedule)}`,
     `enabled: ${meta.enabled}`,
   ];
   if (meta.triggerType) lines.push(`triggerType: ${meta.triggerType}`);
-  pushString(lines, "event", meta.event);
-  pushString(lines, "condition", meta.condition);
+  if (meta.triggerType !== "manual") {
+    pushString(lines, "event", meta.event);
+    pushString(lines, "condition", meta.condition);
+  }
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);
   pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
   pushString(lines, "executionHostId", meta.executionHostId);
+  pushString(lines, "runner", meta.runner);
   pushString(lines, "executionEngine", meta.executionEngine);
   pushString(lines, "executionCwd", meta.executionCwd);
   pushString(lines, "remoteRequestId", meta.remoteRequestId);
@@ -578,7 +615,9 @@ export function buildJobResourceContent(
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
-  pushString(lines, "timezone", meta.timezone);
+  if (meta.triggerType !== "manual") {
+    pushString(lines, "timezone", meta.timezone);
+  }
   pushString(lines, "lastRun", meta.lastRun);
   pushString(lines, "lastHistoryId", meta.lastHistoryId);
   if (meta.lastRunManual !== undefined)
@@ -588,6 +627,9 @@ export function buildJobResourceContent(
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
+  if (meta.triggerType !== "manual" && meta.triggerType !== "webhook") {
+    pushString(lines, "nextRun", meta.nextRun);
+  }
   pushString(lines, "lastErrorCode", meta.lastErrorCode);
   if (meta.consecutiveFailures !== undefined) {
     lines.push(`consecutiveFailures: ${meta.consecutiveFailures}`);
@@ -595,7 +637,6 @@ export function buildJobResourceContent(
   pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
   pushString(lines, "pausedReason", meta.pausedReason);
   pushString(lines, "pausedAt", meta.pausedAt);
-  pushString(lines, "nextRun", meta.nextRun);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
   pushString(lines, "deliveryDestination", meta.deliveryDestination);

@@ -38,6 +38,7 @@ Options:
   --limit N            Max results (default: 20)
   --format json        Output as JSON
   --includeArchived    Also include archived chats (excluded by default)
+  --includeHidden      Also include chats hidden by you (excluded by default)
   --help               Show this help message
 
 Examples:
@@ -53,10 +54,19 @@ Examples:
   if (isNaN(limit) || limit < 1) fail("--limit must be a positive integer");
 
   const includeArchived = parsed.includeArchived === "true";
+  const includeHidden = parsed.includeHidden === "true";
   const query = parsed.query;
   const threads = query
-    ? await searchThreads(owner, query, limit, { includeArchived })
-    : await listThreads(owner, { limit, offset: 0, includeArchived });
+    ? await searchThreads(owner, query, limit, {
+        includeArchived,
+        includeHidden,
+      })
+    : await listThreads(owner, {
+        limit,
+        offset: 0,
+        includeArchived,
+        includeHidden,
+      });
 
   if (parsed.format === "json") {
     console.log(
@@ -71,6 +81,7 @@ Examples:
             updatedAt: t.updatedAt,
             pinnedAt: t.pinnedAt ?? null,
             archivedAt: t.archivedAt ?? null,
+            hiddenAt: t.hiddenAt ?? null,
           })),
           count: threads.length,
         },
@@ -100,6 +111,7 @@ Examples:
     const flags = [
       t.pinnedAt ? "pinned" : null,
       t.archivedAt ? "archived" : null,
+      t.hiddenAt ? "hidden" : null,
     ].filter(Boolean);
     console.log(`  ${title}`);
     console.log(

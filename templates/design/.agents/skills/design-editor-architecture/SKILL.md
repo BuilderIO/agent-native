@@ -53,6 +53,7 @@ gather arguments.
 | Inspector style edit | `commands/style-change.ts` (one property), `commands/styles-change.ts` (many) |
 | Structure change | `commands/visual-structure-change.ts`, `commands/screen-visual-structure-change.ts` |
 | Layer move / rename | `commands/layer-move.ts`, `commands/layer-move-to-screen.ts`, `commands/layer-rename.ts` |
+| Auto layout, Hug / Fill / Fixed, freeform | `shared/layout-model.ts` reads and writes them for every surface; commands only measure (`measure-child-rects.ts`) and apply its patches |
 | Lock / hide a layer | `commands/toggle-layer-locked.ts`, `commands/toggle-layer-hidden.ts` |
 | Export | `commands/render-png-blob.ts`, `download-pdf.ts`, `download-svg.ts`, `copy-as-figma-svg.ts` |
 | Save / persistence | `commands/save-file-content.ts`, `commands/apply-file-content-update.ts` |

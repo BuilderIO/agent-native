@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import type { UnknownWriteCause } from "../types.js";
 
 export class EngineError extends Error {
   readonly errorCode?: string;
@@ -70,6 +71,8 @@ export interface EngineToolCallPart {
   id: string;
   name: string;
   input: unknown;
+  executionStepId?: string;
+  inputFingerprint?: string;
 }
 
 export interface EngineToolResultImagePart {
@@ -85,10 +88,14 @@ export interface EngineToolResultPart {
   toolName: string;
   toolInput: string;
   content: string;
+  executionStepId?: string;
+  inputFingerprint?: string;
   isError?: boolean;
   approvalPause?: boolean;
   approvalAskId?: string;
   outcome?: "unknown";
+  /** With `outcome`: what its event recorded left it unknown. */
+  unknownCause?: UnknownWriteCause;
   images?: EngineToolResultImagePart[];
 }
 
@@ -188,6 +195,15 @@ export interface EngineCapabilities {
   parallelToolCalls: boolean;
 }
 
+export type ModelDispatchDecision<T> =
+  | { started: true; value: T }
+  | { started: false };
+
+/** Runs the synchronous request start while the caller's coordination lock is held. */
+export type BeforeModelDispatch = <T>(
+  dispatch: () => T,
+) => Promise<ModelDispatchDecision<T>>;
+
 export interface EngineStreamOptions {
   model: string;
   systemPrompt: string;
@@ -197,6 +213,8 @@ export interface EngineStreamOptions {
   maxOutputTokens?: number;
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
+  beforeModelDispatch?: BeforeModelDispatch;
+  onModelDispatchStarted?: () => void;
   providerOptions?: {
     anthropic?: {
       thinking?: { type: "enabled"; budgetTokens: number };
@@ -207,6 +225,20 @@ export interface EngineStreamOptions {
     google?: Record<string, unknown>;
     [provider: string]: Record<string, unknown> | undefined;
   };
+}
+
+export async function startModelDispatch<T>(
+  options: Pick<
+    EngineStreamOptions,
+    "beforeModelDispatch" | "onModelDispatchStarted"
+  >,
+  dispatch: () => T,
+): Promise<ModelDispatchDecision<T>> {
+  const result = options.beforeModelDispatch
+    ? await options.beforeModelDispatch(dispatch)
+    : { started: true as const, value: dispatch() };
+  if (result.started) options.onModelDispatchStarted?.();
+  return result;
 }
 
 export interface AgentEngine {

@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getCredentialContext: vi.fn(),
-  execute: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   upsertCustomProvider: vi.fn(),
   deleteCustomProvider: vi.fn(),
   listCustomProviders: vi.fn(),
@@ -22,10 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext: mocks.getCredentialContext,
-}));
-
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: mocks.execute }),
+  readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
 vi.mock("@agent-native/core/provider-api", async (importOriginal) => {
@@ -43,7 +40,7 @@ vi.mock("@agent-native/core/provider-api", async (importOriginal) => {
 const action = (await import("./provider-api-register.js")).default;
 
 function mockOrgRole(role: string | null): void {
-  mocks.execute.mockResolvedValue({ rows: role ? [{ role }] : [] });
+  mocks.readOrgMemberRole.mockResolvedValue(role);
 }
 
 const baseUpsertInput = {
@@ -136,7 +133,7 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       null,
     );
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
   });
 
   it("allows an org-scope upsert/delete when the caller has no active org", async () => {
@@ -165,7 +162,7 @@ describe("provider-api-register org-scope authorization", () => {
       "my-api",
       "owner",
     );
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
   });
 
   it("does not gate org-scope list/get reads on org role", async () => {
@@ -181,6 +178,15 @@ describe("provider-api-register org-scope authorization", () => {
       "org-a",
       "my-api",
     );
-    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
+  });
+
+  it("rejects owner/admin writes when the shared resolver caps a delegated role", async () => {
+    mockOrgRole("member");
+
+    await expect(
+      action.run({ ...baseUpsertInput, scope: "org" }),
+    ).rejects.toThrow(/owners and admins/i);
+    expect(mocks.upsertCustomProvider).not.toHaveBeenCalled();
   });
 });

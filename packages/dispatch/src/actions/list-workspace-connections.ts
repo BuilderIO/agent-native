@@ -79,23 +79,19 @@ async function listGrantApps(): Promise<GrantApp[]> {
   const listWorkspaceApps = dispatchActions["list-workspace-apps"];
   if (!listWorkspaceApps) return [{ id: "dispatch", label: "Dispatch" }];
 
-  try {
-    const apps = (await listWorkspaceApps.run({
-      includeAgentCards: false,
-      audience: "all",
-    } as any)) as WorkspaceApp[];
-    const grantApps = apps
-      .filter((app) => !app.archived && app.status !== "pending")
-      .map((app) => ({
-        id: app.id,
-        label: app.name || humanizeAppId(app.id),
-      }));
-    return grantApps.length > 0
-      ? grantApps
-      : [{ id: "dispatch", label: "Dispatch" }];
-  } catch {
-    return [{ id: "dispatch", label: "Dispatch" }];
-  }
+  const apps = (await listWorkspaceApps.run({
+    includeAgentCards: false,
+    audience: "all",
+  } as any)) as WorkspaceApp[];
+  const grantApps = apps
+    .filter((app) => !app.archived && app.status !== "pending")
+    .map((app) => ({
+      id: app.id,
+      label: app.name || humanizeAppId(app.id),
+    }));
+  return grantApps.length > 0
+    ? grantApps
+    : [{ id: "dispatch", label: "Dispatch" }];
 }
 
 export default defineAction({

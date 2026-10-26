@@ -43,7 +43,6 @@ import {
 } from "../derive/layer-model-coverage";
 import { NO_SELECTORS } from "../design-editor-shared";
 import { withMeasuredGeometry } from "../editor-helpers";
-import { getDesignEditorStateUrlSearch } from "../editor-state";
 import { layerStateIdsForScreen } from "../layer-state-scope";
 import {
   shouldPreferRuntimeLayerProjection,
@@ -97,20 +96,13 @@ export function useEditorLayerModels({
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorExportAndHandoff: EditorExportAndHandoff;
 }) {
+  const { t, initialSearchParams, viewMode, selectedElement, activeFileId } =
+    editorCore;
   const {
-    t,
-    location,
-    initialSearchParams,
-    mode,
-    activeTool,
-    viewMode,
-    selectedElement,
-    activeFileId,
-  } = editorCore;
-  const {
-    setActiveLeftPanel,
     expandedLayerIds,
     selectedLayerIdsState,
+    renderedElementInfoByLayerKeyRef,
+    renderedElementInfoVersion,
     codeLayerOwnerByNodeIdRef,
     overviewSelectedScreenIds,
     createdOverviewLayerSelection,
@@ -121,7 +113,6 @@ export function useEditorLayerModels({
   } = editorHistory;
   const { design } = editorGenerationAndAccess;
   const {
-    navigate,
     files,
     codeLayerSourceForScreen,
     runtimeLayerSnapshotsById,
@@ -138,7 +129,6 @@ export function useEditorLayerModels({
     getProjectionContentForScreen,
   } = editorCanvasAndScreens;
   const {
-    zoom,
     activeCodeLayerProjection,
     selectedElementLayerId,
     selectedCanvasSelectorCandidates,
@@ -896,46 +886,6 @@ export function useEditorLayerModels({
     [codeLayerOwnerByNodeId, selectedElementLayerId, selectedLayerIds],
   );
 
-  const handleShaderEditCode = useCallback(
-    (_shaderId: string) => {
-      const targetFileId = activeFile?.id ?? activeFileId;
-      if (!targetFileId) return;
-      setActiveLeftPanel("code");
-      const nextSearch = getDesignEditorStateUrlSearch({
-        currentSearch: location.search,
-        viewMode,
-        screenId: activeFile?.id ?? activeFileId ?? undefined,
-        leftPanel: "code",
-        codeFileId: targetFileId,
-        selectionId: selectedUrlSelectionId,
-        zoom,
-        tool: activeTool,
-        mode,
-      });
-      if (nextSearch === location.search) return;
-      void navigate(
-        {
-          pathname: location.pathname,
-          search: nextSearch,
-          hash: location.hash,
-        },
-        { replace: true, preventScrollReset: true },
-      );
-    },
-    [
-      activeFile?.id,
-      activeFileId,
-      activeTool,
-      location.hash,
-      location.pathname,
-      location.search,
-      navigate,
-      selectedUrlSelectionId,
-      mode,
-      viewMode,
-      zoom,
-    ],
-  );
   const selectedLayerIdsRef = useRef<string[]>(selectedLayerIds);
 
   const selectedElementScreenId = useMemo(() => {
@@ -954,13 +904,35 @@ export function useEditorLayerModels({
         .map((layerId) => {
           const owner = codeLayerOwnerByNodeId.get(layerId);
           if (!owner) return null;
+          // A bridge selection made before its screen's layers loaded carries
+          // no layer identity, yet this layer was resolved from it.
+          const selectedInfo =
+            selectedElement &&
+            !selectedElement.sourceLayerIdentity &&
+            layerId === selectedElementLayerId &&
+            owner.fileId === activeFile?.id
+              ? {
+                  ...selectedElement,
+                  sourceLayerIdentity: {
+                    screenId: owner.fileId,
+                    nodeId: owner.node.id,
+                  },
+                }
+              : selectedElement;
+          const ownsSelectedElement =
+            selectedInfo?.sourceLayerIdentity?.screenId === owner.fileId &&
+            selectedInfo.sourceLayerIdentity.nodeId === owner.node.id;
           return {
             layerId,
             fileId: owner.fileId,
             node: owner.node,
             tree: owner.tree,
             elementInfo: elementInfoForOwnedCodeLayerNode({
-              info: selectedElement,
+              info: ownsSelectedElement
+                ? selectedInfo
+                : (renderedElementInfoByLayerKeyRef.current.get(
+                    `${owner.fileId}:${owner.node.id}`,
+                  ) ?? null),
               node: owner.node,
               ownerFileId: owner.fileId,
             }),
@@ -968,8 +940,12 @@ export function useEditorLayerModels({
         })
         .filter((target): target is SelectedLayerTarget => Boolean(target)),
     [
+      activeFile?.id,
       codeLayerOwnerByNodeId,
+      renderedElementInfoByLayerKeyRef,
+      renderedElementInfoVersion,
       selectedElement,
+      selectedElementLayerId,
       selectedElementScreenId,
       selectedLayerIds,
     ],
@@ -1082,7 +1058,6 @@ export function useEditorLayerModels({
     canEditSelectedLiveLayer,
     canEditSingleSelectedLiveLayer,
     selectedUrlSelectionId,
-    handleShaderEditCode,
     selectedLayerIdsRef,
     selectedElementScreenId,
     selectedLayerTargets,

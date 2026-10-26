@@ -21,7 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type {
   BindContentDatabaseSourceFieldRequest,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSource,
   ContentDatabaseSummary,
   DocumentProperty,
@@ -167,6 +167,14 @@ import {
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import {
+  PropertyCommentControl,
+  usePropertyCommentRowState,
+} from "./property-comments";
+import {
+  formatPropertyDate,
+  formatPropertyDateTime,
+} from "./property-date-format";
 
 type TFunction = ReturnType<typeof useT>;
 
@@ -278,56 +286,12 @@ function slugify(value: string) {
   return slug || `option-${Date.now()}`;
 }
 
-function formatDate(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date(year, month - 1, day));
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatDateTime(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
-    const [datePart, timePart] = value.split("T");
-    const [year, month, day] = datePart.split("-").map(Number);
-    const [hour, minute] = timePart.split(":").map(Number);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(year, month - 1, day, hour, minute));
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function formatPropertyDateDisplayValue(
   value: DocumentProperty["value"],
   t?: TFunction,
 ) {
   const includeTime = documentPropertyDateIncludesTime(value);
-  const formatter = includeTime ? formatDateTime : formatDate;
+  const formatter = includeTime ? formatPropertyDateTime : formatPropertyDate;
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
   if (!start) return tWithFallback(t, "editor.properties.empty", "Empty");
@@ -388,7 +352,7 @@ export function displayValue(
   }
 
   if (type === "created_time" || type === "last_edited_time") {
-    return <span>{formatDateTime(propertyText(value))}</span>;
+    return <span>{formatPropertyDateTime(propertyText(value))}</span>;
   }
 
   if (type === "person") {
@@ -1131,6 +1095,7 @@ function PropertyRow({
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const commentState = usePropertyCommentRowState(property.definition.id);
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
       {displayValue(property, t, "compact", { interactiveRelations: true })}
@@ -1138,7 +1103,21 @@ function PropertyRow({
   );
 
   return (
-    <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
+    <div
+      className={cn(
+        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
+        // The Comment control floats at the right edge; room is kept for
+        // it only while it stays visible, so narrow panels keep their values.
+        commentState.enabled && commentState.shown && "pr-10",
+        commentState.enabled &&
+          commentState.pending &&
+          "comment-highlight--pending comment-property-row--pending",
+        commentState.enabled &&
+          commentState.active &&
+          "comment-property-row--active",
+      )}
+      data-property-row={property.definition.id}
+    >
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           databaseDocumentId={databaseDocumentId}
@@ -1186,6 +1165,9 @@ function PropertyRow({
       ) : (
         value
       )}
+      {commentState.enabled ? (
+        <PropertyCommentControl property={property} />
+      ) : null}
     </div>
   );
 }
@@ -1279,7 +1261,7 @@ export function PropertyManagementPopover({
     databaseId,
   );
   const bindSourceField = useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
     invalidates: [

@@ -4,7 +4,6 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   type CodeLayerNode,
-  type CodeLayerSource,
 } from "@shared/code-layer";
 import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
@@ -14,10 +13,13 @@ import { toast } from "sonner";
 
 import type { CanvasAgentPreset } from "@/components/design/CanvasContextMenu";
 import { trace } from "@/components/design/design-trace";
+import type { LayoutNodePatches } from "@/components/design/edit-panel/style-change-types";
 import {
   getInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
 } from "@/components/design/multi-screen/frame-geometry";
+import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { designPreviewWindowsForScreen } from "@/components/design/multi-screen/measure-selection";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
@@ -49,6 +51,8 @@ import {
 import { runAddAutoLayout } from "../commands/add-auto-layout";
 import {
   alignSelectionAvailability,
+  type CommitNodeStylePatches,
+  type MeasureAlignSelection,
   runAlignSelection,
 } from "../commands/align-selection";
 import { runApplyLayoutFlow } from "../commands/apply-layout-flow";
@@ -65,6 +69,8 @@ import {
   scheduleCrossScreenInsertTimeout,
 } from "../commands/cross-screen-insert-timeout";
 import { runDistributeSelection } from "../commands/distribute-selection";
+import { collectLiveSizeHints } from "../commands/frame-selection";
+import { runRemoveAutoLayout } from "../commands/remove-auto-layout";
 import { runSuggestAutoLayout } from "../commands/suggest-auto-layout";
 import { runTidyUp } from "../commands/tidy-up";
 import {
@@ -75,15 +81,15 @@ import {
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
 } from "../editor-constants";
-import { isAbsoluteCodeLayerNode } from "../html-layer-positioning";
 import {
-  type AlignableRect,
-  authoredPxLength,
   computeOverlapReflowGeometry,
-  mergeAuthoredAndLiveRect,
+  measureAlignNodes,
   type ReflowCandidate,
 } from "../layout-operations";
-import { measureFreeformGeometry } from "../measure-child-rects";
+import {
+  measureFrameElement,
+  type FrameMeasurement,
+} from "../measure-child-rects";
 import { resolveOverviewScreenSourceType } from "../pending-edits";
 import { buildActiveFileNodeIdSet } from "../selection-state";
 import { areCommentPinsHidden } from "../tool-state";
@@ -108,6 +114,38 @@ const AGENT_PRESET_INSTRUCTIONS: Record<CanvasAgentPreset, string> = {
   states: "Generate empty, loading, and error states for this layer.",
   responsive: "Make this layer responsive so it adapts to narrow widths.",
 };
+
+/** The one rendered element for `node` in a screen's preview, or null when it is missing or ambiguous. */
+function liveElementInPreview(
+  preview: Window,
+  node: CodeLayerNode,
+): HTMLElement | null {
+  let doc: Document;
+  try {
+    doc = preview.document;
+  } catch {
+    // coercion-ok: a cross-origin preview cannot be measured; callers refuse on null.
+    return null;
+  }
+  const stableId = node.dataAttributes["data-agent-native-node-id"];
+  const selectors = [
+    ...(stableId
+      ? [`[data-agent-native-node-id="${CSS.escape(stableId)}"]`]
+      : []),
+    ...node.selectors,
+    node.selector,
+  ];
+  for (const selector of selectors) {
+    if (!selector) continue;
+    try {
+      const found = doc.querySelectorAll<HTMLElement>(selector);
+      if (found.length === 1) return found[0]!;
+    } catch {
+      // coercion-ok: a projection selector may not be valid CSS
+    }
+  }
+  return null;
+}
 
 export function useEditorLayoutAndStructure({
   editorCore,
@@ -247,89 +285,74 @@ export function useEditorLayoutAndStructure({
     };
   }, [boardFileId]);
 
+  const activeScreenPreviewWindow = useCallback((): Window | null => {
+    if (typeof document === "undefined" || !activeFile?.id) return null;
+    const [preview] = designPreviewWindowsForScreen(
+      activeFile.id,
+      activeBreakpointWidthStateRef.current,
+      boardFileId,
+    );
+    return preview ?? null;
+  }, [activeBreakpointWidthStateRef, activeFile?.id, boardFileId]);
+
   const liveElementForNode = useCallback(
     (node: CodeLayerNode): HTMLElement | null => {
-      if (typeof document === "undefined") return null;
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      );
-      const doc = iframe?.contentDocument;
-      if (!doc) return null;
-      const stableId = node.dataAttributes["data-agent-native-node-id"];
-      const selectors = [
-        ...(stableId
-          ? [`[data-agent-native-node-id="${CSS.escape(stableId)}"]`]
-          : []),
-        ...node.selectors,
-        node.selector,
-      ];
-      for (const selector of selectors) {
-        if (!selector) continue;
-        try {
-          const found = doc.querySelectorAll<HTMLElement>(selector);
-          if (found.length === 1) return found[0]!;
-        } catch {
-          // coercion-ok: a projection selector may not be valid CSS
-        }
+      const preview = activeScreenPreviewWindow();
+      return preview ? liveElementInPreview(preview, node) : null;
+    },
+    [activeScreenPreviewWindow],
+  );
+
+  const measureLayoutFrame = useCallback(
+    (node: CodeLayerNode): FrameMeasurement => {
+      const preview = activeScreenPreviewWindow();
+      if (!preview) {
+        return {
+          status: "unmeasurable",
+          nodeId: node.id,
+          reason: "no-preview",
+        };
       }
-      return null;
+      const element = liveElementInPreview(preview, node);
+      if (!element) {
+        return { status: "unmeasurable", nodeId: node.id, reason: "not-found" };
+      }
+      const measured = measureFrameElement(element);
+      return measured.status === "measured"
+        ? measured
+        : { status: "unmeasurable", nodeId: node.id, reason: measured.reason };
     },
-    [],
+    [activeScreenPreviewWindow],
   );
 
-  const liveBoxesForNode = useCallback(
-    (
-      node: CodeLayerNode,
-    ): {
-      self: { x: number; y: number; width: number; height: number } | null;
-      parent: { width: number; height: number } | null;
-    } | null => {
-      const el = liveElementForNode(node);
-      if (!el) return null;
-      const parent = el.parentElement;
-      const offsetParent = el.offsetParent;
-      const size = { width: el.offsetWidth, height: el.offsetHeight };
-      const self =
-        offsetParent && parent
-          ? offsetParent === parent
-            ? { x: el.offsetLeft, y: el.offsetTop, ...size }
-            : parent.offsetParent === offsetParent
-              ? {
-                  x: el.offsetLeft - parent.offsetLeft - parent.clientLeft,
-                  y: el.offsetTop - parent.offsetTop - parent.clientTop,
-                  ...size,
-                }
-              : null
-          : null;
-      return {
-        self,
-        parent:
-          parent &&
-          offsetParent === parent &&
-          parent.clientWidth > 0 &&
-          parent.clientHeight > 0
-            ? { width: parent.clientWidth, height: parent.clientHeight }
-            : null,
-      };
+  const measureAlignSelection = useCallback<MeasureAlignSelection>(
+    (nodes, options) => {
+      const preview = activeScreenPreviewWindow();
+      if (!preview) {
+        return {
+          status: "unmeasurable",
+          nodeId: nodes[0]?.id ?? "",
+          reason: "no-preview",
+        };
+      }
+      const targets: { id: string; element: Element }[] = [];
+      for (const node of nodes) {
+        const element = liveElementInPreview(preview, node);
+        if (!element) {
+          return {
+            status: "unmeasurable",
+            nodeId: node.id,
+            reason: "not-found",
+          };
+        }
+        targets.push({ id: node.id, element });
+      }
+      return measureAlignNodes(preview, targets, {
+        screenIsAlignable: activeFile?.id !== boardFileId,
+        checkNestedLayers: options?.checkNestedLayers ?? false,
+      });
     },
-    [liveElementForNode],
-  );
-
-  const rectLiveFallbackForNode = useCallback(
-    (node: CodeLayerNode) => liveBoxesForNode(node)?.self ?? null,
-    [liveBoxesForNode],
-  );
-
-  const measureAlignParentBox = useCallback(
-    (node: CodeLayerNode, parentNode: CodeLayerNode) => {
-      const boxes = liveBoxesForNode(node);
-      if (boxes) return boxes.parent;
-      const width = authoredPxLength(parentNode.style.width);
-      const height = authoredPxLength(parentNode.style.height);
-      if (width === null || height === null) return null;
-      return width > 0 && height > 0 ? { width, height } : null;
-    },
-    [liveBoxesForNode],
+    [activeFile?.id, activeScreenPreviewWindow, boardFileId],
   );
 
   const liveComputedLayoutForNode = useCallback(
@@ -347,33 +370,6 @@ export function useEditorLayoutAndStructure({
       };
     },
     [liveElementForNode],
-  );
-
-  const rectFromCodeLayerNode = useCallback(
-    (node: CodeLayerNode): AlignableRect => {
-      const authoredX = authoredPxLength(node.style.left);
-      const authoredY = authoredPxLength(node.style.top);
-      const authoredWidth = authoredPxLength(node.style.width);
-      const authoredHeight = authoredPxLength(node.style.height);
-      const live =
-        authoredX !== null &&
-        authoredY !== null &&
-        authoredWidth !== null &&
-        authoredHeight !== null
-          ? null
-          : rectLiveFallbackForNode(node);
-      return mergeAuthoredAndLiveRect({
-        id: node.id,
-        authored: {
-          x: authoredX ?? undefined,
-          y: authoredY ?? undefined,
-          width: authoredWidth ?? undefined,
-          height: authoredHeight ?? undefined,
-        },
-        live,
-      });
-    },
-    [rectLiveFallbackForNode],
   );
 
   const getActiveFileSelectedNodeIds = useCallback(
@@ -395,71 +391,45 @@ export function useEditorLayoutAndStructure({
     [activeFile?.id, codeLayerSourceForScreen, files, selectedLayerIdsState],
   );
 
-  const commitNodePositions = useCallback(
-    (
-      baseContent: string,
-      positions: ReadonlyMap<string, { x: number; y: number }>,
-      providedSource?: CodeLayerSource,
-    ): boolean => {
-      if (positions.size === 0 || !activeFile?.id) return false;
-      if (providedSource && providedSource.fileId !== activeFile.id)
-        return false;
+  const commitNodePositions = useCallback<CommitNodeStylePatches>(
+    (baseContent, patches, providedSource) => {
+      if (patches.size === 0 || !activeFile?.id) return { applied: false };
+      if (providedSource && providedSource.fileId !== activeFile.id) {
+        return { applied: false };
+      }
       const source = providedSource ?? codeLayerSourceForScreen(activeFile.id);
       let content = baseContent;
-      let appliedAny = false;
-      for (const [nodeId, position] of positions) {
-        const projection = buildCodeLayerProjection(content, { source });
-        const node = projection.nodes.find((n) => n.id === nodeId);
-        if (node && !isAbsoluteCodeLayerNode(node)) {
-          const positionPatch = applyVisualEdit(
+      // All or nothing: a node left half-patched is worse than one not moved.
+      for (const [nodeId, patch] of patches) {
+        for (const [property, value] of patch) {
+          const edit = applyVisualEdit(
             content,
-            {
-              kind: "style",
-              target: { nodeId },
-              property: "position",
-              value: "absolute",
-            },
+            { kind: "style", target: { nodeId }, property, value },
             { source },
           );
-          if (positionPatch.result.status === "applied") {
-            content = positionPatch.content;
+          if (edit.result.status !== "applied") {
+            trace("structure", "layout-move-refused", {
+              nodeId,
+              property,
+              status: edit.result.status,
+            });
+            return { applied: false, message: edit.result.message };
           }
+          content = edit.content;
         }
-        const leftPatch = applyVisualEdit(
-          content,
-          {
-            kind: "style",
-            target: { nodeId },
-            property: "left",
-            value: `${position.x}px`,
-          },
-          { source },
-        );
-        if (leftPatch.result.status !== "applied") continue;
-        content = leftPatch.content;
-        const topPatch = applyVisualEdit(
-          content,
-          {
-            kind: "style",
-            target: { nodeId },
-            property: "top",
-            value: `${position.y}px`,
-          },
-          { source },
-        );
-        if (topPatch.result.status !== "applied") continue;
-        content = topPatch.content;
-        appliedAny = true;
       }
-      if (!appliedAny) return false;
       applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
-      return true;
+      return { applied: true };
     },
     [activeFile?.id, applyLocalContentUpdate, codeLayerSourceForScreen],
   );
 
   const handleApplyLayoutFlow = useCallback(
-    (nodeId: string | null, containerStyles: Record<string, string>) => {
+    (
+      nodeId: string | null,
+      containerStyles: Record<string, string>,
+      nodePatches?: LayoutNodePatches,
+    ) => {
       const content = getFreshActiveContent();
       const selectedNodeIds = content
         ? getActiveFileSelectedNodeIds(content)
@@ -488,6 +458,7 @@ export function useEditorLayoutAndStructure({
         },
         targetIds,
         containerStyles,
+        nodePatches,
       );
     },
     [
@@ -504,7 +475,7 @@ export function useEditorLayoutAndStructure({
   );
 
   const handleDisableAutoLayout = useCallback(
-    (nodeId: string) => {
+    (nodeId?: string) => {
       if (!canEditDesign) return;
       if (!activeFile?.id) return;
       const baseContent = getFreshActiveContent();
@@ -515,27 +486,29 @@ export function useEditorLayoutAndStructure({
         });
         return;
       }
-      const geometry = measureFreeformGeometry(nodeId);
-      const patch = applyVisualEdit(
+      const selectedNodeIds = getActiveFileSelectedNodeIds(baseContent);
+      const nodeIds =
+        nodeId && !selectedNodeIds.includes(nodeId)
+          ? [nodeId]
+          : selectedNodeIds;
+      const source = codeLayerSourceForScreen(activeFile.id);
+      const projection = buildCodeLayerProjection(baseContent, { source });
+      runRemoveAutoLayout({
+        applyLocalContentUpdate,
         baseContent,
-        {
-          kind: "autoLayout",
-          targetId: nodeId,
-          enabled: false,
-          childRects: geometry.children,
-          ...(geometry.container ? { containerRect: geometry.container } : {}),
+        measure: (id) => {
+          const node = projection.nodes.find(
+            (candidate) =>
+              candidate.id === id ||
+              candidate.dataAttributes["data-agent-native-node-id"] === id,
+          );
+          return node
+            ? measureLayoutFrame(node)
+            : { status: "unmeasurable", nodeId: id, reason: "not-found" };
         },
-        { source: codeLayerSourceForScreen(activeFile.id) },
-      );
-      trace("structure", "freeform", {
-        nodeId,
-        measuredChildren: Object.keys(geometry.children).length,
-        measuredContainer: geometry.container !== null,
-        status: patch.result.status,
-      });
-      if (patch.result.status !== "applied") return;
-      applyLocalContentUpdate(patch.content, {
-        forcePreviewFullDocument: true,
+        nodeIds,
+        source,
+        t,
       });
     },
     [
@@ -543,7 +516,10 @@ export function useEditorLayoutAndStructure({
       applyLocalContentUpdate,
       canEditDesign,
       codeLayerSourceForScreen,
+      getActiveFileSelectedNodeIds,
       getFreshActiveContent,
+      measureLayoutFrame,
+      t,
     ],
   );
 
@@ -561,12 +537,12 @@ export function useEditorLayoutAndStructure({
           getActiveFileSelectedNodeIds,
           getFreshActiveContent,
           handleGeometryCommit,
-          measureAlignParentBox,
+          measureSelection: measureAlignSelection,
           overviewScreens,
           overviewSelectedScreenIds,
-          rectFromCodeLayerNode,
           selectedElement,
           selectedLayerIdsState,
+          t,
           viewModeRef,
         },
         edge,
@@ -580,11 +556,12 @@ export function useEditorLayoutAndStructure({
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       handleGeometryCommit,
-      measureAlignParentBox,
+      measureAlignSelection,
       overviewScreens,
       overviewSelectedScreenIds,
+      selectedElement,
       selectedLayerIdsState,
-      rectFromCodeLayerNode,
+      t,
     ],
   );
 
@@ -593,7 +570,7 @@ export function useEditorLayoutAndStructure({
       alignSelectionAvailability({
         canEditDesign,
         fileIds: files.map((file) => file.id),
-        measureAlignParentBox,
+        measureSelection: measureAlignSelection,
         overviewSelectedScreenIds,
         resolveNodesById: () =>
           new Map(
@@ -607,7 +584,7 @@ export function useEditorLayoutAndStructure({
       activeCodeLayerProjection,
       canEditDesign,
       files,
-      measureAlignParentBox,
+      measureAlignSelection,
       overviewSelectedScreenIds,
       selectedElement,
       selectedLayerIdsState,
@@ -628,9 +605,10 @@ export function useEditorLayoutAndStructure({
           getActiveFileSelectedNodeIds,
           getFreshActiveContent,
           handleGeometryCommit,
+          measureSelection: measureAlignSelection,
           overviewScreens,
           overviewSelectedScreenIds,
-          rectFromCodeLayerNode,
+          t,
           viewModeRef,
         },
         axis,
@@ -644,9 +622,10 @@ export function useEditorLayoutAndStructure({
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       handleGeometryCommit,
+      measureAlignSelection,
       overviewScreens,
       overviewSelectedScreenIds,
-      rectFromCodeLayerNode,
+      t,
     ],
   );
 
@@ -737,9 +716,10 @@ export function useEditorLayoutAndStructure({
         getFreshActiveContent,
         getScreenGroupFootprint,
         handleGeometryCommit,
+        measureSelection: measureAlignSelection,
         overviewScreens,
         overviewSelectedScreenIds,
-        rectFromCodeLayerNode,
+        t,
         viewModeRef,
       }),
     [
@@ -752,9 +732,10 @@ export function useEditorLayoutAndStructure({
       getFreshActiveContent,
       getScreenGroupFootprint,
       handleGeometryCommit,
+      measureAlignSelection,
       overviewScreens,
       overviewSelectedScreenIds,
-      rectFromCodeLayerNode,
+      t,
     ],
   );
 
@@ -811,8 +792,7 @@ export function useEditorLayoutAndStructure({
         designSourceType,
         getActiveFileSelectedNodeIds,
         getFreshActiveContent,
-        liveComputedLayoutForNode,
-        rectFromCodeLayerNode,
+        measureLayoutFrame,
         runtimeLayerSnapshotsById,
         setAutoLayoutSuggestionPreview,
         t,
@@ -825,8 +805,7 @@ export function useEditorLayoutAndStructure({
       designSourceType,
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
-      liveComputedLayoutForNode,
-      rectFromCodeLayerNode,
+      measureLayoutFrame,
       runtimeLayerSnapshotsById,
       t,
     ],
@@ -891,6 +870,18 @@ export function useEditorLayoutAndStructure({
         applyFileContentUpdate,
         applyLocalContentUpdate,
         canEditDesign,
+        collectSizeHints: (nodeIds, projection) =>
+          collectLiveSizeHints(
+            nodeIds,
+            projection,
+            activeFile && activeBreakpointWidthStateRef.current !== undefined
+              ? getBreakpointIframeId(
+                  activeFile.id,
+                  activeBreakpointWidthStateRef.current,
+                )
+              : (activeFile?.id ?? ""),
+            boardFileId,
+          ),
         codeLayerOwnerByNodeIdRef,
         designSourceType,
         effectiveCodeLayerStateRef,
@@ -898,9 +889,10 @@ export function useEditorLayoutAndStructure({
         getActiveFileSelectedNodeIds,
         getFreshActiveContent,
         getScreenContent,
+        measureLayoutFrame,
+        measureSelection: measureAlignSelection,
         overviewScreens,
         overviewSelectedScreenIds,
-        rectFromCodeLayerNode,
         runtimeLayerSnapshotsById,
         selectedElement,
         selectedLayerIdsState,
@@ -919,9 +911,12 @@ export function useEditorLayoutAndStructure({
       getActiveFileSelectedNodeIds,
       getFreshActiveContent,
       getScreenContent,
+      activeBreakpointWidthStateRef,
+      boardFileId,
+      measureAlignSelection,
+      measureLayoutFrame,
       overviewScreens,
       overviewSelectedScreenIds,
-      rectFromCodeLayerNode,
       runtimeLayerSnapshotsById,
       selectedElement,
       selectedLayerIdsState,

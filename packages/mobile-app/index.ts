@@ -1,6 +1,11 @@
 import "react-native-gesture-handler";
-import { registerRootComponent } from "expo";
 
-import RootLayout from "./app/_layout";
+if (
+  typeof window !== "undefined" &&
+  typeof window.addEventListener !== "function"
+) {
+  window.addEventListener = () => {};
+  window.removeEventListener = () => {};
+}
 
-registerRootComponent(RootLayout);
+require("expo-router/entry");

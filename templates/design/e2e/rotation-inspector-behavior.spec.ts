@@ -130,7 +130,7 @@ test("positive inspector rotation turns counter-clockwise and survives reload", 
   await expandAllLayers(page);
   await selectLayer(page, "Asymmetric marker");
   await expect(page.locator('input[aria-label="Rotation" i]')).toHaveValue(
-    "45deg",
+    "45°",
   );
   await expect
     .poll(() => readCssRotation(page, "rotation-asymmetric"))
@@ -172,8 +172,7 @@ test("relative rotation math uses degree values for each selected layer", async 
   await expectSelectionEnclosesBothAngles(app);
 });
 
-// fixme: product bug: After both layers are saved at rotate(-45deg) the Rotation field keeps showing 'Mixed' (15s); the selection box also shows a 51x51 badge
-test.fixme("absolute rotation preserves each selected layer's translation and scale", async ({
+test("absolute rotation preserves each selected layer's translation and scale", async ({
   app,
   page,
 }) => {
@@ -202,6 +201,6 @@ test.fixme("absolute rotation preserves each selected layer's translation and sc
     "rotation-first",
     "rotation-second",
   ]);
-  await expect(rotation, "both layers now share 45deg").toHaveValue("45deg");
+  await expect(rotation, "both layers now share 45°").toHaveValue("45°");
   await expectSelectionEnclosesBothAngles(app);
 });

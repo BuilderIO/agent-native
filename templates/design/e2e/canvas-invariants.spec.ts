@@ -129,7 +129,7 @@ async function commitField(app: App, axis: "X" | "Y" | "W", value: string) {
   await app.settled();
 }
 
-/** The browser's own layout size, rounded the way the inspector rounds (one decimal). */
+/** The browser's own layout size to one decimal; the inspector shows it as whole pixels. */
 async function laidOutSize(app: App, nodeId: string) {
   return app.node(nodeId).evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -240,8 +240,7 @@ async function layoutGrid(app: App, designId: string, size: number) {
 }
 
 test.describe("inspector reports the truth", () => {
-  // fixme: product bug: Known family, clipped inspector fields: the H control's accessible name is 'H 115.4 Hug' but it displays 'H 11... Hug'. X/Y/W pass.
-  test.fixme("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
+  test("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
     app,
   }) => {
     await openPage(app);
@@ -249,11 +248,11 @@ test.describe("inspector reports the truth", () => {
     await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
     const { height } = await laidOutSize(app, "intro");
 
-    await expect(positionInput(app, "X")).toHaveValue("20px");
-    await expect(positionInput(app, "Y")).toHaveValue("200px");
-    await expect(fixedSizeInput(app, "W")).toHaveValue("280px");
+    await expect(positionInput(app, "X")).toHaveValue("20");
+    await expect(positionInput(app, "Y")).toHaveValue("200");
+    await expect(fixedSizeInput(app, "W")).toHaveValue("280");
     const hug = app.page.getByRole("button", {
-      name: `H ${height} Hug`,
+      name: `H ${Math.round(height)} Hug`,
       exact: true,
     });
     await expect(hug).toBeVisible();
@@ -275,10 +274,10 @@ test.describe("inspector reports the truth", () => {
     await clickNode(app, "plain-box");
 
     await expect.poll(() => app.selectedLayers()).toEqual(["Plain Box"]);
-    await expect(positionInput(app, "X")).toHaveValue("20px");
-    await expect(positionInput(app, "Y")).toHaveValue("560px");
-    await expect(fixedSizeInput(app, "W")).toHaveValue("160px");
-    await expect(fixedSizeInput(app, "H")).toHaveValue("100px");
+    await expect(positionInput(app, "X")).toHaveValue("20");
+    await expect(positionInput(app, "Y")).toHaveValue("560");
+    await expect(fixedSizeInput(app, "W")).toHaveValue("160");
+    await expect(fixedSizeInput(app, "H")).toHaveValue("100");
   });
 
   test("a stretched child of an auto-layout column shows its laid-out width and height", async ({
@@ -297,7 +296,7 @@ test.describe("inspector reports the truth", () => {
       app.page.getByRole("button", { name: /^W 280 / }),
     ).toBeVisible();
     await expect(
-      app.page.getByRole("button", { name: /^H 26\.4 / }),
+      app.page.getByRole("button", { name: /^H 26 / }),
     ).toBeVisible();
   });
 
@@ -308,8 +307,8 @@ test.describe("inspector reports the truth", () => {
     await layerButton(app, "Intro").click();
     await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
 
-    await expect(positionInput(app, "X")).toHaveValue("32px");
-    await expect(positionInput(app, "Y")).toHaveValue("164px");
+    await expect(positionInput(app, "X")).toHaveValue("32");
+    await expect(positionInput(app, "Y")).toHaveValue("164");
   });
 
   test("typing X then Y moves Plain Box to exactly that position and changes nothing else", async ({
@@ -346,16 +345,18 @@ test.describe("inspector reports the truth", () => {
     });
   });
 
-  test("re-entering the X shown for a nested child does not move it", async ({
+  test("an auto layout child shows its X read-only, placed by its parent", async ({
     app,
   }) => {
     const id = await openPage(app);
     await layerButton(app, "Title").click();
     await expect.poll(() => app.selectedLayers()).toEqual(["Title"]);
     const before = await app.savedNodes(id);
-    const shown = await positionInput(app, "X").inputValue();
 
-    await commitField(app, "X", shown.replace("px", ""));
+    await expect(positionInput(app, "X")).toBeDisabled();
+    await expect(positionInput(app, "Y")).toBeDisabled();
+    await expect(positionInput(app, "X")).toHaveValue("20");
+    await app.settled();
 
     expectOnlyChanged(before, await app.savedNodes(id), []);
     expect(await app.designRect("intro-title")).toEqual(
@@ -396,17 +397,31 @@ test.describe("auto layout", () => {
     await clickAt(app, 270, 380);
     await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
     const before = await app.savedNodes(id);
+    const childHeights = await Promise.all(
+      ["abs-title", "abs-sub", "abs-body"].map(
+        async (child) => (await app.designRect(child)).height,
+      ),
+    );
 
     await app.page.keyboard.press("Shift+A");
     await app.settled();
 
     const after = await app.savedNodes(id);
+    // Padding and gap come from where the children sat: flush top-left and
+    // overlapping, with the frame's fixed height left below the tallest one.
+    // The content-box height gives that padding back, so the frame keeps 200px.
+    const paddingBottom = Math.round(200 - Math.max(...childHeights));
     expect(styleOf(after.get("abs-intro"))).toEqual({
       ...styleOf(before.get("abs-intro")),
       display: "flex",
       "flex-direction": "row",
-      gap: "10px",
+      "align-items": "flex-start",
+      gap: "0px",
+      padding: `0px 0px ${paddingBottom}px 0px`,
+      height: `${200 - paddingBottom}px`,
     });
+    expect((await app.designRect("abs-intro")).height).toBe(200);
+    await expect(app.node("abs-intro")).toHaveCSS("align-items", "flex-start");
     expect(childrenOf(after, "abs-intro")).toStrictEqual([
       "abs-title",
       "abs-sub",
@@ -417,7 +432,7 @@ test.describe("auto layout", () => {
         (child) => styleOf(after.get(child)).position,
       ),
       "children become flow items",
-    ).toEqual(["static", "static", "static"]);
+    ).toStrictEqual([undefined, undefined, undefined]);
     expectOnlyChanged(before, after, [
       "abs-intro",
       "abs-title",
@@ -632,7 +647,7 @@ test.describe("moving", () => {
 });
 
 test.describe("selection", () => {
-  test("a click replaces the selection with the deepest node, Backslash walks up, and Escape clears", async ({
+  test("a click replaces the selection with the top-level layer, Cmd+click reaches the leaf, Backslash walks up, and Escape clears", async ({
     app,
   }) => {
     const id = await openPage(app);
@@ -641,6 +656,17 @@ test.describe("selection", () => {
     await expect.poll(() => app.selectedLayers()).toEqual(["Plain Box"]);
 
     await clickNode(app, "intro-title");
+    await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
+    const title = await app.designRect("intro-title");
+    const titleCenter = await app.pagePoint(
+      title.x + title.width / 2,
+      title.y + title.height / 2,
+    );
+    // A double-click on a heading would start editing its text.
+    const primary = process.platform === "darwin" ? "Meta" : "Control";
+    await app.page.keyboard.down(primary);
+    await app.page.mouse.click(titleCenter.x, titleCenter.y);
+    await app.page.keyboard.up(primary);
     await expect.poll(() => app.selectedLayers()).toEqual(["Title"]);
     await app.page.keyboard.press("\\");
     await expect.poll(() => app.selectedLayers()).toEqual(["Intro"]);
@@ -651,8 +677,7 @@ test.describe("selection", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: Escape right after drawing clears the canvas selection chrome, but the Layers panel and inspector keep Rectangle selected (selection
-  test.fixme("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
+  test("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
     app,
   }) => {
     const id = await openPage(app, DRAW_FRAME_PAGE);
@@ -668,9 +693,7 @@ test.describe("selection", () => {
       drawn.map((node) => [node.parent, node.attrs["data-an-primitive"]]),
     ).toEqual([["draw-frame", "rectangle"]]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Rectangle"]);
-
     await app.page.keyboard.press("Escape");
-
     await expect.poll(() => app.selectedLayers()).toEqual([]);
     await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
   });
@@ -718,8 +741,7 @@ test.describe("persistence and history", () => {
     expectOnlyChanged(edited, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: After redo the selection is Rectangle, not the re-created Frame. The saved undo/redo states are exact.
-  test.fixme("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
+  test("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
     app,
   }) => {
     const id = await openPage(app, BLANK_PAGE);
@@ -750,8 +772,7 @@ test.describe("persistence and history", () => {
 });
 
 test.describe("layers panel", () => {
-  // fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-  test.fixme("the tree mirrors DOM nesting with the last child on top", async ({
+  test("the tree mirrors DOM nesting: freeform children last-on-top, auto-layout children in layout order", async ({
     app,
   }) => {
     await openPage(app);
@@ -768,9 +789,9 @@ test.describe("layers panel", () => {
       ["Home", "1"],
       ["Plain Box", "2"],
       ["Intro", "2"],
-      ["Body", "3"],
-      ["Sub", "3"],
       ["Title", "3"],
+      ["Sub", "3"],
+      ["Body", "3"],
     ]);
   });
 

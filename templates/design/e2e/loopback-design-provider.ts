@@ -322,6 +322,20 @@ const server = createServer(async (req, res) => {
       };
     });
   }
+  if (
+    all.includes("quick-start actions for a web design and prototyping app")
+  ) {
+    const id = ++requestId;
+    const suggestions = Array.from({ length: 10 }, (_, index) => ({
+      label: `Loopback starter ${index + 1}`,
+      prompt: `Design loopback screen number ${index + 1}.`,
+    }));
+    res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+    res.end(
+      `${chunk(id, { role: "assistant", content: JSON.stringify(suggestions) })}${chunk(id, {}, "stop")}data: [DONE]\n\n`,
+    );
+    return;
+  }
   if (all.includes("Generate a very short title")) {
     const id = ++requestId;
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });

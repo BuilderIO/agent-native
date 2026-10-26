@@ -6,12 +6,24 @@ import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
 import { eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+  type ContentDatabaseFilter,
+  type ContentDatabaseItem,
   type ContentDatabaseNavigationPageResponse,
+  type DocumentProperty,
 } from "../shared/api.js";
+import { applyContentDatabaseTableQuery } from "../shared/database-query.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -1014,6 +1026,91 @@ describe("query-content-database-items Files navigation", () => {
       .where(eq(schema.contentDatabases.id, DATABASE_ID));
   });
 
+  it("combines each filter group with its own mode", async () => {
+    await addFile({ id: "group-mode-parent", position: 600 });
+    for (const title of [
+      "Alpha draft",
+      "Alpha final",
+      "Beta draft",
+      "Beta final",
+      "Gamma final",
+    ]) {
+      await addFile({
+        id: `group-mode-${title.toLowerCase().replace(" ", "-")}`,
+        parentId: "group-mode-parent",
+        title,
+      });
+    }
+    const name = (
+      operator: string,
+      value: string,
+      group: Record<string, string> = {},
+    ) => ({ key: "name", label: "Name", operator, value, ...group });
+    const advanced = (mode: "and" | "or") => ({
+      filterGroupId: "advanced",
+      filterGroupMode: mode,
+    });
+    const nested = (mode: "and" | "or", parentMode: "and" | "or") => ({
+      filterGroupId: "advanced-nested",
+      parentFilterGroupId: "advanced",
+      filterGroupMode: mode,
+      parentFilterGroupMode: parentMode,
+    });
+    const titlesFor = async (filters: unknown[], filterMode: "and" | "or") => {
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({
+          viewConfigJson: JSON.stringify({
+            activeViewId: "default",
+            views: [
+              {
+                id: "default",
+                name: "Table",
+                type: "table",
+                sorts: [{ key: "name", label: "Name", direction: "asc" }],
+                filters,
+                filterMode,
+                columnWidths: {},
+              },
+            ],
+          }),
+        })
+        .where(eq(schema.contentDatabases.id, DATABASE_ID));
+      const page = await navigate({
+        parentId: "group-mode-parent",
+        viewId: "default",
+      });
+      return page.items.map((item) => item.title);
+    };
+
+    expect(
+      await titlesFor(
+        [
+          name("does_not_equal", "Gamma final"),
+          name("contains", "Alpha", advanced("or")),
+          name("contains", "Beta", nested("and", "or")),
+          name("contains", "draft", nested("and", "or")),
+        ],
+        "and",
+      ),
+    ).toEqual(["Alpha draft", "Alpha final", "Beta draft"]);
+    expect(
+      await titlesFor(
+        [
+          name("equals", "Gamma final"),
+          name("contains", "final", advanced("and")),
+          name("contains", "Alpha", nested("or", "and")),
+          name("contains", "Beta", nested("or", "and")),
+        ],
+        "or",
+      ),
+    ).toEqual(["Alpha final", "Beta final", "Gamma final"]);
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
   it("uses personal filter mode, filters hasChildren, and scopes access before limit", async () => {
     await addFile({
       id: "filtered-parent",
@@ -1688,5 +1785,373 @@ describe("query-content-database-items Files navigation", () => {
         ),
       ),
     ).rejects.toMatchObject({ errorCode: "navigation_limit_exceeded" });
+  });
+});
+
+describe("Files navigation text and date filters", () => {
+  const CREATED_ID = "navigation-created-time";
+  const PARENT_ID = "date-filter-parent";
+  const createdDefinition = {
+    id: CREATED_ID,
+    databaseId: DATABASE_ID,
+    name: "Created",
+    type: "created_time",
+    visibility: "always_show",
+    options: {},
+    position: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } satisfies DocumentProperty["definition"];
+  const files = [
+    {
+      id: "date-filter-oct-14",
+      title: "Alpha Launch",
+      createdAt: "2026-10-14T12:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-21",
+      title: "alpha notes",
+      createdAt: "2026-10-21T23:30:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-start",
+      title: "Beta launch plan",
+      createdAt: "2026-10-22T00:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-evening",
+      title: "Beta Recap",
+      createdAt: "2026-10-22T18:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-22-end",
+      title: "\tGamma\n",
+      createdAt: "2026-10-22T23:59:59.999Z",
+    },
+    {
+      id: "date-filter-oct-23",
+      title: "Gamma launch",
+      createdAt: "2026-10-23T00:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-29",
+      title: "Delta\u00a0",
+      createdAt: "2026-10-29T12:00:00.000Z",
+    },
+    {
+      id: "date-filter-oct-30",
+      title: "Epsilon LAUNCH",
+      createdAt: "2026-10-30T00:00:00.000Z",
+    },
+  ];
+
+  beforeAll(async () => {
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: CREATED_ID,
+      ownerEmail: OWNER,
+      databaseId: DATABASE_ID,
+      name: "Created",
+      type: "created_time",
+    });
+    await addFile({ id: PARENT_ID, position: 700 });
+    for (const file of files) {
+      await addFile({ ...file, parentId: PARENT_ID });
+    }
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+  });
+
+  // Each Files row as the shared evaluator sees it.
+  const evaluatorItems: ContentDatabaseItem[] = files.map((file, position) => ({
+    id: `membership-${file.id}`,
+    databaseId: DATABASE_ID,
+    position,
+    document: {
+      id: file.id,
+      parentId: PARENT_ID,
+      title: file.title,
+      content: "",
+      icon: null,
+      position,
+      isFavorite: false,
+      hideFromSearch: false,
+      visibility: "private",
+      createdAt: file.createdAt,
+      updatedAt: file.createdAt,
+    },
+    properties: [
+      { definition: createdDefinition, value: file.createdAt, editable: false },
+    ],
+  }));
+
+  async function navigatedIds(filter: ContentDatabaseFilter, timezone: string) {
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [filter],
+              filterMode: "and",
+              columnWidths: {},
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, DATABASE_ID));
+    const page = (await runWithRequestContext(
+      { userEmail: OWNER, timezone },
+      () =>
+        action.run(
+          {
+            databaseId: DATABASE_ID,
+            navigation: { parentId: PARENT_ID, viewId: "default" },
+          },
+          { userEmail: OWNER } as any,
+        ),
+    )) as ContentDatabaseNavigationPageResponse;
+    return page.items.map((item) => item.documentId).sort();
+  }
+
+  function evaluatedIds(
+    filter: ContentDatabaseFilter,
+    today: string,
+    timeZone?: string,
+  ) {
+    return applyContentDatabaseTableQuery(
+      evaluatorItems,
+      [evaluatorItems[0]!.properties[0]!],
+      { search: "", filters: [filter], sorts: [] },
+      { today, timeZone },
+    )
+      .map((item) => item.document.id)
+      .sort();
+  }
+
+  const name = (
+    operator: ContentDatabaseFilter["operator"],
+    value: string,
+  ): ContentDatabaseFilter => ({ key: "name", label: "Name", operator, value });
+  const created = (
+    operator: ContentDatabaseFilter["operator"],
+    value: string,
+  ): ContentDatabaseFilter => ({
+    key: CREATED_ID,
+    label: "Created",
+    operator,
+    value,
+  });
+  const ids = (...suffixes: string[]) =>
+    suffixes.map((suffix) => `date-filter-${suffix}`).sort();
+
+  it("matches the shared evaluator for the new text operators", async () => {
+    const expected: Array<[ContentDatabaseFilter, string[]]> = [
+      [
+        name("does_not_contain", "LAUNCH"),
+        ids("oct-21", "oct-22-evening", "oct-22-end", "oct-29"),
+      ],
+      [name("starts_with", "alpha"), ids("oct-14", "oct-21")],
+      [name("starts_with", "BETA "), ids("oct-22-start", "oct-22-evening")],
+      [name("ends_with", "launch"), ids("oct-14", "oct-23", "oct-30")],
+      // Titles are trimmed of tabs, newlines and no-break spaces too.
+      [name("starts_with", "gamma"), ids("oct-22-end", "oct-23")],
+      [name("ends_with", "delta"), ids("oct-29")],
+      [name("equals", "gamma"), ids("oct-22-end")],
+    ];
+    for (const [filter, rows] of expected) {
+      expect(await navigatedIds(filter, "UTC")).toEqual(rows);
+      expect(evaluatedIds(filter, "2026-10-22")).toEqual(rows);
+    }
+  });
+
+  it("matches the shared evaluator on whole days and relative dates", async () => {
+    // 02:30 UTC on 23 October is still 22 October in New York.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));
+    const today = "2026-10-22";
+    const october22 = ["oct-22-start", "oct-22-evening", "oct-22-end"];
+    const everyFile = files.map((file) => file.id.replace("date-filter-", ""));
+    const expected: Array<[ContentDatabaseFilter, string[]]> = [
+      [created("equals", "2026-10-22"), ids(...october22)],
+      [
+        created("does_not_equal", "2026-10-22"),
+        ids("oct-14", "oct-21", "oct-23", "oct-29", "oct-30"),
+      ],
+      [created("before", "2026-10-22"), ids("oct-14", "oct-21")],
+      [
+        created("on_or_before", "2026-10-22"),
+        ids("oct-14", "oct-21", ...october22),
+      ],
+      [created("after", "2026-10-22"), ids("oct-23", "oct-29", "oct-30")],
+      [
+        created("on_or_after", "2026-10-22"),
+        ids(...october22, "oct-23", "oct-29", "oct-30"),
+      ],
+      [
+        created("between", JSON.stringify(["2026-10-22", "2026-10-22"])),
+        ids(...october22),
+      ],
+      [created("on_or_before", "today"), ids("oct-14", "oct-21", ...october22)],
+      [created("equals", "tomorrow"), ids("oct-23")],
+      [
+        created("between", JSON.stringify(["yesterday", "today"])),
+        ids("oct-21", ...october22),
+      ],
+      // 22 to 28 October.
+      [created("is_within", "next_7_days"), ids(...october22, "oct-23")],
+      [created("is_within", "past_7_days"), ids("oct-21", ...october22)],
+      [
+        created("is_within", "this_week"),
+        ids("oct-21", ...october22, "oct-23"),
+      ],
+      [
+        created("on_or_after", "2026-10-22T12:00:00.000Z"),
+        ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      // 17:00 UTC: as text, "…T19:00:00+02:00" sorts after the 18:00 UTC row.
+      [
+        created("on_or_after", "2026-10-22T19:00:00+02:00"),
+        ids("oct-22-evening", "oct-22-end", "oct-23", "oct-29", "oct-30"),
+      ],
+      [created("equals", "2026-10-22T20:00:00+02:00"), ids("oct-22-evening")],
+      [
+        created("does_not_equal", "2026-10-22T18:00:00.000Z"),
+        ids(
+          "oct-14",
+          "oct-21",
+          "oct-22-start",
+          "oct-22-end",
+          "oct-23",
+          "oct-29",
+          "oct-30",
+        ),
+      ],
+      [created("on_or_before", "2026-02-30"), []],
+      [created("is_within", "next_fortnight"), []],
+      // A range with a blank end is still being filled in, so it's skipped.
+      [
+        created("between", JSON.stringify(["2026-10-22", ""])),
+        ids(...everyFile),
+      ],
+      [created("between", "2026-10-22"), ids(...everyFile)],
+    ];
+    for (const [filter, rows] of expected) {
+      expect(await navigatedIds(filter, "America/New_York")).toEqual(rows);
+      expect(evaluatedIds(filter, today, "America/New_York")).toEqual(rows);
+    }
+  });
+
+  it("reads a time without an offset in the caller's time zone", async () => {
+    // Both are 17:00 UTC on 22 October; this machine's zone plays no part.
+    const rows = ids(
+      "oct-22-evening",
+      "oct-22-end",
+      "oct-23",
+      "oct-29",
+      "oct-30",
+    );
+    for (const [timezone, value, today] of [
+      ["America/New_York", "2026-10-22T13:00", "2026-10-22"],
+      ["Asia/Tokyo", "2026-10-23T02:00", "2026-10-23"],
+    ] as const) {
+      const filter = created("on_or_after", value);
+      expect(await navigatedIds(filter, timezone)).toEqual(rows);
+      expect(evaluatedIds(filter, today, timezone)).toEqual(rows);
+    }
+  });
+
+  it("reads a row's time to the millisecond in both readers", async () => {
+    // The database's own timestamps keep microseconds; JavaScript dates don't.
+    const evening = "date-filter-oct-22-evening";
+    const precise = "2026-10-22 18:00:00.0004+00";
+    const setCreated = (createdAt: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ createdAt })
+        .where(eq(schema.documents.id, evening));
+    const items = evaluatorItems.map((item) =>
+      item.document.id === evening
+        ? {
+            ...item,
+            document: { ...item.document, createdAt: precise },
+            properties: [{ ...item.properties[0]!, value: precise }],
+          }
+        : item,
+    );
+    await setCreated(precise);
+    try {
+      for (const [operator, rows] of [
+        [
+          "on_or_before",
+          ids("oct-14", "oct-21", "oct-22-start", "oct-22-evening"),
+        ],
+        ["after", ids("oct-22-end", "oct-23", "oct-29", "oct-30")],
+      ] as const) {
+        const filter = created(operator, "2026-10-22T18:00:00.000Z");
+        expect(await navigatedIds(filter, "UTC")).toEqual(rows);
+        expect(
+          applyContentDatabaseTableQuery(
+            items,
+            [items[0]!.properties[0]!],
+            { search: "", filters: [filter], sorts: [] },
+            { today: "2026-10-22", timeZone: "UTC" },
+          )
+            .map((item) => item.document.id)
+            .sort(),
+        ).toEqual(rows);
+      }
+    } finally {
+      await setCreated("2026-10-22T18:00:00.000Z");
+    }
+  });
+
+  it("ties a cursor under a time without an offset to the caller's time zone", async () => {
+    await navigatedIds(created("on_or_after", "2026-10-22T13:00"), "UTC");
+    const page = (timezone: string, cursor?: string) =>
+      runWithRequestContext({ userEmail: OWNER, timezone }, () =>
+        action.run(
+          {
+            databaseId: DATABASE_ID,
+            navigation: { parentId: PARENT_ID, viewId: "default", cursor },
+            limit: 2,
+          },
+          { userEmail: OWNER } as any,
+        ),
+      ) as Promise<ContentDatabaseNavigationPageResponse>;
+    const first = await page("America/New_York");
+    const cursor = first.pagination.nextCursor!;
+    expect(cursor).toEqual(expect.any(String));
+    await expect(page("America/New_York", cursor)).resolves.toMatchObject({
+      items: expect.any(Array),
+    });
+    await expect(page("Asia/Tokyo", cursor)).rejects.toMatchObject({
+      errorCode: "invalid_navigation_cursor",
+    });
+  });
+
+  it("resolves relative dates in the caller's time zone when the view is read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T02:30:00.000Z"));
+    const isToday = created("equals", "today");
+    expect(await navigatedIds(isToday, "America/New_York")).toEqual(
+      ids("oct-22-start", "oct-22-evening", "oct-22-end"),
+    );
+    expect(await navigatedIds(isToday, "Asia/Tokyo")).toEqual(ids("oct-23"));
+
+    vi.setSystemTime(new Date("2026-10-29T15:00:00.000Z"));
+    expect(await navigatedIds(isToday, "America/New_York")).toEqual(
+      ids("oct-29"),
+    );
   });
 });

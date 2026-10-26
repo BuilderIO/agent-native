@@ -83,9 +83,23 @@ describe("Content agent chat plugin", () => {
         appId: "content",
         mcp: expect.objectContaining({
           externalAgents: { writes: "allowlisted" },
+          instructions: expect.stringContaining(
+            "delete-document moves pages and sub-pages to recoverable Trash",
+          ),
         }),
       }),
     );
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      mcp?: { instructions?: string };
+    };
+    expect(options.mcp?.instructions).toContain("list-content-trash");
+    expect(options.mcp?.instructions).toContain("restore-document");
+    expect(options.mcp?.instructions).toContain(
+      "exact trashedAt as expectedTrashedAt, and a new idempotencyKey",
+    );
+    expect(options.mcp?.instructions).toContain("returns the last saved body");
+    expect(options.mcp?.instructions).toContain("pull-document");
   });
 
   it("keeps only injected tools in the centralized starter list", async () => {
@@ -165,5 +179,39 @@ describe("Content agent chat plugin", () => {
         after: { title: "Draft", content: "latest edit" },
       }),
     );
+  });
+
+  it("lets a refused title save stop the chat-start version, for core to report", async () => {
+    const refused = Object.assign(
+      new Error(
+        "An open editor didn't confirm in time that it saved the title of page document-1. The request didn't go ahead, and any titles the open editors saved stay saved. Try again.",
+      ),
+      { errorCode: "OPEN_EDITOR_TITLE_NOT_SAVED" },
+    );
+    mocks.assertAccess.mockResolvedValue({
+      resource: {
+        ownerEmail: "owner@example.com",
+        title: "Draft",
+        content: "body",
+      },
+    });
+    mocks.flushOpenDocumentEditorToSql.mockRejectedValue(refused);
+    mocks.recordDocumentHistoryTransition.mockClear();
+
+    await import("./agent-chat.js");
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      onAgentTurnStart?: (
+        scope: { type: string; id: string },
+        run: { threadId: string; runId: string },
+      ) => Promise<void>;
+    };
+
+    await expect(
+      options.onAgentTurnStart?.(
+        { type: "document", id: "document-1" },
+        { threadId: "thread-1", runId: "run-1" },
+      ),
+    ).rejects.toBe(refused);
+    expect(mocks.recordDocumentHistoryTransition).not.toHaveBeenCalled();
   });
 });

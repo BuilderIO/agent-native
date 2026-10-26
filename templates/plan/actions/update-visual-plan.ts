@@ -395,11 +395,11 @@ function contentPatchDetails(input: {
   return input.patches.map((patch, index) => {
     const targetId = contentPatchTargetId(patch);
     const beforeBlock =
-      "blockId" in patch && input.before
+      "blockId" in patch && patch.blockId && input.before
         ? findBlock(input.before.blocks, patch.blockId)
         : null;
     const afterBlock =
-      "blockId" in patch && input.after
+      "blockId" in patch && patch.blockId && input.after
         ? findBlock(input.after.blocks, patch.blockId)
         : patch.op === "append-block"
           ? patch.block

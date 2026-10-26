@@ -60,6 +60,7 @@ export {
   getSuggestion,
   getSuggestionByCreationKey,
   listSuggestions,
+  rebaseSuggestion,
   __resetSuggestionTablesForTests,
 } from "./suggestions/store.js";
 export {

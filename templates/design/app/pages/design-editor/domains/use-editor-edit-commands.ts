@@ -36,7 +36,6 @@ import { runRedo } from "../commands/redo";
 import { runUndo } from "../commands/undo";
 import { applyDesignDataOperations } from "../data-operations";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
-import { type UndoRedoOrderKind } from "../editor-state";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -155,14 +154,13 @@ export function useEditorEditCommands({
     fileHistoryMutationPendingRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionRedoStackRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     syncUndoRedoState,
     recordLocalContentHistoryChangeFallback,
     flushPendingFileCreationHistoryEntries,
     discardPendingLiveStructureTransaction,
+    captureCurrentSelection,
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
@@ -541,15 +539,13 @@ export function useEditorEditCommands({
           files,
           geometryRedoStackRef,
           geometryUndoStackRef,
-          historyOrderRef: historyOrderRef as React.RefObject<
-            UndoRedoOrderKind[]
-          >,
+          historyOrderRef,
           id,
           latestClipboardMutationContentRef,
           localContentRedoStackRef,
           localContentUndoStackRef,
           queryClient,
-          redoOrderRef: redoOrderRef as React.RefObject<UndoRedoOrderKind[]>,
+          redoOrderRef,
           selectionRevisionRef,
           overviewSelectedScreenIds,
           selectedElement,
@@ -1039,6 +1035,7 @@ export function useEditorEditCommands({
         applyLocalContentUpdate,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
+        captureCurrentSelection,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -1090,8 +1087,6 @@ export function useEditorEditCommands({
         requestPendingLiveNonStyleRevert,
         requestPendingVisualStyleRevert,
         restoreSelectionSnapshot,
-        selectionRedoStackRef,
-        selectionUndoStackRef,
         setActiveFileId,
         setContentRenderRevision,
         setHoveredElement,
@@ -1113,6 +1108,7 @@ export function useEditorEditCommands({
     [
       ydoc,
       activeFile,
+      captureCurrentSelection,
       applyFileContentUpdate,
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,
@@ -1219,8 +1215,6 @@ export function useEditorEditCommands({
         restoreSelectionSnapshot,
         runtimeStructureInsertRevisionRef,
         runtimeStructureMoveRevisionRef,
-        selectionRedoStackRef,
-        selectionUndoStackRef,
         setContentRenderRevision,
         setHoveredElement,
         setPendingLayerNameReplayRequest,

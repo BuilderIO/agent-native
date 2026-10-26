@@ -32,7 +32,9 @@ const DropdownMenuSubTrigger = React.forwardRef<
     {...props}
   >
     {children}
-    <IconChevronRight className="ms-auto size-4 shrink-0 rtl:-scale-x-100" />
+    <DropdownMenuTrailing>
+      <IconChevronRight className="size-4 rtl:-scale-x-100" />
+    </DropdownMenuTrailing>
   </DropdownMenuPrimitive.SubTrigger>
 ));
 DropdownMenuSubTrigger.displayName =
@@ -103,7 +105,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center gap-2 rounded-[8px] px-2 py-1 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-[8px] px-2 py-1 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       inset && "ps-9",
       className,
     )}
@@ -119,7 +121,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-[8px] py-1 ps-9 pe-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-[8px] py-1 ps-9 pe-2 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
       className,
     )}
     checked={checked}
@@ -194,18 +196,38 @@ const DropdownMenuSeparator = React.forwardRef<
 ));
 DropdownMenuSeparator.displayName = DropdownMenuPrimitive.Separator.displayName;
 
+// Shortcuts, checks, and submenu chevrons share one trailing slot, so every
+// row's trailing content ends on the same edge.
 const DropdownMenuShortcut = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLSpanElement>) => {
   return (
     <span
-      className={cn("ms-auto ps-4 text-xs text-muted-foreground", className)}
+      className={cn(
+        "ms-auto inline-flex min-w-4 shrink-0 justify-center text-xs tabular-nums text-muted-foreground",
+        className,
+      )}
       {...props}
     />
   );
 };
 DropdownMenuShortcut.displayName = "DropdownMenuShortcut";
+
+/** The trailing slot for a check or icon, aligned with shortcuts and chevrons. */
+const DropdownMenuTrailing = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) => (
+  <span
+    className={cn(
+      "ms-auto inline-flex size-4 shrink-0 items-center justify-center",
+      className,
+    )}
+    {...props}
+  />
+);
+DropdownMenuTrailing.displayName = "DropdownMenuTrailing";
 
 export {
   DropdownMenu,
@@ -217,6 +239,7 @@ export {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuTrailing,
   DropdownMenuGroup,
   DropdownMenuPortal,
   DropdownMenuSub,

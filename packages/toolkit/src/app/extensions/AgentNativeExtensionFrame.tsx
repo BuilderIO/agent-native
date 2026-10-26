@@ -23,6 +23,7 @@ import React, {
   type IframeHTMLAttributes,
 } from "react";
 
+import { useExternalExtensionLinks } from "./extension-links.js";
 import {
   AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   buildAgentNativeExtensionHtml,
@@ -344,17 +345,94 @@ export const AgentNativeExtensionFrame = forwardRef<
   },
   forwardedRef,
 ) {
+  const extensionFrameKey = `${extension.id}:${extension.updatedAt ?? ""}`;
+  const initialContextKey = `${extensionFrameKey}:${slotId ?? ""}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const bridgeRef = useRef<AgentNativeHostBridge | null>(null);
+  const framePortRef = useRef<MessagePort | null>(null);
+  const initialContextRef = useRef({ key: initialContextKey, context });
+  if (initialContextRef.current.key !== initialContextKey) {
+    initialContextRef.current = { key: initialContextKey, context };
+  } else {
+    initialContextRef.current.context = context;
+  }
+  const storageMessageHandlerRef = useRef<
+    ((message: unknown, port: MessagePort) => void) | null
+  >(null);
+  const pendingFrameMessagesRef = useRef<
+    Array<{ message: unknown; port: MessagePort }>
+  >([]);
   const [height, setHeight] = useState(initialHeight);
+  const contextJson = safeStringify(context);
+  const contextRef = useRef(context);
+  contextRef.current = context;
+  const onFramePortMessage = useCallback((event: MessageEvent) => {
+    const port = event.currentTarget as MessagePort | null;
+    if (!port) return;
+    const handler = storageMessageHandlerRef.current;
+    if (handler) handler(event.data, port);
+    else pendingFrameMessagesRef.current.push({ message: event.data, port });
+  }, []);
+  const onLinkChannelReady = useCallback(() => {
+    iframeRef.current?.setAttribute("data-link-channel-ready", "true");
+  }, []);
+  const onLinkPortReady = useCallback(
+    (port: MessagePort) => {
+      if (framePortRef.current !== port) {
+        framePortRef.current?.removeEventListener(
+          "message",
+          onFramePortMessage,
+        );
+        framePortRef.current?.close();
+        port.addEventListener("message", onFramePortMessage);
+        port.start();
+      }
+      framePortRef.current = port;
+      bridgeRef.current?.setTargetPort(port);
+      bridgeRef.current?.post({
+        type: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.SLOT_CONTEXT,
+        extensionId: extension.id,
+        slotId,
+        context: contextRef.current ?? {},
+      });
+    },
+    [extension.id, onFramePortMessage, slotId],
+  );
+  const extensionDocumentIdentity = useMemo(
+    () => ({
+      extensionFrameKey,
+      content: extension.content,
+      name: extension.name,
+      title,
+      slotId,
+      themeCss,
+      isDark,
+    }),
+    [
+      extension.content,
+      extension.name,
+      extensionFrameKey,
+      isDark,
+      slotId,
+      themeCss,
+      title,
+    ],
+  );
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    extensionDocumentIdentity,
+    {
+      onReady: onLinkChannelReady,
+      onHostPortReady: onLinkPortReady,
+    },
+  );
   const localStorageAdapter = useMemo(
     () => createLocalStorageAgentNativeExtensionStorage(storageNamespace),
     [storageNamespace],
   );
   const storageAdapter = storage === undefined ? localStorageAdapter : storage;
-  const contextJson = safeStringify(context);
   const sandboxValue = useMemo(
-    () => normalizeAgentNativeExtensionSandbox(sandbox),
+    () => normalizeAgentNativeExtensionSandbox(sandbox, { mode: "nonce" }),
     [sandbox],
   );
   const sessionValue =
@@ -407,43 +485,42 @@ export const AgentNativeExtensionFrame = forwardRef<
     return mergeExtensionContext(base, extension, slotId, context);
   }, [contextJson, extension, getContext, slotId]);
 
-  const srcDoc = useMemo(
-    () =>
-      buildAgentNativeExtensionHtml({
-        extensionId: extension.id,
-        title: title ?? extension.name,
-        content: extension.content,
-        slotId,
-        slotContext: context,
-        themeCss,
-        isDark,
-      }),
-    [
-      contextJson,
-      extension.content,
-      extension.id,
-      extension.name,
-      isDark,
+  const srcDoc = useMemo(() => {
+    if (!linkNonce) return "";
+    return buildAgentNativeExtensionHtml({
+      extensionId: extension.id,
+      title: title ?? extension.name,
+      content: extension.content,
+      linkNonce,
       slotId,
+      slotContext: initialContextRef.current.context,
       themeCss,
-      title,
-    ],
-  );
+      isDark,
+    });
+  }, [
+    extension.content,
+    extension.id,
+    linkNonce,
+    extension.name,
+    isDark,
+    slotId,
+    themeCss,
+    title,
+  ]);
 
   const postSlotContext = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.SLOT_CONTEXT,
-        extensionId: extension.id,
-        slotId,
-        context: context ?? {},
-      },
-      "*",
-    );
+    bridgeRef.current?.post({
+      type: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.SLOT_CONTEXT,
+      extensionId: extension.id,
+      slotId,
+      context: context ?? {},
+    });
   }, [contextJson, extension.id, slotId]);
 
   useEffect(() => {
     const bridge = createAgentNativeHostBridge({
+      allowWindowMessages: false,
+      targetPort: framePortRef.current,
       session: sessionValue,
       getContext: getMergedContext,
       commands: scopedCommands,
@@ -474,22 +551,40 @@ export const AgentNativeExtensionFrame = forwardRef<
     void bridgeRef.current?.refreshContext();
   }, [postSlotContext]);
 
+  useEffect(
+    () => () => {
+      framePortRef.current?.removeEventListener("message", onFramePortMessage);
+      framePortRef.current?.close();
+      framePortRef.current = null;
+    },
+    [onFramePortMessage],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const respond = (requestId: string, payload: Record<string, unknown>) => {
-      iframeRef.current?.contentWindow?.postMessage(
-        {
+    const respond = (
+      port: MessagePort,
+      requestId: string,
+      payload: Record<string, unknown>,
+    ): boolean => {
+      if (framePortRef.current !== port) return false;
+      try {
+        port.postMessage({
           type: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.STORAGE_RESPONSE,
           requestId,
           ...payload,
-        },
-        "*",
-      );
+        });
+        return true;
+      } catch {
+        // coercion-ok: false reports that the requesting document's port cannot receive a response.
+        return false;
+      }
     };
 
     const handleStorageRequest = async (
       request: AgentNativeExtensionStorageRequest,
+      port: MessagePort,
     ) => {
       try {
         if (!storageAdapter) {
@@ -537,17 +632,16 @@ export const AgentNativeExtensionFrame = forwardRef<
                     options,
                     requestContext,
                   );
-        respond(request.requestId, { ok: true, result });
+        respond(port, request.requestId, { ok: true, result });
       } catch (error) {
         const err = safeError(error);
         onStorageError?.(err, request);
-        respond(request.requestId, { ok: false, error: err.message });
+        respond(port, request.requestId, { ok: false, error: err.message });
       }
     };
 
-    function onMessage(event: MessageEvent) {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const message = event.data;
+    function onMessage(message: unknown, port: MessagePort) {
+      if (framePortRef.current !== port) return;
       if (!isRecord(message)) return;
 
       if (message.type === AGENT_NATIVE_EXTENSION_MESSAGE_TYPES.RESIZE) {
@@ -570,7 +664,7 @@ export const AgentNativeExtensionFrame = forwardRef<
         const requestId =
           typeof message.requestId === "string" ? message.requestId : "";
         if (requestId) {
-          respond(requestId, {
+          respond(port, requestId, {
             ok: false,
             error: "Invalid extension storage request",
           });
@@ -578,11 +672,18 @@ export const AgentNativeExtensionFrame = forwardRef<
         return;
       }
 
-      void handleStorageRequest(request);
+      void handleStorageRequest(request, port);
     }
 
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    storageMessageHandlerRef.current = onMessage;
+    pendingFrameMessagesRef.current
+      .splice(0)
+      .forEach(({ message, port }) => onMessage(message, port));
+    return () => {
+      if (storageMessageHandlerRef.current === onMessage) {
+        storageMessageHandlerRef.current = null;
+      }
+    };
   }, [
     autoHeight,
     extension.id,
@@ -593,11 +694,13 @@ export const AgentNativeExtensionFrame = forwardRef<
     storageScopeAllowlist,
   ]);
 
+  if (!linkNonce) return null;
+
   return (
     <iframe
       {...iframeProps}
       {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-      key={`${extension.id}:${extension.updatedAt ?? ""}`}
+      key={`${extensionFrameKey}-${linkNonce}`}
       ref={(node) => {
         iframeRef.current = node;
         setForwardedRef(forwardedRef, node);
@@ -617,8 +720,6 @@ export const AgentNativeExtensionFrame = forwardRef<
         bridgeRef.current?.setTargetWindow(
           event.currentTarget.contentWindow ?? null,
         );
-        postSlotContext();
-        void bridgeRef.current?.sendInit();
         onLoad?.(event);
       }}
     />

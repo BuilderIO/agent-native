@@ -105,7 +105,7 @@ async function selectSource(app: App) {
     rect.y + rect.height / 2,
   );
   await app.page.mouse.click(point.x, point.y);
-  expect(await app.selectedLayers()).toEqual(["Source"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Source"]);
 }
 
 /** Drags Source by its centre onto a point of the target box; returns the held guide just before release. */
@@ -154,8 +154,7 @@ async function renderedSize(app: App, nodeId: string) {
   return { width, height };
 }
 
-// fixme: product bug: Source renders 220x72 after the drop (saved height:96px without flex-shrink:0, so Outer's fixed-height column squeezes it); moving a
-test.fixme("a source too wide for Nested drops into Outer just above Nested at its full 220×96 size", async ({
+test("a source too wide for Nested drops into Outer just above Nested at its full 220×96 size", async ({
   app,
 }) => {
   const id = await app.seed(FIXTURE);

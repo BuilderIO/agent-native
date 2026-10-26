@@ -61,6 +61,99 @@ export async function loadYDocRecordWithClient(
   };
 }
 
+export type CollabStateMalformedReason = "base64" | "version" | "yjs";
+
+/** A stored `_collab_docs` row that cannot be read. Never treat it as empty. */
+export class CollabStateMalformedError extends Error {
+  readonly code = "collab_state_malformed";
+  readonly docId: string;
+  readonly reason: CollabStateMalformedReason;
+
+  constructor(
+    docId: string,
+    reason: CollabStateMalformedReason,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "CollabStateMalformedError";
+    this.docId = docId;
+    this.reason = reason;
+  }
+}
+
+/**
+ * Absent means no row. A row whose `yjs_state` is `''` is present with a
+ * zero-byte state; callers that seed must update it at its version rather
+ * than insert.
+ */
+export type StrictYDocRecord =
+  | { kind: "absent" }
+  | { kind: "present"; state: Uint8Array; version: number }
+  /** Longer than `maxBytes` allows; its text was never read. */
+  | { kind: "too_large"; bytes: number };
+
+/**
+ * Decodes canonical base64, or returns null; `Buffer` silently skips junk.
+ * A round trip instead of a pattern: a repeated-group regex overflows the
+ * stack on a few megabytes.
+ */
+export function strictBase64ToUint8Array(value: string): Uint8Array | null {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToUint8Array(value);
+    // coercion-ok: null is this reader's typed "not base64"; callers raise malformed_state
+  } catch {
+    return null;
+  }
+  return uint8ArrayToBase64(bytes) === value ? bytes : null;
+}
+
+export async function loadYDocRecordStrict(
+  client: DbExec,
+  docId: string,
+  maxBytes: number,
+  options: { forUpdate?: boolean } = {},
+): Promise<StrictYDocRecord> {
+  // The longest canonical base64 of maxBytes bytes. Longer text is left in
+  // the database, so a huge row costs neither the transfer nor the decode.
+  const maxLength = 4 * Math.ceil(maxBytes / 3);
+  const { rows } = await client.execute({
+    sql: `SELECT CASE WHEN length(yjs_state) <= ? THEN yjs_state END AS yjs_state, length(yjs_state) AS encoded_length, version FROM _collab_docs WHERE doc_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
+    args: [maxLength, docId],
+  });
+  if (rows.length === 0) return { kind: "absent" };
+  const encodedLength = Number(rows[0].encoded_length);
+  if (encodedLength > maxLength) {
+    return { kind: "too_large", bytes: Math.floor((encodedLength * 3) / 4) };
+  }
+  const stored = rows[0].yjs_state;
+  if (typeof stored !== "string") {
+    throw new CollabStateMalformedError(
+      docId,
+      "base64",
+      `_collab_docs.yjs_state for ${docId} is not text`,
+    );
+  }
+  const state = strictBase64ToUint8Array(stored);
+  if (!state) {
+    throw new CollabStateMalformedError(
+      docId,
+      "base64",
+      `_collab_docs.yjs_state for ${docId} is not valid base64`,
+    );
+  }
+  const version = Number(rows[0].version);
+  if (!Number.isSafeInteger(version) || version < 0) {
+    throw new CollabStateMalformedError(
+      docId,
+      "version",
+      `_collab_docs.version for ${docId} is unreadable: ${String(rows[0].version)}`,
+    );
+  }
+  return { kind: "present", state, version };
+}
+
 export async function loadYDocVersion(docId: string): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
@@ -76,6 +169,51 @@ export async function loadYDocVersion(docId: string): Promise<number | null> {
     );
   }
   return version;
+}
+
+/**
+ * A row's version and a SHA-256 of its stored text. A version alone repeats:
+ * a row deleted and inserted again starts back at 0.
+ */
+export interface YDocStamp {
+  version: number;
+  digest: string;
+}
+
+const STATE_DIGEST_SQL = `encode(sha256(convert_to(yjs_state, 'UTF8')), 'hex')`;
+
+export async function loadYDocStamp(docId: string): Promise<YDocStamp | null> {
+  await ensureTable();
+  return loadYDocStampWithClient(getDbExec(), docId);
+}
+
+export async function loadYDocStampWithClient(
+  client: DbExec,
+  docId: string,
+  options: { forShare?: boolean } = {},
+): Promise<YDocStamp | null> {
+  const { rows } = await client.execute({
+    sql: `SELECT version, ${STATE_DIGEST_SQL} AS digest FROM _collab_docs WHERE doc_id = ?${options.forShare ? " FOR SHARE" : ""}`,
+    args: [docId],
+  });
+  if (rows.length === 0) return null;
+  const version = Number(rows[0].version);
+  const digest = rows[0].digest;
+  if (!Number.isFinite(version) || typeof digest !== "string") {
+    throw new Error(
+      `_collab_docs row for ${docId} is unreadable: version ${String(rows[0].version)}`,
+    );
+  }
+  return { version, digest };
+}
+
+/** The digest `loadYDocStamp` reports for a row this module wrote `state` to. */
+export async function collabStateDigest(state: Uint8Array): Promise<string> {
+  const text = new TextEncoder().encode(uint8ArrayToBase64(state));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", text);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
@@ -105,6 +243,8 @@ export async function trySaveYDocStateWithClient(
   state: Uint8Array,
   textSnapshot: string,
   expectedVersion: number | null,
+  /** Also requires the stored text to have this digest; see `YDocStamp`. */
+  expectedDigest?: string,
 ): Promise<boolean> {
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = "NOW()::text";
@@ -116,10 +256,17 @@ export async function trySaveYDocStateWithClient(
     return result.rowsAffected > 0;
   }
 
-  const result = await client.execute({
-    sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
-    args: [b64, textSnapshot, docId, expectedVersion],
-  });
+  const result = await client.execute(
+    expectedDigest === undefined
+      ? {
+          sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ?`,
+          args: [b64, textSnapshot, docId, expectedVersion],
+        }
+      : {
+          sql: `UPDATE _collab_docs SET yjs_state = ?, text_snapshot = ?, version = version + 1, updated_at = ${nowExpr} WHERE doc_id = ? AND version = ? AND ${STATE_DIGEST_SQL} = ?`,
+          args: [b64, textSnapshot, docId, expectedVersion, expectedDigest],
+        },
+  );
   return result.rowsAffected > 0;
 }
 

@@ -207,16 +207,12 @@ describe("PDF download", () => {
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
       pngExportingRef: ref,
-      renderPngBlob,
-      resolveSelectedScreensBounds: () => ({
-        x: 0,
-        y: 0,
+      renderPngCapture: async () => ({
+        blob: await renderPngBlob(),
         width: 100,
         height: 100,
+        scale: 2,
       }),
-      resolvePngCaptureTarget: () => {
-        throw new Error("selected-screen bounds skip the capture target");
-      },
       setPngExporting: () => undefined,
       showRasterCaptureError: () => undefined,
       t,
@@ -326,12 +322,13 @@ describe("All-screens PDF download", () => {
 });
 
 describe("SVG download", () => {
-  function args() {
+  function args(ref = idleRef()) {
     return {
       activePreviewFrameId: "screen-1",
       design: null,
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
+      pngExportingRef: ref,
       selectedElement: null,
       setSvgExporting: () => undefined,
       t,

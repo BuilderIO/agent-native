@@ -6,6 +6,7 @@ import {
   quantizeToStep,
   type Transform3DParts,
 } from "@shared/canvas-math";
+import { keepsPixelGrid } from "@shared/canvas-math";
 import {
   IconAngle,
   IconAxisX,
@@ -22,6 +23,7 @@ import {
   IconLayoutDistributeHorizontal,
   IconPerspective,
   IconRotate3d,
+  IconRotateClockwise,
   IconUnlink,
 } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
@@ -34,6 +36,12 @@ import {
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
+import {
+  invertLinear,
+  offsetStylePatch,
+  type AlignNodeLayout,
+  type OffsetAxis,
+} from "@/pages/design-editor/layout-operations";
 
 import {
   ConstraintsPreview,
@@ -45,6 +53,7 @@ import {
 } from "../inspector";
 import type { ElementInfo } from "../types";
 import { AppearanceScrubField } from "./appearance-properties";
+import { isParentFlex, isParentGrid } from "./element-classification";
 import {
   commitStylePatch,
   FieldTrailer,
@@ -56,6 +65,7 @@ import {
   SectionIconToggle,
 } from "./inspector-controls";
 import { authoredStyleValue } from "./interaction-state-helpers";
+import { lineGeometryForElement } from "./line-geometry";
 import { useLiveDragPosition } from "./live-drag-position";
 import { MotionOriginControl } from "./motion-inspector-properties";
 import {
@@ -83,6 +93,7 @@ import type {
 import {
   mergeRotationValue,
   mergeTranslateFunction,
+  normalizeRotationDegrees,
   parseRotationValue,
   parseScaleValue,
 } from "./transform-helpers";
@@ -181,13 +192,128 @@ export function authoredPositionPatch(
     axis === "x" || Math.abs(leftDelta) > 1e-8 || Math.abs(matrix.c) > 1e-8;
   const writeTop =
     axis === "y" || Math.abs(topDelta) > 1e-8 || Math.abs(matrix.b) > 1e-8;
+  const offset = (value: number) =>
+    `${(keepsPixelGrid(matrix) ? Math.round(value) : Number(value.toFixed(2))) || 0}px`;
   if (writeLeft || authoredOffset("x") === undefined) {
-    patch.left = `${Number((currentOffset("x") + leftDelta).toFixed(2))}px`;
+    patch.left = offset(currentOffset("x") + leftDelta);
   }
   if (writeTop || authoredOffset("y") === undefined) {
-    patch.top = `${Number((currentOffset("y") + topDelta).toFixed(2))}px`;
+    patch.top = offset(currentOffset("y") + topDelta);
   }
   return patch;
+}
+
+type OffsetLayout = Extract<AlignNodeLayout, { kind: "offset" }>;
+
+/**
+ * How typed X/Y reach a layer. Out-of-flow layers rewrite their insets; a
+ * block-flow layer takes a relative offset so its siblings keep their slots;
+ * an auto layout child is placed by its parent, so its X/Y are read-only.
+ */
+export type PositionFieldMode =
+  | { kind: "out-of-flow" }
+  | { kind: "offset"; layout: OffsetLayout }
+  | { kind: "read-only" };
+
+function offsetAxisState(element: ElementInfo, property: string) {
+  return definiteAuthoredOffset(authoredStyleValue(element, property))
+    ? ("set" as const)
+    : ("auto" as const);
+}
+
+// A relative layer with no definite inset sits where it flows (offset 0).
+function relativeInset(
+  element: ElementInfo,
+  start: "left" | "top",
+  end: "right" | "bottom",
+): number | null {
+  const startValue = element.computedStyles[start];
+  const endValue = element.computedStyles[end];
+  if (isMixedValue(startValue) || isMixedValue(endValue)) return null;
+  const startOffset = numericPositionOffset(startValue);
+  if (startOffset !== undefined) return startOffset;
+  if (definiteAuthoredOffset(startValue)) return null;
+  const endOffset = numericPositionOffset(endValue);
+  if (endOffset !== undefined) return -endOffset;
+  return definiteAuthoredOffset(endValue) ? null : 0;
+}
+
+// Static → relative makes the layer the containing block of its absolutely
+// positioned children, which would move them.
+function mayAnchorPositionedChildren(element: ElementInfo): boolean {
+  const layouts = element.childLayouts;
+  if (!layouts) return (element.childElementCount ?? 0) > 0;
+  return (
+    !layouts.complete ||
+    layouts.children.some((child) =>
+      ["absolute", "fixed"].includes((child.position ?? "").toLowerCase()),
+    )
+  );
+}
+
+export function positionFieldMode(element: ElementInfo): PositionFieldMode {
+  // An operand is a nested svg: CSS reports it static, but its insets are the
+  // x/y it is placed at inside the Boolean.
+  if (element.primitiveKind === "boolean-operand") {
+    return { kind: "out-of-flow" };
+  }
+  const position = (
+    element.computedStyles.position ||
+    element.inlineStyles?.position ||
+    "static"
+  )
+    .trim()
+    .toLowerCase();
+  if (position === "absolute" || position === "fixed") {
+    return { kind: "out-of-flow" };
+  }
+  if (isParentFlex(element) || isParentGrid(element)) {
+    return { kind: "read-only" };
+  }
+  if (position !== "static" && position !== "relative") {
+    return { kind: "read-only" };
+  }
+  if (position === "static" && mayAnchorPositionedChildren(element)) {
+    return { kind: "read-only" };
+  }
+  const left =
+    position === "static" ? 0 : relativeInset(element, "left", "right");
+  const top =
+    position === "static" ? 0 : relativeInset(element, "top", "bottom");
+  if (left === null || top === null) return { kind: "read-only" };
+  const axis = (start: string, end: string, sizePx: number): OffsetAxis => ({
+    start: offsetAxisState(element, start),
+    end: offsetAxisState(element, end),
+    size: "unknown",
+    sizePx,
+  });
+  return {
+    kind: "offset",
+    layout: {
+      kind: "offset",
+      position,
+      left,
+      top,
+      x: axis("left", "right", element.boundingRect.width),
+      y: axis("top", "bottom", element.boundingRect.height),
+    },
+  };
+}
+
+/** Moves an in-flow layer so its X or Y reads `referenceOffset`. */
+export function inFlowPositionPatch(
+  element: ElementInfo,
+  layout: OffsetLayout,
+  axis: "x" | "y",
+  referenceOffset: number,
+): Record<string, string> {
+  const distance = referenceOffset - measuredPositionOffset(element, axis);
+  const local = invertLinear(
+    element.positionContainingBlockTransform ?? { a: 1, b: 0, c: 0, d: 1 },
+    axis === "x" ? { dx: distance, dy: 0 } : { dx: 0, dy: distance },
+  );
+  if (!local) return {};
+  return Object.fromEntries(offsetStylePatch(layout, local));
 }
 
 export function measuredPositionValue(
@@ -425,22 +551,26 @@ export function constraintsStylePatch(
 
 export function PositionLayoutProperties({
   element,
+  sharedRotation,
   onStyleChange,
   onStylesChange,
   onAlignSelection,
   alignSelectionDisabled = false,
+  alignSelectionDisabledReason,
   motionKeyframeContext,
   breakpointOverrideContext,
   motionInspector = false,
   onMotionOriginEditingChange,
 }: {
   element: ElementInfo;
+  sharedRotation?: number;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
   alignSelectionDisabled?: boolean;
+  alignSelectionDisabledReason?: string;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   motionInspector?: boolean;
@@ -458,6 +588,21 @@ export function PositionLayoutProperties({
   const [scaleAspectLocked, setScaleAspectLocked] = useState(true);
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
+  const positionMode = positionFieldMode(element);
+  const commitPosition = (
+    axis: "x" | "y",
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => {
+    const patch =
+      positionMode.kind === "offset"
+        ? inFlowPositionPatch(element, positionMode.layout, axis, value)
+        : positionMode.kind === "out-of-flow"
+          ? authoredPositionPatch(element, axis, value)
+          : {};
+    if (Object.keys(patch).length === 0) return;
+    commitStylePatch(patch, onStyleChange, onStylesChange, meta);
+  };
   const alignmentDisabled = alignSelectionDisabled || !onAlignSelection;
   const handlePositionAlignH = (value: AlignmentMatrixValue["horizontal"]) => {
     onAlignSelection?.(
@@ -476,6 +621,13 @@ export function PositionLayoutProperties({
   const rotationTransform = isMixedValue(styles.transform)
     ? undefined
     : (authoredTransform ?? styles.transform);
+  const displayedRotation = isMixedValue(styles.transform)
+    ? sharedRotation
+    : parseRotationValue(rotationTransform);
+  // A line's Rotation is the angle of the segment, which its box adds to.
+  const lineAngle = motionInspector
+    ? 0
+    : (lineGeometryForElement(element)?.angle ?? 0);
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
   const constraintsSuppressed =
@@ -559,6 +711,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.left")}
                   shortcut={shortcut("alt+a")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignH("left")}
                 >
                   <IconLayoutAlignLeft className="size-3.5" />
@@ -567,6 +720,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.centerHorizontal")}
                   shortcut={shortcut("alt+h")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignH("center")}
                 >
                   <IconLayoutAlignCenter className="size-3.5" />
@@ -575,6 +729,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.right")}
                   shortcut={shortcut("alt+d")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignH("right")}
                 >
                   <IconLayoutAlignRight className="size-3.5" />
@@ -587,6 +742,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.top")}
                   shortcut={shortcut("alt+w")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignV("top")}
                 >
                   <IconLayoutAlignTop className="size-3.5" />
@@ -595,6 +751,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.centerVertical")}
                   shortcut={shortcut("alt+v")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignV("middle")}
                 >
                   <IconLayoutAlignMiddle className="size-3.5" />
@@ -603,6 +760,7 @@ export function PositionLayoutProperties({
                   label={t("editPanel.positionAligns.bottom")}
                   shortcut={shortcut("alt+s")}
                   disabled={alignmentDisabled}
+                  disabledReason={alignSelectionDisabledReason}
                   onClick={() => handlePositionAlignV("bottom")}
                 >
                   <IconLayoutAlignBottom className="size-3.5" />
@@ -624,7 +782,8 @@ export function PositionLayoutProperties({
               label="X"
               ariaLabel="X-position"
               tooltipLabel="X-position"
-              precision={2}
+              precision={0}
+              disabled={positionMode.kind === "read-only"}
               value={
                 isMixedValue(authoredLeft) || isMixedValue(styles.left)
                   ? MIXED_VALUE
@@ -635,19 +794,7 @@ export function PositionLayoutProperties({
                     )
               }
               inputClassName="h-6"
-              onChange={(v, meta) => {
-                commitStylePatch(
-                  {
-                    ...(!constrainedPosition
-                      ? { position: "absolute" }
-                      : undefined),
-                    ...authoredPositionPatch(element, "x", v),
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                  meta,
-                );
-              }}
+              onChange={(v, meta) => commitPosition("x", v, meta)}
             />
             {!motionInspector ? (
               <FieldTrailer
@@ -673,7 +820,8 @@ export function PositionLayoutProperties({
               label="Y"
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
-              precision={2}
+              precision={0}
+              disabled={positionMode.kind === "read-only"}
               value={
                 isMixedValue(authoredTop) || isMixedValue(styles.top)
                   ? MIXED_VALUE
@@ -684,19 +832,7 @@ export function PositionLayoutProperties({
                     )
               }
               inputClassName="h-6"
-              onChange={(v, meta) => {
-                commitStylePatch(
-                  {
-                    ...(!constrainedPosition
-                      ? { position: "absolute" }
-                      : undefined),
-                    ...authoredPositionPatch(element, "y", v),
-                  },
-                  onStyleChange,
-                  onStylesChange,
-                  meta,
-                );
-              }}
+              onChange={(v, meta) => commitPosition("y", v, meta)}
             />
             {!motionInspector ? (
               <FieldTrailer
@@ -907,9 +1043,9 @@ export function PositionLayoutProperties({
               icon={IconAngle}
               labelClassName="[&>span]:sr-only"
               value={
-                isMixedValue(styles.transform)
+                displayedRotation === undefined
                   ? MIXED_VALUE
-                  : `${-parseRotationValue(rotationTransform)}${motionInspector ? "°" : "deg"}`
+                  : `${lineAngle ? normalizeRotationDegrees(lineAngle - displayedRotation) : -displayedRotation}${motionInspector ? "°" : "deg"}`
               }
               unit={motionInspector ? "°" : "deg"}
               inputClassName="h-6"
@@ -933,7 +1069,7 @@ export function PositionLayoutProperties({
                     (hasPerTargetOperation || perTargetMeta?.relativeExpression)
                     ? "rotation"
                     : "transform",
-                  mergeRotationValue(rotationTransform, -v),
+                  mergeRotationValue(rotationTransform, lineAngle - v),
                   perTargetMeta,
                 );
               }}
@@ -958,6 +1094,22 @@ export function PositionLayoutProperties({
                 className="group/field relative"
               >
                 <InspectorSegment className="w-full">
+                  <InspectorIconButton
+                    label={t("canvasMenu.rotateClockwise")}
+                    disabled={displayedRotation === undefined}
+                    onClick={() => {
+                      if (displayedRotation === undefined) return;
+                      onStyleChange(
+                        "transform",
+                        mergeRotationValue(
+                          rotationTransform,
+                          normalizeRotationDegrees(-displayedRotation + 90),
+                        ),
+                      );
+                    }}
+                  >
+                    <IconRotateClockwise className="size-4" />
+                  </InspectorIconButton>
                   <InspectorIconButton
                     label={t("editPanel.labels.flipHorizontal")}
                     onClick={() => {

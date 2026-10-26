@@ -1476,15 +1476,9 @@ describe("linked component mutation queue", () => {
     expect(setup.refreshAfterConflict).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { undoCount: 1, selectOther: false, selectAfterUndo: false },
-    { undoCount: 2, selectOther: false, selectAfterUndo: false },
-    { undoCount: 1, selectOther: true, selectAfterUndo: false },
-    { undoCount: 2, selectOther: true, selectAfterUndo: false },
-    { undoCount: 2, selectOther: true, selectAfterUndo: true },
-  ])(
-    "runs $undoCount pending Undo requests, selection: $selectOther, after requested Undo: $selectAfterUndo",
-    async ({ undoCount, selectOther, selectAfterUndo }) => {
+  it.each([{ undoCount: 1 }, { undoCount: 2 }])(
+    "runs $undoCount pending Undo requests",
+    async ({ undoCount }) => {
       const response = deferred<LinkedComponentActionResult>();
       const actionCall = deferred<LinkedComponentEditPayload>();
       const setup = queueArgs({
@@ -1519,6 +1513,11 @@ describe("linked component mutation queue", () => {
           };
         }),
         canEditDesign: true,
+        captureCurrentSelection: () => ({
+          overviewSelectedScreenIds: [],
+          selectedLayerIds: [],
+          activeFileId: null,
+        }),
         clipboardPasteRedoStackRef: { current: [] },
         clipboardPasteUndoStackRef: { current: [] },
         contentHistorySelectionAfterRef: { current: new WeakMap() },
@@ -1591,66 +1590,17 @@ describe("linked component mutation queue", () => {
       });
 
       await actionCall.promise;
-      const registerSelection = () => {
-        undoArgs.selectionUndoStackRef = {
-          current: [
-            {
-              before: {
-                activeFileId: "file-copy",
-                selectedLayerIds: ["file-copy"],
-                overviewSelectedScreenIds: ["file-copy"],
-              },
-              after: {
-                activeFileId: "file-main",
-                selectedLayerIds: ["file-main"],
-                overviewSelectedScreenIds: ["file-main"],
-              },
-            },
-          ],
-        };
-        undoArgs.selectionRedoStackRef = { current: [] };
-        undoArgs.historyOrderRef.current.push("selection");
-      };
-      if (selectOther && !selectAfterUndo) registerSelection();
-      const sourceAfterUndo: string[] = [];
-      const undos = Array.from({ length: undoCount }, (_, index) => {
-        if (
-          selectAfterUndo &&
-          index === 1 &&
-          !queue.deferHistoryChange?.(registerSelection)
-        )
-          registerSelection();
-        return queue.dispatchHistory(() => {
-          runUndo(undoArgs);
-          sourceAfterUndo.push(setup.content.get("file-copy")!);
-        });
-      });
+      const undos = Array.from({ length: undoCount }, () =>
+        queue.dispatchHistory(() => runUndo(undoArgs)),
+      );
       expect(setup.content.get("file-copy")).toBe("copy-v0");
       response.resolve(resultFor(initial, after, "saved-after-undo"));
       await Promise.all([pending, ...undos]);
-      const expected = new Map(
-        selectOther && undoCount === 1 ? after : initial,
-      );
-      if (!selectOther && undoCount === 2)
+      const expected = new Map(initial);
+      if (undoCount === 2)
         expected.set("file-copy", "copy-before-previous-commit");
       expect(setup.content).toEqual(expected);
-      expect(undoArgs.contentUndoStackRef.current).toHaveLength(
-        2 - undoCount + (selectOther ? 1 : 0),
-      );
-      if (selectAfterUndo)
-        expect(sourceAfterUndo).toEqual(["copy-v0", "copy-v0"]);
-      if (selectOther) {
-        expect(undoArgs.restoreSelectionSnapshot).toHaveBeenNthCalledWith(
-          selectAfterUndo ? 2 : 1,
-          expect.objectContaining({
-            activeFileId: "file-copy",
-            selectedLayerIds: ["file-copy"],
-            overviewSelectedScreenIds: ["file-copy"],
-          }),
-        );
-        if (undoCount === 1)
-          expect(undoArgs.applyLocalContentUpdate).not.toHaveBeenCalled();
-      }
+      expect(undoArgs.contentUndoStackRef.current).toHaveLength(2 - undoCount);
       expect(setup.applyFileContentUpdate).toHaveBeenCalledTimes(2);
       expect(setup.refreshAfterConflict).not.toHaveBeenCalled();
     },

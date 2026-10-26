@@ -207,6 +207,8 @@ function servicesStatus(
 const STORAGE: FileStorageStatus = {
   canManage: true,
   configured: true,
+  configurationUnavailable: false,
+  unreadableFields: [],
   provider: "cloudflare-r2",
   endpoint: "https://example.r2.cloudflarestorage.com",
   bucket: "clips-recordings",
@@ -222,6 +224,7 @@ const STORAGE: FileStorageStatus = {
   },
   publicUrlRequired: false,
   activeProvider: { id: "s3", name: "S3" },
+  activeProviderUnavailable: false,
   builderUploadConfigured: false,
 };
 
@@ -490,6 +493,12 @@ describe("InfrastructureSettingsPage", () => {
       const connect = button(row(id), "Use Builder.io");
       expect(connect.classList.contains("border")).toBe(true);
     }
+    const webSearch = row("web-search");
+    expect(webSearch.querySelector("[data-builder-only]")).toBeNull();
+    expect(webSearch.textContent).toContain("Available with Builder.io · ");
+    expect(
+      button(webSearch, "Use Builder.io").classList.contains("border"),
+    ).toBe(true);
     act(() => button(row("browser-automation"), "Use Builder.io").click());
     expect(state.builder.start).not.toHaveBeenCalled();
     act(() => button(document.body, "Create and activate").click());
@@ -524,6 +533,9 @@ describe("InfrastructureSettingsPage", () => {
     );
     expect(row("background").textContent).toContain(
       "Builder.io · Makes code changes from production.",
+    );
+    expect(row("web-search").textContent).toContain(
+      "Available with Builder.io · Finds current public information and official documentation.",
     );
     expect(row("setup").querySelector("h2")?.textContent).toBe("Setup");
     expect(row("background").querySelector("[data-builder-only]")).toBeNull();
@@ -814,6 +826,28 @@ describe("InfrastructureSettingsPage", () => {
       "Couldn't verify Builder.io upload access.",
     );
     expect(dialog.querySelector("[data-testid=storage-form]")).not.toBeNull();
+  });
+
+  it("keeps an unavailable active storage provider distinct from no setup", async () => {
+    state.queries["get-file-storage"] = {
+      ...STORAGE,
+      activeProvider: null,
+      activeProviderUnavailable: true,
+      configurationUnavailable: true,
+    };
+    await render();
+
+    const uploads = row("uploads");
+    expect(uploads.textContent).toContain(
+      "Some saved storage settings could not be checked.",
+    );
+    expect(uploads.textContent).not.toContain("Not set up");
+    expect(button(uploads, "Retry")).toBeDefined();
+    expect(button(uploads, "Manage")).toBeDefined();
+    act(() => button(uploads, "Manage").click());
+    expect(
+      document.querySelector("[data-storage-dialog]")?.textContent,
+    ).toContain("Some saved storage settings could not be checked.");
   });
 
   it("refreshes upload storage status after Builder reconnects", async () => {

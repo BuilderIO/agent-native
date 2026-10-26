@@ -11,6 +11,8 @@ import {
 } from "@agent-native/core/client/application-state";
 import { useChangeVersions } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconCheck,
@@ -23,7 +25,14 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { BuilderSetupCard } from "../chat/run-recovery.js";
 
@@ -85,16 +94,8 @@ export interface GuidedQuestionPayload {
 }
 
 const OTHER_OPTION_PREFIX = "__other__:";
-const EXPLORE_OPTION: GuidedQuestionOption = {
-  label: "Explore a few options",
-  value: "__explore__",
-  description: "Show me a few distinct directions before committing.",
-};
-const DECIDE_OPTION: GuidedQuestionOption = {
-  label: "Let the agent decide",
-  value: "__decide__",
-  description: "Use your judgment and keep moving.",
-};
+const EXPLORE_OPTION_VALUE = "__explore__";
+const DECIDE_OPTION_VALUE = "__decide__";
 
 function isFileLike(value: unknown): value is { name: string } {
   return (
@@ -322,8 +323,6 @@ export async function askUserQuestion(
         required: !allowFreeText,
         multiSelect: allowMultiple,
         allowOther: allowFreeText,
-        includeExplore: false,
-        includeDecide: false,
         options,
       },
     ],
@@ -416,7 +415,10 @@ export function guidedQuestionsFingerprint(
   );
 }
 
-function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
+function withDefaultOptions(
+  question: GuidedQuestion,
+  defaults: { explore: GuidedQuestionOption; decide: GuidedQuestionOption },
+): GuidedQuestionOption[] {
   const base = recommendedFirst(question.options ?? question.choices ?? []);
   const seen = new Set(base.map(optionKey));
   const result = [...base];
@@ -435,8 +437,8 @@ function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
     seen.add(key);
     result.push(option);
   };
-  maybePush(EXPLORE_OPTION, question.includeExplore !== false);
-  maybePush(DECIDE_OPTION, question.includeDecide !== false);
+  maybePush(defaults.explore, question.includeExplore === true);
+  maybePush(defaults.decide, question.includeDecide === true);
   return result;
 }
 
@@ -507,10 +509,10 @@ export function GuidedQuestionFlow({
   questions,
   onSubmit,
   onSkip,
-  title = "Before I generate",
-  description = "Use Other for custom details, or let the agent decide.",
-  skipLabel = "Skip",
-  submitLabel = "Continue",
+  title,
+  description,
+  skipLabel,
+  submitLabel,
   isSubmitting = false,
   isSubmissionBlocked = false,
   providerStatus = "configured",
@@ -519,6 +521,7 @@ export function GuidedQuestionFlow({
   showProviderStatusGate = true,
   className,
 }: GuidedQuestionFlowProps) {
+  const t = useT();
   const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
     defaultGuidedAnswers(questions),
   );
@@ -550,6 +553,10 @@ export function GuidedQuestionFlow({
   const allRequiredAnswered = questions
     .filter((question) => question.required)
     .every((question) => hasGuidedAnswer(answers[question.id]));
+  const answeredCount = questions.filter((question) =>
+    hasGuidedAnswer(answers[question.id]),
+  ).length;
+  const resolvedSubmitLabel = submitLabel ?? t("agentChat.guided.continue");
 
   return (
     <div
@@ -561,7 +568,7 @@ export function GuidedQuestionFlow({
       <div className="guided-question-flow-inner flex max-h-full w-full max-w-3xl flex-col px-3 py-4">
         <div className="guided-question-flow-header mb-4 min-w-0">
           <h2 className="guided-question-flow-title text-lg font-semibold leading-tight tracking-normal text-foreground">
-            {title}
+            {title ?? t("agentChat.guided.title")}
           </h2>
           {description && (
             <p className="guided-question-flow-description mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
@@ -599,38 +606,36 @@ export function GuidedQuestionFlow({
           </div>
         ) : null}
 
-        <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
-          <div className="flex items-center gap-1.5">
-            {questions.map((question, index) => (
-              <span
-                key={question.id || index}
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  hasGuidedAnswer(answers[question.id])
-                    ? "bg-primary"
-                    : "bg-muted-foreground/30",
-                )}
-              />
-            ))}
-          </div>
+        <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-end gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={onSkip}
               disabled={submissionsDisabled}
-              className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              className="text-muted-foreground"
             >
-              {skipLabel}
-            </button>
-            <button
+              {skipLabel ?? t("agentChat.guided.skip")}
+            </Button>
+            <Button
               type="button"
+              size="sm"
               onClick={() => submitAnswers()}
               disabled={!allRequiredAnswered || submissionsDisabled}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {submitLabel}
-              <IconChevronRight className="h-4 w-4 rtl:-scale-x-100" />
-            </button>
+              {questions.length > 1
+                ? t("agentChat.guided.submitProgress", {
+                    label: resolvedSubmitLabel,
+                    answered: answeredCount,
+                    total: questions.length,
+                  })
+                : resolvedSubmitLabel}
+              <IconChevronRight
+                aria-hidden="true"
+                className="rtl:-scale-x-100"
+              />
+            </Button>
           </div>
         </div>
       </div>
@@ -653,6 +658,8 @@ function QuestionCard({
   onChange: (value: unknown) => void;
   onSubmitAnswer: (value: unknown) => void;
 }) {
+  const t = useT();
+  const questionId = useId();
   return (
     <section className="guided-question-card border-t border-border/60 py-3 first:border-t-0 first:pt-0 last:pb-0">
       <div className="mb-2 flex gap-2.5">
@@ -660,15 +667,13 @@ function QuestionCard({
           {index + 1}
         </div>
         <div className="min-w-0">
-          {question.header && (
-            <p className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
-              {question.header}
-            </p>
-          )}
-          <h3 className="text-sm font-medium leading-5 text-foreground">
+          <h3
+            id={questionId}
+            className="text-sm font-medium leading-5 text-foreground"
+          >
             {question.question}
             {question.required && (
-              <span className="ms-1 text-destructive">*</span>
+              <span className="ms-1 text-muted-foreground">*</span>
             )}
           </h3>
           {question.description && (
@@ -691,17 +696,23 @@ function QuestionCard({
         <ColorOptions question={question} value={value} onChange={onChange} />
       )}
       {question.type === "slider" && (
-        <SliderQuestion question={question} value={value} onChange={onChange} />
+        <SliderQuestion
+          question={question}
+          value={value}
+          labelledBy={questionId}
+          onChange={onChange}
+        />
       )}
       {question.type === "file" && (
         <FileDropZone value={value} disabled={disabled} onChange={onChange} />
       )}
       {question.type === "freeform" && (
-        <textarea
+        <Textarea
           value={typeof value === "string" ? value : ""}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={question.placeholder ?? "Type your answer..."}
-          className="min-h-[84px] w-full resize-none rounded-md border border-border bg-muted/45 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-primary"
+          aria-labelledby={questionId}
+          placeholder={question.placeholder ?? t("agentChat.guided.typeAnswer")}
+          className="min-h-[84px] resize-none border-border bg-muted/45 text-foreground placeholder:text-muted-foreground/70"
         />
       )}
     </section>
@@ -719,7 +730,33 @@ function TextOptions({
   onChange: (value: unknown) => void;
   onSubmitAnswer: (value: unknown) => void;
 }) {
-  const options = useMemo(() => withDefaultOptions(question), [question]);
+  const t = useT();
+  const exploreLabel = t("agentChat.guided.exploreLabel");
+  const exploreDescription = t("agentChat.guided.exploreDescription");
+  const decideLabel = t("agentChat.guided.decideLabel");
+  const decideDescription = t("agentChat.guided.decideDescription");
+  const options = useMemo(
+    () =>
+      withDefaultOptions(question, {
+        explore: {
+          label: exploreLabel,
+          value: EXPLORE_OPTION_VALUE,
+          description: exploreDescription,
+        },
+        decide: {
+          label: decideLabel,
+          value: DECIDE_OPTION_VALUE,
+          description: decideDescription,
+        },
+      }),
+    [
+      question,
+      exploreLabel,
+      exploreDescription,
+      decideLabel,
+      decideDescription,
+    ],
+  );
   const multiSelect = question.multiSelect === true;
   const selectedValues = Array.isArray(value) ? value : [];
   const otherSelected = multiSelect
@@ -785,9 +822,9 @@ function TextOptions({
         {allowOther && (
           <OptionButton
             option={{
-              label: "Other...",
+              label: t("agentChat.guided.other"),
               value: "__other__",
-              description: "Tell the agent exactly what you mean.",
+              description: t("agentChat.guided.otherDescription"),
             }}
             selected={otherSelected}
             multiSelect={multiSelect}
@@ -796,12 +833,15 @@ function TextOptions({
         )}
       </div>
       {allowOther && otherSelected && (
-        <textarea
+        <Textarea
           autoFocus
           value={otherText}
           onChange={(event) => setOtherText(event.target.value)}
-          placeholder={question.placeholder ?? "Type a custom answer..."}
-          className="min-h-[72px] w-full resize-none rounded-md border border-border bg-muted/45 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-primary"
+          aria-label={t("agentChat.guided.other")}
+          placeholder={
+            question.placeholder ?? t("agentChat.guided.typeCustomAnswer")
+          }
+          className="min-h-[72px] resize-none border-border bg-muted/45 text-foreground placeholder:text-muted-foreground/70"
         />
       )}
     </div>
@@ -819,6 +859,7 @@ function OptionButton({
   multiSelect?: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
@@ -848,7 +889,7 @@ function OptionButton({
           {option.label}
           {option.recommended && (
             <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium uppercase text-primary">
-              Recommended
+              {t("agentChat.guided.recommended")}
             </span>
           )}
         </span>
@@ -906,7 +947,8 @@ function ColorOptions({
             type="button"
             key={`${option.value}:${option.label}`}
             onClick={() => toggleOption(option.value)}
-            className="group flex cursor-pointer flex-col items-center gap-1.5"
+            aria-pressed={selected}
+            className="group flex cursor-pointer flex-col items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span
               className={cn(
@@ -935,10 +977,12 @@ function ColorOptions({
 function SliderQuestion({
   question,
   value,
+  labelledBy,
   onChange,
 }: {
   question: GuidedQuestion;
   value: unknown;
+  labelledBy: string;
   onChange: (value: unknown) => void;
 }) {
   const min = question.min ?? 0;
@@ -956,6 +1000,7 @@ function SliderQuestion({
         max={max}
         step={step}
         value={current}
+        aria-labelledby={labelledBy}
         onChange={(event) => onChange(Number(event.target.value))}
         className="h-2 flex-1 cursor-pointer accent-primary"
       />
@@ -976,6 +1021,8 @@ function FileDropZone({
   disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
+  const t = useT();
+  const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const files: File[] = Array.isArray(value) ? (value as File[]) : [];
 
@@ -1007,30 +1054,41 @@ function FileDropZone({
           addFiles(Array.from(event.dataTransfer.files));
         }}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed p-5 transition-colors",
+          "flex flex-col items-center justify-center rounded-md border-2 border-dashed p-5 transition-colors",
           dragOver
             ? "border-primary bg-primary/5"
             : "border-border bg-muted/30 hover:border-muted-foreground/50",
         )}
       >
-        <IconUpload className="mb-2 h-5 w-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
-          Drag files here or{" "}
-          <label className="cursor-pointer text-primary hover:underline">
-            browse
-            <input
-              type="file"
-              multiple
-              disabled={disabled}
-              onChange={(event) => {
-                if (event.target.files)
-                  addFiles(Array.from(event.target.files));
-                event.currentTarget.value = "";
-              }}
-              className="hidden"
-            />
-          </label>
-        </p>
+        <IconUpload
+          aria-hidden="true"
+          className="mb-2 h-5 w-5 text-muted-foreground"
+        />
+        <div className="flex flex-wrap items-center justify-center gap-1 text-sm text-muted-foreground">
+          <span>{t("agentChat.guided.dropFiles")}</span>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+            className="h-auto px-0 text-sm"
+          >
+            {t("agentChat.guided.browseFiles")}
+          </Button>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          hidden
+          tabIndex={-1}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.files) addFiles(Array.from(event.target.files));
+            event.currentTarget.value = "";
+          }}
+        />
       </div>
 
       {files.length > 0 && (
@@ -1047,7 +1105,9 @@ function FileDropZone({
                 onClick={() => removeFile(index)}
                 disabled={disabled}
                 className="cursor-pointer text-muted-foreground/70 hover:text-foreground"
-                aria-label={`Remove ${file.name}`}
+                aria-label={t("agentChat.guided.removeFile", {
+                  name: file.name,
+                })}
               >
                 <IconX className="h-3 w-3" />
               </button>
@@ -1157,13 +1217,17 @@ export function useGuidedQuestionFlow({
   providerStatus: providedProviderStatus,
   queryKey = ["show-questions"],
   refetchInterval = false,
-  submitMessage = "Here are my answers — go ahead.",
-  skipMessage = "Skip the questions — let the agent decide.",
+  submitMessage: submitMessageOption,
+  skipMessage: skipMessageOption,
   buildSubmitContext,
   buildSkipContext,
   onSubmitMessage,
   onSkipMessage,
 }: UseGuidedQuestionFlowOptions = {}) {
+  const t = useT();
+  const submitMessage =
+    submitMessageOption ?? t("agentChat.guided.submitMessage");
+  const skipMessage = skipMessageOption ?? t("agentChat.guided.skipMessage");
   const queryClient = useQueryClient();
   const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
   const queryGenerationRef = useRef(0);

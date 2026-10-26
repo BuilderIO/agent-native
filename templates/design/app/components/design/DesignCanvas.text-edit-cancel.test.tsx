@@ -842,6 +842,171 @@ it("keeps owing the text when the frame reports the insert did not land", async 
   expect(isPendingTextRequestLive("screen-live", "text-drop")).toBe(false);
 });
 
+it("commits owed text when Escape ends the session before the text lands, without deleting the node", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-escape-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-race");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-race");
+  });
+  await act(async () => {
+    for (const char of "Sta") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-race",
+  });
+  expect(canvas.typed("text-edit-insert-text")).toHaveLength(1);
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-race",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-content-change",
+    selector: '[data-agent-native-node-id="text-race"]',
+    value: "",
+    payload: { sourceId: "text-race" },
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-race",
+    inserted: false,
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  expect(onTextContentChange).not.toHaveBeenCalled();
+  const begins = canvas.typed("begin-text-edit");
+  expect(begins[begins.length - 1]).toMatchObject({
+    nodeId: "text-race",
+    insertText: "Sta",
+    commitImmediately: true,
+  });
+});
+
+it("marks a commit made before the owed text lands so it does not create the box", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-owed-tail-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-tail");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-tail");
+  });
+  await act(async () => {
+    for (const char of "Bu") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+    }
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: true,
+    sourceId: "text-tail",
+  });
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-editing-state",
+    active: false,
+    sourceId: "text-tail",
+  });
+  const commit = (value: string, originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-tail"]',
+      value,
+      originalValue,
+      payload: { sourceId: "text-tail" },
+    });
+  await commit("tton", "");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "tton",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: true }),
+    );
+  });
+
+  await canvas.fromFrame(canvas.iframeWindow, {
+    type: "text-edit-insert-result",
+    nodeId: "text-tail",
+    inserted: true,
+  });
+  await commit("Button", "tton");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenLastCalledWith(
+      '[data-agent-native-node-id="text-tail"]',
+      "Button",
+      { sourceId: "text-tail" },
+      expect.objectContaining({ owedTextPending: false }),
+    );
+  });
+});
+
+it("keeps text the host wrote on pointer-away when the session opened on the empty node commits empty", async () => {
+  const onTextContentChange = vi.fn();
+  const canvas = await mountCanvas(
+    "text-edit-pointer-away-race-preview-token",
+    {},
+    onTextContentChange,
+  );
+  await canvas.markReady(canvas.iframeWindow);
+  const writer = vi.fn(() => true);
+  unregisterPendingHostCommit = registerPendingTextHostCommit(writer);
+
+  const capture = armPendingTextCapture({ owner: "screen-live" });
+  capture.bind("text-away");
+  await act(async () => {
+    beginTextEditForOwner("screen-live", "text-away");
+  });
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "A" }));
+    window.dispatchEvent(new PointerEvent("pointerdown"));
+  });
+  expect(writer).toHaveBeenCalledWith("screen-live", "text-away", "A");
+
+  const emptyCommit = (originalValue: string) =>
+    canvas.fromFrame(canvas.iframeWindow, {
+      type: "text-content-change",
+      selector: '[data-agent-native-node-id="text-away"]',
+      value: "",
+      originalValue,
+      payload: { sourceId: "text-away" },
+    });
+  await emptyCommit("");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(onTextContentChange).not.toHaveBeenCalled();
+
+  await emptyCommit("A");
+  await vi.waitFor(() => {
+    expect(onTextContentChange).toHaveBeenCalledWith(
+      '[data-agent-native-node-id="text-away"]',
+      "",
+      { sourceId: "text-away" },
+      expect.objectContaining({ originalValue: "A" }),
+    );
+  });
+});
+
 it("revokes an owed delivery the frame may already hold when the request stands down", async () => {
   const canvas = await mountCanvas("text-edit-revoke-preview-token");
   await canvas.markReady(canvas.iframeWindow);

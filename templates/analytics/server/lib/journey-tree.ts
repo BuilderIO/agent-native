@@ -48,20 +48,23 @@ export interface BuildJourneyTreeOptions {
 
 /**
  * Why an example has no viewport. `no_recording`: no accessible recording
- * covers the step. `not_captured`: the recording predates viewport capture.
- * `unreadable`: its metadata could not be parsed.
+ * covers the step. `recording_unknown`: replay lookup was skipped.
+ * `not_captured`: the recording predates viewport capture. `unreadable`: its
+ * metadata could not be parsed.
  */
 export type ViewportUnknownReason =
   | "no_recording"
+  | "recording_unknown"
   | "not_captured"
   | "unreadable";
 
 export interface JourneyExample {
   sessionId: string;
-  recordingId: string | null;
+  /** Omitted when replay lookup was skipped; null means lookup found no replay. */
+  recordingId?: string | null;
   /** ISO time of the step in this session. */
   ts: string;
-  /** Milliseconds from recording.startedAt to the step; null without a recording. */
+  /** Milliseconds from recording.startedAt to the step; null when no offset is known. */
   offsetMs: number | null;
   viewport: { width: number; height: number } | null;
   /** Present exactly when `viewport` is null. */
@@ -225,14 +228,17 @@ function hasViewportConstraints(constraints: ViewportConstraints | undefined) {
 interface Candidate {
   sessionId: string;
   tsMs: number;
-  recording: JourneyRecording | null;
+  recording: JourneyRecording | null | undefined;
 }
 
 function chooseCandidate(
   ref: { sessionId: string; tsMs: number },
-  recordings: readonly JourneyRecording[],
+  recordings: readonly JourneyRecording[] | null,
   constraints: ViewportConstraints | undefined,
 ): Candidate | null {
+  if (recordings === null) {
+    return constraints?.requireKnown ? null : { ...ref, recording: undefined };
+  }
   const constrained = hasViewportConstraints(constraints);
   const usable = recordings
     .filter((recording) => covers(recording, ref.tsMs))
@@ -268,6 +274,15 @@ function exampleFrom(
 ): JourneyExample {
   const { recording } = candidate;
   const ts = new Date(candidate.tsMs).toISOString();
+  if (recording === undefined) {
+    return {
+      sessionId: candidate.sessionId,
+      ts,
+      offsetMs: null,
+      viewport: null,
+      viewportReason: "recording_unknown",
+    };
+  }
   if (!recording) {
     return {
       sessionId: candidate.sessionId,
@@ -305,7 +320,7 @@ function exampleFrom(
 
 function pickExamples(
   refs: ReadonlyArray<{ sessionId: string; tsMs: number }>,
-  recordings: ReadonlyMap<string, readonly JourneyRecording[]>,
+  recordings: ReadonlyMap<string, readonly JourneyRecording[]> | null,
   options: BuildJourneyTreeOptions,
 ): JourneyExample[] {
   if (options.examplesPerNode === 0) return [];
@@ -314,7 +329,7 @@ function pickExamples(
   for (const ref of refs) {
     const candidate = chooseCandidate(
       ref,
-      recordings.get(ref.sessionId) ?? [],
+      recordings === null ? null : (recordings.get(ref.sessionId) ?? []),
       options.viewport,
     );
     if (candidate) candidates.push(candidate);
@@ -354,7 +369,7 @@ const compareKeys = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  */
 export function buildJourneyTree(
   sessions: readonly JourneySession[],
-  recordings: ReadonlyMap<string, readonly JourneyRecording[]>,
+  recordings: ReadonlyMap<string, readonly JourneyRecording[]> | null,
   options: BuildJourneyTreeOptions,
 ): { rootN: number; nodes: JourneyNode[] } {
   const root = trieNode("root", "All sessions", "root", 0);

@@ -8,6 +8,7 @@ import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
   isGPTReasoningModel,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
@@ -41,6 +42,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -467,6 +469,18 @@ class AISDKEngine implements AgentEngine {
               },
         };
       }
+    } else if (
+      this.provider === "anthropic" &&
+      isUnsetReasoningEffort(opts.reasoningEffort) &&
+      supportsClaudeAdaptiveThinking(opts.model) &&
+      !(providerOpts.anthropic as { thinking?: unknown } | undefined)?.thinking
+    ) {
+      // No effort chosen: keep adaptive thinking on and send no effort, so
+      // the model's own default level applies.
+      providerOpts.anthropic = {
+        ...(providerOpts.anthropic as object | undefined),
+        thinking: { type: "adaptive" },
+      };
     }
 
     // @ai-sdk/openai infers reasoning models from its own id prefixes, which
@@ -498,8 +512,8 @@ class AISDKEngine implements AgentEngine {
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
 
-    try {
-      const result = streamText({
+    const dispatch = await startModelDispatch(opts, () =>
+      streamText({
         model: providerModel,
         system: opts.systemPrompt,
         messages,
@@ -518,8 +532,18 @@ class AISDKEngine implements AgentEngine {
         ...(Object.keys(providerOpts).length > 0
           ? { providerOptions: providerOpts }
           : {}),
-      });
+      }),
+    ).catch((error) => {
+      firstEventAbort.cleanup();
+      throw error;
+    });
+    if (!dispatch.started) {
+      firstEventAbort.cleanup();
+      return;
+    }
+    const result = dispatch.value;
 
+    try {
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
       let credentialFailureRecorded = false;

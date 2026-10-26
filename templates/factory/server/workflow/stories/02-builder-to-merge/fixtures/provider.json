@@ -1,0 +1,707 @@
+{
+  "builder.check": {
+    "working": {
+      "ok": true,
+      "output": {
+        "state": "working",
+        "reason": "agent_running",
+        "agentState": "running",
+        "branchState": "active",
+        "archived": false,
+        "prStatus": null,
+        "prUrl": null,
+        "prNumber": null,
+        "hasPullRequest": false,
+        "lastActivityAt": "2026-10-19T11:58:00.000Z",
+        "idleForMs": 120000
+      }
+    },
+    "workingWithPr": {
+      "ok": true,
+      "output": {
+        "state": "working",
+        "reason": "agent_running",
+        "agentState": "running",
+        "branchState": "active",
+        "archived": false,
+        "prStatus": "open",
+        "prUrl": "https://github.example.test/example-org/example-repo/pull/7",
+        "prNumber": 7,
+        "hasPullRequest": true,
+        "lastActivityAt": "2026-10-19T11:58:00.000Z",
+        "idleForMs": 60000
+      }
+    },
+    "stuck": {
+      "ok": true,
+      "output": {
+        "state": "stuck",
+        "reason": "agent_waiting_for_input",
+        "agentState": "waiting",
+        "branchState": "active",
+        "archived": false,
+        "prStatus": null,
+        "prUrl": null,
+        "prNumber": null,
+        "hasPullRequest": false,
+        "lastActivityAt": "2026-10-19T11:58:00.000Z",
+        "idleForMs": 2400000
+      }
+    },
+    "prOpen": {
+      "ok": true,
+      "output": {
+        "state": "completed",
+        "reason": "pull_request_open",
+        "agentState": "idle",
+        "branchState": "active",
+        "archived": false,
+        "prStatus": "open",
+        "prUrl": "https://github.example.test/example-org/example-repo/pull/7",
+        "prNumber": 7,
+        "hasPullRequest": true,
+        "lastActivityAt": "2026-10-19T11:58:00.000Z",
+        "idleForMs": 900000
+      }
+    },
+    "unreadable": {
+      "ok": false,
+      "code": "provider_error",
+      "retryable": false,
+      "sideEffect": "none",
+      "message": "Builder could not read the branch"
+    },
+    "endedTasks": {
+      "match": [
+        {
+          "when": {
+            "branchName": "factory-m1"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "state": "failed",
+              "reason": "branch_deleted",
+              "agentState": null,
+              "branchState": "deleted",
+              "archived": false,
+              "prStatus": null,
+              "prUrl": null,
+              "prNumber": null,
+              "hasPullRequest": false,
+              "lastActivityAt": "2026-10-19T11:58:00.000Z",
+              "idleForMs": null
+            }
+          }
+        },
+        {
+          "when": {
+            "branchName": "factory-m3"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "state": "completed",
+              "reason": "merged_then_archived",
+              "agentState": "idle",
+              "branchState": "archived",
+              "archived": true,
+              "prStatus": "merged",
+              "prUrl": null,
+              "prNumber": null,
+              "hasPullRequest": false,
+              "lastActivityAt": "2026-10-19T11:58:00.000Z",
+              "idleForMs": null
+            }
+          }
+        }
+      ]
+    }
+  },
+  "builder.followUp": {
+    "accepted": {
+      "ok": true,
+      "output": {
+        "accepted": true,
+        "projectId": "project-1",
+        "branchName": "{fields.branchName}"
+      },
+      "externalRef": "{fields.branchName}"
+    }
+  },
+  "github.readPullRequest": {
+    "failingA": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headA",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 1,
+          "failed": 1,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [
+            {
+              "name": "unit tests",
+              "state": "failed"
+            }
+          ],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "failingB": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headB",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 1,
+          "failed": 1,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [
+            {
+              "name": "unit tests",
+              "state": "failed"
+            }
+          ],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "pending": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headA",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 1,
+          "failed": 0,
+          "pending": 1,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "green": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        }
+      }
+    },
+    "noChecks": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headA",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 0,
+          "passed": 0,
+          "failed": 0,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "mergedBySomeone": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "merged",
+        "draft": false,
+        "merged": true,
+        "mergedAt": "2026-10-19T11:59:00.000Z",
+        "mergeCommitSha": "merge-sha-7",
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "closed": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "closed",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headA",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 1,
+          "failed": 0,
+          "pending": 1,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    },
+    "failingEveryTime": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "head-{n}",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 3,
+          "passed": 1,
+          "failed": 1,
+          "pending": 0,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [
+            {
+              "name": "unit tests",
+              "state": "failed"
+            }
+          ],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        }
+      }
+    }
+  },
+  "factory.mergeGate": {
+    "eligible": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "eligible": true,
+        "reasons": [],
+        "reasonCodes": [],
+        "reasonText": "",
+        "approvals": {
+          "seen": 1,
+          "qualifying": 1,
+          "byAuthor": 0,
+          "fromBots": 0,
+          "fromNonCollaborators": 0,
+          "stale": 0
+        },
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "state": "open",
+        "headSha": "headG",
+        "checkedAt": "2026-10-19T12:00:00.000Z"
+      }
+    },
+    "ineligible": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "eligible": false,
+        "reasons": [
+          "It changes a database migration, which no automation may merge."
+        ],
+        "reasonCodes": ["security"],
+        "reasonText": "It changes a database migration, which no automation may merge.",
+        "approvals": {
+          "seen": 1,
+          "qualifying": 1,
+          "byAuthor": 0,
+          "fromBots": 0,
+          "fromNonCollaborators": 0,
+          "stale": 0
+        },
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "state": "open",
+        "headSha": "headG",
+        "checkedAt": "2026-10-19T12:00:00.000Z"
+      }
+    },
+    "approvalMissing": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "eligible": false,
+        "reasons": [
+          "No owner, member or collaborator other than the author has approved the current head commit. Approvals found that do not count: 1 approval on an earlier commit."
+        ],
+        "reasonCodes": ["approval_required"],
+        "reasonText": "No owner, member or collaborator other than the author has approved the current head commit. Approvals found that do not count: 1 approval on an earlier commit.",
+        "approvals": {
+          "seen": 1,
+          "qualifying": 0,
+          "byAuthor": 0,
+          "fromBots": 0,
+          "fromNonCollaborators": 0,
+          "stale": 1
+        },
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "state": "open",
+        "headSha": "headG",
+        "checkedAt": "2026-10-19T12:00:00.000Z"
+      }
+    }
+  },
+  "github.mergePullRequest": {
+    "merged": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "merged": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "sha": "merge-sha-7",
+        "url": "https://github.example.test/example-org/example-repo/pull/7"
+      },
+      "externalRef": "merge-sha-7",
+      "url": "https://github.example.test/example-org/example-repo/pull/7"
+    },
+    "timesOut": {
+      "ok": false,
+      "code": "provider_error",
+      "retryable": false,
+      "sideEffect": "maybe",
+      "message": "The merge may have happened, and Factory could not confirm either way; read the pull request before trying again (merge_outcome_unknown)."
+    }
+  },
+  "slack.replyInThread": {
+    "posted": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "channel": "{fields.channel}",
+        "ts": "1760001000.00000{n}",
+        "threadTs": "{fields.threadTs}",
+        "permalink": "https://slack.example.test/archives/{fields.channel}/p176000100000000{n}"
+      },
+      "externalRef": "1760001000.00000{n}",
+      "url": "https://slack.example.test/archives/{fields.channel}/p176000100000000{n}"
+    },
+    "failsOnce": {
+      "ok": false,
+      "code": "provider_error",
+      "retryable": true,
+      "sideEffect": "none",
+      "message": "Slack is down"
+    }
+  },
+  "slack.postMessage": {
+    "posted": {
+      "match": [
+        {
+          "when": {
+            "to": "C0FINDINGS"
+          },
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "C0FINDINGS",
+              "ts": "1760002000.00000{n}",
+              "threadTs": null,
+              "permalink": "https://slack.example.test/archives/C0FINDINGS/p176000200000000{n}"
+            },
+            "externalRef": "1760002000.00000{n}",
+            "url": "https://slack.example.test/archives/C0FINDINGS/p176000200000000{n}"
+          }
+        },
+        {
+          "answer": {
+            "ok": true,
+            "output": {
+              "ok": true,
+              "channel": "D0TRIAGE",
+              "ts": "1760002000.00000{n}",
+              "threadTs": null,
+              "permalink": "https://slack.example.test/archives/D0TRIAGE/p176000200000000{n}"
+            },
+            "externalRef": "1760002000.00000{n}",
+            "url": "https://slack.example.test/archives/D0TRIAGE/p176000200000000{n}"
+          }
+        }
+      ]
+    }
+  }
+}

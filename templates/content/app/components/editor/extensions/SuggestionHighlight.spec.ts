@@ -711,20 +711,20 @@ describe("SuggestionHighlight", () => {
     });
 
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
+      /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete:hover,[\s\S]*?\.notion-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.notion-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
     );
 
     const pointerAndFocusState = css.match(
-      /\.notion-editor \.suggestion-delete:hover,[\s\S]*?\.notion-editor \.suggestion-delete-widget:focus-visible\s*\{([^}]*)\}/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{([^}]*)\}/,
     )?.[1];
     const selectedState = css.match(
-      /\.notion-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.notion-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
@@ -749,12 +749,535 @@ describe("SuggestionHighlight", () => {
     view.destroy();
   });
 
+  describe("whole suggested lines", () => {
+    const listSchema = new Schema({
+      nodes: {
+        doc: { content: "block+" },
+        paragraph: { group: "block", content: "text*", toDOM: () => ["p", 0] },
+        bulletList: {
+          group: "block",
+          content: "listItem+",
+          toDOM: () => ["ul", 0],
+        },
+        orderedList: {
+          group: "block",
+          content: "listItem+",
+          toDOM: () => ["ol", 0],
+        },
+        listItem: { content: "paragraph block*", toDOM: () => ["li", 0] },
+        text: {},
+      },
+    });
+    const listItem = (text: string, ...children: ProseMirrorNode[]) =>
+      listSchema.node("listItem", null, [
+        listSchema.node("paragraph", null, listSchema.text(text)),
+        ...children,
+      ]);
+    const list = (type: string, ...items: ProseMirrorNode[]) =>
+      listSchema.node(type, null, items);
+
+    // A saved suggestion adding `line` right after the text `anchor`.
+    function lineAfter(
+      blocks: ProseMirrorNode[],
+      anchor: string,
+      source: string,
+      line: string,
+    ): SuggestionHighlightSpec {
+      let point = -1;
+      listSchema.node("doc", null, blocks).descendants((node, offset) => {
+        if (node.text === anchor) point = offset + anchor.length;
+      });
+      const from = source.indexOf(line);
+      return {
+        suggestionId: "line",
+        kind: "add_block",
+        from: point,
+        to: point,
+        insertedText: line,
+        insertedPresentation: { source, from, to: from + line.length },
+      };
+    }
+
+    function mounted(
+      blocks: ProseMirrorNode[],
+      specs: SuggestionHighlightSpec[],
+    ) {
+      const editorState = EditorState.create({
+        doc: blocks[0]!.type.schema.node("doc", null, blocks),
+        plugins: [createSuggestionHighlightPlugin()],
+      });
+      const mount = document.createElement("div");
+      const view = new EditorView(mount, {
+        state: setSpecs(editorState, specs),
+      });
+      return { view, mount };
+    }
+
+    const paragraph = (text: string) =>
+      schema.node("paragraph", null, schema.text(text));
+
+    // The DOM between paragraphs: each block's tag, classes, and text.
+    function blocks(mount: HTMLElement) {
+      return Array.from(
+        mount.querySelector(".ProseMirror")!.children,
+        (child) =>
+          `${child.tagName.toLowerCase()}${
+            child.classList.contains("suggestion-block-widget") ? ".widget" : ""
+          } ${child.textContent}`,
+      );
+    }
+
+    it("draws a saved new paragraph after the one it continues", () => {
+      const source = "Alpha one. More.\nAlpha two.\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "continued",
+            kind: "add_block",
+            from: 1 + from,
+            to: 1 + from,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one. More.",
+          "div.widget Alpha two.",
+          "p Bravo two.",
+        ]);
+        expect(mount.textContent).not.toContain("↵");
+        const widgets = mount.querySelectorAll(
+          '[data-suggestion-id="continued"]',
+        );
+        expect(widgets).toHaveLength(2);
+        expect(widgets[1]!.querySelector("p")?.textContent).toBe("Alpha two.");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a saved paragraph before the block it precedes", () => {
+      const source = "Alpha one.\nInserted words\nBravo two.";
+      const from = "Alpha one.\n".length;
+      const to = source.indexOf("Bravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "before",
+            kind: "add_block",
+            from: 13,
+            to: 13,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget Inserted words",
+          "p Bravo two.",
+        ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("keeps text that splits a line inline with a real line break", () => {
+      const source = "Alpha X\nY one.";
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "split",
+            kind: "add_block",
+            from: 7,
+            to: 7,
+            insertedText: "X\nY ",
+            insertedPresentation: { source, from: 6, to: 10 },
+          },
+        ],
+      );
+      try {
+        const widget = mount.querySelector('[data-suggestion-id="split"]')!;
+        expect(widget.tagName).toBe("SPAN");
+        expect(widget.innerHTML).toBe("X<br>Y ");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    describe("code", () => {
+      const codeSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          codeBlock: {
+            group: "block",
+            content: "text*",
+            code: true,
+            marks: "",
+            toDOM: () => ["pre", ["code", 0]],
+          },
+          text: {},
+        },
+      });
+      const code = (text: string) =>
+        codeSchema.node("codeBlock", null, codeSchema.text(text));
+      const prose = (text: string) =>
+        codeSchema.node("paragraph", null, codeSchema.text(text));
+
+      it("keeps a line added to a code block inside it", () => {
+        const source = "```\nx = 1\n# note\n```\n\nAfter.";
+        const from = source.indexOf("\n# note");
+        const { view, mount } = mounted(
+          [code("x = 1"), prose("After.")],
+          [
+            {
+              suggestionId: "code-line",
+              kind: "add_block",
+              from: 6,
+              to: 6,
+              insertedText: "\n# note",
+              insertedPresentation: { source, from, to: from + 7 },
+            },
+          ],
+        );
+        try {
+          expect(mount.querySelector("h1")).toBeNull();
+          expect(blocks(mount)).toEqual(["pre x = 1↵# note", "p After."]);
+          expect(
+            mount.querySelector('pre [data-suggestion-id="code-line"]'),
+          ).not.toBeNull();
+        } finally {
+          view.destroy();
+        }
+      });
+
+      it.each(["```", "~~~", "$$"])(
+        "keeps the lines of a new %s block out of block widgets",
+        (fence) => {
+          const source = `Alpha.\n\n${fence}\n# note\n${fence}\n\nBravo.`;
+          const from = "Alpha.".length;
+          const to = source.indexOf("\n\nBravo");
+          const { view, mount } = mounted(
+            [prose("Alpha."), prose("Bravo.")],
+            [
+              {
+                suggestionId: "code-block",
+                kind: "add_block",
+                from: 7,
+                to: 7,
+                insertedText: source.slice(from, to),
+                insertedPresentation: { source, from, to },
+              },
+            ],
+          );
+          try {
+            expect(mount.querySelector("h1")).toBeNull();
+            expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+          } finally {
+            view.destroy();
+          }
+        },
+      );
+    });
+
+    it("draws a new list item among the items", () => {
+      const source = "- One\n- New\n- Two";
+      const item = (text: string) =>
+        listSchema.node("listItem", null, [
+          listSchema.node("paragraph", null, listSchema.text(text)),
+        ]);
+      const { view, mount } = mounted(
+        [listSchema.node("bulletList", null, [item("One"), item("Two")])],
+        [
+          {
+            suggestionId: "item",
+            kind: "add_block",
+            from: 6,
+            to: 6,
+            insertedText: "\n- New",
+            insertedPresentation: { source, from: 5, to: 11 },
+          },
+        ],
+      );
+      try {
+        const list = mount.querySelector("ul")!;
+        expect(Array.from(list.children, (child) => child.textContent)).toEqual(
+          ["One", "New", "Two"],
+        );
+        expect(list.children[1]!.tagName).toBe("LI");
+        expect(list.children[1]!.classList).toContain(
+          "suggestion-block-widget",
+        );
+        expect(list.textContent).not.toContain("- ");
+        // It stays a list item; its content is the button.
+        expect(list.children[1]!.hasAttribute("role")).toBe(false);
+        expect(list.children[1]!.firstElementChild?.getAttribute("role")).toBe(
+          "button",
+        );
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a suggested bullet beside a numbered list, never inside it", () => {
+      const numbered = [list("orderedList", listItem("One"), listItem("Two"))];
+      const inside = mounted(numbered, [
+        lineAfter(numbered, "One", "1. One\n- New\n2. Two", "\n- New"),
+      ]);
+      const after = mounted(numbered, [
+        lineAfter(numbered, "Two", "1. One\n2. Two\n- New", "\n- New"),
+      ]);
+      try {
+        // Between two numbered items it can't be drawn as one of them.
+        expect(
+          inside.mount.querySelector(".suggestion-block-widget"),
+        ).toBeNull();
+        expect(inside.mount.querySelector("ol")!.children).toHaveLength(2);
+        // After the last one it starts a bulleted list of its own.
+        expect(blocks(after.mount)).toEqual(["ol OneTwo", "div.widget New"]);
+        expect(
+          after.mount.querySelector(".suggestion-block-widget ul")?.textContent,
+        ).toBe("New");
+      } finally {
+        inside.view.destroy();
+        after.view.destroy();
+      }
+    });
+
+    it("draws a suggested list item at its own depth", () => {
+      const flat = [list("bulletList", listItem("One"), listItem("Two"))];
+      const child = mounted(flat, [
+        lineAfter(flat, "One", "- One\n\t- Child\n- Two", "\n\t- Child"),
+      ]);
+      const nested = [
+        list(
+          "bulletList",
+          listItem("One", list("bulletList", listItem("Child"))),
+          listItem("Two"),
+        ),
+      ];
+      const back = mounted(nested, [
+        lineAfter(nested, "Child", "- One\n\t- Child\n- New\n- Two", "\n- New"),
+      ]);
+      try {
+        // A first child item nests under the item it follows.
+        const outer = child.mount.querySelector(".ProseMirror > ul")!;
+        expect(Array.from(outer.children, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "Two",
+        ]);
+        expect(
+          outer.children[0]!.querySelector(".suggestion-block-widget ul")
+            ?.textContent,
+        ).toBe("Child");
+        expect(child.mount.textContent).not.toContain("⇥");
+        // An item after a nested one goes back out to the outer list.
+        const items = back.mount.querySelector(".ProseMirror > ul")!.children;
+        expect(Array.from(items, (item) => item.textContent)).toEqual([
+          "OneChild",
+          "New",
+          "Two",
+        ]);
+        expect(items[1]!.classList).toContain("suggestion-block-widget");
+      } finally {
+        child.view.destroy();
+        back.view.destroy();
+      }
+    });
+
+    it("keeps each line's number in a suggested new numbered list", () => {
+      const source = "Alpha one.\n1. One\n2. Two\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "numbered",
+            kind: "add_block",
+            from: 1 + from,
+            to: 1 + from,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(
+          Array.from(
+            mount.querySelectorAll(".suggestion-block-widget ol"),
+            (list) => `${list.getAttribute("start")} ${list.textContent}`,
+          ),
+        ).toEqual(["1 One", "2 Two"]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("shows a suggested empty paragraph as a pilcrow block", () => {
+      const source = "Alpha one.\n<empty-block/>\nBravo two.";
+      const from = "Alpha one.".length;
+      const to = source.indexOf("\nBravo");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Bravo two.")],
+        [
+          {
+            suggestionId: "empty",
+            kind: "add_block",
+            from: 11,
+            to: 11,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget ¶",
+          "p Bravo two.",
+        ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("draws a drafted paragraph deletion as its own block, not glued to the next", () => {
+      const source = "Alpha one.\nBravo two.\nCharlie three.";
+      const from = "Alpha one.\n".length;
+      const to = source.indexOf("Charlie");
+      const { view, mount } = mounted(
+        [paragraph("Alpha one."), paragraph("Charlie three.")],
+        [
+          {
+            suggestionId: "draft-delete",
+            kind: "delete",
+            from: 13,
+            to: 13,
+            deletedText: source.slice(from, to),
+            deletedPresentation: { source, from, to },
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        expect(blocks(mount)).toEqual([
+          "p Alpha one.",
+          "div.widget Bravo two.",
+          "p Charlie three.",
+        ]);
+        const widget = mount.querySelector(".suggestion-block-widget")!;
+        expect(widget.classList).toContain("suggestion-delete-widget");
+        expect(widget.getAttribute("data-suggestion-edit-boundary")).toBe(
+          "true",
+        );
+        expect(widget.getAttribute("data-suggestion-position")).toBe("13");
+        expect(widget.hasAttribute("tabindex")).toBe(false);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("marks every whole paragraph a saved deletion removes", () => {
+      const { view, mount } = mounted(
+        [
+          paragraph("Alpha one."),
+          paragraph("Bravo two."),
+          paragraph("Charlie three."),
+        ],
+        [
+          {
+            suggestionId: "saved-delete",
+            kind: "delete",
+            from: 13,
+            to: 25,
+          },
+        ],
+      );
+      try {
+        expect(
+          Array.from(mount.querySelectorAll("p"), (element) =>
+            element.classList.contains("suggestion-delete-block"),
+          ),
+        ).toEqual([false, true, false]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("lets the caret land beside a saved insertion while suggesting", () => {
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "saved",
+            kind: "insert",
+            from: 6,
+            to: 6,
+            insertedText: " new",
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        const widget = mount.querySelector('[data-suggestion-id="saved"]')!;
+        expect(widget.hasAttribute("tabindex")).toBe(false);
+        expect(widget.hasAttribute("role")).toBe(false);
+        expect(widget.getAttribute("data-suggestion-edit-boundary")).toBe(
+          "true",
+        );
+        expect(widget.getAttribute("data-suggestion-position")).toBe("6");
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it("moves a drafted deletion's caret spot with text typed before it", () => {
+      const { view, mount } = mounted(
+        [paragraph("Alpha one.")],
+        [
+          {
+            suggestionId: "gone",
+            kind: "delete",
+            from: 6,
+            to: 6,
+            deletedText: " gone",
+            editableBoundary: true,
+          },
+        ],
+      );
+      try {
+        view.dispatch(view.state.tr.insertText("XY", 1));
+        expect(
+          mount
+            .querySelector('[data-suggestion-id="gone"]')!
+            .getAttribute("data-suggestion-position"),
+        ).toBe("8");
+      } finally {
+        view.destroy();
+      }
+    });
+  });
+
   it("preserves boundary whitespace in insertion and deletion widgets", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*white-space: break-spaces;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*white-space: break-spaces;/,
     );
 
     const editorState = setSpecs(state(), [
@@ -874,10 +1397,10 @@ describe("SuggestionHighlight", () => {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-proposed-text,[\s\S]*?\.notion-editor \.suggestion-deleted-text\s*\{[^}]*cursor: text;/,
+      /\.content-editor \.suggestion-proposed-text,[\s\S]*?\.content-editor \.suggestion-deleted-text\s*\{[^}]*cursor: text;/,
     );
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*margin: 0;[^}]*padding: 0;[^}]*font: inherit;[^}]*letter-spacing: inherit;[^}]*line-height: inherit;[^}]*vertical-align: baseline;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\]\s*\{[^}]*margin: 0;[^}]*padding: 0;[^}]*font: inherit;[^}]*letter-spacing: inherit;[^}]*line-height: inherit;[^}]*vertical-align: baseline;/,
     );
 
     const editorState = setSpecs(state(), [
@@ -1075,7 +1598,7 @@ describe("SuggestionHighlight", () => {
     expect(inserted.className).toContain("suggestion-proposed-text");
     expect(deleted.className).toContain("suggestion-deleted-text");
     expect(css).toMatch(
-      /\.notion-editor \.suggestion-inline-widget\[data-suggestion-widget\] code\s*\{[^}]*color: inherit;/,
+      /\.content-editor \.suggestion-inline-widget\[data-suggestion-widget\] code\s*\{[^}]*color: inherit;/,
     );
   });
 
@@ -1199,6 +1722,41 @@ describe("SuggestionHighlight", () => {
     expect(dom.getAttribute("data-suggestion-position")).toBe("5");
     expect(dom.className).toContain("suggestion-deleted-text");
     expect(dom.className).toContain("suggestion-inline-widget");
+  });
+
+  it("redraws a saved replacement's widget when suggesting starts, stops, or it becomes active", () => {
+    const replacement = (editableBoundary: boolean) => [
+      {
+        suggestionId: "saved-replace",
+        kind: "replace" as const,
+        from: 1,
+        to: 6,
+        insertedText: "Omega",
+        editableBoundary,
+      },
+    ];
+    const mount = document.createElement("div");
+    const view = new EditorView(mount, {
+      state: setSpecs(state("Alpha one."), replacement(false)),
+    });
+    const widget = () =>
+      mount.querySelector<HTMLElement>(
+        '[data-suggestion-id="saved-replace"][data-suggestion-widget]',
+      )!;
+    expect(widget().getAttribute("tabindex")).toBe("0");
+
+    view.updateState(setSpecs(view.state, replacement(true)));
+    expect(widget().hasAttribute("tabindex")).toBe(false);
+    expect(widget().getAttribute("data-suggestion-edit-boundary")).toBe("true");
+    // The new text sits after the text it replaces, and so does the caret.
+    expect(widget().getAttribute("data-suggestion-position")).toBe("6");
+
+    view.updateState(setSpecs(view.state, replacement(false), "saved-replace"));
+    expect(widget().hasAttribute("data-suggestion-edit-boundary")).toBe(false);
+    expect(widget().getAttribute("role")).toBe("button");
+    expect(widget().className).toContain("suggestion-highlight--active");
+
+    view.destroy();
   });
 
   it("marks saved and draft deletions active without changing their text", () => {

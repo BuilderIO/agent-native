@@ -22,12 +22,14 @@ async function selectPlay(app: App) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(center.x, center.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Play button"]);
 }
 
-// fixme: fails in CI on current main: the canvas never settled after zoom to fit
-test.fixme("absolute-position constraint controls survive close, reopen, and reload", async ({
+test("absolute-position constraint controls survive close, reopen, and reload", async ({
   app,
 }) => {
   const id = await app.seed(CARD_HTML);
@@ -78,7 +80,9 @@ test.fixme("absolute-position constraint controls survive close, reopen, and rel
   await expect(
     app.page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible();
-  await selectPlay(app);
+  // The reload restores the selection; Cmd+clicking the selected layer again
+  // would step to the one below it.
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Play button"]);
   await constraints.click();
   await expect(horizontal).toHaveText("Right");
   await expect(vertical).toHaveText("Bottom");

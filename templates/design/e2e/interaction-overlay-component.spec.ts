@@ -120,7 +120,6 @@ function expectNear(actual: Point, expected: Point, label: string) {
   ).toBeLessThanOrEqual(1.5);
 }
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("draws an overlaid play triangle, fills both, and converts the grouped layers to a component", async ({
   app,
 }) => {
@@ -209,8 +208,8 @@ test("draws an overlaid play triangle, fills both, and converts the grouped laye
   );
   expect(
     after.get(groupId)?.parent,
-    "drawn on the screen body, where the shapes were",
-  ).toBe([...after.values()].find((node) => node.tag === "body")!.id);
+    "drawn inside main, the authored container under the shapes",
+  ).toBe("main");
   expect(await savedFills(app, id, ellipseId, vectorId)).toEqual({
     ellipse: "rgb(37, 99, 235)",
     vector: "rgb(255, 255, 255)",

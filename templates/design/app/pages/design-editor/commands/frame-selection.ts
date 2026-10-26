@@ -9,6 +9,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
 
+import { trace } from "@/components/design/design-trace";
 import {
   findCanvasIframeForScreen,
   getBreakpointIframeId,
@@ -30,8 +31,10 @@ import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
   type ContentHistoryEntry,
+  type ContentHistoryChange,
   type ContentHistorySelectionAfterMap,
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type YjsUndoSelectionSnapshot,
@@ -45,20 +48,34 @@ import {
   type ApplyLinkedComponentEdit,
 } from "./linked-component-structure";
 
+export interface LiveSizeHints {
+  hints: Record<string, WrapNodeSizeHint>;
+  /**
+   * Layers the preview could not measure. Wrapping keeps their authored
+   * geometry, which callers that need a rendered box must refuse instead.
+   */
+  unmeasured: Array<{ nodeId: string; reason: "no-preview" | "not-found" }>;
+}
+
 export function collectLiveSizeHints(
   nodeIds: string[],
   projection: CodeLayerProjection,
   activeIframeId: string,
   boardFileId: string | undefined,
-): Record<string, WrapNodeSizeHint> {
+): LiveSizeHints {
   const hints: Record<string, WrapNodeSizeHint> = {};
-  if (typeof document === "undefined") return hints;
-  const doc = findCanvasIframeForScreen(
-    document.body,
-    activeIframeId,
-    boardFileId,
-  )?.contentDocument;
-  if (!doc) return hints;
+  const unmeasured: LiveSizeHints["unmeasured"] = [];
+  const doc =
+    typeof document === "undefined"
+      ? null
+      : findCanvasIframeForScreen(document.body, activeIframeId, boardFileId)
+          ?.contentDocument;
+  if (!doc) {
+    return {
+      hints,
+      unmeasured: nodeIds.map((nodeId) => ({ nodeId, reason: "no-preview" })),
+    };
+  }
   for (const requestedId of nodeIds) {
     let node = projection.nodes.find(
       (candidate) => candidate.id === requestedId,
@@ -68,10 +85,12 @@ export function collectLiveSizeHints(
         (candidate) =>
           candidate.dataAttributes["data-agent-native-node-id"] === requestedId,
       );
-      if (rawIdMatches.length !== 1) continue;
-      node = rawIdMatches[0];
+      node = rawIdMatches.length === 1 ? rawIdMatches[0] : undefined;
     }
-    if (!node) continue;
+    if (!node) {
+      unmeasured.push({ nodeId: requestedId, reason: "not-found" });
+      continue;
+    }
 
     const rawId = node.dataAttributes["data-agent-native-node-id"];
     const sameRawIdNodes = rawId
@@ -89,6 +108,7 @@ export function collectLiveSizeHints(
       !iframeWindow ||
       !(element instanceof iframeWindow.HTMLElement)
     ) {
+      unmeasured.push({ nodeId: node.id, reason: "not-found" });
       continue;
     }
     const width = element.offsetWidth;
@@ -98,13 +118,13 @@ export function collectLiveSizeHints(
       const computedOutOfFlow =
         computedPosition === "absolute" || computedPosition === "fixed";
       if (isOutOfFlowHintTarget(node) || computedOutOfFlow) {
-        hints[node.id] = {
-          width,
-          height,
-          ...(!isOutOfFlowHintTarget(node) && computedOutOfFlow
-            ? { outOfFlow: true as const }
-            : {}),
-        };
+        // Layout offsets, not client rects: the pinned child keeps its own
+        // transform inside the wrapper, so its painted box stays put.
+        const origin =
+          computedPosition === "absolute" && element.offsetParent
+            ? { left: element.offsetLeft, top: element.offsetTop }
+            : {};
+        hints[node.id] = { width, height, ...origin, outOfFlow: true };
         continue;
       }
       if (hasUnsupportedMeasuredFlowAncestry(element, iframeWindow)) {
@@ -122,7 +142,7 @@ export function collectLiveSizeHints(
         : { width, height };
     }
   }
-  return hints;
+  return { hints, unmeasured };
 }
 
 function hasUnsupportedMeasuredFlowAncestry(
@@ -297,6 +317,7 @@ export interface FrameSelectionArgs {
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -316,6 +337,7 @@ export function runFrameSelection({
   canEditDesign,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  localContentUndoStackRef,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -339,12 +361,15 @@ export function runFrameSelection({
     activeBreakpointWidthState !== undefined
       ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
       : activeFile.id;
-  const sizeHints = collectLiveSizeHints(
+  const { hints: sizeHints, unmeasured } = collectLiveSizeHints(
     nodeIds,
     baseProjection,
     activeIframeId,
     boardFileId,
   );
+  if (unmeasured.length > 0) {
+    trace("structure", "frame-unmeasured", { unmeasured });
+  }
   if (
     dispatchLinkedComponentStructure({
       content: baseContent,
@@ -425,6 +450,10 @@ export function runFrameSelection({
   const contentUndoStackTopBeforeFrame = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
+  const localContentUndoStackTopBeforeFrame =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const initialWrapperNode = wrapperNode;
   const submittedProjection = buildCodeLayerProjection(nextContent, { source });
   const submittedWrapper = initialWrapperNode
@@ -454,7 +483,7 @@ export function runFrameSelection({
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
-      undoStackTopBeforeFrame,
+      publication.yjsHistoryRecorded === true,
       {
         selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
         selectedLayerIds: [wrapperNode.id],
@@ -468,6 +497,14 @@ export function runFrameSelection({
         overviewSelectedScreenIds,
         selectedLayerIds: [wrapperNode.id],
         activeFileId: activeFile.id,
+      },
+    );
+    stampLocalContentHistorySelectionAfter(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeFrame,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
       },
     );
   }

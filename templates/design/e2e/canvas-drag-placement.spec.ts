@@ -7,6 +7,8 @@ import {
   type App,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 const ROW_AND_CONTAINERS = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff">
   <div data-agent-native-node-id="row" data-agent-native-layer-name="Row" style="display:flex;gap:16px">
@@ -25,7 +27,10 @@ async function selectAndGrab(app: App, nodeId: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(grab.x, grab.y);
+  await app.page.keyboard.up(MOD);
   return { rect, grab };
 }
 
@@ -50,7 +55,7 @@ test("dragging a button over its sibling's far half reorders the row and changes
   await app.open(id);
   await app.zoomToFit();
   const { grab } = await selectAndGrab(app, "alpha");
-  expect(await app.selectedLayers()).toEqual(["Alpha"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Alpha"]);
   const before = await app.savedNodes(id);
   const beta = await app.designRect("beta");
 
@@ -115,8 +120,7 @@ test("dropping a button into an empty container makes the container a vertical a
   expect({ x: rendered.x, y: rendered.y }).toEqual({ x: empty.x, y: empty.y });
 });
 
-// fixme: product bug: Saved parent is the page body (an absolute sibling floating above the card), not the card; Layers shows Alpha at top level. Same family
-test.fixme("dropping a button into a container that already has content keeps the button where it was dropped", async ({
+test("dropping a button into a container that already has content keeps the button where it was dropped", async ({
   app,
 }) => {
   const id = await app.seed(ROW_AND_CONTAINERS);

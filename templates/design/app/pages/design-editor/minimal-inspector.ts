@@ -5,15 +5,18 @@ export function hasMinimalInspectorSelection({
   selectedElement,
   selectedLayerIds,
   selectedScreenGeometry,
+  motionEasingSegmentSelected = false,
 }: {
   selectedElement: unknown | null | undefined;
   selectedLayerIds: readonly unknown[];
   selectedScreenGeometry: unknown | null | undefined;
+  motionEasingSegmentSelected?: boolean;
 }): boolean {
   return (
     selectedElement != null ||
     selectedLayerIds.length > 0 ||
-    selectedScreenGeometry != null
+    selectedScreenGeometry != null ||
+    motionEasingSegmentSelected
   );
 }
 

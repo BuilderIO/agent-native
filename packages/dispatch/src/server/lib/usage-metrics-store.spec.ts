@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceApps: vi.fn(),
   currentOrgId: vi.fn((): string | null => null),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
+  delegatedOrgMember: false,
+  isOrgMember: vi.fn(async (_orgId: string, email: string) =>
+    email.toLowerCase().endsWith("@example.test"),
+  ),
   registerBuiltinEngines: vi.fn(),
   dispatchConfig: {
     adminEmails: [] as string[],
@@ -38,8 +42,32 @@ vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
 }));
 
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: (orgId: string, email: string) =>
+    mocks.isOrgMember(orgId, email),
+}));
+
 vi.mock("@agent-native/core/server", () => ({
   getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
+  getRequestContext: () =>
+    mocks.delegatedOrgMember
+      ? {
+          a2aIdentityAssurance: "org-member",
+          userEmail: mocks.currentOwnerEmail(),
+          orgId: mocks.currentOrgId(),
+        }
+      : undefined,
+  readOrgMemberRole: async (orgId: string, email: string) => {
+    const result = await mocks.execute({
+      sql: "SELECT role FROM org_members",
+      args: [orgId, email.toLowerCase()],
+    });
+    const role = result.rows[0]?.role;
+    if (mocks.delegatedOrgMember && (role === "owner" || role === "admin")) {
+      return "member";
+    }
+    return typeof role === "string" ? role : null;
+  },
 }));
 
 vi.mock("@agent-native/core/usage", () => ({
@@ -104,6 +132,7 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+  mocks.delegatedOrgMember = false;
   mocks.dispatchConfig.adminEmails = [];
   mocks.dispatchConfig.workspaceOwnerEmails = [];
   mocks.dispatchConfig.defaultOwnerEmail = undefined;
@@ -117,6 +146,93 @@ describe("listDispatchUsageMetrics", () => {
 
     await expect(
       listDispatchUsageMetrics({ sinceDays: 30 }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can view workspace usage metrics.",
+    });
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
+  it.each(["customer@customer.example", "other@example.test"])(
+    "gives a non-admin the same lookup error whether or not %s is a member",
+    async (userEmail) => {
+      mocks.currentOrgId.mockReturnValue("org-a");
+      mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+      mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+
+      const error = await listDispatchUsageMetrics({
+        sinceDays: 7,
+        scope: "workspace",
+        userEmail,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "usage_user_lookup_forbidden",
+        statusCode: 403,
+      });
+      expect((error as Error).message).toContain(
+        "own customer or billing actions",
+      );
+      expect(mocks.isOrgMember).not.toHaveBeenCalled();
+      expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    },
+  );
+
+  it("treats a delegated owner as a member for another person's usage instead of reporting them outside the org", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "member@example.test",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_lookup_forbidden",
+      statusCode: 403,
+    });
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("does not let a delegated org member read workspace usage as an owner", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "workspace" }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can view workspace usage metrics.",
+    });
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "SELECT email, role, joined_at",
+        ),
+      ),
+    ).toBe(false);
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+  });
+
+  it("does not let an environment admin assertion read workspace usage as an org member", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("platform-admin@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.dispatchConfig.adminEmails = ["platform-admin@example.test"];
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "workspace" }),
     ).rejects.toMatchObject({
       name: "ForbiddenError",
       statusCode: 403,
@@ -381,6 +497,45 @@ describe("listDispatchUsageMetrics", () => {
         );
       }),
     ).toBe(true);
+  });
+
+  it("redirects a non-member userEmail to the app that owns customer data with a typed error", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "customer@customer.example",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_not_org_member",
+      statusCode: 404,
+    });
+    expect((error as Error).message).toContain(
+      "customer@customer.example is not a member of this organization",
+    );
+    expect((error as Error).message).toContain(
+      "own customer or billing actions",
+    );
+    expect((error as Error).message).toContain("describe-workspace-apps");
   });
 
   it("lets an app owner inspect aggregate adoption for their own app", async () => {

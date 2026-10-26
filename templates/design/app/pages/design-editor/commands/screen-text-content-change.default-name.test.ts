@@ -94,6 +94,35 @@ describe("runScreenTextContentChange default text-layer naming", () => {
     );
   });
 
+  it("leaves a new text layer's name to the commit that lands its owed text", () => {
+    const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
+    const { args, nodeId, getContent } = buildArgs(content, true);
+    const layerName = () =>
+      buildCodeLayerProjection(getContent(), {
+        source: { kind: "design-file", fileId: SCREEN_ID },
+      }).nodes.find((node) => node.id === nodeId)!.dataAttributes[
+        "data-agent-native-layer-name"
+      ];
+
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "tton",
+      undefined,
+      { owedTextPending: true },
+    );
+    expect(layerName()).toBe("Text");
+
+    runScreenTextContentChange(
+      args,
+      SCREEN_ID,
+      `[data-agent-native-node-id="t1"]`,
+      "Button",
+    );
+    expect(layerName()).toBe("Button");
+  });
+
   it("does not rename an already-named board text layer on a later edit", () => {
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Label">Button</div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, false);
@@ -173,43 +202,31 @@ describe("runScreenTextContentChange rejected live-snapshot write", () => {
   });
 });
 
-describe("runScreenTextContentChange acceptance after a source transition", () => {
-  it("reports an accepted live-snapshot write as accepted, with no source readback", () => {
+describe("runScreenTextContentChange on a running app screen", () => {
+  it("records a fusion screen's text edit as a pending live edit for the app's source", () => {
+    // A fusion screen is a dev server behind a cloud URL, like localhost: its
+    // text lives in the app's source, so the edit becomes a pending handoff
+    // instead of a write into a local snapshot that never reaches source.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text">Before</div></body>`;
-    const capturedWhileLocalhost = { [SCREEN_ID]: { html: content } as never };
-    const liveFileIds = new Set([SCREEN_ID]);
-    const retainedAfterTransition = Object.fromEntries(
-      Object.entries(capturedWhileLocalhost).filter(([fileId]) =>
-        liveFileIds.has(fileId),
-      ),
-    );
-    expect(retainedAfterTransition[SCREEN_ID]).toBeDefined();
-
     const { args } = buildArgs(content, true);
-    const confirm = vi.fn();
+    const recordPendingLiveTextEdit = vi.fn();
     const getScreenContent = vi.fn(() => content);
-    const transitioned: ScreenTextContentChangeArgs = {
+    const fusionScreen: ScreenTextContentChangeArgs = {
       ...args,
       getScreenContent,
       overviewScreens: [{ id: SCREEN_ID, sourceType: "fusion" } as never],
-      liveScreenSnapshotsById: retainedAfterTransition,
-      updateLiveScreenSnapshotContent: () => true,
-      prepareTextCreationFinalization: () => ({
-        isCreationCommit: true,
-        historyHandled: true,
-        confirm,
-      }),
+      recordPendingLiveTextEdit,
     };
 
     const status = runScreenTextContentChange(
-      transitioned,
+      fusionScreen,
       SCREEN_ID,
       `[data-agent-native-node-id="t1"]`,
       "Standalone",
     );
 
     expect(status).toBe("accepted");
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(recordPendingLiveTextEdit).toHaveBeenCalledOnce();
     expect(getScreenContent).not.toHaveBeenCalled();
   });
 });
@@ -236,7 +253,7 @@ describe("runScreenTextContentChange selection identity", () => {
         {
           ...args,
           setSelectedElement: ((update: (prev: unknown) => unknown) => {
-            selected = update(null);
+            selected = update(sourceIdentityInfo);
           }) as never,
         },
         SCREEN_ID,
@@ -290,5 +307,90 @@ describe("runScreenTextContentChange selection identity", () => {
       sourceLayerIdentity: { screenId: SCREEN_ID, nodeId },
       boundingRect: { width: 95, height: 19 },
     });
+  });
+});
+
+describe("runScreenTextContentChange after the selection moved on", () => {
+  const content = `<body><div data-agent-native-node-id="t1">Before</div><div data-agent-native-node-id="t2">Other</div></body>`;
+  const editedInfo = {
+    tagName: "div",
+    sourceId: "t1",
+    selector: '[data-agent-native-node-id="t1"]',
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 100, height: 24 },
+    isFlexChild: false,
+    isFlexContainer: false,
+  };
+  const nodeIdFor = (stableId: string) =>
+    buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: SCREEN_ID },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === stableId,
+    )!.id;
+
+  function commitWithSelection(selection: {
+    element: unknown;
+    layerIds: string[];
+  }) {
+    const { args, getContent } = buildArgs(content, false);
+    const state = { ...selection };
+    const status = runScreenTextContentChange(
+      {
+        ...args,
+        setSelectedElement: ((update: (prev: unknown) => unknown) => {
+          state.element = update(state.element);
+        }) as never,
+        setSelectedLayerIdsState: ((
+          update: string[] | ((prev: string[]) => string[]),
+        ) => {
+          state.layerIds =
+            typeof update === "function" ? update(state.layerIds) : update;
+        }) as never,
+      },
+      SCREEN_ID,
+      editedInfo.selector,
+      "After",
+      editedInfo,
+    );
+    return { status, state, getContent };
+  }
+
+  it("re-selects the edited layer while it is still selected", () => {
+    const { state, getContent } = commitWithSelection({
+      element: editedInfo,
+      layerIds: [nodeIdFor("t1")],
+    });
+
+    expect(getContent()).toContain("After");
+    expect(state.layerIds).toEqual([nodeIdFor("t1")]);
+    expect(state.element).toMatchObject({ textContent: "After" });
+  });
+
+  it("stays deselected when an empty-canvas click cleared the selection", () => {
+    const { status, state, getContent } = commitWithSelection({
+      element: null,
+      layerIds: [],
+    });
+
+    expect(status).toBe("accepted");
+    expect(getContent()).toContain("After");
+    expect(state.element).toBeNull();
+    expect(state.layerIds).toEqual([]);
+  });
+
+  it("keeps the layer the user selected while the edit was open", () => {
+    const other = {
+      ...editedInfo,
+      sourceId: "t2",
+      selector: '[data-agent-native-node-id="t2"]',
+    };
+    const { state } = commitWithSelection({
+      element: other,
+      layerIds: [nodeIdFor("t2")],
+    });
+
+    expect(state.element).toBe(other);
+    expect(state.layerIds).toEqual([nodeIdFor("t2")]);
   });
 });

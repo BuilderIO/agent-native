@@ -2414,6 +2414,63 @@ export default {
     expect(capability.status).toBe(401);
   });
 
+  it.each([
+    ["needsApproval: true", "frontend", 403, "ui_capability_required"],
+    ["needsApproval: true", "http", 409, "approval_required"],
+    [
+      'needsApproval: () => { throw new Error("x"); }',
+      "http",
+      409,
+      "approval_required",
+    ],
+    ["needsApproval: () => false", "http", 200, undefined],
+  ] as const)(
+    "gates %s for a %s caller in generated workers",
+    async (gate, caller, status, errorCode) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "revoke-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `
+export default {
+  ${gate},
+  run: async () => ({ revoked: true }),
+};
+`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "revoke-thing", absPath: actionPath, method: "post" }],
+        ),
+      );
+
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/revoke-thing", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(caller === "frontend"
+              ? { "x-agent-native-frontend": "1" }
+              : {}),
+          },
+          body: JSON.stringify({ id: "thing-1" }),
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (errorCode) {
+        expect(body).toMatchObject({ errorCode });
+      } else {
+        expect(body).toEqual({ revoked: true });
+      }
+    },
+  );
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(

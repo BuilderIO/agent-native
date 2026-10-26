@@ -361,6 +361,29 @@ describe("bridge round trip", () => {
     });
     expect(error.message).toContain("boom");
   });
+
+  it("names the failing page instead of echoing the bridge's JSON body", () => {
+    const error = localhostBridgeRequestError(
+      "snapshot",
+      503,
+      JSON.stringify({
+        ok: false,
+        source: "agent-native-design-connect",
+        url: "http://127.0.0.1:5173/dead",
+        status: 503,
+        contentType: "text/plain; charset=utf-8",
+        html: "Unavailable",
+      }),
+    );
+
+    expect(error.message).toBe(
+      "Bridge snapshot failed (503): http://127.0.0.1:5173/dead responded 503.",
+    );
+    expect(
+      localhostBridgeRequestError("snapshot", 500, '{"error":"Bridge crashed"}')
+        .message,
+    ).toBe("Bridge snapshot failed (500): Bridge crashed");
+  });
 });
 
 describe("requireLocalhostBridgeToken", () => {

@@ -171,7 +171,10 @@ async function clickNode(app: App, nodeId: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches the text inside <main>; a plain click takes main.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up("ControlOrMeta");
 }
 
 async function selectionText(heading: Locator) {
@@ -208,7 +211,7 @@ test("Typography applies to a selected range after focus moves to its controls",
   await expect(fontPicker).toHaveText(originalFontLabel);
   await (await sizeInput(page)).fill("64");
   await (await sizeInput(page)).press("Enter");
-  await expect(await sizeInput(page)).toHaveValue("64px");
+  await expect(await sizeInput(page)).toHaveValue("64");
   await expect
     .poll(() => headingRangeStyles(page))
     .toMatchObject({
@@ -410,8 +413,7 @@ test("Typography applies to a selected range after focus moves to its controls",
     });
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-test.fixme("multi-selected text leaves share inspector styles, edits save to both, and one undo restores both", async ({
+test("multi-selected text leaves share inspector styles, edits save to both, and one undo restores both", async ({
   app,
   page,
 }) => {
@@ -425,7 +427,7 @@ test.fixme("multi-selected text leaves share inspector styles, edits save to bot
   await page.keyboard.down("Shift");
   await clickNode(app, paragraph.id);
   await page.keyboard.up("Shift");
-  await expect.poll(() => app.selectedLayers()).toEqual([PARAGRAPH, HEADING]);
+  await expect.poll(() => app.selectedLayers()).toEqual([HEADING, PARAGRAPH]);
 
   const typography = typographySection(page);
   const fontPicker = typography.getByRole("button", { name: "Font" });
@@ -482,7 +484,6 @@ test.fixme("multi-selected text leaves share inspector styles, edits save to bot
 
 const TEXT_TOOL_SCREEN = `<!doctype html><html lang="en"><head><meta charset="utf-8" /></head><body data-agent-native-node-id="page" style="margin:0;background:#fff"><main data-agent-native-node-id="text-tool-canvas" style="position:relative;margin:80px;width:800px;height:600px"></main></body></html>`;
 
-// oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
 test("Line Height Enter returns a real Text-tool range to the editor", async ({
   app,
   page,
@@ -545,7 +546,8 @@ test("Line Height Enter returns a real Text-tool range to the editor", async ({
       node.text,
     ]),
   ).toEqual([
-    [nodeId, "div", "page", "text", "Hero Heading"],
+    // Typed over <main>, the text nests in it.
+    [nodeId, "div", "text-tool-canvas", "text", "Hero Heading"],
     [expect.any(String), "span", nodeId, undefined, "E2E"],
   ]);
   expect(styleOf(created[0])["line-height"]).toBe("1.2");
@@ -719,14 +721,15 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
       rangeLineHeight: "normal",
     });
   const typography = typographySection(page);
-  await expect(await sizeInput(page)).toHaveValue("16px");
+  await expect(await sizeInput(page)).toHaveValue("16");
   await expect(typography.getByRole("combobox")).toContainText("Bold");
 
   const lineHeight = typography.locator('input[aria-label="Line height" i]');
   await expect(lineHeight).toHaveValue("Auto");
   await lineHeight.press("ArrowUp");
-  const nextRangeLineHeight = `${normalLineHeights.range + 1}px`;
-  await expect(lineHeight).toHaveValue(nextRangeLineHeight);
+  const nextRangeLineHeightShown = String(normalLineHeights.range + 1);
+  const nextRangeLineHeight = `${nextRangeLineHeightShown}px`;
+  await expect(lineHeight).toHaveValue(nextRangeLineHeightShown);
   await expect
     .poll(() => headingRangeStyles(page))
     .toMatchObject({
@@ -749,11 +752,11 @@ test("Auto ArrowUp uses the selected nested range's normal line-height", async (
   await expect
     .poll(() => heading.evaluate(() => window.getSelection()?.isCollapsed))
     .toBe(true);
-  await expect(await sizeInput(page)).toHaveValue("16px");
+  await expect(await sizeInput(page)).toHaveValue("16");
   await expect(typography.getByRole("combobox")).toContainText("Bold");
-  await expect(lineHeight).toHaveValue(nextRangeLineHeight);
+  await expect(lineHeight).toHaveValue(nextRangeLineHeightShown);
   await page.keyboard.press("ArrowRight");
-  await expect(await sizeInput(page)).toHaveValue("24px");
+  await expect(await sizeInput(page)).toHaveValue("24");
   await expect(typography.getByRole("combobox")).toContainText("Regular");
   await expect(lineHeight).toHaveValue("Auto");
   await page.keyboard.press("Escape");
@@ -781,7 +784,7 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
     .poll(() => heading.evaluate(() => window.getSelection()?.toString() ?? ""))
     .toBe("Nested E2E");
   const typography = typographySection(page);
-  await expect(await sizeInput(page)).toHaveValue("16px");
+  await expect(await sizeInput(page)).toHaveValue("16");
   await expect(typography.getByRole("combobox")).toContainText("Bold");
   const lineHeight = typography.locator('input[aria-label="Line height" i]');
   await expect(lineHeight).toHaveValue("150%");
@@ -805,13 +808,13 @@ test("text range caret follows the active text leaf and exits to whole-layer Mix
   await expect
     .poll(() => heading.evaluate(() => window.getSelection()?.isCollapsed))
     .toBe(true);
-  await expect(await sizeInput(page)).toHaveValue("16px");
+  await expect(await sizeInput(page)).toHaveValue("16");
   await expect(typography.getByRole("combobox")).toContainText("Bold");
   await expect(lineHeight).toHaveValue("150%");
   await page.keyboard.press("ArrowRight");
-  await expect(await sizeInput(page)).toHaveValue("24px");
+  await expect(await sizeInput(page)).toHaveValue("24");
   await expect(typography.getByRole("combobox")).toContainText("Regular");
-  await expect(lineHeight).toHaveValue("30px");
+  await expect(lineHeight).toHaveValue("30");
   await page.keyboard.press("Escape");
   await expect(await sizeInput(page)).toHaveValue("Mixed");
   await expect(typography.getByRole("combobox")).toContainText("Mixed");
@@ -877,7 +880,7 @@ test("nested unregistered text shows Typography with its size and its text colou
   await expect
     .poll(() => app.selectedLayers())
     .toEqual(["Nested text primitive"]);
-  await expect(await sizeInput(page)).toHaveValue("16px");
+  await expect(await sizeInput(page)).toHaveValue("16");
   const fillSection = page
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })

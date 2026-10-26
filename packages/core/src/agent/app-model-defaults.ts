@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -185,15 +185,7 @@ export async function canUpdateAgentAppModelDefaultSettings(
   if (!orgId) return orgScope === "personal";
 
   try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, userEmail.toLowerCase()],
-    });
-    const role = String((rows[0] as any)?.role ?? "");
+    const role = await readOrgMemberRole(orgId, userEmail);
     return role === "owner" || role === "admin";
   } catch {
     return false;

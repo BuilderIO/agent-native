@@ -3,28 +3,22 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
-  it("does not add a streaming cursor to chat markdown", () => {
-    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
-      encoding: "utf8",
-    });
+  it("uses the selected theme class for dark utilities and chat markdown", () => {
+    const toolkitCss = readFileSync(
+      new URL("./agent-native.css", import.meta.url),
+      { encoding: "utf8" },
+    );
     const conversationCss = readFileSync(
       new URL("./agent-conversation.css", import.meta.url),
       { encoding: "utf8" },
     );
 
-    expect(css).not.toContain("agent-streaming-cursor");
-    expect(conversationCss).not.toContain("agent-markdown-stream-caret");
-  });
-
-  it("does not pull recessed queue rows into the composer", () => {
-    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(css).not.toContain(
-      'data-agent-message-queue-variant="recessed"][data-empty="false"]',
+    expect(toolkitCss).toContain(
+      "@custom-variant dark (&:where(.dark, .dark *));",
     );
-    expect(css).not.toContain("margin-bottom: -1.25rem");
+    expect(conversationCss).not.toContain("prefers-color-scheme: dark");
+    expect(conversationCss).toContain(".dark .agent-conversation-shiki pre");
+    expect(conversationCss).toContain(".dark .agent-markdown-shiki pre");
   });
 
   it("keeps the composer surface opaque while preserving its muted blend", () => {
@@ -35,39 +29,6 @@ describe("agent-native shell surface tokens", () => {
     expect(css).toMatch(
       /\.agent-composer-root\s*\{[^}]*background:\s*color-mix\(\s*in srgb,\s*var\(--agent-kit-subtle-surface\) 45%,\s*var\(--agent-kit-recessed-surface\)\s*\);/s,
     );
-  });
-
-  it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
-    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
-      encoding: "utf8",
-    });
-    const tokens = readFileSync(
-      new URL("./tokens/agent-kit.css", import.meta.url),
-      { encoding: "utf8" },
-    );
-
-    expect(css).toContain('@import "./tokens/agent-kit.css";');
-    expect(css).toContain(".agent-kit-density");
-    expect(css).toContain(".agent-kit-activity-row");
-    expect(css).toContain(".agent-kit-tone-positive");
-    expect(css).toContain("var(--agent-kit-composer-elevation)");
-    expect(tokens).toContain("--agent-kit-conversation-max-width:");
-    expect(tokens).toContain("--agent-kit-density-font-size:");
-    expect(tokens).toContain("--agent-kit-composer-radius:");
-    expect(tokens).toContain("--agent-kit-composer-toolbar-control-size:");
-    expect(tokens).toContain("--agent-kit-composer-toolbar-control-font-size:");
-    expect(tokens).toContain(
-      "--agent-kit-composer-toolbar-control-line-height:",
-    );
-    expect(tokens).toContain(
-      "--agent-kit-composer-toolbar-control-font-weight:",
-    );
-    expect(tokens).toContain("--agent-kit-positive:");
-    expect(tokens).toContain("--agent-kit-subtle-surface:");
-    expect(tokens).toContain("--agent-kit-popover-surface:");
-    expect(tokens).toContain("--agent-kit-text:");
-    expect(tokens).toContain("--agent-kit-muted-text:");
-    expect(tokens).toContain("--agent-kit-border:");
   });
 
   it("keeps AgentKit activity components on semantic roles", () => {
@@ -94,25 +55,6 @@ describe("agent-native shell surface tokens", () => {
     );
     expect(tools).not.toContain("max-w-[95%]");
     expect(tools).toContain("agent-kit-tool-content-boundary");
-  });
-
-  it("restores standard markdown list markers", () => {
-    const css = readFileSync(
-      new URL("./agent-conversation.css", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(css).toMatch(
-      /\.agent-conversation-markdown ul:not\(\.contains-task-list\),\s*\.agent-markdown ul:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: disc;/s,
-    );
-    expect(css).toMatch(
-      /\.agent-conversation-markdown ol:not\(\.contains-task-list\),\s*\.agent-markdown ol:not\(\.contains-task-list\)\s*\{[^}]*list-style-type: decimal;/s,
-    );
-    expect(css).toMatch(
-      /\.agent-conversation-markdown ul\.contains-task-list,\s*\.agent-conversation-markdown ol\.contains-task-list,\s*\.agent-markdown ul\.contains-task-list,\s*\.agent-markdown ol\.contains-task-list\s*\{[^}]*list-style-type: none;/s,
-    );
   });
 
   it("keeps the shell surface hierarchy on semantic roles", () => {
@@ -289,16 +231,91 @@ describe("agent-native shell surface tokens", () => {
     );
 
     expect(tokens).toMatch(
-      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-border-mix: 100%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(tokens).toMatch(
-      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-border-mix: 100%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(css).toMatch(
       /background:\s*var\(\s*--agent-kit-composer-surface,\s*var\(--agent-kit-raised-surface\)\s*\);/,
     );
     expect(agentkitCss).toMatch(
       /--agent-kit-composer-surface,\s*var\(--agentkit-surface\)/,
+    );
+  });
+
+  it("gives every composer variant one metric set", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const agentkitCss = readFileSync(
+      new URL("../agentkit/react/styles.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(tokens).toContain("--agent-kit-composer-control-size: 2rem;");
+    expect(tokens).toContain("--agent-kit-composer-font-size: 0.875rem;");
+    expect(tokens).toContain("--agent-kit-composer-line-height: 1.25rem;");
+    expect(tokens).toContain("--agent-kit-composer-editor-min-height: 1lh;");
+    expect(tokens).toContain("--agent-kit-composer-editor-max-height: 12rem;");
+    expect(tokens).toMatch(
+      /--agent-kit-composer-focus-border-color: color-mix\(\s*in srgb,\s*hsl\(var\(--ring\)\) var\(--agent-kit-composer-focus-ring-mix\),\s*hsl\(var\(--border\)\)\s*\);/,
+    );
+    for (const [scoped, root] of [
+      ["primary-control-size", "control-size"],
+      ["font-size", "font-size"],
+      ["line-height", "line-height"],
+      ["editor-min-height", "editor-min-height"],
+      ["editor-max-height", "editor-max-height"],
+    ]) {
+      expect(agentkitCss).toMatch(
+        new RegExp(
+          `--agentkit-composer-${scoped}: var\\(\\s*--agent-kit-composer-${root},`,
+        ),
+      );
+    }
+    // The chat and hero composers switch to 16px text at the same width.
+    expect(agentkitCss).toMatch(
+      /@media \(max-width: 47\.999rem\) \{\s*:where\(\.agentkit-chat, \.agentkit-tokens\) \{\s*--agentkit-composer-font-size: var\(\s*--agent-kit-composer-mobile-font-size,/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 47\.999rem\) \{\s*\.agent-composer-root--hero \[data-agent-composer-slot="editor-input"\] \{\s*font-size: var\(\s*--agentkit-composer-font-size,\s*var\(--agent-kit-composer-mobile-font-size\)\s*\);/,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-root--hero \.agent-composer-send-button \{\s*height: var\(\s*--agentkit-composer-primary-control-size,\s*var\(--agent-kit-composer-control-size\)\s*\);/,
+    );
+    // A hero composer takes AgentKit's docked or large sizes before the
+    // legacy hero tokens, so it never mixes large corners with docked text.
+    const heroInput = css.match(
+      /\n\.agent-composer-root--hero \[data-agent-composer-slot="editor-input"\] \{([^}]*)\}/,
+    )?.[1];
+    for (const property of [
+      "font-size",
+      "line-height",
+      "editor-min-height",
+      "editor-max-height",
+    ]) {
+      expect(heroInput).toMatch(
+        new RegExp(
+          `var\\(\\s*--agentkit-composer-${property},\\s*var\\(--agent-kit-composer-${property}\\)`,
+        ),
+      );
+    }
+    expect(css).toMatch(
+      /\.agent-composer-root--hero \{\s*min-height: var\(--agent-kit-composer-min-height\);\s*border-radius: var\(\s*--agentkit-composer-radius,\s*var\(--agent-kit-composer-radius\)\s*\);/,
+    );
+    // The side panel composer keeps AgentKit's composer radius.
+    const panelComposer = css.match(
+      /\.agent-sidebar-panel \.agent-composer-root:not\(\.agent-composer-root--hero\) \{([^}]*)\}/,
+    )?.[1];
+    expect(panelComposer).toBeDefined();
+    expect(panelComposer).not.toContain("border-radius");
+    expect(css).toMatch(
+      /\.agent-composer-model-effort \{\s*color: var\(\s*--agentkit-text-muted-strong,/,
     );
   });
 

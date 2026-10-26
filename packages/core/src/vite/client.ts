@@ -94,6 +94,7 @@ import {
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -1184,7 +1185,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
-    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },
@@ -1417,6 +1417,10 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
 
   return [
     ...standaloneChatEntries,
+    ...(hasCoreDep("cron-parser", cwd) ? ["@agent-native/core/jobs/cron"] : []),
+    ...(hasCoreDep("ajv", cwd)
+      ? ["@agent-native/core > ajv", "@agent-native/core > ajv/dist/2020.js"]
+      : []),
     ...(hasDep("react", cwd) ? ["react"] : []),
     ...(hasDep("react-dom", cwd)
       ? ["react-dom", "react-dom/client", "react-dom/server"]
@@ -3500,9 +3504,10 @@ function silenceConnectionResets(): Plugin {
     return (
       code === "ECONNRESET" ||
       code === "ECONNABORTED" ||
+      code === "ECANCELED" ||
       code === "EPIPE" ||
       isClosedWebStreamController(err) ||
-      /^(read ECONNRESET|write ECONNRESET|socket hang up|aborted|write EPIPE)$/i.test(
+      /^(read ECONNRESET|write ECONNRESET|write ECANCELED|socket hang up|aborted|write EPIPE)$/i.test(
         message,
       )
     );
@@ -4422,12 +4427,16 @@ const DEFAULT_VITE_WATCH_IGNORED_DIRS = new Set([
 export function defaultViteWatchIgnored(
   root: string,
 ): (file: string) => boolean {
-  return (file) =>
-    path
-      .relative(root, file)
-      .split(/[\\/]/)
+  return (file) => {
+    const segments = path.relative(root, file).split(/[\\/]/);
+    return segments
       .slice(0, -1)
-      .some((segment) => DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment));
+      .some((segment, index) =>
+        segment === ".generated" && index === 0 && segments[1] === "bridge"
+          ? false
+          : DEFAULT_VITE_WATCH_IGNORED_DIRS.has(segment),
+      );
+  };
 }
 
 function forceServeOnly(pluginOrPreset: any): any {
@@ -4648,6 +4657,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    boundedTaskSourcePlugin(),
     authClientAssetPlugin(cwd),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),

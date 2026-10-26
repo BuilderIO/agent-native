@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { JPEG_BASE64 } from "../file-upload/test-image-fixtures.js";
+import * as mcpClient from "../mcp-client/index.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -474,6 +475,82 @@ describe("executeCodeAgentRun", () => {
         "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
         originalAllowlist,
       );
+    }
+  });
+
+  it("surfaces MCP configuration errors to the Claude run without passing the server", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    delete process.env.MCP_SERVERS;
+    const buildConfig = vi
+      .spyOn(mcpClient, "buildMergedConfig")
+      .mockResolvedValue({
+        servers: {
+          unavailable: {
+            type: "http",
+            url: "https://unavailable.example/mcp",
+            configurationError: new Error(
+              "Saved MCP headers could not be read.",
+            ),
+          },
+        },
+      });
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    const promptPath = path.join(root, "claude-prompt.txt");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdin.resume();",
+        `process.stdin.on('data', chunk => fs.appendFileSync(${JSON.stringify(promptPath)}, chunk));`,
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Skip unavailable MCP server",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli", ownerEmail: "alice@example.test" },
+    });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "inspect the app" });
+
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args).not.toContain("--mcp-config");
+      expect(fs.readFileSync(promptPath, "utf8")).toContain(
+        "Do not claim to have used them.",
+      );
+      expect(listCodeAgentTranscriptEvents(run.id)).toContainEqual(
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "MCP server unavailable is unavailable for this run: Saved MCP headers could not be read.",
+          metadata: expect.objectContaining({
+            type: "mcp-config-error",
+            serverId: "unavailable",
+          }),
+        }),
+      );
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+    } finally {
+      buildConfig.mockRestore();
+      restoreEnv("MCP_SERVERS", originalMcpServers);
     }
   });
 

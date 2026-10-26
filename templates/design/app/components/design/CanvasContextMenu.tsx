@@ -31,6 +31,7 @@ import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import { CanvasMenuItem, MENU_CONTENT_CLASS } from "./context-menu-item";
+import type { MotionMenuProperty } from "./edit-panel/motion-controls";
 import { IconText } from "./inspector/design-icons";
 import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
@@ -47,6 +48,7 @@ export type CanvasContextMenuAction =
   | "send-to-back"
   | "frame-selection"
   | "add-auto-layout"
+  | "remove-auto-layout"
   | "suggest-auto-layout"
   | "create-component"
   | "edit-with-agent"
@@ -102,11 +104,24 @@ export type CanvasAgentPreset =
   | "states"
   | "responsive";
 
+export type CanvasMotionChoice = MotionMenuProperty | "ready-made";
+
+/** The add-motion submenu: only the controls listed here are offered. */
+export interface CanvasMotionMenu {
+  basic: readonly MotionMenuProperty[];
+  more: readonly MotionMenuProperty[];
+  onSelect: (choice: CanvasMotionChoice) => void;
+}
+
 export interface CanvasContextMenuLabels {
   selectLayer: string;
   editWithAgent: string;
   arrange: string;
   transform: string;
+  addMotion: string;
+  motionMore: string;
+  motionReadyMade: string;
+  motionProperty: Record<MotionMenuProperty, string>;
   group: string;
   booleanOperations: string;
   subtract: string;
@@ -132,6 +147,7 @@ export interface CanvasContextMenuLabels {
   sendToBack: string;
   frameSelection: string;
   addAutoLayout: string;
+  removeAutoLayout: string;
   suggestAutoLayout: string;
   createComponent: string;
   goToMainComponent: string;
@@ -172,6 +188,7 @@ export interface CanvasContextMenuShortcuts {
   sendToBack: string;
   frameSelection: string;
   addAutoLayout: string;
+  removeAutoLayout: string;
   createComponent: string;
   goToMainComponent: string;
   swapInstance: string;
@@ -221,6 +238,7 @@ export interface CanvasContextMenuProps {
   canReorder?: boolean;
   canFrameSelection?: boolean;
   canAddAutoLayout?: boolean;
+  canRemoveAutoLayout?: boolean;
   canSuggestAutoLayout?: boolean;
   canCreateComponent?: boolean;
   isComponentInstance?: boolean;
@@ -240,6 +258,7 @@ export interface CanvasContextMenuProps {
   canToggleComments?: boolean;
   hiddenActions?: readonly CanvasContextMenuAction[];
   disabledActions?: readonly CanvasContextMenuAction[];
+  motionMenu?: CanvasMotionMenu;
   labels?: Partial<CanvasContextMenuLabels>;
   shortcuts?: Partial<CanvasContextMenuShortcuts>;
   getCanvasPoint?: (point: { clientX: number; clientY: number }) => {
@@ -262,6 +281,7 @@ export interface CanvasContextMenuProps {
   onSendToBack?: CanvasContextMenuActionHandler;
   onFrameSelection?: CanvasContextMenuActionHandler;
   onAddAutoLayout?: CanvasContextMenuActionHandler;
+  onRemoveAutoLayout?: CanvasContextMenuActionHandler;
   onSuggestAutoLayout?: CanvasContextMenuActionHandler;
   onCreateComponent?: CanvasContextMenuActionHandler;
   onGoToMainComponent?: CanvasContextMenuActionHandler;
@@ -290,6 +310,20 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   editWithAgent: "Edit with Agent",
   arrange: "Arrange",
   transform: "Transform",
+  addMotion: "Add animation",
+  motionMore: "More",
+  motionReadyMade: "Animation style",
+  motionProperty: {
+    translate: "Position",
+    scale: "Scale",
+    rotate: "Rotation",
+    opacity: "Opacity",
+    "border-radius": "Corner radius",
+    "background-color": "Fill",
+    "border-color": "Stroke color",
+    "border-width": "Stroke weight",
+    "box-shadow": "Drop shadow",
+  },
   group: "Group selection",
   booleanOperations: "Boolean operations",
   subtract: "Subtract",
@@ -315,6 +349,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   sendToBack: "Send to back",
   frameSelection: "Frame selection",
   addAutoLayout: "Add auto layout",
+  removeAutoLayout: "Remove auto layout",
   suggestAutoLayout: "Suggest auto layout…",
   createComponent: "Create component",
   goToMainComponent: "Go to main component",
@@ -358,6 +393,7 @@ const DEFAULT_SHORTCUT_BINDINGS: Record<
   sendToBack: "[",
   frameSelection: "$mod+alt+g",
   addAutoLayout: "shift+a",
+  removeAutoLayout: "alt+shift+a",
   createComponent: "$mod+alt+k",
   goToMainComponent: "",
   swapInstance: "",
@@ -461,6 +497,7 @@ export const CanvasContextMenu = forwardRef<
     canReorder = selectedCount > 0,
     canFrameSelection = selectedCount > 0,
     canAddAutoLayout = selectedCount > 0,
+    canRemoveAutoLayout = false,
     canSuggestAutoLayout = false,
     canCreateComponent = selectedCount > 0,
     isComponentInstance = false,
@@ -480,6 +517,7 @@ export const CanvasContextMenu = forwardRef<
     canToggleComments = true,
     hiddenActions = [],
     disabledActions = [],
+    motionMenu,
     labels: labelsProp,
     shortcuts: shortcutsProp,
     getCanvasPoint,
@@ -496,6 +534,7 @@ export const CanvasContextMenu = forwardRef<
     onSendToBack,
     onFrameSelection,
     onAddAutoLayout,
+    onRemoveAutoLayout,
     onSuggestAutoLayout,
     onCreateComponent,
     onGoToMainComponent,
@@ -583,6 +622,7 @@ export const CanvasContextMenu = forwardRef<
       "send-to-back": onSendToBack,
       "frame-selection": onFrameSelection,
       "add-auto-layout": onAddAutoLayout,
+      "remove-auto-layout": onRemoveAutoLayout,
       "suggest-auto-layout": onSuggestAutoLayout,
       "create-component": onCreateComponent,
       "go-to-main-component": onGoToMainComponent,
@@ -606,6 +646,7 @@ export const CanvasContextMenu = forwardRef<
     }),
     [
       onAddAutoLayout,
+      onRemoveAutoLayout,
       onSuggestAutoLayout,
       onBringForward,
       onBringToFront,
@@ -947,6 +988,15 @@ export const CanvasContextMenu = forwardRef<
                 shortcut={shortcuts.addAutoLayout}
                 onSelect={(event) => runAction("add-auto-layout", event)}
               />
+              {onRemoveAutoLayout && !isComponentInstance ? (
+                <CanvasMenuItem
+                  hidden={isHiddenAction("remove-auto-layout")}
+                  disabled={!canRun("remove-auto-layout", canRemoveAutoLayout)}
+                  label={labels.removeAutoLayout}
+                  shortcut={shortcuts.removeAutoLayout}
+                  onSelect={(event) => runAction("remove-auto-layout", event)}
+                />
+              ) : null}
               {onSuggestAutoLayout && !isComponentInstance ? (
                 <CanvasMenuItem
                   hidden={isHiddenAction("suggest-auto-layout")}
@@ -1018,6 +1068,8 @@ export const CanvasContextMenu = forwardRef<
                   disabled={
                     !(
                       canRun("bring-to-front", canReorder) ||
+                      canRun("bring-forward", canReorder) ||
+                      canRun("send-backward", canReorder) ||
                       canRun("send-to-back", canReorder)
                     )
                   }
@@ -1033,6 +1085,20 @@ export const CanvasContextMenu = forwardRef<
                     label={labels.bringToFront}
                     shortcut={shortcuts.bringToFront}
                     onSelect={(event) => runAction("bring-to-front", event)}
+                  />
+                  <CanvasMenuItem
+                    hidden={isHiddenAction("bring-forward")}
+                    disabled={!canRun("bring-forward", canReorder)}
+                    label={labels.bringForward}
+                    shortcut={shortcuts.bringForward}
+                    onSelect={(event) => runAction("bring-forward", event)}
+                  />
+                  <CanvasMenuItem
+                    hidden={isHiddenAction("send-backward")}
+                    disabled={!canRun("send-backward", canReorder)}
+                    label={labels.sendBackward}
+                    shortcut={shortcuts.sendBackward}
+                    onSelect={(event) => runAction("send-backward", event)}
                   />
                   <CanvasMenuItem
                     hidden={isHiddenAction("send-to-back")}
@@ -1081,6 +1147,49 @@ export const CanvasContextMenu = forwardRef<
                   />
                 </ContextMenuSubContent>
               </ContextMenuSub>
+              {motionMenu ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    {labels.addMotion}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    className={cn(MENU_CONTENT_CLASS, "w-52")}
+                  >
+                    {motionMenu.basic.map((property) => (
+                      <CanvasMenuItem
+                        key={property}
+                        label={labels.motionProperty[property]}
+                        onSelect={() => motionMenu.onSelect(property)}
+                      />
+                    ))}
+                    {motionMenu.more.length > 0 ? (
+                      <ContextMenuSub>
+                        <ContextMenuSubTrigger>
+                          {labels.motionMore}
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent
+                          className={cn(MENU_CONTENT_CLASS, "w-52")}
+                        >
+                          {motionMenu.more.map((property) => (
+                            <CanvasMenuItem
+                              key={property}
+                              label={labels.motionProperty[property]}
+                              onSelect={() => motionMenu.onSelect(property)}
+                            />
+                          ))}
+                        </ContextMenuSubContent>
+                      </ContextMenuSub>
+                    ) : null}
+                    {motionMenu.basic.length + motionMenu.more.length > 0 ? (
+                      <CanvasMenuSeparator />
+                    ) : null}
+                    <CanvasMenuItem
+                      label={labels.motionReadyMade}
+                      onSelect={() => motionMenu.onSelect("ready-made")}
+                    />
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : null}
             </ContextMenuGroup>
 
             {appendedItems ? (

@@ -21,6 +21,7 @@ import {
   type VideoFormat,
 } from "../../server/lib/video-remux.js";
 import { isLoomRecordingSource } from "../../shared/loom.js";
+import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 
 const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
 
@@ -165,7 +166,7 @@ async function ensureRecordingSeekableInternal(params: {
   if (rec.status !== "ready") {
     return { recordingId, status: "skipped-not-ready", changed: false };
   }
-  if (isLoomRecordingSource(rec)) {
+  if (isLoomRecordingSource(rec) || isYouTubeEmbedBackedRecording(rec)) {
     return { recordingId, status: "skipped-local-media", changed: false };
   }
   if (!rec.videoUrl) {

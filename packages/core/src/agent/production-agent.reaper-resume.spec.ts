@@ -22,6 +22,17 @@ const ledger = vi.hoisted(() =>
 const threadRead = vi.hoisted(() =>
   vi.fn(async (): Promise<{ id: string; threadData: string } | null> => null),
 );
+// These specs pin resume assembly; Context X-Ray merges adjacent same-role
+// messages and has its own specs, and whether its table exists depends on what
+// else the worker's shared database already ran.
+vi.mock("./engine/context-directives-transform.js", () => ({
+  applyContextXrayTransformForIteration: async ({
+    messages,
+  }: {
+    messages: unknown[];
+  }) => messages,
+}));
+
 vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
   fireInternalDispatch: vi.fn(async () => {}),
@@ -69,6 +80,28 @@ beforeEach(() => {
   ledger.mockReset();
   threadRead.mockReset();
 });
+
+/** The resumed run declined its reworded send and finished without an error stop. */
+async function expectRewordedSendDeclined(runId: string) {
+  const events = (await getRunEventsSince(runId, -1)).map(
+    ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: "tool_done",
+      tool: "send-email",
+      completedSideEffect: false,
+      result: expect.stringContaining("Not run: an earlier send-email call"),
+    }),
+  );
+  expect(
+    events.some(
+      (event) =>
+        event.type === "error" &&
+        event.errorCode === "write_tool_outcome_unknown",
+    ),
+  ).toBe(false);
+}
 
 async function recover(
   events: AgentChatEvent[] | Error,
@@ -525,41 +558,72 @@ describe("reaper successor resume context", () => {
         write,
         custom,
       );
-      const completion =
-        mode !== "delayed"
-          ? expect(pending).rejects.toThrow(
-              mode === "failed"
-                ? "Fixture event persistence failed"
-                : "Run event was not persisted",
-            )
-          : pending;
+      const failedPersistence =
+        mode === "failed"
+          ? expect(pending).rejects.toThrow("Fixture event persistence failed")
+          : undefined;
+      let result: Awaited<typeof pending> | undefined;
+      let terminalPersistenceError = false;
       try {
         await persisting;
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(write).not.toHaveBeenCalled();
       } finally {
         release();
-        await completion;
+        if (mode === "terminal") {
+          await pending.then(
+            (value) => {
+              result = value;
+            },
+            (error) => {
+              expect(error).toMatchObject({
+                name: "AgentRunEventNotPersistedError",
+                terminalRun: true,
+              });
+              terminalPersistenceError = true;
+            },
+          );
+        } else if (failedPersistence) {
+          await failedPersistence;
+        } else {
+          await pending;
+        }
         spy.mockRestore();
       }
       expect(write).toHaveBeenCalledTimes(mode === "delayed" ? 1 : 0);
+      if (mode === "terminal") {
+        expect(result !== undefined || terminalPersistenceError).toBe(true);
+        if (result !== undefined) {
+          expect(result.run?.status).not.toBe("running");
+        }
+      }
     },
   );
 
-  it("rejects start markers for absent runs and duplicate sequences", async () => {
+  it("rejects start markers for absent runs and conflicting duplicate sequences", async () => {
     const runId = `marker-proof-${++sequence}`;
     const marker = JSON.stringify(START);
+    const eventAt = 1_000;
     await expect(
-      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+      runStore.insertRunEvent(runId, 0, marker, {
+        requireInserted: true,
+        eventAt,
+      }),
     ).rejects.toThrow("Run event was not persisted");
     await insertRun(
       runId,
       `marker-thread-${sequence}`,
       `marker-turn-${sequence}`,
     );
-    await runStore.insertRunEvent(runId, 0, marker, { requireInserted: true });
+    await runStore.insertRunEvent(runId, 0, marker, {
+      requireInserted: true,
+      eventAt,
+    });
     await expect(
-      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+      runStore.insertRunEvent(runId, 0, marker, {
+        requireInserted: true,
+        eventAt: eventAt + 1,
+      }),
     ).rejects.toThrow("Run event was not persisted");
     expect(await getRunEventsSince(runId, -1)).toHaveLength(1);
     await runStore.updateRunStatus(runId, "completed");
@@ -739,7 +803,7 @@ describe("reaper successor resume context", () => {
       );
       const next = await recover(events, true);
       expect(next.sendEmail).not.toHaveBeenCalled();
-      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+      await expectRewordedSendDeclined(next.runId);
     },
   );
   it.each([
@@ -749,14 +813,12 @@ describe("reaper successor resume context", () => {
     "nested-validation",
     "nested-question",
   ] as const)(
-    "refreshes verification reads and blocks a reworded retry after a live unknown write (%s)",
+    "refreshes verification reads and declines a reworded retry after a live unknown write (%s)",
     async (failure) => {
       const result = await recover([], "verify-live", false, failure);
       expect(result.sendEmail).toHaveBeenCalledTimes(1);
       expect(result.checkEmail).toHaveBeenCalledTimes(2);
-      expect(result.run?.terminalReason).toBe(
-        "error:write_tool_outcome_unknown",
-      );
+      await expectRewordedSendDeclined(result.runId);
     },
   );
   it.each(["nested-connection", "nested-cloned", "nested-omitted"] as const)(
@@ -776,7 +838,7 @@ describe("reaper successor resume context", () => {
       );
       const next = await recover(events, true);
       expect(next.sendEmail).not.toHaveBeenCalled();
-      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+      await expectRewordedSendDeclined(next.runId);
     },
   );
   it.each(["auto", "manual"] as const)(
@@ -823,7 +885,7 @@ describe("reaper successor resume context", () => {
   });
 
   it.each([true, "serialization", "action"] as const)(
-    "keeps a write unknown after post-call processing fails (%s) and blocks a reworded recovery",
+    "keeps a write unknown after post-call processing fails (%s) and declines a reworded recovery",
     async (failure) => {
       const first = await recover([], false, false, failure);
       expect(first.sendEmail).toHaveBeenCalledTimes(1);
@@ -839,7 +901,7 @@ describe("reaper successor resume context", () => {
       expect(JSON.stringify(next.seen[0])).toContain(
         "Interrupted / unknown outcome",
       );
-      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+      await expectRewordedSendDeclined(next.runId);
     },
   );
   it("strips a client recovery marker before it can become a trusted dispatch payload", async () => {

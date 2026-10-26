@@ -12,6 +12,11 @@ description: >-
 and linked skills. This does not override the active design system, Creative
 Context, reference deck, or source material that the app already provides.
 
+Slides owns the deck's authoring. Use Slides actions with the hydrated design
+system and reference context. Keep deck generation and edits in Slides; call
+Design only for a user-requested Design-owned input or a capability only Design
+provides, then return to Slides for all deck authoring.
+
 ## Read before
 
 Read a reference with `docs-search --slug "skill-create-deck--references-<file>"`,

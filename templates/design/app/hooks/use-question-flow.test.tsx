@@ -45,7 +45,16 @@ let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
 interface ProbeProps {
   designId?: string;
   continuationTabId?: string | null;
-  onContinue?: (tabId: string) => void;
+  onContinue?: (
+    tabId: string,
+    previousRunBaseline?: { runId: string | null; verified: boolean } | null,
+  ) => void;
+  getPreviousRunBaseline?: (
+    tabId: string | null | undefined,
+  ) =>
+    | { runId: string | null; verified: boolean }
+    | null
+    | Promise<{ runId: string | null; verified: boolean } | null>;
   model?: string;
   engine?: string;
   selectionRef?: { current: { model?: string; engine?: string } | null };
@@ -56,6 +65,7 @@ function Probe(props: ProbeProps) {
   latestHook = useQuestionFlow(props.designId, {
     continuationTabId: props.continuationTabId,
     onContinue: props.onContinue,
+    getPreviousRunBaseline: props.getPreviousRunBaseline,
     getModelSelection: () => {
       if (props.selectionRef) return props.selectionRef.current;
       return props.model || props.engine
@@ -150,7 +160,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0];
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBeUndefined();
-    expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
+    expect(onContinue).toHaveBeenCalledWith("generated-tab-id", null);
     expect(clearMock).toHaveBeenCalledTimes(1);
 
     await cleanup();
@@ -173,6 +183,26 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     });
 
     expect(order).toEqual(["clear", "send"]);
+    await cleanup();
+  });
+
+  it("passes an explicit idle baseline through the answered continuation", async () => {
+    const baseline = { runId: null, verified: true };
+    const getPreviousRunBaseline = vi.fn(async () => baseline);
+    const onContinue = vi.fn();
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: "existing-tab",
+      getPreviousRunBaseline,
+      onContinue,
+    });
+
+    await act(async () => {
+      await latestHook!.handleSkip();
+    });
+
+    expect(getPreviousRunBaseline).toHaveBeenCalledWith("existing-tab");
+    expect(onContinue).toHaveBeenCalledWith("generated-tab-id", baseline);
     await cleanup();
   });
 
@@ -347,7 +377,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0];
     expect(call.newTab).toBe(true);
     expect(call.tabId).toBe("existing-tab");
-    expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
+    expect(onContinue).toHaveBeenCalledWith("generated-tab-id", null);
 
     await cleanup();
   });

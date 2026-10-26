@@ -1,4 +1,9 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity.js";
+import {
+  htmlWithBlocksFieldsManifest,
+  markdownWithBlocksFieldsManifest,
+  serializeBlocksFieldsManifest,
+} from "./blocks-fields-manifest.js";
 import { matchInlineMathAt } from "./inline-math.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
 import {
@@ -24,6 +29,8 @@ export interface BlocksFieldExport {
   propertyId: string;
   name: string;
   position: number;
+  /** The field the page body is; an export's Markdown is its text. */
+  primary: boolean;
   markdown: string;
   identity: BlocksFieldIdentity;
 }
@@ -37,14 +44,6 @@ export interface DocumentExportPayload {
   content: string;
   print: boolean;
   blocksFields?: BlocksFieldExport[];
-}
-
-function serializeBlocksFieldsManifest(fields: BlocksFieldExport[]): string {
-  return JSON.stringify({ version: 1, fields })
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026")
-    .replace(/--/g, "\\u002d\\u002d");
 }
 
 export interface CollectionExportItem {
@@ -124,7 +123,9 @@ export function markdownWithTitle(
   content: string | null | undefined,
 ): string {
   const safeTitle = normalizeTitle(title);
-  const body = (content ?? "").trim();
+  // A paragraph can open with spaces the editor keeps, so only blank lines
+  // come off the start; an import of the export reads the body back as is.
+  const body = (content ?? "").replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
   const firstHeading = body.match(/^#\s+(.+?)(?:\n|$)/);
 
   if (firstHeading?.[1]?.trim().toLowerCase() === safeTitle.toLowerCase()) {
@@ -760,11 +761,8 @@ export function buildDocumentExport(
     : markdown;
   if (manifest) {
     content = isHtmlLike
-      ? content.replace(
-          "</body>",
-          `<script type="application/json" id="agent-native-blocks">${manifest}</script>\n</body>`,
-        )
-      : `${content.trimEnd()}\n\n<!-- agent-native-blocks:${manifest} -->\n`;
+      ? htmlWithBlocksFieldsManifest(content, manifest)
+      : markdownWithBlocksFieldsManifest(content, manifest);
   }
 
   return {

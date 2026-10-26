@@ -7,6 +7,7 @@ import {
   assertAgentNativePackageManifest,
   type AgentNativePackageManifest,
 } from "../package-lifecycle/manifest.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 export interface PackageLifecycleIO {
   out(message: string): void;
@@ -184,7 +185,7 @@ export async function loadLifecyclePackage(
       );
     }
     const archive = path.join(stage, filename);
-    const listed = spawn("tar", ["-tzf", archive], {
+    const listed = spawn(resolveTarExecutable(), ["-tzf", archive], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
@@ -208,7 +209,7 @@ export async function loadLifecyclePackage(
       throw new Error(`Package archive for '${name}' contains an unsafe path`);
     }
     const extracted = spawn(
-      "tar",
+      resolveTarExecutable(),
       [
         "-xzf",
         archive,
@@ -361,7 +362,6 @@ function planAdd(
   }
   const changes: Change[] = [
     textChange(
-      targetRoot,
       packageJsonPath,
       `${JSON.stringify(pkg, null, 2)}\n`,
       "dependency",
@@ -392,7 +392,7 @@ function planAdd(
     const next = current.includes(contribution)
       ? current
       : `${current.trimEnd()}\n\n${contribution}\n`;
-    changes.push(textChange(targetRoot, schemaPath, next, "schema"));
+    changes.push(textChange(schemaPath, next, "schema"));
   }
 
   const ownedPaths: string[] = [];
@@ -439,7 +439,6 @@ function planAdd(
   };
   changes.push(
     textChange(
-      targetRoot,
       provenancePath,
       `${JSON.stringify(provenance, null, 2)}\n`,
       "provenance",
@@ -535,7 +534,6 @@ function planEject(
   consumer.dependencies[loaded.manifest.name] = "workspace:*";
   changes.push(
     textChange(
-      workspaceRoot,
       consumerPackageJson,
       `${JSON.stringify(consumer, null, 2)}\n`,
       "dependency",
@@ -625,7 +623,6 @@ function collisionCheckedBuffer(
 }
 
 function textChange(
-  root: string,
   target: string,
   content: string,
   kind: Change["kind"],

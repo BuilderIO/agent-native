@@ -22,6 +22,13 @@ function createRoot(container: Parameters<typeof createReactRoot>[0]) {
     );
   return root;
 }
+
+/** Reply composers; the Discussion panel's composer for the page is not one. */
+function replyEditors(root: ParentNode) {
+  return [...root.querySelectorAll<HTMLElement>(".ProseMirror")].filter(
+    (editor) => !editor.closest("[data-discussion-composer]"),
+  );
+}
 import { expect, it, vi } from "vitest";
 
 import {
@@ -193,7 +200,14 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   }
   try {
     await act(async () => root.render(<Harness />));
-    const text = container.textContent!;
+    // Page order puts comments on the whole page before suggested edits.
+    let text = container.textContent!;
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(
+      text.indexOf("Saved middle"),
+    );
+    expect(text.indexOf("Ordinary 2")).toBeLessThan(text.indexOf("Draft last"));
+    await act(async () => controller.setHistoryFilters({ sort: "oldest" }));
+    text = container.textContent!;
     expect(text.indexOf("Ordinary 0")).toBeLessThan(
       text.indexOf("Saved middle"),
     );
@@ -207,6 +221,10 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
     expect(container.textContent).toContain("Ordinary 0");
   } finally {
     await act(async () => root.unmount());
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
+    localStorage.removeItem(
+      `content-discussion-filters:${JSON.stringify(["", "chronology"])}`,
+    );
   }
 });
 
@@ -540,11 +558,12 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
   try {
     await act(async () => root.render(<Harness />));
+    // Replacing a line break keeps what it replaces in view while collapsed.
     expect(
       [...container.querySelectorAll("strong")]
         .map((element) => element.textContent)
         .join(""),
-    ).toBe("Across");
+    ).toBe("AcrossUpperLower");
     await act(async () =>
       controller.setOpenReply(suggestion.threadId, suggestion.id, false),
     );
@@ -553,7 +572,9 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
         .map((element) => element.textContent)
         .join(""),
     ).toBe("AcrossUpperLower");
-    expect(container.textContent).toContain("Upper↵Lower");
+    expect(container.innerHTML).toContain(
+      "<strong>Upper</strong><br><strong>Lower</strong>",
+    );
     expect(container.textContent).not.toContain("**");
     expect(container.textContent).not.toContain("<br>");
   } finally {
@@ -561,7 +582,7 @@ it("renders exact marked hard-break replacement summaries without delimiter leak
   }
 });
 
-it("preserves all history filters across rail and Sheet remounts, resetting only for a new document or reveal intent", async () => {
+it("preserves all history filters across rail and Sheet remounts, keeping them per document and resetting only for a reveal intent", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);
   let controller!: ReturnType<typeof useCommentReplyDrafts>;
@@ -587,6 +608,20 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     status: "open" as const,
     kind: "suggestions" as const,
     author: "reviewer@example.test",
+    tab: "notes",
+    target: "all" as const,
+    mentionsMe: false,
+    query: "",
+    sort: "page" as const,
+  };
+  const unfiltered = {
+    kind: "all",
+    author: null,
+    tab: null,
+    target: "all",
+    mentionsMe: false,
+    query: "",
+    sort: "page",
   };
   try {
     await act(async () =>
@@ -602,11 +637,7 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual(filters);
     await act(async () => controller.revealHistory("conflict", null));
-    expect(controller.historyFilters).toEqual({
-      status: "all",
-      kind: "all",
-      author: null,
-    });
+    expect(controller.historyFilters).toEqual({ status: "all", ...unfiltered });
     await act(async () => controller.setHistoryFilters(filters));
     await act(async () => controller.revealHistory("conflict", null));
     expect(controller.historyFilters).toEqual(filters);
@@ -618,15 +649,20 @@ it("preserves all history filters across rail and Sheet remounts, resetting only
     );
     expect(controller.historyFilters).toEqual({
       status: "open",
-      kind: "all",
-      author: null,
+      ...unfiltered,
     });
+    // Each Page keeps the filters someone chose on it.
     await act(async () =>
       root.render(<Harness documentId="one" layout="rail" />),
     );
-    expect(controller.historyFilters.status).toBe("open");
+    expect(controller.historyFilters).toEqual(filters);
   } finally {
     await act(async () => root.unmount());
+    for (const documentId of ["one", "two"])
+      localStorage.removeItem(
+        `content-discussion-filters:${JSON.stringify(["", documentId])}`,
+      );
+    localStorage.removeItem(`content-discussion-sort:${JSON.stringify("")}`);
   }
 });
 
@@ -824,10 +860,12 @@ it.each(["ordinary", "suggestion"] as const)(
         },
       ],
     });
+    // On text, so the margin rail shows it too; a page comment stays in the
+    // Discussion panel.
     const thread = {
       threadId: "ordinary-responsive",
       resolved: false,
-      quotedText: null,
+      quotedText: "Quoted line",
       prefix: null,
       suffix: null,
       startOffset: null,
@@ -838,7 +876,7 @@ it.each(["ordinary", "suggestion"] as const)(
           thread_id: "ordinary-responsive",
           parent_id: null,
           content: "Review this",
-          quoted_text: null,
+          quoted_text: "Quoted line",
           anchor_prefix: null,
           anchor_suffix: null,
           anchor_start_offset: null,
@@ -886,13 +924,13 @@ it.each(["ordinary", "suggestion"] as const)(
         drafts.setText(threadId, "First line\nSecond line"),
       );
       await settle();
-      let input = container.querySelector<HTMLElement>(".ProseMirror")!;
+      let input = replyEditors(container)[0];
       await setRichEditorSelection(input, 3, 15, "backward");
       for (const surface of ["sheet", "rail"]) {
         await act(async () => root.render(<Harness surface={surface} />));
         await settle();
-        expect(container.querySelectorAll(".ProseMirror")).toHaveLength(1);
-        input = container.querySelector<HTMLElement>(".ProseMirror")!;
+        expect(replyEditors(container)).toHaveLength(1);
+        input = replyEditors(container)[0];
         expect(richEditorValue(input)).toBe("First line\nSecond line");
         expect(document.activeElement).toBe(input);
         expect(selectedRichText(input)).toBe("st lineSec");
@@ -900,12 +938,10 @@ it.each(["ordinary", "suggestion"] as const)(
       input.blur();
       await act(async () => root.render(<Harness surface="sheet" />));
       await settle();
-      expect(document.activeElement).not.toBe(
-        container.querySelector(".ProseMirror"),
-      );
+      expect(document.activeElement).not.toBe(replyEditors(container)[0]);
       await act(async () => drafts.setOpenReply(null));
       await act(async () => root.render(<Harness surface="rail" />));
-      expect(container.querySelector(".ProseMirror")).toBeNull();
+      expect(replyEditors(container)).toEqual([]);
       expect(drafts.get(threadId).text).toBe("First line\nSecond line");
     } finally {
       await act(async () => root.unmount());
@@ -978,23 +1014,19 @@ it("hands focus from a retained inert history rail to the sheet without clearing
       drafts.setText(saved.threadId, "First line\nSecond line"),
     );
     await settle();
-    const oldInput = container.querySelector<HTMLElement>(".ProseMirror")!;
+    const oldInput = replyEditors(container)[0];
     await setRichEditorSelection(oldInput, 3, 15, "backward");
     await act(async () => root.render(<Harness compact />));
     expect(oldInput.isConnected).toBe(true);
     expect(oldInput.closest("[inert]")).not.toBeNull();
     oldInput.blur();
     await settle();
-    const input = container.querySelector<HTMLElement>(
-      "[data-sheet] .ProseMirror",
-    )!;
+    const input = replyEditors(container.querySelector("[data-sheet]")!)[0];
     expect(document.activeElement).toBe(input);
     expect(richEditorValue(input)).toBe("First line\nSecond line");
     expect(selectedRichText(input)).toBe("st lineSec");
     expect(
-      [...container.querySelectorAll(".ProseMirror")].filter(
-        (element) => !element.closest("[inert]"),
-      ),
+      replyEditors(container).filter((element) => !element.closest("[inert]")),
     ).toEqual([input]);
     await act(async () => root.render(<Harness compact retained={false} />));
     expect(document.activeElement).toBe(input);
@@ -1003,9 +1035,7 @@ it("hands focus from a retained inert history rail to the sheet without clearing
     expect(drafts.focus.current).toBeNull();
     await act(async () => root.render(<Harness />));
     await settle();
-    expect(document.activeElement).not.toBe(
-      container.querySelector(".ProseMirror"),
-    );
+    expect(document.activeElement).not.toBe(replyEditors(container)[0]);
   } finally {
     await act(async () => root.unmount());
     container.remove();
@@ -1124,6 +1154,160 @@ it("matches Notion operation order, disclosure, and full-line colors for draft a
   }
 });
 
+it.each([
+  ["joining paragraphs with a space", "\n", " ", "with: “·”", "Replace: “↵”"],
+  ["splitting a paragraph", " ", "\n", "with: “↵”", "Replace: “·”"],
+  ["swapping whitespace", "  ", "\t", "with: “⇥”", "Replace: “··”"],
+  [
+    "joining paragraphs inside a rewrite",
+    "first\nsecond",
+    "first second",
+    "with: “first·second”",
+    "Replace: “first↵second”",
+  ],
+])(
+  "shows what %s replaces on collapsed draft and saved cards",
+  async (_label, before, after, primary, replaced) => {
+    const operations = [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { changedText: before },
+        after: { changedText: after },
+        schemaVersion: 1,
+      },
+    ];
+    const saved = suggestionFixture({
+      id: "saved-join",
+      revision: 1,
+      threadId: "thread-saved-join",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+    const draft: DraftSuggestion = {
+      durability: "draft",
+      id: "draft-join",
+      threadId: "draft-join",
+      authorEmail: "reviewer@example.test",
+      createdAt: "2026-09-06T12:01:00.000Z",
+      operations,
+      anchor: { from: 0, to: 1, prefix: "", suffix: "" },
+    };
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts("document-join");
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId="document-join"
+          suggestions={[saved]}
+          draftSuggestions={[draft]}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      for (const id of [saved.id, draft.id]) {
+        const card = container.querySelector(`[data-suggestion-id="${id}"]`);
+        expect(card?.textContent).toContain(primary);
+        expect(card?.textContent).toContain(replaced);
+      }
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);
+
+it("names suggestion authors by display name before their email", async () => {
+  const ownEmail = "an-e2e-probe-agent@agents.example.test";
+  const operations = [
+    {
+      ordinal: 0,
+      kind: "insert_text",
+      before: { changedText: "" },
+      after: { changedText: "Added" },
+      schemaVersion: 1,
+    },
+  ];
+  const saved = (id: string, authorEmail: string) =>
+    suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail,
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+  const ownSaved = saved("own-saved", ownEmail);
+  const recordNamed = saved("pending-named", "reviewer@example.test");
+  const unnamed = saved("other-unnamed", "someone.else@example.test");
+  const draft: DraftSuggestion = {
+    durability: "draft",
+    id: "own-draft",
+    threadId: "own-draft",
+    authorEmail: ownEmail,
+    createdAt: "2026-09-06T12:01:00.000Z",
+    operations,
+    anchor: { from: 0, to: 5, prefix: "", suffix: "" },
+  };
+  const container = document.createElement("div");
+  // Attached, so the Filter menu can open inside the panel.
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness({ presentation }: { presentation: "inline" | "history" }) {
+    const replyDrafts = useCommentReplyDrafts("document-authors");
+    return (
+      <CommentsSidebar
+        replyDrafts={replyDrafts}
+        documentId="document-authors"
+        suggestions={[ownSaved, recordNamed, unnamed]}
+        draftSuggestions={[draft]}
+        currentUserEmail={ownEmail}
+        currentUserName="Probe Agent"
+        presentation={presentation}
+        forceVisible
+      />
+    );
+  }
+  const cardText = (id: string) =>
+    container.querySelector(`[data-suggestion-id="${id}"]`)?.textContent ?? "";
+  try {
+    await act(async () => root.render(<Harness presentation="inline" />));
+    expect(cardText(draft.id)).toContain("Probe Agent");
+    expect(cardText(ownSaved.id)).toContain("Probe Agent");
+    expect(cardText(recordNamed.id)).toContain("Reviewer");
+    expect(cardText(unnamed.id)).toContain("someone.else");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
+
+    await act(async () => root.render(<Harness presentation="history" />));
+    // The people to filter by are in the Filter menu.
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-discussion-filter-trigger]")!
+        .click(),
+    );
+    const authorFilters = [
+      ...document.querySelectorAll(
+        '[data-discussion-filter-group="person"] [data-discussion-filter-option]',
+      ),
+    ].map((option) => option.textContent);
+    expect(authorFilters).toContain("Probe Agent");
+    expect(container.textContent).not.toContain("an-e2e-probe-agent");
+    expect(document.body.textContent).not.toContain("an-e2e-probe-agent");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 it("highlights only changed text beside unchanged markdown formatting", async () => {
   const saved = suggestionFixture({
     id: "formatted-replacement",
@@ -1235,9 +1419,10 @@ it("shows an explicit unavailable label for invalid provided suggestion context"
 });
 
 it("shares hover, focus, and reduced-motion behavior across comment and suggestion cards", async () => {
+  // On text: the rail leaves a comment on the whole page to the panel.
   const thread = {
     threadId: "ordinary-thread",
-    quotedText: null,
+    quotedText: "Quoted line",
     prefix: null,
     suffix: null,
     startOffset: null,
@@ -1249,7 +1434,7 @@ it("shares hover, focus, and reduced-motion behavior across comment and suggesti
         thread_id: "ordinary-thread",
         parent_id: null,
         content: "A focused comment",
-        quoted_text: null,
+        quoted_text: "Quoted line",
         anchor_prefix: null,
         anchor_suffix: null,
         anchor_start_offset: null,

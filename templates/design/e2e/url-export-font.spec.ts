@@ -20,7 +20,7 @@ import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 import { openAppMenuSubmenu } from "./helpers";
-import { expect, test } from "./rails";
+import { expect, isSandboxedFrameAutomationNoise, test } from "./rails";
 
 const HTML = `<!doctype html>
 <html lang="en">
@@ -209,7 +209,10 @@ async function pdfPagesPng(pdf: Buffer, desiredWidth: number) {
 async function watchContextFailures(context: BrowserContext) {
   const failures: string[] = [];
   context.on("console", (message) => {
-    if (message.type() === "error")
+    if (
+      message.type() === "error" &&
+      !isSandboxedFrameAutomationNoise(message.text())
+    )
       failures.push(`console.error: ${message.text()}`);
   });
   context.on("weberror", (error) =>
@@ -240,8 +243,7 @@ async function watchContextFailures(context: BrowserContext) {
 }
 
 // Compare exports with the app rendered in the same browser.
-// fixme: product bug: All pixel diffs are 0, but the export page logs 10x "Blocked script execution in 'about:srcdoc' because the document's frame is
-test.fixme("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
+test("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
   page: basePage,
   browser,
   request,

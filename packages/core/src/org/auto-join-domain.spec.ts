@@ -165,37 +165,33 @@ describe("autoJoinDomainMatchingOrgs", () => {
     );
   });
 
-  it("excludes orgs the user is already a member of (NOT EXISTS)", async () => {
-    queueSelect([]);
+  it("does not rejoin the matching organization when the user is already a member", async () => {
+    queueSelect([{ orgId: "builder_io", isMember: true }]);
     const out = await autoJoinDomainMatchingOrgs("existing@builder.io");
     expect(out.joined).toEqual([]);
     expect(out.activeOrgId).toBeNull();
     const args = mockExecute.mock.calls[0][0].args;
-    expect(args).toEqual(["builder.io", "existing@builder.io"]);
+    expect(args).toEqual(["existing@builder.io", "builder.io"]);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("joins multiple matching orgs and picks the first as active", async () => {
-    queueSelect(
-      [{ orgId: "orgA" }, { orgId: "orgB" }],
-      [], // INSERT for orgA
-      [], // INSERT for orgB
-    );
+  it("fails closed when multiple organizations match one email domain", async () => {
+    queueSelect([{ orgId: "orgA" }, { orgId: "orgB" }]);
     const out = await autoJoinDomainMatchingOrgs("multi@builder.io");
-    expect(out.joined).toEqual([{ orgId: "orgA" }, { orgId: "orgB" }]);
-    expect(out.activeOrgId).toBe("orgA");
+    expect(out).toEqual({ joined: [], activeOrgId: null });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it("survives a unique-constraint race on insert and continues", async () => {
+  it("survives a unique-constraint race when joining a matching organization", async () => {
     mockExecute.mockResolvedValueOnce({
-      rows: [{ orgId: "orgA" }, { orgId: "orgB" }],
+      rows: [{ orgId: "orgA" }],
     });
     mockExecute.mockRejectedValueOnce(
       new Error("duplicate key value violates unique constraint"),
     );
-    mockExecute.mockResolvedValueOnce({ rows: [] });
 
     const out = await autoJoinDomainMatchingOrgs("race@builder.io");
-    expect(out.joined).toEqual([{ orgId: "orgB" }]);
+    expect(out.joined).toEqual([]);
   });
 
   it("swallows missing-table errors (template without org module)", async () => {
@@ -210,6 +206,6 @@ describe("autoJoinDomainMatchingOrgs", () => {
     queueSelect([]);
     await autoJoinDomainMatchingOrgs("Mixed@Builder.IO");
     const args = mockExecute.mock.calls[0][0].args;
-    expect(args).toEqual(["builder.io", "mixed@builder.io"]);
+    expect(args).toEqual(["mixed@builder.io", "builder.io"]);
   });
 });

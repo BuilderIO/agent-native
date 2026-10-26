@@ -1,3 +1,5 @@
+import { analyticsDashboard } from "./design-template-presets/analytics-dashboard.js";
+import { designStudio } from "./design-template-presets/design-studio.js";
 import { displayLuxury } from "./design-template-presets/display-ad.js";
 import { eventPoster } from "./design-template-presets/event-poster.js";
 import { keynoteTitle } from "./design-template-presets/keynote-title.js";
@@ -6,7 +8,9 @@ import { landingDtc } from "./design-template-presets/landing-dtc.js";
 import { leaderboard } from "./design-template-presets/leaderboard.js";
 import { LEGACY_DESIGN_TEMPLATE_PRESETS } from "./design-template-presets/legacy.js";
 import { menuCard } from "./design-template-presets/menu-card.js";
+import { messagingApp } from "./design-template-presets/messaging-app.js";
 import { onePagerEditorial } from "./design-template-presets/one-pager.js";
+import { projectTasks } from "./design-template-presets/project-tasks.js";
 import { socialBrutalist } from "./design-template-presets/social-brutalist.js";
 import { socialStory } from "./design-template-presets/social-story.js";
 import { videoThumbnail } from "./design-template-presets/video-thumbnail.js";
@@ -31,6 +35,10 @@ export interface DesignTemplatePreset {
 }
 
 export const DESIGN_TEMPLATE_PRESETS: DesignTemplatePreset[] = [
+  analyticsDashboard,
+  messagingApp,
+  projectTasks,
+  designStudio,
   socialStory,
   keynoteTitle,
   landingDevtool,

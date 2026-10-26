@@ -19,6 +19,9 @@ export const documents = table("documents", {
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
+  liveBodySwitchedAt: text("live_body_switched_at"),
+  // `_collab_docs.version` the stored body was last derived from.
+  liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
@@ -247,32 +250,59 @@ export const documentPreviewDraftSettlements = table(
   ],
 );
 
-export const documentComments = table("document_comments", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  content: text("content").notNull(),
-  quotedText: text("quoted_text"),
-  anchorPrefix: text("anchor_prefix"),
-  anchorSuffix: text("anchor_suffix"),
-  anchorStartOffset: integer("anchor_start_offset"),
-  mentionsJson: text("mentions_json"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  submissionSource: text("submission_source"),
-  submissionRunId: text("submission_run_id"),
-  submissionThreadId: text("submission_thread_id"),
-  actorKind: text("actor_kind"),
-  authorModel: text("author_model"),
-  authorEffort: text("author_effort"),
-  resolved: integer("resolved").notNull().default(0),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  notionCommentId: text("notion_comment_id"),
-  notionDiscussionId: text("notion_discussion_id"),
-});
+export const documentComments = table(
+  "document_comments",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchorPrefix: text("anchor_prefix"),
+    anchorSuffix: text("anchor_suffix"),
+    anchorStartOffset: integer("anchor_start_offset"),
+    /**
+     * A thread on one Property value rather than body text. Set on the root
+     * comment only; the name and value are what they were when it was written,
+     * so the thread keeps its meaning after the value changes or the Property
+     * is deleted.
+     */
+    propertyId: text("property_id"),
+    propertyName: text("property_name"),
+    propertyValue: text("property_value"),
+    /**
+     * The Blocks field tab a thread sits in, when it isn't the page body. Null
+     * means the body, so comments written before tabs had comments stay there.
+     * Set on every comment in the thread (replies copy the root's); the name is
+     * what the field was called when the thread started, so a deleted tab's
+     * threads still read as that tab.
+     */
+    fieldId: text("field_id"),
+    fieldName: text("field_name"),
+    mentionsJson: text("mentions_json"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    submissionSource: text("submission_source"),
+    submissionRunId: text("submission_run_id"),
+    submissionThreadId: text("submission_thread_id"),
+    actorKind: text("actor_kind"),
+    authorModel: text("author_model"),
+    authorEffort: text("author_effort"),
+    resolved: integer("resolved").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    notionCommentId: text("notion_comment_id"),
+    notionDiscussionId: text("notion_discussion_id"),
+  },
+  (comment) => [
+    index("document_comments_document_idx").on(
+      comment.documentId,
+      comment.ownerEmail,
+    ),
+  ],
+);
 
 /**
  * One person's emoji reaction on one Page comment. Access follows the
@@ -774,6 +804,24 @@ export const contentDatabaseSourceExecutions = table(
   },
 );
 
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
+);
+
 export const contentDatabaseSourceExecutionClaims = table(
   "content_database_source_execution_claims",
   {
@@ -964,6 +1012,31 @@ export const documentBodyIntents = table(
       intent.ownerEmail,
       intent.documentId,
       intent.committedRevision,
+    ),
+  ],
+);
+
+/**
+ * For each switched-page commit, how to turn the body it stored back into
+ * the one it replaced at `bodyRevision`, so an edit made on a body History
+ * never recorded can be placed on it exactly. Bounded per page.
+ */
+export const documentBodySteps = table(
+  "document_body_steps",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    bodyRevision: integer("body_revision").notNull(),
+    startOffset: integer("start_offset").notNull(),
+    endOffset: integer("end_offset").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (step) => [
+    index("document_body_steps_document_revision_idx").on(
+      step.documentId,
+      step.bodyRevision,
     ),
   ],
 );

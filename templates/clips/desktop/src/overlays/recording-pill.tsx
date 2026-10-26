@@ -100,7 +100,7 @@ interface PillContext {
 }
 
 /**
- * Granola-style recording indicator. A floating pill anchored by Rust:
+ * Recording indicator. A floating pill anchored by Rust:
  * center-right for meetings, bottom-center for ordinary recordings.
  *
  *   - Collapsed (default): logo + live waveform capsule, click to expand.
@@ -146,6 +146,10 @@ export function MeetingPill() {
   const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
   const [askThreadId, setAskThreadId] = useState(generateTabId);
   const [chipsThreadId, setChipsThreadId] = useState(generateTabId);
+  // Generated ids have no server thread until the first send, so restoring
+  // them would 404 and show the thread as no longer available.
+  const [askThreadIsNew, setAskThreadIsNew] = useState(true);
+  const [chipsThreadIsNew, setChipsThreadIsNew] = useState(true);
   const askChatRef = useRef<AssistantChatHandle | null>(null);
   const chipsChatRef = useRef<AssistantChatHandle | null>(null);
   const askChatContainerRef = useRef<HTMLDivElement | null>(null);
@@ -243,8 +247,8 @@ export function MeetingPill() {
    */
   const sheetDragMovedRef = useRef(false);
   const activeMeetingIdRef = useRef<string | null>(null);
-  // Detached / "floating" mode — Wispr-style pill that auto-moves to the
-  // top-right when the main app loses focus, with a drag handle. Driven by
+  // Detached / "floating" mode moves the pill to the top-right when the main
+  // app loses focus, with a drag handle. Driven by
   // the `clips:pill-detached` event from Rust (toggled by JS via
   // `recording_pill_set_detached`).
   const [detached, setDetached] = useState(false);
@@ -335,6 +339,8 @@ export function MeetingPill() {
         askChatRef.current?.clearComposerContextItems();
         setAskThreadId(generateTabId());
         setChipsThreadId(generateTabId());
+        setAskThreadIsNew(true);
+        setChipsThreadIsNew(true);
         lastAskChatStateRef.current = { count: 0, isRunning: false };
         lastChipsChatStateRef.current = { count: 0, isRunning: false };
         chipsFetchedAtRef.current = 0;
@@ -866,6 +872,7 @@ export function MeetingPill() {
     if (count === previous.count && isRunning === previous.isRunning) return;
     lastAskChatStateRef.current = { count, isRunning };
     setAskChatRevision((revision) => revision + 1);
+    if (count > 0) setAskThreadIsNew(false);
     if (count > 0) openAskSheet();
     if (count > previous.count) {
       const snapshot = askChatRef.current?.exportThreadSnapshot();
@@ -884,6 +891,7 @@ export function MeetingPill() {
     if (count === previous.count && isRunning === previous.isRunning) return;
     lastChipsChatStateRef.current = { count, isRunning };
     setChipsChatRevision((revision) => revision + 1);
+    if (count > 0) setChipsThreadIsNew(false);
   };
 
   useEffect(() => {
@@ -1335,6 +1343,7 @@ export function MeetingPill() {
                   ref={askChatRef}
                   apiUrl={meetingAgentChatApiUrl()}
                   threadId={askThreadId}
+                  isNewThread={askThreadIsNew}
                   contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`}
                   contextScope={
                     ctx.meetingId
@@ -1471,12 +1480,12 @@ export function MeetingPill() {
                   ref={chipsChatRef}
                   apiUrl={meetingAgentChatApiUrl()}
                   threadId={chipsThreadId}
+                  isNewThread={chipsThreadIsNew}
                   contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:suggestions`}
                   className="h-full min-h-0"
                   composerPlaceholder="Generating suggestions"
                   dynamicSuggestions={false}
                   emptyStateDisplay="hidden"
-                  execMode="plan"
                   isActiveComposer={false}
                   onMessageCountChange={handleChipsMessageCountChange}
                   plusMenuMode="hidden"

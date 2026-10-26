@@ -742,6 +742,7 @@ export default function PromptPopover({
         }
         role={inline ? "group" : "dialog"}
         aria-modal={inline ? undefined : true}
+        data-agentkit-composer-size={inline ? "large" : undefined}
         aria-label={title}
         style={inline ? undefined : { top: 0, left: 0, visibility: "visible" }}
       >
@@ -800,6 +801,7 @@ export default function PromptPopover({
                 className={
                   inline ? "slides-home-prompt-composer-area" : undefined
                 }
+                voiceEnabled
                 attachmentsEnabled={active && fileStorageConfigured}
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}

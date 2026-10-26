@@ -18,6 +18,11 @@ const MAX_STARTUP_DELAY_MS = 10 * 60 * 1000;
 const CLIENT_CLOCK_SKEW_TOLERANCE_MS = 120 * 1000;
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Ask for the last N seconds of screen history before an owned Clip started. The context is saved as passive metadata that never changes the Clip's video, and it is shared with the Clip under the Clip's own share rules. Returns the existing active item when there is one.",
   schema: z.object({
@@ -41,8 +46,17 @@ export default defineAction({
       .describe(
         "The desktop device that captured the Clip. Only that device's queue will export the footage.",
       ),
+    includeMicrophone: z.boolean().optional(),
+    includeSystemAudio: z.boolean().optional(),
   }),
-  run: async ({ recordingId, seconds, endedAt, deviceId }) => {
+  run: async ({
+    recordingId,
+    seconds,
+    endedAt,
+    deviceId,
+    includeMicrophone,
+    includeSystemAudio,
+  }) => {
     await assertAccess("recording", recordingId, "owner");
 
     const [recording] = await getDb()
@@ -93,6 +107,8 @@ export default defineAction({
         endedAt: window.endedAt,
         status: "pending",
         capturedDeviceId: deviceId ?? null,
+        includeMicrophone: includeMicrophone ?? null,
+        includeSystemAudio: includeSystemAudio ?? null,
         createdAt: now,
         updatedAt: now,
       })

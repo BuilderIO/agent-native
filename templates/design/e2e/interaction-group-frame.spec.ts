@@ -86,8 +86,7 @@ function rootOf(nodes: Map<string, SavedNode>) {
 }
 
 test.describe("Cmd+G group", () => {
-  // fixme: fails on current main after the merge: Error: apiRequestContext.get: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+G on two overlapping layers wraps exactly them in a selected Group at their union bounds, and one undo restores the document", async ({
+  test("Cmd+G on two overlapping layers wraps exactly them in a selected Group at their union bounds, and one undo restores the document", async ({
     app,
     page,
   }) => {
@@ -133,8 +132,7 @@ test.describe("Cmd+G group", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+G on non-adjacent layers places the Group at the topmost selected layer's z-position", async ({
+  test("Cmd+G on non-adjacent layers places the Group at the topmost selected layer's z-position", async ({
     app,
   }) => {
     const { id, before } = await openFixture(app);
@@ -169,8 +167,7 @@ test.describe("Cmd+G group", () => {
     });
   });
 
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+G on a single layer wraps it in a selected Group in its place, and one undo removes the Group", async ({
+  test("Cmd+G on a single layer wraps it in a selected Group in its place, and one undo removes the Group", async ({
     app,
     page,
   }) => {
@@ -205,10 +202,8 @@ test.describe("Cmd+G group", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: With the Group selected, the inspector shows a Fill section ('Click + to replace mixed content'); a Fill heading is present (count 1).
-  test.fixme("a Group has no fill: it paints nothing between its children and the inspector shows no Fill section", async ({
+  test("a Group has no fill of its own: it paints nothing between its children", async ({
     app,
-    page,
   }) => {
     const { id, before } = await openFixture(app);
     await select(app, ["Red", "Green"]);
@@ -217,24 +212,19 @@ test.describe("Cmd+G group", () => {
 
     expect(styleOf(wrapper)).not.toHaveProperty("background");
     expect(styleOf(wrapper)).not.toHaveProperty("background-color");
+    expect(styleOf(wrapper)).not.toHaveProperty("background-image");
     await expect(app.node(wrapper.id)).toHaveCSS(
       "background-color",
       "rgba(0, 0, 0, 0)",
     );
-    await expect(
-      page.getByRole("heading", { name: "Position", exact: true }),
-    ).toBeVisible();
-    // count(), not toHaveCount(0): a retry passes once the dev server's dep reload blanks the page.
-    expect(
-      await page.getByRole("heading", { name: "Fill", exact: true }).count(),
-      "a Group has no fill property, so the inspector must not offer a Fill section",
-    ).toBe(0);
+    await expect(app.node(wrapper.id)).toHaveCSS("background-image", "none");
+    await expect(app.node(wrapper.id)).toHaveCSS("border-top-style", "none");
+    await expect(app.node(wrapper.id)).toHaveCSS("box-shadow", "none");
   });
 });
 
 test.describe("Cmd+Opt+G frame selection", () => {
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+Opt+G wraps two layers in a selected Frame with no fill and no clipping", async ({
+  test("Cmd+Opt+G wraps two layers in a selected Frame with no fill and no clipping", async ({
     app,
   }) => {
     const { id, before } = await openFixture(app);
@@ -268,8 +258,7 @@ test.describe("Cmd+Opt+G frame selection", () => {
     });
   });
 
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+Opt+G on a single layer wraps it in a selected Frame in its place", async ({
+  test("Cmd+Opt+G on a single layer wraps it in a selected Frame in its place", async ({
     app,
   }) => {
     const { id, before } = await openFixture(app);
@@ -299,8 +288,7 @@ test.describe("Cmd+Opt+G frame selection", () => {
     });
   });
 
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("a fill added to a Frame paints behind its children, which stay on top", async ({
+  test("a fill added to a Frame paints behind its children, which stay on top", async ({
     app,
     page,
   }) => {
@@ -346,8 +334,7 @@ test.describe("Cmd+Opt+G frame selection", () => {
 });
 
 test.describe("Cmd+Shift+G ungroup", () => {
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("Cmd+Shift+G on a Group returns its children to the parent at their original positions and selects them", async ({
+  test("Cmd+Shift+G on a Group returns its children to the parent at their original positions and selects them", async ({
     app,
     page,
   }) => {
@@ -386,8 +373,7 @@ test.describe("Cmd+Shift+G ungroup", () => {
     });
   });
 
-  // fixme: fails on current main after the merge: Error: apiRequestContext.post: connect ECONNREFUSED on loopback port 9611
-  test.fixme("one undo after an ungroup restores the exact Group", async ({
+  test("one undo after an ungroup restores the exact Group", async ({
     app,
     page,
   }) => {

@@ -36,6 +36,7 @@ interface ComposerStubProps {
   requireAgentEngine?: boolean;
   composerRef?: React.Ref<{ focus: () => void }>;
   layoutVariant?: string;
+  voiceEnabled?: boolean;
   onTextChange?: (text: string) => void;
   onAttachmentsChange?: (files: File[]) => void;
   onSubmit: (
@@ -331,6 +332,17 @@ describe("PromptPopover lazy editor composer", () => {
 });
 
 describe("PromptPopover inline home", () => {
+  it("renders the large home composer with dictation", async () => {
+    await renderPopover({ inline: true });
+    expect(mockComposer.current?.layoutVariant).toBe("hero");
+    expect(mockComposer.current?.voiceEnabled).toBe(true);
+    expect(
+      container
+        ?.querySelector("[data-design-inline-prompt]")
+        ?.getAttribute("data-agentkit-composer-size"),
+    ).toBe("large");
+  });
+
   it("keeps the composer calm while its submit preflight runs", async () => {
     let resolvePreflight!: (result: boolean) => void;
     const preflight = new Promise<boolean>((resolve) => {
@@ -1482,6 +1494,7 @@ describe("PromptPopover skip affordance", () => {
     );
 
     expect(skipButton).toBeTruthy();
+    expect(skipButton?.parentElement?.className).not.toContain("border-t");
     expect(
       container!.querySelector('[data-testid="prompt-composer"]'),
     ).toBeTruthy();

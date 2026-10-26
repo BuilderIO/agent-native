@@ -12,7 +12,6 @@ function hydratedEditorChromeBridgeScript(): string {
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("text-commit"))
       // This suite exercises board-style click-through before text editing.
-      // Screen content intentionally uses direct single-click selection instead.
       .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
@@ -350,7 +349,7 @@ describe("text-edit commit claims its content as source", () => {
             (window as Window & { __selectionPayloads?: unknown[] })
               .__selectionPayloads?.length === 2,
         );
-        const deepSelection = await page.evaluate(
+        const repeatedSelection = await page.evaluate(
           () =>
             (
               window as Window & {
@@ -358,7 +357,7 @@ describe("text-edit commit claims its content as source", () => {
               }
             ).__selectionPayloads?.[1],
         );
-        expect(deepSelection?.sourceId).toBe(NODE_ID);
+        expect(repeatedSelection?.sourceId).toBe("generated-group");
 
         await page.mouse.dblclick(
           line.x + line.width / 2,

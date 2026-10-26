@@ -10,21 +10,23 @@ import type {
   BackgroundAgentTranscriptEvent,
   ListBackgroundAgentRunsOptions,
 } from "../../code-agents/background-run.js";
-import { abortRun } from "../run-manager.js";
+import { abortRunDurably } from "../run-manager.js";
 import { getRunEventsSince } from "../run-store.js";
 import type { AgentChatEvent, RunEvent } from "../types.js";
 import {
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
-  stopLiveAgentHarnessSession,
+  stopAndPersistAgentHarnessSession,
   type AgentHarnessOwnerScope,
 } from "./lifecycle.js";
 import {
   getAgentHarnessSessionByRunId,
+  listAgentHarnessSessionEvents,
   listAgentHarnessSessions,
-  markAgentHarnessSessionStopped,
+  type AgentHarnessSessionJournalEvent,
   type AgentHarnessSessionStatus,
   type StoredAgentHarnessSession,
+  type StoredAgentHarnessSessionEvent,
 } from "./store.js";
 
 export function createAgentHarnessBackgroundAgentController(
@@ -93,11 +95,55 @@ export async function listAgentHarnessBackgroundTranscriptEvents(
   }
   if (!session?.runId) return [];
   const events = await getRunEventsSince(session.runId, 0);
-  return events
+  const runTranscript = events
     .map((event) => parseRunEvent(event))
-    .filter((event): event is RunEvent => Boolean(event))
-    .map((event) => toAgentHarnessBackgroundTranscriptEvent(session, event))
-    .filter((event): event is BackgroundAgentTranscriptEvent => Boolean(event));
+    .filter((event): event is ParsedRunEvent => Boolean(event))
+    .map(({ runEvent, eventAt, transcriptOrder }) => ({
+      transcriptOrder,
+      sourceRank: 0,
+      sourceSeq: runEvent.seq,
+      event: toAgentHarnessBackgroundTranscriptEvent(
+        session,
+        runEvent,
+        eventAt,
+      ),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is typeof entry & {
+        event: BackgroundAgentTranscriptEvent;
+      } => Boolean(entry.event),
+    );
+  const sessionTranscript = (await listAgentHarnessSessionEvents(session.id))
+    .map((event) => ({
+      transcriptOrder: event.transcriptOrder,
+      sourceRank: 1,
+      sourceSeq: event.seq,
+      event: toAgentHarnessBackgroundSessionTranscriptEvent(session, event),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is typeof entry & {
+        event: BackgroundAgentTranscriptEvent;
+      } => Boolean(entry.event),
+    );
+  return assignCanonicalTranscriptSequence(
+    [...runTranscript, ...sessionTranscript]
+      .sort(compareTranscriptOrder)
+      .map(({ event, transcriptOrder }) =>
+        transcriptOrder === null
+          ? {
+              ...event,
+              metadata: {
+                ...(event.metadata ?? {}),
+                transcriptOrderFallback: "legacy_source_order",
+              },
+            }
+          : event,
+      ),
+  );
 }
 
 export async function stopAgentHarnessBackgroundRun(
@@ -114,22 +160,37 @@ export async function stopAgentHarnessBackgroundRun(
   ) {
     return missingHarnessRunResult(runId);
   }
+  const failures: unknown[] = [];
+  let stoppedSession = session;
   if (session.runId) {
-    abortRun(session.runId, "user");
+    try {
+      await abortRunDurably(session.runId, "user", { allowNotStarted: true });
+    } catch (error) {
+      failures.push(error);
+    }
   }
-  await stopLiveAgentHarnessSession({
-    sessionId: session.id,
-    scope: options,
-  });
-  await markAgentHarnessSessionStopped(session.id, "stopped");
-  return {
-    ok: true,
-    runId,
-    run: toAgentHarnessBackgroundRun({
+  try {
+    const stopped = await stopAndPersistAgentHarnessSession({
+      sessionId: session.id,
+      scope: options,
+      status: failures.length > 0 ? "errored" : "stopped",
+    });
+    stoppedSession = stopped ?? {
       ...session,
       status: "stopped",
       stoppedAt: Date.now(),
-    }),
+    };
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Agent Harness background stop failed.");
+  }
+  return {
+    ok: true,
+    runId,
+    run: toAgentHarnessBackgroundRun(stoppedSession),
   };
 }
 
@@ -177,6 +238,7 @@ function toAgentHarnessBackgroundRun(
       status: session.status,
       pendingApproval: session.pendingApproval,
       workspaceRef: session.workspaceRef,
+      followUpOutcome: session.followUpOutcome,
     },
   };
 }
@@ -184,38 +246,102 @@ function toAgentHarnessBackgroundRun(
 function toAgentHarnessBackgroundTranscriptEvent(
   session: StoredAgentHarnessSession,
   runEvent: RunEvent,
+  eventAt: number | null,
 ): BackgroundAgentTranscriptEvent | null {
-  const summary = summarizeAgentChatEvent(runEvent.event);
+  return toAgentHarnessTranscriptEvent({
+    session,
+    event: runEvent.event,
+    eventId: `${session.runId ?? session.id}:${runEvent.seq}`,
+    seq: runEvent.seq,
+    createdAt: eventAt ?? session.createdAt,
+    sourceRecordType: "agent-harness-run-event",
+    ...(eventAt === null
+      ? { metadata: { createdAtFallback: "session-created-at" } }
+      : {}),
+  });
+}
+
+function toAgentHarnessBackgroundSessionTranscriptEvent(
+  session: StoredAgentHarnessSession,
+  sessionEvent: StoredAgentHarnessSessionEvent,
+): BackgroundAgentTranscriptEvent | null {
+  const runId = session.runId ?? session.id;
+  const eventId = `${runId}:operation:${sessionEvent.operationId}:${sessionEvent.seq}`;
+  return toAgentHarnessTranscriptEvent({
+    session,
+    event: sessionEvent.event,
+    eventId,
+    seq: sessionEvent.seq,
+    createdAt: sessionEvent.eventAt,
+    sourceRecordType: "agent-harness-session-event",
+    operationId: sessionEvent.operationId,
+  });
+}
+
+function toAgentHarnessTranscriptEvent(input: {
+  session: StoredAgentHarnessSession;
+  event: AgentHarnessSessionJournalEvent;
+  eventId: string;
+  seq: number;
+  createdAt: number;
+  sourceRecordType: "agent-harness-run-event" | "agent-harness-session-event";
+  metadata?: Record<string, unknown>;
+  operationId?: string;
+}): BackgroundAgentTranscriptEvent | null {
+  const { session } = input;
+  const summary = summarizeAgentChatEvent(input.event);
   if (!summary) return null;
-  const eventId = `${session.runId ?? session.id}:${runEvent.seq}`;
+  const runId = session.runId ?? session.id;
   return {
     schemaVersion: 1,
-    id: eventId,
-    runId: session.runId ?? session.id,
+    id: input.eventId,
+    runId,
     kind: summary.kind,
     source: "agent-harness",
     sourceRecord: {
-      type: "agent-harness-run-event",
-      id: eventId,
-      seq: runEvent.seq,
+      type: input.sourceRecordType,
+      id: input.eventId,
+      seq: input.seq,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
     },
     message: summary.message,
-    createdAt: new Date(session.updatedAt).toISOString(),
+    createdAt: new Date(input.createdAt).toISOString(),
     metadata: {
       ...(summary.metadata ?? {}),
-      seq: runEvent.seq,
+      ...(input.metadata ?? {}),
+      seq: input.seq,
       harnessName: session.harnessName,
       sessionId: session.id,
+      ...(input.operationId ? { operationId: input.operationId } : {}),
     },
   };
 }
 
-function summarizeAgentChatEvent(event: AgentChatEvent): {
+function assignCanonicalTranscriptSequence(
+  events: BackgroundAgentTranscriptEvent[],
+): BackgroundAgentTranscriptEvent[] {
+  return events.map((event, seq) => {
+    const sourceSeq = event.sourceRecord.seq;
+    return {
+      ...event,
+      sourceRecord: { ...event.sourceRecord, seq },
+      metadata: {
+        ...(event.metadata ?? {}),
+        seq,
+        ...(sourceSeq === undefined ? {} : { sourceSeq }),
+      },
+    };
+  });
+}
+
+function summarizeAgentChatEvent(event: AgentHarnessSessionJournalEvent): {
   kind: BackgroundAgentTranscriptEvent["kind"];
   message: string;
   metadata?: Record<string, unknown>;
 } | null {
   switch (event.type) {
+    case "user_input":
+      return { kind: "user", message: event.text };
     case "text":
       return { kind: "note", message: event.text };
     case "thinking":
@@ -272,25 +398,66 @@ function summarizeAgentChatEvent(event: AgentChatEvent): {
   }
 }
 
+interface ParsedRunEvent {
+  runEvent: RunEvent;
+  eventAt: number | null;
+  transcriptOrder: number | null;
+}
+
 function parseRunEvent(row: {
   seq: number;
   eventData: string;
-}): RunEvent | null {
+  eventAt: number | null;
+  transcriptOrder: number | null;
+}): ParsedRunEvent | null {
   try {
     const event = JSON.parse(row.eventData) as AgentChatEvent;
-    return { seq: Number(row.seq), event };
+    const eventAt =
+      typeof row.eventAt === "number" && Number.isFinite(row.eventAt)
+        ? row.eventAt
+        : null;
+    const transcriptOrder =
+      typeof row.transcriptOrder === "number" &&
+      Number.isFinite(row.transcriptOrder)
+        ? row.transcriptOrder
+        : null;
+    return {
+      runEvent: { seq: Number(row.seq), event },
+      eventAt,
+      transcriptOrder,
+    };
   } catch {
     return null;
   }
+}
+
+function compareTranscriptOrder(
+  left: {
+    transcriptOrder: number | null;
+    sourceRank: number;
+    sourceSeq: number;
+  },
+  right: {
+    transcriptOrder: number | null;
+    sourceRank: number;
+    sourceSeq: number;
+  },
+): number {
+  if (left.transcriptOrder != null && right.transcriptOrder != null) {
+    return left.transcriptOrder - right.transcriptOrder;
+  }
+  if (left.transcriptOrder == null && right.transcriptOrder != null) return -1;
+  if (left.transcriptOrder != null && right.transcriptOrder == null) return 1;
+  return left.sourceRank - right.sourceRank || left.sourceSeq - right.sourceSeq;
 }
 
 function backgroundStatus(
   status: AgentHarnessSessionStatus,
   needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
+  if (needsApproval) return "needs-approval";
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (needsApproval) return "needs-approval";
   if (status === "idle") return "paused";
   if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";

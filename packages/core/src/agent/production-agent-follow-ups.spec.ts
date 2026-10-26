@@ -92,6 +92,7 @@ function setup(
       parallelToolCalls: true,
     },
     async *stream(opts) {
+      opts.onModelDispatchStarted?.();
       const index = requests.length;
       requests.push({ ...opts, messages: structuredClone(opts.messages) });
       if (!steps[index]) throw new Error("Unexpected model request");
@@ -172,6 +173,7 @@ describe("native agent follow-up publication", () => {
       .spyOn(journal, "loadPriorTurnToolCallJournal")
       .mockResolvedValue({
         status: "read",
+        events: [],
         toolCallJournal: null,
         priorToolCalls: [],
         priorToolCallSequence: [],
@@ -632,7 +634,7 @@ describe("native agent follow-up publication", () => {
     ]);
   });
 
-  it("publishes grounded metadata before done without a second model request or visible tool activity", async () => {
+  it("continues after provider tool_use when grounded metadata accompanies a reply", async () => {
     const { opts, events, requests } = setup([
       [
         {
@@ -645,14 +647,22 @@ describe("native agent follow-up publication", () => {
           id: "follow-up-1",
           text: JSON.stringify({ suggestions: [followUp] }),
         },
-        ...step([reply(), call()], "end_turn"),
+        ...step(
+          [reply("No transactions in October 2026, total €0."), call()],
+          "tool_use",
+        ),
       ],
+      step([
+        reply(
+          "There are no transactions in October 2026, so total spending is €0.",
+        ),
+      ]),
     ]);
     const usage = await runAgentLoop(opts);
-    expect(usage.llmCalls).toBe(1);
+    expect(usage.llmCalls).toBe(2);
     expect(usage.followUpMs).toBeUndefined();
     expect(usage.followUpInputTokens).toBeUndefined();
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
     expect(requests[0].systemPrompt).toBe(
       `${opts.systemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`,
     );
@@ -660,9 +670,18 @@ describe("native agent follow-up publication", () => {
     expect(requests[0].tools.map((tool) => tool.name)).toContain(
       FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
     );
+    expect(requests[1].messages.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "tool-result", toolName: FOLLOW_UP_SUGGESTIONS_TOOL_NAME },
+      ],
+    });
     expect(events.filter((event) => event.type !== "model_stream")).toEqual([
       { type: "suggestions", suggestions: [] },
-      { type: "text", text: "Created your design." },
+      {
+        type: "text",
+        text: "There are no transactions in October 2026, so total spending is €0.",
+      },
       {
         type: "suggestions",
         suggestions: [
@@ -779,18 +798,57 @@ describe("native agent follow-up publication", () => {
   it("preserves provider tool_use continuation when publication accompanies a preamble", async () => {
     const { opts, events, requests } = setup([
       step([reply("I'll wrap this up."), call()], "tool_use"),
-      step([reply("Here is the actual final response.")]),
+      step([reply("Here is the actual final response."), call()]),
     ]);
-    const guard = vi.fn(() => null);
+    const guard = vi.fn().mockReturnValue(null);
     opts.finalResponseGuard = guard;
     await runAgentLoop(opts);
     expect(requests).toHaveLength(2);
-    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard).toHaveBeenCalledOnce();
     expect(guard).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Here is the actual final response." }),
     );
     expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Here is the actual final response." },
+    ]);
+    expect(published(events)).toHaveLength(1);
+  });
+
+  it("continues after streamed metadata preamble without relying on a guard retry", async () => {
+    const { opts, events, requests } = setup([
+      [
+        { type: "text-delta", text: "I'll wrap this up." },
+        {
+          type: "tool-call",
+          id: "follow-up-1",
+          name: FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+          input: { suggestions: [followUp] },
+        },
+        { type: "stop", reason: "tool_use" },
+      ],
+      step([reply("Here is the actual final response."), call()]),
+    ]);
+    const guard = vi.fn().mockReturnValue(null);
+    opts.finalResponseGuard = guard;
+
+    await runAgentLoop(opts);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1].messages.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "tool-result", toolName: FOLLOW_UP_SUGGESTIONS_TOOL_NAME },
+      ],
+    });
+    expect(guard).toHaveBeenCalledOnce();
+    expect(guard).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Here is the actual final response." }),
+    );
+    expect(
+      events.filter((event) => event.type === "text" || event.type === "clear"),
+    ).toEqual([
       { type: "text", text: "I'll wrap this up." },
+      { type: "clear" },
       { type: "text", text: "Here is the actual final response." },
     ]);
     expect(published(events)).toHaveLength(1);

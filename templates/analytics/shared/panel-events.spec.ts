@@ -10,6 +10,7 @@ import {
   panelEventInstant,
   panelEventProblem,
   resolvePanelEvents,
+  xInstant,
 } from "./panel-events";
 import { unknownPanelConfigKeys } from "./panel-render-contract";
 
@@ -54,6 +55,34 @@ describe("resolvePanelEvents", () => {
     expect(
       resolvePanelEvents([{ date: "2026-10-14", label: "x" }], ["a", "b"]),
     ).toEqual([]);
+  });
+
+  it("reads numeric x-axis timestamps as Unix milliseconds", () => {
+    const timestamps = days.map((date) => Date.parse(date));
+    const [event] = resolvePanelEvents(
+      [{ date: "2026-10-14", label: "Launch" }],
+      timestamps,
+    );
+    expect(xInstant(timestamps[2])).toBe(timestamps[2]);
+    expect(event).toMatchObject({
+      index: 2,
+      x: String(timestamps[2]),
+      xValue: timestamps[2],
+    });
+  });
+
+  it("keeps saved events with legacy CSS colors and uses the default color", () => {
+    const resolved = resolvePanelEvents(
+      ["red", "hsl(210 70% 50%)"].map((color) => ({
+        date: "2026-10-14",
+        label: "Launch",
+        color,
+      })),
+      days,
+    );
+
+    expect(resolved).toHaveLength(2);
+    expect(resolved.map(({ color }) => color)).toEqual([undefined, undefined]);
   });
 
   it("skips rows whose x is not a date and keeps their row positions", () => {
@@ -337,6 +366,25 @@ describe("config.events contract", () => {
     expect(unknownPanelConfigKeys(panel([productHunt, launchPosts]))).toEqual(
       [],
     );
+  });
+
+  it("accepts only SVG-safe hex colors for events", () => {
+    for (const color of ["#abc", "#abcd", "#aabbcc", "#aabbccdd"]) {
+      expect(
+        unknownPanelConfigKeys(
+          panel([{ date: "2026-10-14", label: "Launch", color }]),
+        ),
+      ).toEqual([]);
+    }
+
+    for (const color of ["#12345", "#1234567", "red"]) {
+      const [issue] = unknownPanelConfigKeys(
+        panel([{ date: "2026-10-14", label: "Launch", color }]),
+      );
+      expect(issue.message).toContain(
+        "config.events[0]: color must be a 3, 4, 6, or 8 digit hex color",
+      );
+    }
   });
 
   it("names a skipped daylight-saving time in the rejection", () => {

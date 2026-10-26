@@ -1,4 +1,7 @@
-import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
+import {
+  isBuilderPreviewUrl,
+  isLoopbackPreviewAllowed,
+} from "@shared/builder-preview-url";
 import { useSyncExternalStore } from "react";
 
 const subscribeToBrowserOrigin = () => () => {};
@@ -230,12 +233,21 @@ export function isTrustedCrossOriginPreviewUrl(
   previewUrl: string | null | undefined,
   parentOrigin?: string,
 ): boolean {
-  if (
-    !previewUrl ||
-    isLoopbackPreviewUrl(previewUrl) ||
-    !isBuilderPreviewUrl(previewUrl)
-  ) {
-    return false;
+  if (!previewUrl || !isBuilderPreviewUrl(previewUrl)) return false;
+  // A loopback preview is a local `builder.io launch` session. It is trusted
+  // only when the editor is itself a local dev build on loopback (Builder's
+  // `npm run dev`); production editors keep loopback apps opaque.
+  if (isLoopbackPreviewUrl(previewUrl)) {
+    const editorOrigin =
+      parentOrigin ??
+      (typeof window === "undefined" ? undefined : window.location.origin);
+    if (
+      !isLoopbackPreviewAllowed() ||
+      !editorOrigin ||
+      !isLoopbackPreviewUrl(editorOrigin)
+    ) {
+      return false;
+    }
   }
   return isCrossOriginPreviewUrl(previewUrl, parentOrigin);
 }
