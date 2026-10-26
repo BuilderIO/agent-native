@@ -512,9 +512,9 @@ export function ComposeModal({
           attachments: draftSnapshot.attachments,
         })
         .then((result) => {
-          if (showSendToasts) {
+          if (sendingToastId !== undefined) {
             toast(t("mail.toasts.messageSent"), {
-              ...(sendingToastId === undefined ? {} : { id: sendingToastId }),
+              id: sendingToastId,
               duration: 3_000,
             });
           }
