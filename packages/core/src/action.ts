@@ -1522,6 +1522,7 @@ export async function validateActionArgs(
   if (result.issues) {
     const missing: string[] = [];
     const other: string[] = [];
+    const invalidFields = new Set<string>();
     for (const issue of result.issues) {
       const pathStr = issue.path
         ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
@@ -1536,6 +1537,9 @@ export async function validateActionArgs(
         missing.push(pathStr);
       } else {
         other.push(pathStr ? `${pathStr}: ${msg}` : msg);
+        const head = issue.path?.[0];
+        const key = typeof head === "object" ? head?.key : head;
+        if (typeof key === "string") invalidFields.add(key);
       }
     }
 
@@ -1557,7 +1561,14 @@ export async function validateActionArgs(
       received = String(args);
     }
 
-    const signature = describeToolParameterSignature(toolParameters);
+    // A missing key needs the whole contract. A wrong value needs only its
+    // field's rule, and the full signature truncates that enum past the caps.
+    const signature = describeToolParameterSignature(
+      toolParameters,
+      missing.length === 0 && invalidFields.size > 0
+        ? [...invalidFields]
+        : undefined,
+    );
     const expected = signature
       ? ` Expected: ${signature} (where * = required, ? = optional).`
       : "";

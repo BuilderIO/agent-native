@@ -1421,6 +1421,30 @@ describe("defineAction — authorize", () => {
     ).rejects.toThrow(/Invalid action parameters/);
     expect(authorize).not.toHaveBeenCalled();
   });
+
+  it("hints only the failing field, with its full enum", async () => {
+    const action = defineAction({
+      description: "tweak",
+      schema: z.object({
+        tweaks: z.array(
+          z.object({
+            type: z.enum(["color-swatch", "segment", "slider", "toggle"]),
+          }),
+        ),
+        unrelated: z.string(),
+      }),
+      run: async () => ({ ok: true }),
+    });
+
+    const error = await action
+      .run({ tweaks: [{ type: "bogus" }], unrelated: "x" } as never, {
+        caller: "http",
+      })
+      .catch((e: Error) => e);
+    const expected = error.message.split("Expected:")[1];
+    expect(expected).toContain('"toggle"');
+    expect(expected).not.toContain("unrelated");
+  });
 });
 
 describe("AgentActionStopError", () => {
