@@ -6,14 +6,11 @@ import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/u
 import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
-import React, {
-  Suspense,
-  createContext,
-  lazy,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
+
+import { FirstRunOnboardingGateContext } from "./first-run-startup-gate-context.js";
+
+export { useFirstRunOnboardingGateOwnsSurface } from "./first-run-startup-gate-context.js";
 
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
@@ -32,16 +29,6 @@ const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
 // load twice. One context per copy left the sidebar reading `false` and
 // mounting a second questionnaire behind the gate, revealed at step 1 once
 // the gate stepped aside. Every copy shares one context through globalThis.
-const FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY = Symbol.for(
-  "agent-native.toolkit.firstRunOnboardingGateContext",
-);
-const firstRunOnboardingGateGlobal = globalThis as typeof globalThis & {
-  [FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY]?: React.Context<boolean>;
-};
-const FirstRunOnboardingGateContext = (firstRunOnboardingGateGlobal[
-  FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY
-] ??= createContext(false));
-
 function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   if (typeof document === "undefined") return "present";
   const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
@@ -57,10 +44,6 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
     }
     throw error;
   }
-}
-
-export function useFirstRunOnboardingGateOwnsSurface(): boolean {
-  return useContext(FirstRunOnboardingGateContext);
 }
 
 export function FirstRunOnboardingStartupGate({

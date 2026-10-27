@@ -1667,7 +1667,6 @@
       "sourceEntries": ["src/composer"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
-        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-checkbox",
         "@radix-ui/react-dialog",
@@ -1693,7 +1692,6 @@
         "openai",
         "react",
         "react-dom",
-        "react-router",
         "sonner",
         "tailwind-merge"
       ],

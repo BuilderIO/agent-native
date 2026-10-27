@@ -13,7 +13,7 @@ const firstRunGate = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("../app/onboarding/first-run-startup-gate.js", async () => {
+vi.mock("../app/onboarding/first-run-startup-gate-context.js", async () => {
   const React = await import("react");
   return {
     useFirstRunOnboardingGateOwnsSurface: () =>

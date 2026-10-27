@@ -28,7 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate-context.js";
 import { Button } from "../ui/button.js";
 import {
   Dialog,
