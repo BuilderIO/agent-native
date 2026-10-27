@@ -87,6 +87,8 @@ declare var __INTERACTION_MODE__: boolean;
     shiftKey: boolean;
     altKey: boolean;
     steps: number;
+    // A zoom wheel the host reads as a mouse notch rather than a pinch.
+    notch: boolean;
   };
   // Folded steps waiting for the host in arrival order: a new one for each
   // change of kind and every 32 wheels, and at most 16.
@@ -219,9 +221,10 @@ declare var __INTERACTION_MODE__: boolean;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
+    var deltaY = clamp(e.deltaY, 240);
     var wheel: ForwardedWheel = {
       deltaX: clamp(e.deltaX, 240),
-      deltaY: clamp(e.deltaY, 240),
+      deltaY: deltaY,
       deltaZ: clamp(e.deltaZ, 240),
       deltaMode: e.deltaMode,
       clientX: clamp(e.clientX, 100000),
@@ -231,6 +234,8 @@ declare var __INTERACTION_MODE__: boolean;
       shiftKey: !!e.shiftKey,
       altKey: !!e.altKey,
       steps: 1,
+      // MAX_PINCH_DELTA_PX in core's zoom-gesture.
+      notch: zoomIntent && Math.abs(deltaY) >= 40,
     };
     if (!wheelAwaitingHost) {
       sendWheel(wheel);
@@ -239,7 +244,10 @@ declare var __INTERACTION_MODE__: boolean;
     var pending =
       pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
     // The host bounds a step's pan by 32 wheels' worth, so a longer wait
-    // queues further steps rather than folding travel it would clip.
+    // queues further steps rather than folding travel it would clip. It
+    // picks a zoom step's curve by its average wheel, so pinch-sized and
+    // notch-sized wheels stay apart, and notches fold only in one direction
+    // so their average stays a notch.
     if (
       pending &&
       pending.steps < 32 &&
@@ -247,7 +255,9 @@ declare var __INTERACTION_MODE__: boolean;
       pending.ctrlKey === wheel.ctrlKey &&
       pending.metaKey === wheel.metaKey &&
       pending.shiftKey === wheel.shiftKey &&
-      pending.altKey === wheel.altKey
+      pending.altKey === wheel.altKey &&
+      pending.notch === wheel.notch &&
+      (!wheel.notch || Math.sign(pending.deltaY) === Math.sign(wheel.deltaY))
     ) {
       pending.deltaX += wheel.deltaX;
       pending.deltaY += wheel.deltaY;

@@ -129,9 +129,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       var zoomIntent = !!(e.ctrlKey || e.metaKey);
       if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
+      var deltaY = clamp(e.deltaY, 240);
       var wheel = {
         deltaX: clamp(e.deltaX, 240),
-        deltaY: clamp(e.deltaY, 240),
+        deltaY,
         deltaZ: clamp(e.deltaZ, 240),
         deltaMode: e.deltaMode,
         clientX: clamp(e.clientX, 1e5),
@@ -140,14 +141,16 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         metaKey: !!e.metaKey,
         shiftKey: !!e.shiftKey,
         altKey: !!e.altKey,
-        steps: 1
+        steps: 1,
+        // MAX_PINCH_DELTA_PX in core's zoom-gesture.
+        notch: zoomIntent && Math.abs(deltaY) >= 40
       };
       if (!wheelAwaitingHost) {
         sendWheel(wheel);
         return;
       }
       var pending = pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
-      if (pending && pending.steps < 32 && pending.deltaMode === wheel.deltaMode && pending.ctrlKey === wheel.ctrlKey && pending.metaKey === wheel.metaKey && pending.shiftKey === wheel.shiftKey && pending.altKey === wheel.altKey) {
+      if (pending && pending.steps < 32 && pending.deltaMode === wheel.deltaMode && pending.ctrlKey === wheel.ctrlKey && pending.metaKey === wheel.metaKey && pending.shiftKey === wheel.shiftKey && pending.altKey === wheel.altKey && pending.notch === wheel.notch && (!wheel.notch || Math.sign(pending.deltaY) === Math.sign(wheel.deltaY))) {
         pending.deltaX += wheel.deltaX;
         pending.deltaY += wheel.deltaY;
         pending.deltaZ += wheel.deltaZ;

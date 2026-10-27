@@ -207,6 +207,57 @@ describe("the embedded wheel bridge", () => {
   );
 
   it(
+    "keeps notch-sized zoom wheels out of a folded pinch, and folds them one way only",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        // MultiScreenCanvas judges a folded zoom step by its average wheel:
+        // under 40px is a pinch, more is a mouse notch.
+        await wheels(page, [
+          { deltaY: -4, ctrlKey: true },
+          { deltaY: -6, ctrlKey: true },
+          { deltaY: -5, ctrlKey: true },
+          { deltaY: -100, ctrlKey: true },
+          { deltaY: -120, ctrlKey: true },
+          { deltaY: 100, ctrlKey: true },
+          { deltaY: -3, ctrlKey: true },
+        ]);
+        for (let i = 0; i < 4; i += 1) {
+          await read(page);
+          await page.waitForTimeout(20);
+        }
+        expect(
+          (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
+        ).toEqual([
+          { deltaY: -4, steps: 1 },
+          { deltaY: -11, steps: 2 },
+          { deltaY: -220, steps: 2 },
+          { deltaY: 100, steps: 1 },
+          { deltaY: -3, steps: 1 },
+        ]);
+      });
+    },
+  );
+
+  it(
+    "folds a scroll's wheels whatever their size",
+    { timeout: 30_000 },
+    async () => {
+      await withPage(async (page) => {
+        await wheels(page, [{ deltaY: 20 }, { deltaY: 30 }, { deltaY: 100 }]);
+        await read(page);
+        await page.waitForTimeout(20);
+        expect(
+          (await posted(page)).map(({ deltaY, steps }) => ({ deltaY, steps })),
+        ).toEqual([
+          { deltaY: 20, steps: 1 },
+          { deltaY: 130, steps: 2 },
+        ]);
+      });
+    },
+  );
+
+  it(
     "ignores a late answer to a step the timer already gave up on",
     { timeout: 30_000 },
     async () => {
