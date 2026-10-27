@@ -569,3 +569,32 @@ it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
     expect(mocks.insert).toHaveBeenCalledOnce();
   },
 );
+
+it.each([false, true])(
+  "rechecks the locked native recording's expiry (owner=%s)",
+  async (owner) => {
+    mocks.access.role = owner ? "owner" : "editor";
+    mocks.rows = [[recordingRow()], []];
+    mocks.lockRows = [
+      {
+        id: "rec-1",
+        ownerEmail: owner ? "owner@example.com" : "other-owner@example.test",
+        expiresAt: "2000-01-01T00:00:00Z",
+      },
+    ];
+    mocks.insert.mockReturnValue({ values: insertValues() });
+    const pending = saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Fake locked transcript",
+      source: "web-speech",
+    });
+    if (owner)
+      await expect(pending).resolves.toMatchObject({ status: "ready" });
+    else {
+      await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.insert).not.toHaveBeenCalled();
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(dispatchPostFinalizeJob).not.toHaveBeenCalled();
+    }
+  },
+);

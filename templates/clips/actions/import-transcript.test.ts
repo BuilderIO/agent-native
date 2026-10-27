@@ -140,6 +140,7 @@ beforeEach(async () => {
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, status TEXT NOT NULL, duration_ms INTEGER,
     title TEXT NOT NULL, title_source TEXT, description TEXT,
+    owner_email TEXT NOT NULL DEFAULT 'owner@example.com', expires_at TEXT,
     media_updated_at TEXT NOT NULL DEFAULT 'media-1'
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
@@ -705,4 +706,71 @@ it.each([
   expect(await readTranscript()).toMatchObject({
     full_text: "Fake original transcript",
   });
+});
+
+it.each(["import", "restore"])(
+  "rechecks expiry on the locked recording during %s",
+  async (operation) => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Fake previous transcript",
+    });
+    let versionId: string | undefined;
+    if (operation === "restore") {
+      const imported = await run({ text: VTT, replace: true });
+      versionId = imported.savedVersionId;
+    }
+    const before = await readFullTranscript();
+    const versions = await readVersions();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
+    mocks.dispatchPostFinalizeJob.mockClear();
+    const transaction = db.transaction.bind(db);
+    const spy = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (runTransaction) => {
+        await client.query(
+          "UPDATE recordings SET owner_email = 'other-owner@example.test', expires_at = '2000-01-01T00:00:00Z' WHERE id = 'rec_1'",
+        );
+        return transaction(runTransaction);
+      });
+    try {
+      const pending =
+        operation === "import"
+          ? run({ text: VTT, replace: true, replaceImportId: null })
+          : restore(String(versionId));
+      await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual(versions);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it("retains actual owner import and restore after expiry changes at the lock", async () => {
+  await insertTranscript({
+    status: "ready",
+    fullText: "Fake owner previous transcript",
+  });
+  const transaction = db.transaction.bind(db);
+  const spy = vi
+    .spyOn(db, "transaction")
+    .mockImplementationOnce(async (runTransaction) => {
+      await client.query(
+        "UPDATE recordings SET expires_at = '2000-01-01T00:00:00Z' WHERE id = 'rec_1'",
+      );
+      return transaction(runTransaction);
+    });
+  try {
+    const imported = await run({ text: VTT, replace: true });
+    await restore(imported.savedVersionId);
+    expect(await readTranscript()).toMatchObject({
+      full_text: "Fake owner previous transcript",
+    });
+  } finally {
+    spy.mockRestore();
+  }
 });

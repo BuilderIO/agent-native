@@ -176,6 +176,39 @@ describe("regenerate-title fallback refinement", () => {
     },
   );
 
+  it.each([false, true])(
+    "rechecks expiry before queuing a same-title refinement (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      const title = "Agent Credits Cost $63";
+      mockSelectRows.queue = [
+        [{ id: "rec_1", title, titleSource: "manual", description: "Saved" }],
+        [
+          {
+            status: "ready",
+            fullText:
+              "It's easier to just walk through this real quick. Regarding your question about the agent credits costing $63, there are two reasons. The CPQ tool cannot show the SLA fee as a separate line item today.",
+            segmentsJson: "[]",
+            ownerEmail: "owner@example.com",
+          },
+        ],
+        [{ title, titleSource: "manual" }],
+        [{ title, titleSource: "manual" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { title, provider: "builder" };
+      });
+      const pending = regenerateTitle.run({ recordingId: "rec_1" });
+      if (owner) await expect(pending).resolves.toMatchObject({ queued: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      }
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
     const transcript = `
       It’s easier to just walk through this real quick.

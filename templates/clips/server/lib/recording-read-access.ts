@@ -1,6 +1,9 @@
 import { ForbiddenError } from "@agent-native/core/sharing";
 
-import { isRecordingExpiredForViewer } from "./recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingExpiredForEmail,
+} from "./recording-page-access.js";
 
 export function assertRecordingNotExpired<
   T extends {
@@ -17,4 +20,15 @@ export function assertRecordingNotExpired<
     throw new ForbiddenError();
   }
   return access;
+}
+
+export function assertRecordingNotExpiredForEmail(
+  recording: {
+    ownerEmail: string | null | undefined;
+    expiresAt: string | null | undefined;
+  },
+  viewerEmail: string | null | undefined,
+): void {
+  if (isRecordingExpiredForEmail(recording, viewerEmail))
+    throw new ForbiddenError();
 }

@@ -48,28 +48,30 @@ describe("post-finalize dispatch", () => {
     vi.clearAllMocks();
   });
 
-  it("binds a transcript job token to its initiating caller", async () => {
-    initiatingCaller.email = "editor@example.test";
-    await dispatchPostFinalizeJob({
-      recordingId: "rec-1",
-      kind: "transcript",
-      delayMs: 5000,
-      retryAttempt: 1,
-    });
-    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId:
-        "clips-post-finalize-job:rec-1:transcript:caller:editor%40example.test",
-      ttlSeconds: 600,
-    });
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: expect.stringContaining(
-          '"requestedByEmail":"editor@example.test"',
-        ),
-      }),
-    );
-  });
+  it.each(["transcript", "meeting-finalize"] as const)(
+    "binds a %s job token to its initiating caller",
+    async (kind) => {
+      initiatingCaller.email = "editor@example.test";
+      await dispatchPostFinalizeJob({
+        recordingId: "rec-1",
+        kind,
+        delayMs: 5000,
+        retryAttempt: 1,
+      });
+      expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+        resourceId: `clips-post-finalize-job:rec-1:${kind}:caller:editor%40example.test`,
+        ttlSeconds: 600,
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: expect.stringContaining(
+            '"requestedByEmail":"editor@example.test"',
+          ),
+        }),
+      );
+    },
+  );
 
   it("dispatches a signed recording-scoped worker request", async () => {
     await dispatchPostFinalizeJob({

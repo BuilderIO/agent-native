@@ -11,8 +11,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
-import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
-import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
+import {
+  assertRecordingNotExpired,
+  assertRecordingNotExpiredForEmail,
+} from "../server/lib/recording-read-access.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -1666,9 +1668,7 @@ async function upsertTranscriptRow(
       );
     }
 
-    if (isRecordingExpiredForEmail(locked, getCurrentOwnerEmail())) {
-      throw new ForbiddenError();
-    }
+    assertRecordingNotExpiredForEmail(locked, getCurrentOwnerEmail());
 
     const lockCurrent = () =>
       tx

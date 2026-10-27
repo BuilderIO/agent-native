@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
-import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
+import {
+  assertRecordingNotExpired,
+  assertRecordingNotExpiredForEmail,
+} from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   hasTranscriptContent,
@@ -61,7 +64,11 @@ export default defineAction({
     const v = schema.recordingTranscriptVersions;
     const outcome = await db.transaction(async (tx) => {
       const [locked] = await tx
-        .select({ id: schema.recordings.id })
+        .select({
+          id: schema.recordings.id,
+          ownerEmail: schema.recordings.ownerEmail,
+          expiresAt: schema.recordings.expiresAt,
+        })
         .from(schema.recordings)
         .where(
           and(
@@ -76,6 +83,8 @@ export default defineAction({
           { errorCode: "recording_media_changed", statusCode: 409 },
         );
       }
+      assertRecordingNotExpiredForEmail(locked, getCurrentOwnerEmail());
+
       // The transcript row is locked before any version, the same order an
       // import takes, so a restore and an import cannot deadlock.
       const [current] = await tx

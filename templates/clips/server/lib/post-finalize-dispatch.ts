@@ -72,11 +72,11 @@ export async function dispatchPostFinalizeJob(args: {
     ...options
   } = args;
   const requestedByEmail =
-    args.kind === "transcript"
+    args.kind === "transcript" || args.kind === "meeting-finalize"
       ? (suppliedCaller ?? getRequestUserEmail())?.trim().toLowerCase()
       : undefined;
   const job = { ...options, ...(requestedByEmail ? { requestedByEmail } : {}) };
-  // Older owner-processing jobs keep their scope. Caller-bound transcript
+  // Older owner-processing jobs keep their scope. Caller-bound transcript/meeting
   // jobs must fail closed if routed to a worker that predates caller binding.
   const token = signShortLivedToken({
     resourceId: scopedAgentAccessResourceId(

@@ -299,6 +299,56 @@ describe("post-finalize worker", () => {
     },
   );
 
+  it("restores the signed meeting-finalize caller instead of the recording owner", async () => {
+    vi.stubEnv("OAUTH_STATE_SECRET", randomUUID());
+    const token = signShortLivedToken({
+      resourceId:
+        "clips-post-finalize-job:rec-1:meeting-finalize:caller:editor%40example.test",
+    });
+    mockVerifyShortLivedToken.mockImplementation(verifyShortLivedToken);
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "meeting-finalize",
+      token,
+      requestedByEmail: "editor@example.test",
+    });
+    mockRecordingWithStatus("ready");
+    await expect(handler({} as never)).resolves.toMatchObject({
+      ok: true,
+      kind: "meeting-finalize",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "editor@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+  });
+  it.each(["processing", "ready"])(
+    "preserves meeting caller through %s retry scheduling",
+    async (status) => {
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "meeting-finalize",
+        token: "caller-bound-token",
+        requestedByEmail: "editor@example.test",
+      });
+      mockRecordingWithStatus(status);
+      if (status === "ready")
+        mockFinalizeEndedMeetingsForRecording.mockRejectedValueOnce(
+          new Error("Fake summary outage"),
+        );
+      await expect(handler({} as never)).resolves.toMatchObject({
+        retryScheduled: true,
+      });
+      expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "meeting-finalize",
+          requestedByEmail: "editor@example.test",
+          retryAttempt: 1,
+        }),
+      );
+    },
+  );
+
   it("preserves the signed initiating caller for transcript execution", async () => {
     mockReadBody.mockResolvedValue({
       recordingId: "rec-1",

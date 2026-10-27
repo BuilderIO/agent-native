@@ -82,6 +82,7 @@ async function scheduleThumbnailRetry(
 async function scheduleMeetingFinalizeRetry(
   recordingId: string,
   retryAttempt: number | undefined,
+  requestedByEmail?: string,
 ): Promise<number | null> {
   const nextRetryAttempt = (retryAttempt ?? 0) + 1;
   if (nextRetryAttempt > MAX_MEETING_FINALIZE_RETRIES) return null;
@@ -91,6 +92,7 @@ async function scheduleMeetingFinalizeRetry(
     delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
     retryAttempt: nextRetryAttempt,
     requireAccepted: true,
+    ...(requestedByEmail ? { requestedByEmail } : {}),
   });
   return nextRetryAttempt;
 }
@@ -200,6 +202,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
       recordingId,
       retryAttempt,
+      requestedByEmail,
     );
     if (nextRetryAttempt !== null) {
       return {
@@ -218,10 +221,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return runWithRequestContext(
     {
-      userEmail:
-        kind === "transcript"
-          ? (requestedByEmail ?? recording.ownerEmail)
-          : recording.ownerEmail,
+      userEmail: requestedByEmail ?? recording.ownerEmail,
       orgId: recording.orgId ?? undefined,
     },
     async () => {
@@ -348,6 +348,7 @@ export default defineEventHandler(async (event: H3Event) => {
           const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
             recordingId,
             retryAttempt,
+            requestedByEmail,
           );
           if (nextRetryAttempt !== null) {
             return {
