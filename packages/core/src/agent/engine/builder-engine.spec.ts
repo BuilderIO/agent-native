@@ -1123,6 +1123,45 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
 
+  it("classifies a failed forced OAuth refresh separately from gateway transport errors", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+        },
+      })
+      .mockRejectedValueOnce(new Error("refresh response could not be read"));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+        ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_oauth_refresh_failed",
+        error: expect.stringContaining("Sign in to Builder.io again"),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "builder_gateway_network_error" }),
+    );
+  });
+
   it("marks OAuth custody for reconnect on a bare gateway 403", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";

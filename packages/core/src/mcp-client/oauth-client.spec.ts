@@ -755,10 +755,11 @@ describe("MCP OAuth client", () => {
       }),
     ).resolves.toBe("<NEW_ACCESS_TOKEN>");
 
-    expect(saveOAuthTokensMock.mock.calls[0]?.[2]).toMatchObject({
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
       tokens: { access_token: "<NEW_ACCESS_TOKEN>" },
-      tokenExpiresAt: undefined,
     });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
     expect(
       (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.expires_in,
     ).toBeUndefined();
@@ -789,10 +790,11 @@ describe("MCP OAuth client", () => {
     ).resolves.toBe("<REFRESHED_ACCESS_TOKEN>");
 
     expect(refreshAuthorizationMock).toHaveBeenCalledTimes(1);
-    expect(saveOAuthTokensMock.mock.calls[0]?.[2]).toMatchObject({
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
       tokens: { access_token: "<REFRESHED_ACCESS_TOKEN>" },
-      tokenExpiresAt: undefined,
     });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
   });
 
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {

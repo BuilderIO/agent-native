@@ -19,7 +19,11 @@ import {
   PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE,
   type AgentLoopOutcome,
 } from "./production-agent.js";
-import { IncompleteAgentRunError } from "./run-errors.js";
+import {
+  IncompleteAgentRunError,
+  RUN_STREAM_ENDED_ERROR_CODE,
+  RUN_STREAM_ENDED_MESSAGE,
+} from "./run-errors.js";
 import {
   AgentLoopAbortedError,
   appendDurableContinuationContext,
@@ -1382,7 +1386,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         0,
       ),
     ).rejects.toMatchObject({
-      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      errorCode: RUN_STREAM_ENDED_ERROR_CODE,
       usage: {
         inputTokens: 1,
         outputTokens: 2,
@@ -1392,9 +1396,9 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(outcomes).toEqual([
       {
         state: "failed",
-        code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        code: RUN_STREAM_ENDED_ERROR_CODE,
         retryable: false,
-        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+        message: RUN_STREAM_ENDED_MESSAGE,
       },
     ]);
   });
@@ -2422,7 +2426,7 @@ describe("chunk-boundary recovery", () => {
         control,
       ),
     ).rejects.toMatchObject({
-      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      errorCode: RUN_STREAM_ENDED_ERROR_CODE,
       usage: {
         inputTokens: 2,
         outputTokens: 3,
@@ -2435,9 +2439,9 @@ describe("chunk-boundary recovery", () => {
     expect(outcomes).toEqual([
       {
         state: "failed",
-        code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        code: RUN_STREAM_ENDED_ERROR_CODE,
         retryable: false,
-        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+        message: RUN_STREAM_ENDED_MESSAGE,
       },
     ]);
   });

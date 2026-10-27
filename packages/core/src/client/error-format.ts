@@ -62,6 +62,7 @@ const CREDENTIAL_CHAT_MESSAGES: Record<CredentialErrorCode, string | null> = {
   http_401: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   http_403: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   builder_auth_error: BUILDER_AUTHENTICATION_ERROR,
+  builder_oauth_refresh_failed: null,
   builder_oauth_reauthorization_required: null,
   credential_missing: null,
   credential_rejected: null,

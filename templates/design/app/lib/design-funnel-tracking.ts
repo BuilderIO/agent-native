@@ -232,7 +232,10 @@ export function useDesignReadyViewTracking({
         runsRef.current.delete(runId);
         continue;
       }
-      if (screenCount === 0) continue;
+      if (screenCount === 0) {
+        runsRef.current.delete(runId);
+        continue;
+      }
 
       const terminalRunId = run.completed.runId ?? runId;
       const turnKey = run.completed.turnId ?? terminalRunId;

@@ -63,6 +63,7 @@ export const CREDENTIAL_ERROR_CODES = {
   http_401: { kind: "rejected", credential: "provider" },
   http_403: { kind: "rejected", credential: "provider" },
   builder_auth_error: { kind: "rejected", credential: "builder" },
+  builder_oauth_refresh_failed: { kind: "rejected", credential: "builder" },
   builder_oauth_reauthorization_required: {
     kind: "rejected",
     credential: "builder",

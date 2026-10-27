@@ -438,7 +438,31 @@ class BuilderEngine implements AgentEngine {
               );
               return;
             }
-            throw error;
+            captureError(error, {
+              route: "/_agent-native/agent-chat",
+              errorMessagePolicy: "omit",
+              tags: {
+                source: "builder-engine",
+                phase: "oauth-refresh",
+                model,
+                errorCode: "builder_oauth_refresh_failed",
+              },
+              contexts: {
+                builderOAuth: {
+                  phase: "force-refresh",
+                  scope: oauthAccess.scope,
+                },
+              },
+            });
+            yield gatewayErrorStop(
+              {
+                error: BUILDER_RECONNECT_MESSAGE,
+                errorCode: "builder_oauth_refresh_failed",
+              },
+              false,
+              requestShape,
+            );
+            return;
           }
           if (
             refreshedState.kind === "available" &&

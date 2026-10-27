@@ -6,6 +6,8 @@ import {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
   RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+  RUN_STREAM_ENDED_ERROR_CODE,
+  RUN_STREAM_ENDED_MESSAGE,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
 
@@ -60,6 +62,20 @@ describe("incompleteAgentRunFailure", () => {
     ).toEqual({
       code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
       message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+    });
+  });
+
+  it("reports an ended stream without claiming time ran out", () => {
+    expect(
+      incompleteAgentRunFailure({
+        dispatchedModelCalls: 1,
+        hasVisibleText: false,
+        hasSuccessfulToolOutput: false,
+        reason: "stream_ended",
+      }),
+    ).toEqual({
+      code: RUN_STREAM_ENDED_ERROR_CODE,
+      message: RUN_STREAM_ENDED_MESSAGE,
     });
   });
 });

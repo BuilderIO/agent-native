@@ -2128,7 +2128,7 @@ jobs:
       - name: Run security guards
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: pnpm guards
+        run: node --import tsx scripts/run-guards.ts
 
       - name: Check the Slides interaction oracle against one full test run
         if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}

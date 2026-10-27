@@ -341,6 +341,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           hasSuccessfulToolOutput: directEvents.some(
             (event) => event.type === "tool_done" && event.isError !== true,
           ),
+          ...(unfinishedReason === "stream_ended"
+            ? { reason: unfinishedReason }
+            : {}),
         });
         reportFinalOutcome({
           state: "failed",
@@ -473,6 +476,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
             hasSuccessfulToolOutput: localTurnEvents.some(
               (event) => event.type === "tool_done" && event.isError !== true,
             ),
+            ...(unfinishedReason === "stream_ended"
+              ? { reason: unfinishedReason }
+              : {}),
           });
           reportFinalOutcome({
             state: "failed",

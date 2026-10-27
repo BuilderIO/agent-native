@@ -188,6 +188,7 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
     return (
       a.url === b.url &&
       JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      a.oauthAccessRefresh?.identity === b.oauthAccessRefresh?.identity &&
       errorIdentity(a.configurationError) ===
         errorIdentity(b.configurationError) &&
       a.firstParty === b.firstParty &&
@@ -483,6 +484,36 @@ export class McpClientManager {
         }
       } else if (Object.keys(staticHeaders).length > 0) {
         requestInit.headers = staticHeaders;
+      }
+      if (
+        !this.shouldInjectFirstPartyIdentity(entry) &&
+        cfg.oauthAccessRefresh &&
+        typeof fetch === "function"
+      ) {
+        const nativeFetch = fetch.bind(globalThis);
+        const refreshAccessToken = cfg.oauthAccessRefresh.refresh;
+        transportOptions.fetch = async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          const request = new Request(input, init);
+          const retryRequest = request.clone();
+          const response = await nativeFetch(request);
+          if (response.status !== 401) return response;
+
+          const accessToken = await refreshAccessToken();
+          if (
+            !accessToken ||
+            request.headers.get("authorization") === `Bearer ${accessToken}`
+          ) {
+            return response;
+          }
+
+          await response.body?.cancel();
+          const headers = new Headers(retryRequest.headers);
+          headers.set("Authorization", `Bearer ${accessToken}`);
+          return nativeFetch(new Request(retryRequest, { headers }));
+        };
       }
       transport = new sdk.StreamableHTTPClientTransport(
         new URL(cfg.url),

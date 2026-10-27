@@ -233,7 +233,7 @@ describe("design_ready_viewed", () => {
   });
 
   it("waits for the first screen when a run completes before it loads", async () => {
-    await renderReady();
+    await renderReady({ designLoaded: false });
     await agentRun({ isRunning: true });
     await agentRun({ isRunning: false });
 
@@ -254,6 +254,16 @@ describe("design_ready_viewed", () => {
         },
       ],
     ]);
+  });
+
+  it("drops a completed run with no screens before an unrelated screen arrives", async () => {
+    await renderReady({ files: [] });
+    await agentRun({ isRunning: true });
+    await agentRun({ isRunning: false });
+
+    await renderReady({ files: [screen("unrelated")] });
+
+    expect(readyEvents()).toHaveLength(0);
   });
 
   it("sends nothing when the editor closes while a run is being confirmed", async () => {
