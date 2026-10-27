@@ -190,15 +190,22 @@ async function compareAndSwapTickets(
 function liveTokens(ticket: RecordingUploadTicket | undefined): UploadToken[] {
   if (!ticket) return [];
   const now = Date.now();
+  // Parsed from stored JSON, so an earlier token can be anything.
+  const earlier: unknown[] = Array.isArray(ticket.earlierTokens)
+    ? ticket.earlierTokens
+    : [];
   return [
     { tokenHash: ticket.tokenHash, expiresAt: ticket.expiresAt },
-    ...(Array.isArray(ticket.earlierTokens) ? ticket.earlierTokens : []),
-  ].filter(
-    (token): token is UploadToken =>
-      typeof token?.tokenHash === "string" &&
-      Number.isFinite(token.expiresAt) &&
-      token.expiresAt >= now,
-  );
+    ...earlier,
+  ].filter((token): token is UploadToken => {
+    const { tokenHash, expiresAt } = (token ?? {}) as Partial<UploadToken>;
+    return (
+      typeof tokenHash === "string" &&
+      typeof expiresAt === "number" &&
+      Number.isFinite(expiresAt) &&
+      expiresAt >= now
+    );
+  });
 }
 
 /**
@@ -242,16 +249,15 @@ async function issueRecordingUploadTicket(
     const live = await liveTickets(ownerEmail, collection.tickets);
     const earlier = keepEarlier ? live[recordingId] : undefined;
     delete live[recordingId];
-    const earlierAuthUserId =
-      typeof earlier?.authUserId === "string" ? earlier.authUserId : undefined;
+    const ticketAuthUserId =
+      (typeof earlier?.authUserId === "string" ? earlier.authUserId : "") ||
+      authUserId;
     const ticket: RecordingUploadTicket = {
       recordingId,
       tokenHash: tokenHash(token),
       reservedAt: earlier?.reservedAt ?? issuedAt,
       expiresAt: issuedAt + RECORDING_UPLOAD_TICKET_TTL_MS,
-      ...(earlierAuthUserId || authUserId
-        ? { authUserId: earlierAuthUserId ?? authUserId }
-        : {}),
+      ...(ticketAuthUserId ? { authUserId: ticketAuthUserId } : {}),
       ...(earlier
         ? {
             earlierTokens: liveTokens(earlier).slice(

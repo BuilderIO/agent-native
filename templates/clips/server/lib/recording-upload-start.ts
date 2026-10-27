@@ -17,9 +17,9 @@ type CreateRecordingArgs = z.input<typeof createRecordingSchema>;
 interface UploadFile {
   mimeType: string;
   sizeBytes: number;
-  durationMs?: number;
-  width?: number;
-  height?: number;
+  durationMs?: number | undefined;
+  width?: number | undefined;
+  height?: number | undefined;
 }
 
 export interface RecordingUploadStart {
@@ -41,7 +41,7 @@ export async function startRecordingUpload(
   input: {
     /** Made up when absent. */
     recordingId?: string;
-    title?: string;
+    title?: string | undefined;
     visibility: NonNullable<CreateRecordingArgs["visibility"]>;
     recordingSource: NonNullable<CreateRecordingArgs["recordingSource"]>;
   } & UploadFile,

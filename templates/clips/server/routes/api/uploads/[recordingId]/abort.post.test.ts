@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
@@ -759,7 +760,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     });
 
     await expect(
-      handleAbortRecordingUpload({} as any, {
+      handleAbortRecordingUpload({} as H3Event, {
         recordingId: "rec-1",
         ownerEmail: "owner@example.com",
         orgId: "org-1",
@@ -814,7 +815,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     const claimKey = "recording-upload-final-chunk-rec-1";
 
     function contentCancel() {
-      return handleAbortRecordingUpload({} as any, {
+      return handleAbortRecordingUpload({} as H3Event, {
         recordingId: "rec-1",
         ownerEmail: "owner@example.com",
         orgId: "org-1",
