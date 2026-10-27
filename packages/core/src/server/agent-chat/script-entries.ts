@@ -7,6 +7,7 @@ import {
   setThreadPinned,
   setThreadHidden,
 } from "../../chat-threads/store.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
@@ -86,7 +87,7 @@ export async function createDbScriptEntries(
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
-    if (mode === "off") return {};
+    if (mode === "off") return frameworkMcpTools({});
     const extensionQueryGuidance =
       options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
@@ -215,9 +216,9 @@ export async function createDbScriptEntries(
       );
     }
 
-    return entries;
+    return frameworkMcpTools(entries);
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -348,7 +349,7 @@ export async function createDocsScriptEntries(): Promise<
     // Older package installs may not have the corpus/search script yet.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
@@ -436,7 +437,7 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return {
+    return frameworkMcpTools({
       resources: {
         tool: {
           description:
@@ -654,10 +655,10 @@ export async function createResourceScriptEntries(): Promise<
         },
         delMem.default,
       ),
-    };
+    });
   } catch {
     // Resources not available — skip silently
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -723,7 +724,7 @@ export async function createChatScriptEntries(): Promise<
       openMod.default,
     );
 
-    return {
+    return frameworkMcpTools({
       "chat-history": {
         tool: {
           description:
@@ -849,9 +850,9 @@ export async function createChatScriptEntries(): Promise<
           return searchEntry.run(args);
         },
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -862,7 +863,7 @@ export async function createAgentEngineScriptEntries(
     const mod =
       await import("../../scripts/agent-engines/manage-agent-engine.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
@@ -889,9 +890,9 @@ export async function createAgentEngineScriptEntries(
             context,
           ),
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -901,11 +902,11 @@ export async function createAgentLoopSettingsScriptEntries(): Promise<
   try {
     const mod = await import("../../scripts/manage-agent-loop-settings.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-loop-settings": { tool: mod.tool, run: mod.run },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -964,5 +965,5 @@ export async function createCallAgentScriptEntry(
     // A missing built-in leaves the rest of the toolset usable.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
