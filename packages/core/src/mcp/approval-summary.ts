@@ -61,6 +61,8 @@ export interface McpApprovalSummary {
 // `to`, `cc`. A key like `accountEmail` names the caller's own account.
 const RECIPIENT_KEY =
   /^(?:to|cc|bcc|recipients?|attendees?|participants?|invitees?|guests?|members?|emails?|shared?_?with|users?)$/i;
+// Copies, which Reaches alone would show as if the call were sent to them.
+const COPY_KEY = /^b?cc$/i;
 const EMAIL = /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[^\s@<>(),;:]+$/;
 const ADDRESS_SEPARATOR = /[,;\n]/;
 const NAMED_ADDRESS = /^[^<>]*<([^<>]+)>$/;
@@ -368,10 +370,12 @@ export function summarizeMcpApproval(input: {
     for (const [key, value] of Object.entries(record)) {
       if (zonesShown.has(key)) continue;
       // Reaches lists every address together, so beside another recipient
-      // argument (`to` and `bcc`) each row still says who is copied how.
+      // argument (`to` and `bcc`) each row still says who is copied how, and
+      // so does a lone `cc` or `bcc`.
       if (
         recipientArguments === 1 &&
         RECIPIENT_KEY.test(key) &&
+        !COPY_KEY.test(key) &&
         isOnlyAddresses(value)
       ) {
         continue;

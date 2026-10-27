@@ -239,7 +239,7 @@ describe("summarizeMcpApproval", () => {
         labels,
       });
     const summary = summarize({
-      cc: ["cy@example.com", { email: "dee@example.com" }],
+      to: ["cy@example.com", { email: "dee@example.com" }],
       start: "2026-10-22T14:00:00",
       startTimeZone: "America/Los_Angeles",
       timeZone: "America/New_York",
@@ -257,7 +257,7 @@ describe("summarizeMcpApproval", () => {
         timeZone: "America/New_York",
       },
     ]);
-    expect(summary.details).toContain('"cc"');
+    expect(summary.details).toContain('"to"');
     expect(summary.details).toContain('"startTimeZone"');
 
     expect(
@@ -301,6 +301,22 @@ describe("summarizeMcpApproval", () => {
 
     // An argument that names no one doesn't count as another.
     expect(summarize({ to: "ana@example.com", cc: [] }).fields).toEqual([]);
+  });
+
+  it("says who a lone cc or bcc copies, which Reaches can't", () => {
+    const summarize = (args: Record<string, unknown>) =>
+      summarizeMcpApproval({
+        entry: undefined,
+        actionName: "send-email",
+        argumentsJson: JSON.stringify(args),
+        labels,
+      });
+    expect(summarize({ cc: "cy@example.com" }).fields).toEqual([
+      { label: "Cc", value: "cy@example.com" },
+    ]);
+    const blind = summarize({ bcc: ["dee@example.com"] });
+    expect(blind.recipients).toEqual(["dee@example.com"]);
+    expect(blind.fields).toEqual([{ label: "Bcc", value: "dee@example.com" }]);
   });
 
   it("says a choice in words, with the schema's own title for it when there is one", () => {
