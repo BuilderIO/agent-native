@@ -1539,28 +1539,48 @@ describe("a page's final chunk and its cancel", () => {
     expect(state.released).toEqual([upload.recordingId]);
   });
 
-  it("answers a repeat that lands while Clips takes the final chunk that the upload already finished, and issues no ticket", async () => {
-    const upload = await started();
-    let repeat: Awaited<ReturnType<typeof startUpload>> | undefined;
-    let ticketsBefore: unknown;
-    state.duringFinalChunk = async () => {
-      ticketsBefore = await rows("settings");
-      repeat = await startUpload(upload.bearer, { ...START, uploadKey: KEY });
-    };
-    state.finalChunkOutcome = "finish";
+  it.each([
+    [
+      "finishes",
+      "finish" as const,
+      (recordingId: string) => ({
+        status: 409,
+        body: {
+          code: "upload_already_finished",
+          recordingId,
+          status: "ready",
+        },
+      }),
+    ],
+    [
+      "fails",
+      "fail" as const,
+      (recordingId: string) => ({ status: 200, body: { recordingId } }),
+    ],
+  ])(
+    "asks a repeat that lands while Clips takes the final chunk to try again, issuing no ticket, and answers the next once the chunk %s",
+    async (_, outcome, next) => {
+      const upload = await started();
+      let repeat: Awaited<ReturnType<typeof startUpload>> | undefined;
+      let ticketsBefore: unknown;
+      state.duringFinalChunk = async () => {
+        ticketsBefore = await rows("settings");
+        repeat = await startUpload(upload.bearer, { ...START, uploadKey: KEY });
+      };
+      state.finalChunkOutcome = outcome;
 
-    await finalChunk(upload);
+      await finalChunk(upload);
 
-    expect(repeat).toMatchObject({
-      status: 409,
-      body: {
-        code: "upload_already_finished",
-        recordingId: upload.recordingId,
-        status: "processing",
-      },
-    });
-    expect(await rows("settings")).toEqual(ticketsBefore);
-  });
+      expect(repeat).toMatchObject({
+        status: 409,
+        body: { code: "upload_starting" },
+      });
+      expect(await rows("settings")).toEqual(ticketsBefore);
+      expect(
+        await startUpload(upload.bearer, { ...START, uploadKey: KEY }),
+      ).toMatchObject(next(upload.recordingId));
+    },
+  );
 
   it("refuses a final chunk once a cancel has claimed the upload", async () => {
     const upload = await started();
@@ -2094,6 +2114,46 @@ describe("From Content and Library in Clips", () => {
     ]);
     expect((await list(editor, orgId, "library")).recordings).toEqual([]);
     expect((await list(editor, orgId, "library", true)).total).toBe(0);
+  });
+
+  it("drops an upload from the folder someone moved it into while its page is in Trash", async () => {
+    const editor = await clipsEditor();
+    const bearer = await token({ sub: editor });
+    const trashed = (await startUpload(bearer)).body.recordingId;
+    const kept = (
+      await startUpload(bearer, { ...START, blockId: "block-video-2" })
+    ).body.recordingId;
+    const orgId = state.created[0]!.caller.orgId as string;
+    await state.db.insert(schema.recordings).values({
+      id: "rec-made-in-clips",
+      organizationId: orgId,
+      ownerEmail: editor,
+      title: "rec-made-in-clips",
+      status: "ready",
+      folderId: "folder-1",
+    });
+    await client.query(
+      "UPDATE recordings SET folder_id = 'folder-1' WHERE id = ANY($1)",
+      [[trashed, kept]],
+    );
+    await client.query(
+      "UPDATE recording_content_bindings SET state = 'trashed' WHERE recording_id = $1",
+      [trashed],
+    );
+
+    const folder: { recordings: { id: string }[] } = await list(
+      editor,
+      orgId,
+      "library",
+      false,
+      "folder-1",
+    );
+    expect(folder.recordings.map((r) => r.id).sort()).toEqual(
+      [kept, "rec-made-in-clips"].sort(),
+    );
+    expect((await list(editor, orgId, "library", true, "folder-1")).total).toBe(
+      2,
+    );
   });
 
   it("lists only the signed-in person's own uploads", async () => {

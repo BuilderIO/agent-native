@@ -201,10 +201,11 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   alreadyFinished: "upload_already_finished",
   /**
    * A start repeated with an `uploadKey` while the first start is still
-   * making its recording. Repeat it again in a few seconds. Once a start
-   * with no recording failed without saying it left nothing, or has gone
-   * about ten minutes without one, the next repeat takes it over and starts
-   * it again with the same recording id.
+   * making its recording, or while Clips takes its final chunk, which can
+   * still fail and leave the upload open. Repeat it again in a few seconds.
+   * Once a start with no recording failed without saying it left nothing, or
+   * has gone about ten minutes without one, the next repeat takes it over and
+   * starts it again with the same recording id.
    */
   uploadStarting: "upload_starting",
   /**

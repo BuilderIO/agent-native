@@ -27,6 +27,7 @@ import {
   activeUploadFromContent,
   contentPageUrls,
   uploadedFromContent,
+  uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
@@ -200,8 +201,8 @@ export default defineAction({
     // owner-email and current-org predicates to scope correctly. A Clip
     // uploaded from a Content page is never in Library's own list, and lists
     // under From Content only while its page binding is active. A folder
-    // someone moved it into still lists it; one linked into a page stays in
-    // Library.
+    // someone moved it into lists it on the same terms; one linked into a
+    // page stays in Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -216,6 +217,8 @@ export default defineAction({
         whereClauses.push(activeUploadFromContent());
       } else if (args.folderId == null) {
         whereClauses.push(not(uploadedFromContent()));
+      } else {
+        whereClauses.push(not(uploadFromTrashedPage()));
       }
     }
 

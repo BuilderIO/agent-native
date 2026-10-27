@@ -45,6 +45,14 @@ export function activeUploadFromContent() {
 }
 
 /**
+ * True for an upload whose page is in Trash. It lists nowhere, not even in a
+ * folder someone moved it into, until its page is restored.
+ */
+export function uploadFromTrashedPage() {
+  return sql`(${uploadedFromContent()} AND NOT ${activeUploadFromContent()})`;
+}
+
+/**
  * The Content page each upload came from, by recording id, for active
  * bindings only. Clips keeps no page titles, so a page is named by its link
  * alone.
