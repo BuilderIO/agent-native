@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
+  findChangedSqlHelperExports,
 } from "./guard-no-raw-sql-interpolation.js";
 
 const FILE = "packages/core/src/example.ts";
@@ -394,12 +395,12 @@ describe("raw SQL interpolation guard", () => {
     );
   });
 
-  it("traces an exported SQL helper return into an unchanged module sink", () => {
+  it("traces a keyword-free exported SQL helper into an unchanged module sink", () => {
     const helperFile = "packages/core/src/sql-helpers.ts";
     const storeFile = "packages/core/src/store.ts";
     const helper = [
       "export function ownerFilter(ownerId: string) {",
-      "  return `WHERE owner_id = '${ownerId}'`;",
+      "  return `owner_id = '${ownerId}'`;",
       "}",
     ].join("\n");
     const store = source([
@@ -407,6 +408,9 @@ describe("raw SQL interpolation guard", () => {
       "database.execute(`SELECT * FROM records ${ownerFilter(ownerId)}`);",
     ]);
 
+    expect(
+      findChangedSqlHelperExports(helper, helperFile, new Set([2])),
+    ).toEqual(new Set(["ownerFilter"]));
     expect(
       findRawSqlInterpolationViolationsInSources(
         new Map([
@@ -418,9 +422,155 @@ describe("raw SQL interpolation guard", () => {
       {
         file: helperFile,
         line: 2,
-        snippet: "return `WHERE owner_id = '${ownerId}'`;",
+        snippet: "return `owner_id = '${ownerId}'`;",
       },
     ]);
+  });
+
+  it("traces an exported SQL helper built with string concatenation", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      '  return "owner_id = \'" + ownerId + "\'";',
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findChangedSqlHelperExports(helper, helperFile, new Set([2])),
+    ).toEqual(new Set(["ownerFilter"]));
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 2,
+        snippet: 'return "owner_id = \'" + ownerId + "\'";',
+      },
+    ]);
+  });
+
+  it("traces an exported SQL helper that returns a dynamic value directly", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      "  return ownerId;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findChangedSqlHelperExports(helper, helperFile, new Set([2])),
+    ).toEqual(new Set(["ownerFilter"]));
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 2,
+        snippet: "return ownerId;",
+      },
+    ]);
+  });
+
+  it("traces SQL passed through the PostgreSQL placeholder formatter", () => {
+    const formatterFile = "packages/core/src/db/client.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const formatter = [
+      "export function toPostgresParams(sql: string) {",
+      '  let out = "";',
+      "  for (const character of sql) {",
+      "    out += character;",
+      "  }",
+      "  return out;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { toPostgresParams } from "./db/client.js";',
+      "database.execute(toPostgresParams(`SELECT * FROM records WHERE id = ${recordId}`));",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [formatterFile, { source: formatter, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet:
+          "database.execute(toPostgresParams(`SELECT * FROM records WHERE id = ${recordId}`));",
+      },
+    ]);
+  });
+
+  it("does not register an exported helper for strings used only in a log", () => {
+    const helper = [
+      "export function logOwner(ownerId: string) {",
+      "  console.log(`owner ${ownerId}`);",
+      "}",
+    ].join("\n");
+
+    expect(
+      findChangedSqlHelperExports(
+        helper,
+        "packages/core/src/sql-helpers.ts",
+        new Set([2]),
+      ),
+    ).toEqual(new Set());
+  });
+
+  it("does not classify a returned object by its unrelated string fields", () => {
+    const helper = [
+      "export function makeDefinition(ownerId: string) {",
+      "  return { name: ownerId, run: () => `owner ${ownerId}` };",
+      "}",
+    ].join("\n");
+
+    expect(
+      findChangedSqlHelperExports(
+        helper,
+        "packages/core/src/sql-helpers.ts",
+        new Set([2]),
+      ),
+    ).toEqual(new Set());
+  });
+
+  it("registers a returned SQL object property with a dynamic value", () => {
+    const helper = [
+      "export function queryFor(ownerId: string) {",
+      "  return { sql: `SELECT * FROM records WHERE owner_id = '${ownerId}'` };",
+      "}",
+    ].join("\n");
+
+    expect(
+      findChangedSqlHelperExports(
+        helper,
+        "packages/core/src/sql-helpers.ts",
+        new Set([2]),
+      ),
+    ).toEqual(new Set(["queryFor"]));
   });
 
   it("finds an interpolated template aliased into a sql property", () => {

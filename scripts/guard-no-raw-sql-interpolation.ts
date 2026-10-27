@@ -691,6 +691,17 @@ interface ImportedCallbackSignature {
   sourceFile: ts.SourceFile;
 }
 
+interface ImportedModuleContext {
+  sourceFile: ts.SourceFile;
+  checker: ts.TypeChecker;
+  signatures: Map<string, ImportedCallbackSignature | null>;
+}
+
+const importedModuleContexts = new WeakMap<
+  ts.TypeChecker,
+  Map<string, ImportedModuleContext | null>
+>();
+
 function importedFunctionParameters(
   call: ts.CallExpression,
   checker: ts.TypeChecker,
@@ -711,12 +722,41 @@ function importedFunctionParameters(
     ) {
       continue;
     }
-    const moduleSource = resolveImportedSourceFile(
-      importDeclaration.moduleSpecifier.text,
-      sourceFile.fileName,
+    const moduleName = importDeclaration.moduleSpecifier.text;
+    const modulePath = path.resolve(
+      path.dirname(sourceFile.fileName),
+      moduleName,
     );
-    if (!moduleSource) continue;
-    const helperChecker = createChecker(moduleSource);
+    let modules = importedModuleContexts.get(checker);
+    if (!modules) {
+      modules = new Map();
+      importedModuleContexts.set(checker, modules);
+    }
+    if (!modules.has(modulePath)) {
+      const moduleSource = resolveImportedSourceFile(
+        moduleName,
+        sourceFile.fileName,
+      );
+      modules.set(
+        modulePath,
+        moduleSource
+          ? {
+              sourceFile: moduleSource,
+              checker: createChecker(moduleSource),
+              signatures: new Map(),
+            }
+          : null,
+      );
+    }
+    const module = modules.get(modulePath);
+    if (!module) continue;
+    if (module.signatures.has(importedName.text)) {
+      const cached = module.signatures.get(importedName.text);
+      if (cached) return cached;
+      continue;
+    }
+    const moduleSource = module.sourceFile;
+    const helperChecker = module.checker;
     for (const statement of moduleSource.statements) {
       if (
         ts.isFunctionDeclaration(statement) &&
@@ -725,11 +765,13 @@ function importedFunctionParameters(
           (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
         )
       ) {
-        return {
+        const signature = {
           parameters: statement.parameters,
           checker: helperChecker,
           sourceFile: moduleSource,
         };
+        module.signatures.set(importedName.text, signature);
+        return signature;
       }
       if (
         !ts.isVariableStatement(statement) ||
@@ -748,20 +790,25 @@ function importedFunctionParameters(
         (ts.isArrowFunction(helper.initializer) ||
           ts.isFunctionExpression(helper.initializer))
       ) {
-        return {
+        const signature = {
           parameters: helper.initializer.parameters,
           checker: helperChecker,
           sourceFile: moduleSource,
         };
+        module.signatures.set(importedName.text, signature);
+        return signature;
       }
       if (helper?.type && ts.isFunctionTypeNode(helper.type)) {
-        return {
+        const signature = {
           parameters: helper.type.parameters,
           checker: helperChecker,
           sourceFile: moduleSource,
         };
+        module.signatures.set(importedName.text, signature);
+        return signature;
       }
     }
+    module.signatures.set(importedName.text, null);
   }
   return undefined;
 }
@@ -956,6 +1003,28 @@ function isSafeSqlHelperCall(
     ((ts.isIdentifier(callee.expression) &&
       isImportedSqlIdentifier(callee.expression, checker, sourceFile)) ||
       isImportedSqlNamespaceAccess(callee.expression, checker, sourceFile))
+  );
+}
+
+function isPostgresParameterFormatterCall(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+): boolean {
+  if (!ts.isIdentifier(call.expression)) return false;
+  const symbol = checker.getSymbolAtLocation(call.expression);
+  const resolvedSymbol =
+    symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0
+      ? checker.getAliasedSymbol(symbol)
+      : symbol;
+  return (
+    resolvedSymbol?.name === "toPostgresParams" &&
+    (resolvedSymbol.declarations?.some(
+      (declaration) =>
+        ts.isFunctionDeclaration(declaration) &&
+        path.resolve(declaration.getSourceFile().fileName) ===
+          path.resolve(rootDir, "packages/core/src/db/client.ts"),
+    ) ??
+      false)
   );
 }
 
@@ -1341,7 +1410,17 @@ function buildSqlAnalysis(
   };
 }
 
-function statementBlock(node: ts.Node): ts.Block | ts.SourceFile | undefined {
+type StatementBlock = ts.Block | ts.SourceFile;
+
+const statementBlockCache = new WeakMap<ts.Node, StatementBlock | null>();
+const assignmentBlockCache = new WeakMap<ts.Node, StatementBlock | null>();
+const enclosingFunctionCache = new WeakMap<
+  ts.Node,
+  ts.FunctionLikeDeclaration | null
+>();
+const loopBodyCache = new WeakMap<StatementBlock, boolean>();
+
+function computeStatementBlock(node: ts.Node): StatementBlock | undefined {
   let current = node;
   while (current.parent) {
     const parent = current.parent;
@@ -1359,9 +1438,18 @@ function statementBlock(node: ts.Node): ts.Block | ts.SourceFile | undefined {
   return undefined;
 }
 
-function assignmentBlock(
+function statementBlock(node: ts.Node): StatementBlock | undefined {
+  if (statementBlockCache.has(node)) {
+    return statementBlockCache.get(node) ?? undefined;
+  }
+  const block = computeStatementBlock(node);
+  statementBlockCache.set(node, block ?? null);
+  return block;
+}
+
+function computeAssignmentBlock(
   assignment: TaintedAssignment,
-): ts.Block | ts.SourceFile | undefined {
+): StatementBlock | undefined {
   let current = assignment.node;
   if (ts.isBinaryExpression(current)) {
     while (
@@ -1391,7 +1479,19 @@ function assignmentBlock(
     : undefined;
 }
 
-function enclosingFunction(
+function assignmentBlock(
+  assignment: TaintedAssignment,
+): StatementBlock | undefined {
+  const node = assignment.node;
+  if (assignmentBlockCache.has(node)) {
+    return assignmentBlockCache.get(node) ?? undefined;
+  }
+  const block = computeAssignmentBlock(assignment);
+  assignmentBlockCache.set(node, block ?? null);
+  return block;
+}
+
+function computeEnclosingFunction(
   node: ts.Node,
 ): ts.FunctionLikeDeclaration | undefined {
   let current = node;
@@ -1402,19 +1502,37 @@ function enclosingFunction(
   return undefined;
 }
 
+function enclosingFunction(
+  node: ts.Node,
+): ts.FunctionLikeDeclaration | undefined {
+  if (enclosingFunctionCache.has(node)) {
+    return enclosingFunctionCache.get(node) ?? undefined;
+  }
+  const declaration = computeEnclosingFunction(node);
+  enclosingFunctionCache.set(node, declaration ?? null);
+  return declaration;
+}
+
 function isLoopBody(block: ts.Block | ts.SourceFile): boolean {
+  const cached = loopBodyCache.get(block);
+  if (cached !== undefined) return cached;
   let current: ts.Node = block;
   while (current.parent) {
     const parent = current.parent;
-    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) return false;
+    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) {
+      loopBodyCache.set(block, false);
+      return false;
+    }
     if (
       ts.isIterationStatement(parent, false) &&
       parent.statement === current
     ) {
+      loopBodyCache.set(block, true);
       return true;
     }
     current = parent;
   }
+  loopBodyCache.set(block, false);
   return false;
 }
 
@@ -1738,6 +1856,18 @@ function findUnsafeSqlSources(
   }
   if (ts.isCallExpression(current)) {
     const sourceFile = current.getSourceFile();
+    if (isPostgresParameterFormatterCall(current, analysis.checker)) {
+      const originalSql = current.arguments[0];
+      return originalSql
+        ? findUnsafeSqlSources(
+            originalSql,
+            analysis,
+            seenSymbols,
+            seenFunctions,
+            traceTemplateSpans,
+          )
+        : new Set();
+    }
     if (
       isSafeSqlHelperCall(current, analysis.checker, sourceFile) ||
       isSafeSqlMachineCall(current, analysis.checker, sourceFile)
@@ -1783,15 +1913,18 @@ function findUnsafeSqlSources(
       nextFunctions.add(resolvedSymbol);
       return unionSources(
         ...[...new Set(declarations)].flatMap((declaration) =>
-          returnExpressions(declaration).map((returned) =>
-            findUnsafeSqlSources(
+          returnExpressions(declaration).map((returned) => {
+            const sources = findUnsafeSqlSources(
               returned,
               analysis.relatedAnalyses?.get(returned.getSourceFile()) ??
                 analysis,
               seenSymbols,
               nextFunctions,
-            ),
-          ),
+            );
+            return sources.size > 0
+              ? unionSources(sources, new Set([returned]))
+              : sources;
+          }),
         ),
       );
     }
@@ -1821,7 +1954,7 @@ function findUnsafeSqlSources(
           seenFunctions,
         ),
       );
-      if (sources.size > 0) return sources;
+      if (sources.size > 0) return unionSources(sources, new Set([current]));
       if (current.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
         return new Set();
       }
@@ -1956,7 +2089,8 @@ export function findRawSqlInterpolationViolationsInSources(
 ): RawSqlInterpolationFinding[] {
   const sourceFiles = new Map<string, ts.SourceFile>();
   const sources = new Map<string, string>();
-  const addedByPath = new Map<string, ReadonlySet<number>>();
+  const addedByPath = new Map<string, readonly number[]>();
+  const linesByPath = new Map<string, string[]>();
 
   for (const [file, input] of inputs) {
     const normalizedFile = file.replaceAll("\\", "/");
@@ -1992,7 +2126,10 @@ export function findRawSqlInterpolationViolationsInSources(
 
     sourceFiles.set(absoluteFile, sourceFile);
     sources.set(absoluteFile, input.source);
-    addedByPath.set(absoluteFile, input.addedLines);
+    addedByPath.set(
+      absoluteFile,
+      [...input.addedLines].sort((left, right) => left - right),
+    );
   }
 
   if (sourceFiles.size === 0) return [];
@@ -2009,13 +2146,31 @@ export function findRawSqlInterpolationViolationsInSources(
 
   const findings: RawSqlInterpolationFinding[] = [];
   const reportedLines = new Set<string>();
+  const linesFor = (sourceFile: ts.SourceFile): string[] => {
+    const filePath = path.resolve(sourceFile.fileName);
+    const cached = linesByPath.get(filePath);
+    if (cached) return cached;
+    const text = sources.get(filePath) ?? sourceFile.text;
+    const lines = text.split(/\r?\n/);
+    linesByPath.set(filePath, lines);
+    return lines;
+  };
   const touchesAddedLines = (node: ts.Node) => {
     const sourceFile = node.getSourceFile();
     const addedLines = addedByPath.get(path.resolve(sourceFile.fileName));
-    if (!addedLines || addedLines.size === 0) return false;
+    if (!addedLines || addedLines.length === 0) return false;
     const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
     const endLine = lineNumberAt(sourceFile, node.end);
-    return [...addedLines].some((line) => line >= startLine && line <= endLine);
+    let lower = 0;
+    let upper = addedLines.length;
+    while (lower < upper) {
+      const middle = Math.floor((lower + upper) / 2);
+      const line = addedLines[middle];
+      if (line !== undefined && line < startLine) lower = middle + 1;
+      else upper = middle;
+    }
+    const firstLine = addedLines[lower];
+    return firstLine !== undefined && firstLine <= endLine;
   };
 
   const reportIfAdded = (node: ts.Node) => {
@@ -2023,8 +2178,7 @@ export function findRawSqlInterpolationViolationsInSources(
     const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
     const endLine = lineNumberAt(sourceFile, node.end);
     const filePath = path.resolve(sourceFile.fileName);
-    const text = sources.get(filePath) ?? sourceFile.text;
-    const lines = text.split(/\r?\n/);
+    const lines = linesFor(sourceFile);
     if (!touchesAddedLines(node) || hasPragma(lines, startLine, endLine))
       return;
     const file = path.relative(rootDir, filePath).replace(/\\/g, "/");
@@ -2044,9 +2198,7 @@ export function findRawSqlInterpolationViolationsInSources(
     value: ts.Expression,
   ) => {
     const sinkFile = sink.getSourceFile();
-    const sinkLines =
-      sources.get(path.resolve(sinkFile.fileName))?.split(/\r?\n/) ??
-      sinkFile.text.split(/\r?\n/);
+    const sinkLines = linesFor(sinkFile);
     if (
       hasPragma(
         sinkLines,
@@ -2138,35 +2290,189 @@ function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
   );
 }
 
-function isSqlLikeInterpolatedTemplate(node: ts.Node): boolean {
-  if (!ts.isTemplateExpression(node)) return false;
-  const text = [
-    node.head.text,
-    ...node.templateSpans.map((span) => span.literal.text),
-  ].join(" ");
-  return /\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|SET|VALUES|RETURNING|GROUP|ORDER|LIMIT|OFFSET)\b/i.test(
-    text,
+function intersectsLines(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  lines: ReadonlySet<number>,
+): boolean {
+  const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+  const endLine = lineNumberAt(sourceFile, node.end);
+  for (const line of lines) {
+    if (line >= startLine && line <= endLine) return true;
+  }
+  return false;
+}
+
+function isStringTypeNode(
+  type: ts.TypeNode | undefined,
+  stringTypeNames: ReadonlySet<string>,
+): boolean {
+  if (!type) return false;
+  if (type.kind === ts.SyntaxKind.StringKeyword) return true;
+  if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) {
+    return true;
+  }
+  if (ts.isUnionTypeNode(type) || ts.isIntersectionTypeNode(type)) {
+    return type.types.some((member) =>
+      isStringTypeNode(member, stringTypeNames),
+    );
+  }
+  if (ts.isParenthesizedTypeNode(type)) {
+    return isStringTypeNode(type.type, stringTypeNames);
+  }
+  return (
+    ts.isTypeReferenceNode(type) &&
+    ts.isIdentifier(type.typeName) &&
+    stringTypeNames.has(type.typeName.text)
   );
 }
 
-function hasSqlLikeReturnedTemplate(
+function hasReturnedStringValue(
   declaration: ts.FunctionLikeDeclaration,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
 ): boolean {
-  if (returnExpressions(declaration).length === 0 || !declaration.body) {
-    return false;
+  const returns = returnExpressions(declaration);
+  if (returns.length === 0) return false;
+
+  const stringTypeNames = new Set<string>(["String"]);
+  for (const typeParameter of declaration.typeParameters ?? []) {
+    if (isStringTypeNode(typeParameter.constraint, stringTypeNames)) {
+      stringTypeNames.add(typeParameter.name.text);
+    }
   }
-  const visit = (node: ts.Node): boolean => {
-    if (isSqlLikeInterpolatedTemplate(node)) return true;
-    let found = false;
-    ts.forEachChild(node, (child) => {
-      if (!found && visit(child)) found = true;
-    });
-    return found;
+  if (isStringTypeNode(declaration.type, stringTypeNames)) return true;
+
+  const stringParameters = new Set<string>();
+  for (const parameter of declaration.parameters) {
+    if (
+      ts.isIdentifier(parameter.name) &&
+      isStringTypeNode(parameter.type, stringTypeNames)
+    ) {
+      stringParameters.add(parameter.name.text);
+    }
+  }
+
+  const localDeclarations = new Map<string, ts.VariableDeclaration>();
+  const body = declaration.body;
+  if (body && ts.isBlock(body)) {
+    const collect = (node: ts.Node) => {
+      if (node !== body && ts.isFunctionLike(node)) return;
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer
+      ) {
+        localDeclarations.set(node.name.text, node);
+      }
+      ts.forEachChild(node, collect);
+    };
+    collect(body);
+  }
+
+  const stringMethods = new Set([
+    "concat",
+    "join",
+    "padEnd",
+    "padStart",
+    "replace",
+    "replaceAll",
+    "slice",
+    "substring",
+    "toLowerCase",
+    "toString",
+    "toUpperCase",
+    "trim",
+  ]);
+  const includesStringSource = (
+    expression: ts.Expression,
+    seen = new Set<ts.Node>(),
+  ): boolean => {
+    let node = expression;
+    while (
+      ts.isParenthesizedExpression(node) ||
+      ts.isAsExpression(node) ||
+      ts.isSatisfiesExpression(node) ||
+      ts.isTypeAssertionExpression(node) ||
+      ts.isNonNullExpression(node)
+    ) {
+      node = node.expression;
+    }
+    if (seen.has(node)) return false;
+    seen.add(node);
+    if (ts.isTemplateExpression(node)) return true;
+    if (ts.isTaggedTemplateExpression(node)) {
+      return !isSafeSqlTag(node.tag, checker, sourceFile);
+    }
+    if (ts.isIdentifier(node)) {
+      if (stringParameters.has(node.text)) return true;
+      const declaration = localDeclarations.get(node.text);
+      if (!declaration) return false;
+      if (isStringTypeNode(declaration.type, stringTypeNames)) return true;
+      return declaration.initializer
+        ? includesStringSource(declaration.initializer, seen)
+        : false;
+    }
+    if (
+      ts.isPropertyAccessExpression(node) ||
+      ts.isElementAccessExpression(node)
+    ) {
+      return true;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "String"
+    ) {
+      return true;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      (checker.getTypeAtLocation(node).flags & ts.TypeFlags.StringLike) !== 0
+    ) {
+      return true;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      stringMethods.has(node.expression.name.text)
+    ) {
+      return true;
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.PlusToken
+    ) {
+      return (
+        includesStringSource(node.left, seen) ||
+        includesStringSource(node.right, seen)
+      );
+    }
+    if (ts.isConditionalExpression(node)) {
+      return (
+        includesStringSource(node.whenTrue, seen) ||
+        includesStringSource(node.whenFalse, seen)
+      );
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      return node.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          isSqlPropertyName(property.name) &&
+          includesStringSource(property.initializer, seen),
+      );
+    }
+    return false;
   };
-  return visit(declaration.body);
+
+  return returns.some((expression) => includesStringSource(expression));
 }
 
-function changedSqlHelperExports(source: string, file: string): Set<string> {
+export function findChangedSqlHelperExports(
+  source: string,
+  file: string,
+  addedLines: ReadonlySet<number>,
+): Set<string> {
   const sourceFile = ts.createSourceFile(
     path.resolve(file),
     source,
@@ -2174,13 +2480,15 @@ function changedSqlHelperExports(source: string, file: string): Set<string> {
     true,
     scriptKind(file),
   );
+  const checker = createChecker(sourceFile);
   const names = new Set<string>();
   for (const statement of sourceFile.statements) {
     if (
       ts.isFunctionDeclaration(statement) &&
       statement.name &&
       hasModifier(statement, ts.SyntaxKind.ExportKeyword) &&
-      hasSqlLikeReturnedTemplate(statement)
+      intersectsLines(statement, sourceFile, addedLines) &&
+      hasReturnedStringValue(statement, checker, sourceFile)
     ) {
       names.add(statement.name.text);
     }
@@ -2196,7 +2504,11 @@ function changedSqlHelperExports(source: string, file: string): Set<string> {
           continue;
         }
         const fn = functionExpression(declaration.initializer);
-        if (fn && hasSqlLikeReturnedTemplate(fn)) {
+        if (
+          fn &&
+          intersectsLines(declaration, sourceFile, addedLines) &&
+          hasReturnedStringValue(fn, checker, sourceFile)
+        ) {
           names.add(declaration.name.text);
         }
       }
@@ -2205,29 +2517,32 @@ function changedSqlHelperExports(source: string, file: string): Set<string> {
   return names;
 }
 
-function rgMatches(pattern: string): string[] {
+function gitGrepMatches(names: readonly string[]): string[] {
+  const pattern = names
+    .map((name) => name.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+    .join("|");
   try {
     const result = execFileSync(
-      "rg",
+      "git",
       [
+        "grep",
         "--files-with-matches",
-        "--glob",
-        "*.ts",
-        "--glob",
-        "*.tsx",
-        "--glob",
-        "*.mts",
-        "--glob",
-        "*.cts",
+        "--word-regexp",
+        "--extended-regexp",
+        "-e",
         pattern,
-        rootDir,
+        "--",
+        ":(glob)**/*.ts",
+        ":(glob)**/*.tsx",
+        ":(glob)**/*.mts",
+        ":(glob)**/*.cts",
       ],
-      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+      { cwd: rootDir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
     );
     return result
       .split(/\r?\n/)
       .filter((match) => match.length > 0)
-      .map((match) => path.resolve(match));
+      .map((match) => path.resolve(rootDir, match));
   } catch (error) {
     if (
       error !== null &&
@@ -2247,7 +2562,11 @@ function addChangedSqlHelperCallers(
   const helperNames = new Set<string>();
   for (const [file, input] of sources) {
     if (input.addedLines.size === 0) continue;
-    for (const name of changedSqlHelperExports(input.source, file)) {
+    for (const name of findChangedSqlHelperExports(
+      input.source,
+      file,
+      input.addedLines,
+    )) {
       helperNames.add(name);
     }
   }
@@ -2257,8 +2576,9 @@ function addChangedSqlHelperCallers(
   const candidateFiles = new Set<string>();
   for (let offset = 0; offset < names.length; offset += 80) {
     const batch = names.slice(offset, offset + 80);
-    const pattern = `\\b(?:${batch.join("|")})\\b`;
-    for (const file of rgMatches(pattern)) candidateFiles.add(file);
+    for (const file of gitGrepMatches(batch)) {
+      candidateFiles.add(path.resolve(rootDir, file));
+    }
   }
 
   for (const file of candidateFiles) {
