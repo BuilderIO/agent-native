@@ -117,7 +117,8 @@ describe("show-workspace-file", () => {
   it("registers a read-only native file-card action", () => {
     const action = createWorkspaceFileActionEntries()["show-workspace-file"];
 
-    expect(action).toBe(showWorkspaceFileAction);
+    // oracle-change: Framework classification copies the entry; the native handler and file-card metadata must remain intact.
+    expect(action.run).toBe(showWorkspaceFileAction.run);
     expect(action.readOnly).toBe(true);
     expect(action.chatUI?.renderer).toBe(
       ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
