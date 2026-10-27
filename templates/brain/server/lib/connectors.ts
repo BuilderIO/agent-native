@@ -3179,7 +3179,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     filesOmitted?: number;
   }> = [];
   stats.matchedMeetings = matchedMeetings;
-  const databaseStep = async <T>(
+  const syncStep = async <T>(
     stage: string,
     operation: () => PromiseLike<T>,
   ): Promise<T> => {
@@ -3187,13 +3187,16 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     try {
       return await operation();
     } catch (error) {
-      stats.failureStage = stage;
-      stats.failureStageElapsedMs = Math.round(performance.now() - startedAt);
-      console.error("[brain] Zoom sync database step failed", {
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (stats.failureStage === undefined) {
+        stats.failureStage = stage;
+        stats.failureStageElapsedMs = elapsedMs;
+      }
+      console.error("[brain] Zoom sync step failed", {
         sourceId: source.id,
         runId,
         stage,
-        elapsedMs: stats.failureStageElapsedMs,
+        elapsedMs,
       });
       throw error;
     }
@@ -3215,11 +3218,13 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   let refused = false;
   const refuse = async (reason: string, message: string): Promise<never> => {
     refused = true;
-    await audit({
-      event: "sync-refused",
-      decision: "deny",
-      detail: { reason },
-    });
+    await syncStep("sync refusal audit", () =>
+      audit({
+        event: "sync-refused",
+        decision: "deny",
+        detail: { reason },
+      }),
+    );
     throw new Error(message);
   };
 
@@ -3231,7 +3236,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
     if (
-      !(await databaseStep("source owner authorization", () =>
+      !(await syncStep("source owner authorization", () =>
         isBrainAdmin(source.ownerEmail, source.orgId),
       ))
     ) {
@@ -3240,13 +3245,13 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
         "Zoom source owner is not a Brain admin (an organization owner or admin), so Brain reads nothing from Zoom. Make the owner an org admin or have an admin recreate the source.",
       );
     }
-    const accountId = await databaseStep("account credential lookup", () =>
+    const accountId = await syncStep("account credential lookup", () =>
       requireConnectorCredential("ZOOM_ACCOUNT_ID", "Zoom", "zoom", config),
     );
-    const clientId = await databaseStep("client credential lookup", () =>
+    const clientId = await syncStep("client credential lookup", () =>
       requireConnectorCredential("ZOOM_CLIENT_ID", "Zoom", "zoom", config),
     );
-    const clientSecret = await databaseStep("client secret lookup", () =>
+    const clientSecret = await syncStep("client secret lookup", () =>
       requireConnectorCredential("ZOOM_CLIENT_SECRET", "Zoom", "zoom", config),
     );
     const token = await zoomCall("/oauth/token", () =>
@@ -3254,7 +3259,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     );
     const configuredUserIds = zoomUserIdsFromConfig(config);
     const renewLease = () =>
-      databaseStep("run lease renewal", () => renewRunLease(run));
+      syncStep("run lease renewal", () => renewRunLease(run));
     const recordingLists = configuredUserIds
       ? configuredUserIds.map((userId) => ({
           endpoint: "/users/{userId}/recordings",
@@ -3277,7 +3282,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       );
       stats.meetingsSkippedByFilter =
         Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
-      const imported = await databaseStep("imported capture lookup", () =>
+      const imported = await syncStep("imported capture lookup", () =>
         importedZoomExternalIds(source.id, meetings.map(zoomExternalId)),
       );
       for (const meeting of meetings) {
@@ -3322,7 +3327,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             () => getZoomMeetingRecordings(token, meeting.uuid),
           );
           if (!isApprovedZoomMeeting(detail.id, approvedMeetingIds)) {
-            await databaseStep("occurrence audit", () =>
+            await syncStep("occurrence audit", () =>
               audit({
                 event: "occurrence-denied",
                 decision: "deny",
@@ -3367,7 +3372,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             outcome.empty += 1;
             continue;
           }
-          const captureResult = await databaseStep("capture creation", () =>
+          const captureResult = await syncStep("capture creation", () =>
             createConnectorCapture({
               sourceId: source.id,
               externalId: normalized.externalId,
@@ -3389,7 +3394,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           }
         }
         if (fetchedDetail || outcome.downloaded > 0) {
-          await databaseStep("occurrence audit", () =>
+          await syncStep("occurrence audit", () =>
             audit({
               event: "occurrence-allowed",
               decision: "allow",
@@ -3417,7 +3422,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
 
     stats.capturesCreated = captures.length;
     await renewLease();
-    await databaseStep("source state update", () =>
+    await syncStep("source state update", () =>
       db
         .update(schema.brainSources)
         .set({
@@ -3434,7 +3439,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           ),
         ),
     );
-    await databaseStep("sync run completion", () =>
+    await syncStep("sync run completion", () =>
       finishRun(run, "success", stats),
     );
     await auditSyncFinished({
@@ -3488,22 +3493,26 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     };
     stats.capturesCreated = captures.length;
     stats.rateLimited = isRateLimit;
-    await renewRunLease(run);
-    await db
-      .update(schema.brainSources)
-      .set({
-        cursorJson: stableJson(nextCursor),
-        lastError: message,
-        status: isRateLimit ? "active" : "error",
-        updatedAt: nowIso(),
-      })
-      .where(
-        and(
-          accessFilter(schema.brainSources, schema.brainSourceShares),
-          eq(schema.brainSources.id, source.id),
+    await syncStep("error run lease renewal", () => renewRunLease(run));
+    await syncStep("source error state update", () =>
+      db
+        .update(schema.brainSources)
+        .set({
+          cursorJson: stableJson(nextCursor),
+          lastError: message,
+          status: isRateLimit ? "active" : "error",
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            eq(schema.brainSources.id, source.id),
+          ),
         ),
-      );
-    await finishRun(run, "error", stats, message);
+    );
+    await syncStep("error sync run completion", () =>
+      finishRun(run, "error", stats, message),
+    );
     if (!refused) {
       await auditSyncFinished({
         runId,

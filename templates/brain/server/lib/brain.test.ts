@@ -4408,100 +4408,217 @@ describe("Brain connector smoke coverage", () => {
   });
 
   it.each([
-    "run lease renewal",
-    "imported capture lookup",
-    "source state update",
-  ])("identifies a database timeout during Zoom %s", async (stage) => {
+    { stage: "run lease renewal", databaseTimeout: true },
+    { stage: "imported capture lookup", databaseTimeout: true },
+    { stage: "source state update", databaseTimeout: true },
+    { stage: "run lease renewal", databaseTimeout: false },
+  ])(
+    "identifies Zoom $stage failure (database timeout: $databaseTimeout)",
+    async ({ stage, databaseTimeout }) => {
+      const timeout = databaseTimeout
+        ? Object.assign(
+            new Error(
+              "DB query timed out after 15000ms (connection terminated)",
+            ),
+            { name: "DbTimeoutError", code: "CONNECT_TIMEOUT" },
+          )
+        : new Error("Brain source sync lease was lost");
+      const update = mocks.db.update.getMockImplementation();
+      const select = mocks.db.select.getMockImplementation();
+      assert(update);
+      assert(select);
+      const log = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        if (new URL(requestString(input)).pathname === "/oauth/token") {
+          return Response.json({ access_token: "private-token" });
+        }
+        if (stage === "run lease renewal") {
+          mocks.db.update.mockImplementationOnce(() => {
+            throw timeout;
+          });
+        } else if (stage === "imported capture lookup") {
+          mocks.db.select.mockImplementationOnce(() => {
+            throw timeout;
+          });
+        } else {
+          mocks.db.update.mockImplementation((table) => {
+            if (table === mocks.schema.brainSources) {
+              mocks.db.update.mockImplementation(update);
+              throw timeout;
+            }
+            return update(table);
+          });
+        }
+        return Response.json({
+          meetings: [
+            {
+              id: APPROVED_ZOOM_ID,
+              uuid: "approved-occurrence",
+              start_time: "2026-10-19T10:00:00Z",
+              recording_files: [],
+            },
+          ],
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const source = seedSource({
+        id: "zoom-db-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({
+          from: "2026-10-19",
+          consecutiveTimeouts: 2,
+        }),
+      });
+
+      try {
+        const result = await runConnectorSync(source as never);
+
+        expect(result).toMatchObject({
+          status: "error",
+          capturesCreated: 0,
+          message: databaseTimeout
+            ? `Zoom sync ${stage} failed: ${timeout.message}`
+            : timeout.message,
+          stats: {
+            failureStage: stage,
+            failureStageElapsedMs: expect.any(Number),
+          },
+        });
+        expect(source.lastError).toBe(result.message);
+        const run = mocks.rows.syncRuns[0];
+        assert(run);
+        expect(run.error).toBe(result.message);
+        expect(JSON.parse(run.statsJson as string)).toMatchObject({
+          failureStage: stage,
+          failureStageElapsedMs: expect.any(Number),
+        });
+        const cursor = JSON.parse(source.cursorJson as string);
+        expect(cursor.from).toBe("2026-10-19");
+        expect(cursor.consecutiveTimeouts).toBeUndefined();
+        expect(cursor.transientRetryAt).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(log).toHaveBeenCalledExactlyOnceWith(
+          "[brain] Zoom sync step failed",
+          {
+            sourceId: source.id,
+            runId: result.runId,
+            stage,
+            elapsedMs: expect.any(Number),
+          },
+        );
+        expect(JSON.stringify(log.mock.calls)).not.toContain("private-token");
+      } finally {
+        mocks.db.update.mockImplementation(update);
+        mocks.db.select.mockImplementation(select);
+        log.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    "error run lease renewal",
+    "source error state update",
+    "error sync run completion",
+  ])(
+    "logs a timeout during Zoom %s even when it cannot persist diagnostics",
+    async (stage) => {
+      const timeout = Object.assign(
+        new Error("DB query timed out after 15000ms (connection terminated)"),
+        { name: "DbTimeoutError" },
+      );
+      const update = mocks.db.update.getMockImplementation();
+      assert(update);
+      const log = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          let runWrites = 0;
+          mocks.db.update.mockImplementation((table) => {
+            if (table === mocks.schema.brainSyncRuns) runWrites += 1;
+            if (
+              stage === "error run lease renewal" ||
+              (stage === "source error state update" &&
+                table === mocks.schema.brainSources) ||
+              (stage === "error sync run completion" &&
+                table === mocks.schema.brainSyncRuns &&
+                runWrites === 2)
+            ) {
+              mocks.db.update.mockImplementation(update);
+              throw timeout;
+            }
+            return update(table);
+          });
+          throw new Error("Zoom authentication failed");
+        }),
+      );
+      const source = seedSource({
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+      });
+
+      try {
+        await expect(runConnectorSync(source as never)).rejects.toBe(timeout);
+        expect(log).toHaveBeenCalledExactlyOnceWith(
+          "[brain] Zoom sync step failed",
+          {
+            sourceId: source.id,
+            runId: expect.any(String),
+            stage,
+            elapsedMs: expect.any(Number),
+          },
+        );
+      } finally {
+        mocks.db.update.mockImplementation(update);
+        log.mockRestore();
+      }
+    },
+  );
+
+  it("identifies a failed Zoom refusal audit without calling Zoom", async () => {
     const timeout = Object.assign(
       new Error("DB query timed out after 15000ms (connection terminated)"),
-      { name: "DbTimeoutError", code: "CONNECT_TIMEOUT" },
+      { name: "DbTimeoutError" },
     );
-    const update = mocks.db.update.getMockImplementation();
-    const select = mocks.db.select.getMockImplementation();
-    assert(update);
-    assert(select);
-    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (new URL(requestString(input)).pathname === "/oauth/token") {
-        return Response.json({ access_token: "private-token" });
+    const insert = mocks.db.insert.getMockImplementation();
+    assert(insert);
+    mocks.db.insert.mockImplementation((table) => {
+      if (table === mocks.schema.brainZoomAuditEvents) {
+        mocks.db.insert.mockImplementation(insert);
+        throw timeout;
       }
-      if (stage === "run lease renewal") {
-        mocks.db.update.mockImplementationOnce(() => {
-          throw timeout;
-        });
-      } else if (stage === "imported capture lookup") {
-        mocks.db.select.mockImplementationOnce(() => {
-          throw timeout;
-        });
-      } else {
-        mocks.db.update.mockImplementation((table) => {
-          if (table === mocks.schema.brainSources) {
-            mocks.db.update.mockImplementation(update);
-            throw timeout;
-          }
-          return update(table);
-        });
-      }
-      return Response.json({
-        meetings: [
-          {
-            id: APPROVED_ZOOM_ID,
-            uuid: "approved-occurrence",
-            start_time: "2026-10-19T10:00:00Z",
-            recording_files: [],
-          },
-        ],
-      });
+      return insert(table);
     });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const source = seedSource({
-      id: "zoom-db-timeout-source",
       provider: "zoom",
-      configJson: JSON.stringify({ zoom: approvedZoom }),
-      cursorJson: JSON.stringify({
-        from: "2026-10-19",
-        consecutiveTimeouts: 2,
-      }),
+      configJson: JSON.stringify({ zoom: { meetingIds: [] } }),
     });
 
     try {
       const result = await runConnectorSync(source as never);
-
       expect(result).toMatchObject({
         status: "error",
-        capturesCreated: 0,
-        message: `Zoom sync ${stage} failed: ${timeout.message}`,
-        stats: {
-          failureStage: stage,
-          failureStageElapsedMs: expect.any(Number),
-        },
+        stats: { failureStage: "sync refusal audit" },
       });
-      expect(source.lastError).toBe(result.message);
-      const run = mocks.rows.syncRuns[0];
-      assert(run);
-      expect(run.error).toBe(result.message);
-      expect(JSON.parse(run.statsJson as string)).toMatchObject({
-        failureStage: stage,
-        failureStageElapsedMs: expect.any(Number),
-      });
-      const cursor = JSON.parse(source.cursorJson as string);
-      expect(cursor.from).toBe("2026-10-19");
-      expect(cursor.consecutiveTimeouts).toBeUndefined();
-      expect(cursor.transientRetryAt).toBeUndefined();
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).not.toHaveBeenCalled();
       expect(log).toHaveBeenCalledExactlyOnceWith(
-        "[brain] Zoom sync database step failed",
+        "[brain] Zoom sync step failed",
         {
           sourceId: source.id,
           runId: result.runId,
-          stage,
+          stage: "sync refusal audit",
           elapsedMs: expect.any(Number),
         },
       );
-      expect(JSON.stringify(log.mock.calls)).not.toContain("private-token");
     } finally {
-      mocks.db.update.mockImplementation(update);
-      mocks.db.select.mockImplementation(select);
+      mocks.db.insert.mockImplementation(insert);
       log.mockRestore();
     }
   });
