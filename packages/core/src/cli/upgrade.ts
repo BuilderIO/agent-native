@@ -1123,6 +1123,14 @@ function yarnMajorVersion(
   return Number.isSafeInteger(major) && major > 0 ? major : null;
 }
 
+function hasInvalidAgentNativePackageName(
+  groups: LatestAgentNativeDependencyGroup[],
+): boolean {
+  return groups.some(({ names }) =>
+    names.some((name) => !SAFE_AGENT_NATIVE_PACKAGE_NAME.test(name)),
+  );
+}
+
 function refreshLatestAgentNativeDependencies(
   project: UpgradeProject,
   groups: LatestAgentNativeDependencyGroup[],
@@ -1131,17 +1139,6 @@ function refreshLatestAgentNativeDependencies(
   stdio: "inherit" | "pipe",
 ): { ok: true } | { ok: false; message: string } {
   if (groups.length === 0) return { ok: true };
-  if (
-    groups.some(({ names }) =>
-      names.some((name) => !SAFE_AGENT_NATIVE_PACKAGE_NAME.test(name)),
-    )
-  ) {
-    return {
-      ok: false,
-      message: "Refusing to refresh an invalid @agent-native package name.",
-    };
-  }
-
   const yarnMajor = pm === "yarn" ? yarnMajorVersion(project, io) : null;
   if (pm === "yarn" && yarnMajor === null) {
     return {
@@ -1428,6 +1425,24 @@ export async function runUpgrade(
         : "No framework overrides/patches",
   });
 
+  const latestDependencies = collectLatestAgentNativeDependencies(
+    project,
+    doctor.bumps,
+  );
+  if (hasInvalidAgentNativePackageName(latestDependencies)) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message =
+      "Refusing to refresh an invalid @agent-native package name.";
+    result.steps.push({
+      id: "refresh-latest",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
   // Before any manifest edit: if the exclusion cannot be written, the install
   // would hit the same release-age gate, so stop with the workspace untouched.
   const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
@@ -1603,10 +1618,6 @@ export async function runUpgrade(
     }
   }
 
-  const latestDependencies = collectLatestAgentNativeDependencies(
-    project,
-    doctor.bumps,
-  );
   const pm = detectPackageManager(project.root);
   if (latestDependencies.length === 0) {
     result.steps.push({

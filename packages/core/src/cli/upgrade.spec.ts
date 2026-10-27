@@ -1435,13 +1435,23 @@ describe("runUpgrade", () => {
     );
   });
 
-  it("rejects invalid package names before spawn", async () => {
+  it("rejects invalid package names before mutating manifests", async () => {
     const root = makeTempProject({
+      kind: "workspace",
       rootPkg: {
-        name: "old-app",
-        dependencies: { "@agent-native/dispatch;echo": "latest" },
+        name: "ws",
+        packageManager: "pnpm@10.29.0",
+        dependencies: {
+          "@agent-native/core": "^0.8.0",
+          "@agent-native/dispatch;echo": "^0.1.0",
+        },
       },
+      workspaceYaml: "packages:\n  - apps/*\nminimumReleaseAgeExclude: []\n",
     });
+    const manifestPath = path.join(root, "package.json");
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const originalManifest = fs.readFileSync(manifestPath, "utf-8");
+    const originalWorkspace = fs.readFileSync(workspacePath, "utf-8");
     const spawnCalls: string[] = [];
     const { io, err } = captureIo({
       spawn: (command) => {
@@ -1462,6 +1472,8 @@ describe("runUpgrade", () => {
     ).toBe(1);
     expect(spawnCalls).toEqual([]);
     expect(err.join("\n")).toContain("invalid @agent-native package name");
+    expect(fs.readFileSync(manifestPath, "utf-8")).toBe(originalManifest);
+    expect(fs.readFileSync(workspacePath, "utf-8")).toBe(originalWorkspace);
   });
 
   it("keeps unrelated specs during Yarn Berry refresh", async () => {
