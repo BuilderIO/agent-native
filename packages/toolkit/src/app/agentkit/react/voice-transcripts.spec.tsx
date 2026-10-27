@@ -29,8 +29,13 @@ afterEach(async () => {
 async function mountChat(
   threadId: string,
   stored: Partial<AgentThreadSnapshot> = {},
+  { loadBeforeMount = true } = {},
 ) {
   const saved: AgentThreadSnapshot[] = [];
+  let releaseSnapshot = () => {};
+  const snapshotReleased = loadBeforeMount
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => (releaseSnapshot = resolve));
   const transport: AgentTransport = {
     async startRun() {
       return { runId: "unused" };
@@ -38,6 +43,7 @@ async function mountChat(
     async *subscribeToRun() {},
     async cancelRun() {},
     async getThreadSnapshot() {
+      await snapshotReleased;
       return {
         id: threadId,
         createdAt: AT,
@@ -55,7 +61,8 @@ async function mountChat(
     aiSetupReadiness: "not-applicable",
     reconnect: { attempts: 0, delayMs: 0 },
   });
-  await client.loadThread(threadId);
+  const loaded = client.loadThread(threadId);
+  if (loadBeforeMount) await loaded;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -75,7 +82,14 @@ async function mountChat(
     await client.shutdown();
     container.remove();
   });
-  return { container, client, saved };
+  const finishLoading = async () => {
+    await act(async () => {
+      releaseSnapshot();
+      await loaded;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+  return { container, client, saved, finishLoading };
 }
 
 async function publish(
@@ -253,56 +267,67 @@ describe("voice chat transcripts in AgentKitChat", () => {
     );
   });
 
-  it("closes voice work a reload left running, and still saves later turns", async () => {
-    const threadId = "thread-voice-orphan";
-    const runId = "voice:call-edit";
-    const started = "2026-10-24T00:00:02.000Z";
-    const { client, saved } = await mountChat(threadId, {
-      events: [
+  it.each([
+    ["before", true],
+    ["after", false],
+  ])(
+    "closes voice work a reload left running when the thread loads %s the chat mounts",
+    async (_when, loadBeforeMount) => {
+      const threadId = `thread-voice-orphan-${String(loadBeforeMount)}`;
+      const runId = "voice:call-edit";
+      const started = "2026-10-24T00:00:02.000Z";
+      const { client, saved, finishLoading } = await mountChat(
+        threadId,
         {
-          id: `${runId}:call-edit:tool-started`,
-          threadId,
-          runId,
-          sequence: 1,
-          occurredAt: started,
-          type: "tool.started",
-          toolCall: {
-            id: "call-edit",
-            name: "edit-design",
-            status: "running",
-            runId,
-          },
+          events: [
+            {
+              id: `${runId}:call-edit:tool-started`,
+              threadId,
+              runId,
+              sequence: 1,
+              occurredAt: started,
+              type: "tool.started",
+              toolCall: {
+                id: "call-edit",
+                name: "edit-design",
+                status: "running",
+                runId,
+              },
+            },
+          ],
+          runs: [{ id: runId, threadId, status: "running", lastSequence: 1 }],
         },
-      ],
-      runs: [{ id: runId, threadId, status: "running", lastSequence: 1 }],
-    });
+        { loadBeforeMount },
+      );
+      await finishLoading();
 
-    expect(
-      client
-        .getThread(threadId)
-        .events.filter((event) => event.runId === runId)
-        .map((event) =>
-          event.type === "tool.updated"
-            ? `${event.type}:${event.toolCall.status}`
-            : event.type,
-        ),
-    ).toEqual([
-      "tool.started",
-      "activity.started",
-      "tool.updated:cancelled",
-      "activity.completed",
-      "run.completed",
-    ]);
+      expect(
+        client
+          .getThread(threadId)
+          .events.filter((event) => event.runId === runId)
+          .map((event) =>
+            event.type === "tool.updated"
+              ? `${event.type}:${event.toolCall.status}`
+              : event.type,
+          ),
+      ).toEqual([
+        "tool.started",
+        "activity.started",
+        "tool.updated:cancelled",
+        "activity.completed",
+        "run.completed",
+      ]);
 
-    await publish(threadId, {
-      id: `${threadId}:user-1`,
-      role: "user",
-      text: "Try again.",
-    });
-    expect(saved.at(-1)?.messages.map((message) => message.id)).toEqual([
-      `${threadId}:user-1`,
-    ]);
-  });
+      await publish(threadId, {
+        id: `${threadId}:user-1`,
+        role: "user",
+        text: "Try again.",
+      });
+      expect(saved.at(-1)?.messages.map((message) => message.id)).toEqual([
+        `${threadId}:user-1`,
+      ]);
+    },
+  );
 
   it("shows a reply's tool calls as one work item between the turns and saves it", async () => {
     const threadId = "thread-voice-work";

@@ -235,12 +235,14 @@ export function useRealtimeVoiceTranscripts(
     if (!threadId || !controller.upsertLocalMessages) return;
     const upsert = controller.upsertLocalMessages.bind(controller);
     const appendEvents = controller.appendLocalEvents?.bind(controller);
-    const closeOrphanedWork = () => {
-      if (!appendEvents || runningVoiceWork.get(threadId)?.size) return;
+    /** False when the thread could not be checked yet. */
+    const closeOrphanedWork = (): boolean => {
+      if (!appendEvents || runningVoiceWork.get(threadId)?.size) return false;
       const thread = controller.getThread(threadId);
-      if (hasActiveAgentRuns(thread)) return;
+      if (hasActiveAgentRuns(thread)) return false;
       const events = orphanedVoiceWorkEvents(thread, threadId);
       if (events.length > 0) appendEvents(threadId, events);
+      return true;
     };
     const persist = () => {
       // The work's completion saves the thread, this turn included.
@@ -253,8 +255,17 @@ export function useRealtimeVoiceTranscripts(
       // a host without transport persistence saves the thread itself.
       void controller.persistThreadSnapshotWithResult?.(threadId, messages);
     };
-    closeOrphanedWork();
-    return realtimeVoiceTranscriptRegistry.register({
+    // The thread's snapshot can land after this mounts, so check each time
+    // its events change rather than once.
+    let checkedEventCount = -1;
+    const closeOrphanedWorkOnChange = () => {
+      const { length } = controller.getThread(threadId).events;
+      if (length === checkedEventCount) return;
+      if (closeOrphanedWork()) checkedEventCount = length;
+    };
+    closeOrphanedWorkOnChange();
+    const unsubscribe = controller.subscribe(closeOrphanedWorkOnChange);
+    const unregister = realtimeVoiceTranscriptRegistry.register({
       threadId,
       active: () => isChatThreadViewed(threadId),
       ...(appendEvents
@@ -268,17 +279,18 @@ export function useRealtimeVoiceTranscripts(
                 controller.getThread(threadId),
                 runId,
               );
+              const running = runningVoiceWork.get(threadId) ?? new Set();
+              runningVoiceWork.set(threadId, running);
+              // Marked before the append notifies, so its own events never
+              // read as orphaned.
+              if (!update.completedAt) running.add(runId);
               appendEvents(
                 threadId,
                 realtimeVoiceWorkEvents(update, existingIds, lastSequence),
               );
-              const running = runningVoiceWork.get(threadId) ?? new Set();
-              runningVoiceWork.set(threadId, running);
               if (update.completedAt) {
                 running.delete(runId);
                 persist();
-              } else {
-                running.add(runId);
               }
               return true;
             },
@@ -294,5 +306,9 @@ export function useRealtimeVoiceTranscripts(
         return true;
       },
     });
+    return () => {
+      unsubscribe();
+      unregister();
+    };
   }, [controller, threadId, running]);
 }
