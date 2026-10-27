@@ -221,6 +221,32 @@ describe("cliWrapperFlagsFromSource", () => {
     ).toEqual({ http: { method: "GET", path: "/report" } });
   });
 
+  it("drops an http method or path a later spread or key could replace", () => {
+    const read = (http: string) =>
+      cliWrapperFlagsFromSource(
+        [
+          'export const tool = { description: "Send" };',
+          `export const http = ${http};`,
+          "export async function run() {",
+          "  return {};",
+          "}",
+        ].join("\n"),
+      );
+    for (const http of [
+      '{ method: "GET", ...routeOptions }',
+      '{ method: "GET", [key]: "POST" }',
+      '{ method: "GET", method: chooseMethod() }',
+    ]) {
+      expect(read(http), http).toEqual({});
+    }
+    expect(read('{ path: "/report", ...routeOptions, method: "GET" }')).toEqual(
+      { http: { method: "GET" } },
+    );
+    expect(read('{ ...routeOptions, method: "GET", path: "/report" }')).toEqual(
+      { http: { method: "GET", path: "/report" } },
+    );
+  });
+
   it("keeps UI-only and tool-call limits unless a literal lifts them", () => {
     for (const [flags, want] of [
       ["  uiOnly: true,", { uiOnly: true }],

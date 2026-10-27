@@ -475,22 +475,36 @@ function actionFlags(
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 
-/** The literal method and path an `http` object sets, if it sets either. */
+/**
+ * The literal method and path an `http` object sets, if it sets either, read
+ * in order the way JavaScript would. A spread or computed key could replace
+ * either one, so it drops both, and so does a value that isn't a literal: the
+ * loader's default route applies instead of one the action may not use.
+ */
 function httpRoute(node: BabelNode): ActionHttpConfig | undefined {
   if (node.type !== "ObjectExpression") return undefined;
-  const route: ActionHttpConfig = {};
+  let method: ActionHttpConfig["method"];
+  let path: string | undefined;
   for (const prop of node.properties ?? []) {
-    if (prop.type !== "ObjectProperty" || typeof prop.value !== "object") {
-      continue;
+    const name = prop.type === "SpreadElement" ? null : propertyName(prop);
+    const text =
+      prop.type === "ObjectProperty" && typeof prop.value === "object"
+        ? staticString(unwrap(prop.value))
+        : null;
+    if (name === null) {
+      method = undefined;
+      path = undefined;
+    } else if (name === "method") {
+      method =
+        text !== null && HTTP_METHODS.has(text)
+          ? (text as NonNullable<ActionHttpConfig["method"]>)
+          : undefined;
+    } else if (name === "path") {
+      path = text ?? undefined;
     }
-    const name = propertyName(prop);
-    const text = staticString(unwrap(prop.value));
-    if (name === "method" && text !== null && HTTP_METHODS.has(text)) {
-      route.method = text as NonNullable<ActionHttpConfig["method"]>;
-    }
-    if (name === "path" && text !== null) route.path = text;
   }
-  return route.method || route.path ? route : undefined;
+  if (!method && !path) return undefined;
+  return { ...(method ? { method } : {}), ...(path ? { path } : {}) };
 }
 
 /**
