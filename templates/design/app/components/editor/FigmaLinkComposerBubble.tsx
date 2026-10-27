@@ -35,17 +35,17 @@ const FIGMA_TOKEN_DOCS_URL =
   "https://developers.figma.com/docs/rest-api/personal-access-tokens/";
 
 function getFigmaFileTitle(link: FigmaLink): string | null {
-  try {
-    const segments = new URL(link.url).pathname.split("/").filter(Boolean);
-    const fileKeyIndex = segments.indexOf(link.fileKey);
-    const encodedTitle =
-      fileKeyIndex >= 0 ? segments[fileKeyIndex + 1] : undefined;
-    if (!encodedTitle) return null;
-    const title = decodeURIComponent(encodedTitle).trim();
-    return title.length > 0 ? title : null;
-  } catch {
-    return null;
-  }
+  const segments = new URL(link.url).pathname.split("/").filter(Boolean);
+  const fileKeyIndex = segments.indexOf(link.fileKey);
+  const encodedTitle =
+    fileKeyIndex >= 0 ? segments[fileKeyIndex + 1] : undefined;
+  if (!encodedTitle) return null;
+
+  const decodedTitle = new URLSearchParams([
+    ["title", encodedTitle.replace(/\+/g, "%2B")],
+  ]).get("title");
+  const title = decodedTitle?.trim();
+  return title ? title : null;
 }
 
 export function useDetectedFigmaComposerLink(): {
