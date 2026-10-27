@@ -7,6 +7,7 @@ import {
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
+  snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
   weekWindow,
@@ -75,12 +76,22 @@ describe("weekly snapshot preset", () => {
   });
 
   it("keeps the query window anchored to a real UTC Monday", () => {
-    expect(weekWindow("2026-10-19")).toEqual({
+    expect(
+      weekWindow("2026-10-19", new Date("2026-10-26T00:00:00.000Z")),
+    ).toEqual({
       week: "2026-10-19",
       dateFrom: "2026-10-18",
       dateTo: "2026-10-25",
     });
-    expect(() => weekWindow("2026-10-18")).toThrow(/Monday/);
+    expect(() =>
+      weekWindow("2026-10-19", new Date("2026-10-25T23:59:00.000Z")),
+    ).toThrow(/fully closed/);
+    expect(() =>
+      weekWindow("2026-10-26", new Date("2026-10-26T00:00:00.000Z")),
+    ).toThrow(/fully closed/);
+    expect(() =>
+      weekWindow("2026-10-18", new Date("2026-10-26T00:00:00.000Z")),
+    ).toThrow(/Monday/);
     expect(SNAPSHOT_PRESET).toMatchObject({
       emailFilter: "exclude_builder",
       excludeNonProductionHosts: true,
@@ -105,6 +116,24 @@ describe("weekly snapshot preset", () => {
       snapshotPresetHash({
         ...base,
         sourceUrl: "https://analytics.example/team",
+      }),
+    );
+  });
+
+  it("keeps tree cache keys isolated by authenticated principal", () => {
+    const identity = {
+      presetHash: "preset",
+      sourceUrl: "https://analytics.example/team",
+    };
+    expect(
+      snapshotTreeCacheKey({
+        ...identity,
+        principalScopeHash: "principal-a",
+      }),
+    ).not.toBe(
+      snapshotTreeCacheKey({
+        ...identity,
+        principalScopeHash: "principal-b",
       }),
     );
   });

@@ -78,7 +78,7 @@ export function defaultSnapshotWeek(now = new Date()): string {
   return new Date(thisMonday - 7 * 86_400_000).toISOString().slice(0, 10);
 }
 
-export function weekWindow(week: string): {
+export function weekWindow(week: string, now = new Date()): {
   week: string;
   dateFrom: string;
   dateTo: string;
@@ -96,6 +96,12 @@ export function weekWindow(week: string): {
   }
   const dateFrom = new Date(start.valueOf() - 86_400_000);
   const dateTo = new Date(start.valueOf() + 6 * 86_400_000);
+  if (!Number.isFinite(now.valueOf())) {
+    throw new Error("The current date must be valid.");
+  }
+  if (dateTo.toISOString().slice(0, 10) >= now.toISOString().slice(0, 10)) {
+    throw new Error("--week must be a fully closed week in UTC.");
+  }
   return {
     week,
     dateFrom: dateFrom.toISOString().slice(0, 10),
@@ -117,6 +123,17 @@ export function snapshotPresetHash(input: {
     ...input,
   });
   return createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+}
+
+export function snapshotTreeCacheKey(input: {
+  presetHash: string;
+  sourceUrl: string;
+  principalScopeHash: string;
+}): string {
+  return createHash("sha256")
+    .update(JSON.stringify(input))
+    .digest("hex")
+    .slice(0, 20);
 }
 
 function frameable(node: SnapshotNode): boolean {

@@ -216,6 +216,16 @@ export default defineAction({
           message: "Cohort splits require format tree.",
         });
       }
+      if (
+        (args.experimentId || args.splitDesignFirstTouch) &&
+        args.followUpMode === "person"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["followUpMode"],
+          message: "Person follow-up is not available with cohort splits.",
+        });
+      }
       if (args.splitDesignFirstTouch && args.app !== "design") {
         ctx.addIssue({
           code: "custom",

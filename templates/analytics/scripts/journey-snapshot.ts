@@ -20,6 +20,7 @@ import {
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
+  snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
   weekWindow,
@@ -137,15 +138,15 @@ Options:
   --apps <csv>          clips,design,slides (default: all)
   --experiment <id>     first_run_builder_credits; displays each arm side by side
   --out <dir>           Private cache and run directory (default: .tmp/onboarding-journey-snapshots)
-  --analytics-url <url> Analytics action origin (default: ${ANALYTICS_URL})
-  --design-url <url>    Design action origin (default: ${DESIGN_URL})
+  --analytics-url <url> Analytics app URL (default: ${ANALYTICS_URL})
+  --design-url <url>    Design app URL (default: ${DESIGN_URL})
   --refresh             Re-read Analytics and recapture even when caches exist
   --dry-run             Print the pinned request and output paths without network calls
   --help
 
 The query begins one day before --week and ends six days after it. Trees, frames,
 and manifests are stored under runs/<week>/<app>; action trees are cached by
-app, window, and preset hash. Each canvas is capped at ${SNAPSHOT_MAX_FRAMES} frames.
+app, window, URL, principal, and preset. Each canvas is capped at ${SNAPSHOT_MAX_FRAMES} frames.
 Frames are captured sequentially from Agent-Native session recordings and uploaded
 as private replay attachments before they are copied into the Design canvas.
 `;
@@ -562,6 +563,7 @@ async function getTreeResult(input: {
   experimentId?: string;
   analyticsUrl: string;
   analyticsToken: string;
+  principalScopeHash: string;
   outRoot: string;
   refresh: boolean;
 }): Promise<SnapshotTree | CohortResponse> {
@@ -578,11 +580,16 @@ async function getTreeResult(input: {
     splitDesignFirstTouch: input.app === "design",
     sourceUrl: input.analyticsUrl,
   });
+  const cacheKey = snapshotTreeCacheKey({
+    presetHash,
+    sourceUrl: input.analyticsUrl,
+    principalScopeHash: input.principalScopeHash,
+  });
   const cachePath = path.join(
     input.outRoot,
     "cache",
     input.app,
-    `${input.week}-${presetHash}.json`,
+    `${input.week}-${cacheKey}.json`,
   );
   let result: SnapshotTree | CohortResponse | null = null;
   let cacheHit = false;
@@ -590,12 +597,14 @@ async function getTreeResult(input: {
     const cached = await readJson<{
       presetHash?: string;
       sourceUrl?: string;
+      principalScopeHash?: string;
       result?: unknown;
     }>(cachePath);
     if (
       cached &&
       cached.presetHash === presetHash &&
-      cached.sourceUrl === input.analyticsUrl
+      cached.sourceUrl === input.analyticsUrl &&
+      cached.principalScopeHash === input.principalScopeHash
     ) {
       if (!("result" in cached)) {
         throw checkFailure(`${input.app} tree cache has no result.`);
@@ -618,12 +627,16 @@ async function getTreeResult(input: {
     await writeJson(cachePath, {
       presetHash,
       sourceUrl: input.analyticsUrl,
+      principalScopeHash: input.principalScopeHash,
       request,
       result,
     });
   }
   const runAppDir = path.join(input.outRoot, "runs", input.week, input.app);
-  await writeJson(path.join(runAppDir, "tree.json"), result);
+  await writeJson(
+    path.join(runAppDir, "scopes", input.principalScopeHash, "tree.json"),
+    result,
+  );
   return result;
 }
 
@@ -733,15 +746,23 @@ function assertCanvasReceipt(
   expectedNodes: number,
   expectedFrames: number,
 ): void {
-  if (
-    canvas.nodeCount !== expectedNodes ||
-    canvas.frameCount !== expectedFrames ||
-    canvas.skippedNodes.length > 0
-  ) {
+  if (!canvasReceiptMatches(canvas, expectedNodes, expectedFrames)) {
     throw checkFailure(
       `Design saved ${canvas.nodeCount}/${expectedNodes} nodes and ${canvas.frameCount}/${expectedFrames} frames; skipped ${canvas.skippedNodes.length} nodes.`,
     );
   }
+}
+
+function canvasReceiptMatches(
+  canvas: ReturnType<typeof actionCanvasResult>,
+  expectedNodes: number,
+  expectedFrames: number,
+): boolean {
+  return (
+    canvas.nodeCount === expectedNodes &&
+    canvas.frameCount === expectedFrames &&
+    canvas.skippedNodes.length === 0
+  );
 }
 
 async function publishCanvas(args: {
@@ -756,6 +777,7 @@ async function publishCanvas(args: {
   previousTree?: SnapshotTree;
   designUrl: string;
   designToken: string;
+  designScopeHash: string;
   bandDir: string;
   refresh: boolean;
 }): Promise<BoardResult> {
@@ -796,25 +818,48 @@ async function publishCanvas(args: {
     includeScreenshotless: false,
   };
   const designUrl = args.designUrl;
+  const scopeKey = pathHash(JSON.stringify([designUrl, args.designScopeHash]));
   const canvasCachePath = path.join(
     args.bandDir,
-    `canvas-${pathHash(designUrl)}.json`,
+    `canvas-${scopeKey}.json`,
   );
   const savedCanvas = await readJson<{
     designUrl?: string;
+    designScopeHash?: string;
     inputHash?: string;
     result?: ReturnType<typeof actionCanvasResult>;
   }>(canvasCachePath);
-  const inputHash = pathHash(JSON.stringify({ designUrl, canvasInput }));
-  const cacheMatchesUrl = savedCanvas?.designUrl === designUrl;
-  let canvas =
-    cacheMatchesUrl && savedCanvas.inputHash === inputHash && !args.refresh
+  const inputHash = pathHash(
+    JSON.stringify({ designUrl, designScopeHash: args.designScopeHash, canvasInput }),
+  );
+  const cacheMatchesScope =
+    savedCanvas !== null &&
+    savedCanvas.designUrl === designUrl &&
+    savedCanvas.designScopeHash === args.designScopeHash;
+  if (cacheMatchesScope && !("result" in savedCanvas)) {
+    throw checkFailure("Design canvas cache has no result.");
+  }
+  const cachedCanvas =
+    cacheMatchesScope && savedCanvas.result !== undefined
       ? actionCanvasResult(savedCanvas.result)
       : null;
-  if (canvas) {
-    assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
-    if ((canvas.collabSyncPending?.length ?? 0) > 0) canvas = null;
-  }
+  const savedDesignId = cachedCanvas?.designId;
+  let canvas =
+    !args.refresh &&
+    cacheMatchesScope &&
+    savedCanvas.inputHash === inputHash &&
+    cachedCanvas &&
+    canvasReceiptMatches(cachedCanvas, tree.nodes.length, canvasFrames.length)
+      ? cachedCanvas
+      : null;
+  if (canvas && (canvas.collabSyncPending?.length ?? 0) > 0) canvas = null;
+  const saveCanvasCache = (result: ReturnType<typeof actionCanvasResult>) =>
+    writeJson(canvasCachePath, {
+      designUrl,
+      designScopeHash: args.designScopeHash,
+      inputHash,
+      result,
+    });
   if (!canvas) {
     let raw = await callAction(
       args.designUrl,
@@ -822,23 +867,18 @@ async function publishCanvas(args: {
       "create-journey-canvas",
       {
         ...canvasInput,
-        ...(cacheMatchesUrl && savedCanvas.result?.designId
-          ? { designId: savedCanvas.result.designId }
-          : {}),
+        ...(savedDesignId ? { designId: savedDesignId } : {}),
       },
     );
     canvas = actionCanvasResult(raw);
+    await saveCanvasCache(canvas);
     assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
     for (
       let attempt = 0;
       (canvas.collabSyncPending?.length ?? 0) > 0 && attempt < 2;
       attempt += 1
     ) {
-      await writeJson(canvasCachePath, {
-        designUrl,
-        inputHash,
-        result: canvas,
-      });
+      await saveCanvasCache(canvas);
       raw = await callAction(
         args.designUrl,
         args.designToken,
@@ -849,6 +889,7 @@ async function publishCanvas(args: {
         },
       );
       canvas = actionCanvasResult(raw);
+      await saveCanvasCache(canvas);
       assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
     }
     if ((canvas.collabSyncPending?.length ?? 0) > 0) {
@@ -856,11 +897,6 @@ async function publishCanvas(args: {
         "Design saved the canvas but did not sync it to the live editor.",
       );
     }
-    await writeJson(canvasCachePath, {
-      designUrl,
-      inputHash,
-      result: canvas,
-    });
   }
   const previousTree = args.previousTree;
   return {
@@ -888,6 +924,8 @@ async function runCapture(args: {
   selectedTree: SnapshotTree;
   runAppDir: string;
   analyticsUrl: string;
+  analyticsToken: string;
+  analyticsScopeHash: string;
   refresh: boolean;
 }): Promise<{
   tree: SnapshotTree;
@@ -895,7 +933,12 @@ async function runCapture(args: {
   failures: number;
   selectedFrames: number;
 }> {
-  const bandDir = path.join(args.runAppDir, "bands", args.band.key);
+  const bandDir = path.join(
+    args.runAppDir,
+    "bands",
+    args.band.key,
+    args.analyticsScopeHash,
+  );
   const captureTreePath = path.join(bandDir, "capture-tree.json");
   const captureDir = path.join(bandDir, "frames");
   const manifestPath = path.join(captureDir, "manifest.json");
@@ -947,6 +990,7 @@ async function runCapture(args: {
       env: {
         ...process.env,
         AGENT_NATIVE_ANALYTICS_URL: args.analyticsUrl,
+        AGENT_NATIVE_TOKEN: args.analyticsToken,
       },
     });
     manifest = await readJson<CaptureManifest>(manifestPath);
@@ -1284,6 +1328,10 @@ async function main(argv: string[]): Promise<number> {
 
   const analyticsToken = await appActionToken("analytics", analyticsUrl);
   const designToken = await appActionToken("design", designUrl);
+  const analyticsScopeHash = pathHash(
+    JSON.stringify([analyticsUrl, analyticsToken]),
+  );
+  const designScopeHash = pathHash(JSON.stringify([designUrl, designToken]));
   const boards: BoardResult[] = [];
   const cohortNotes: string[] = [];
   const frameNotes: string[] = [];
@@ -1298,9 +1346,33 @@ async function main(argv: string[]): Promise<number> {
       ...(values.experiment ? { experimentId: values.experiment } : {}),
       analyticsUrl,
       analyticsToken,
+      principalScopeHash: analyticsScopeHash,
       outRoot,
       refresh: values.refresh === true,
     });
+    if (isCohortResponse(result)) {
+      if (result.readCoverage.sessionlessMcpOauthSignupEvents > 0) {
+        cohortNotes.push(
+          `Design MCP OAuth signup tree: ${result.readCoverage.sessionlessMcpOauthSignupEvents} signup events without a first-party web session. This event-grain tree is in design/scopes/${analyticsScopeHash}/tree.json; it is not included in session conversions and has no replay screenshot.`,
+        );
+      }
+      if (result.experiment) {
+        const e = result.experiment;
+        cohortNotes.push(
+          `${app} ${e.id}: ${e.assignedSessions} sessions assigned (${e.exposureSessions} with an exposure event); ${e.unassignedSessions} unassigned and ${e.conflictingSessions} conflicting.`,
+        );
+        if (e.assignedSessions === 0) {
+          cohortNotes.push(
+            `${app}: no sessions were assigned by an exposure event; no experiment arm was substituted with the unsplit tree, and no arm canvas was published.`,
+          );
+        }
+      }
+      if (result.designFirstTouch?.conflictingSessions) {
+        cohortNotes.push(
+          `Design: ${result.designFirstTouch.conflictingSessions} sessions had both OAuth and non-OAuth first-touch signup paths; they are shown in the unknown cohort.`,
+        );
+      }
+    }
     const previousResult = await getTreeResult({
       app,
       week: comparisonWindow.week,
@@ -1309,6 +1381,7 @@ async function main(argv: string[]): Promise<number> {
       ...(values.experiment ? { experimentId: values.experiment } : {}),
       analyticsUrl,
       analyticsToken,
+      principalScopeHash: analyticsScopeHash,
       outRoot,
       refresh: values.refresh === true,
     });
@@ -1341,6 +1414,8 @@ async function main(argv: string[]): Promise<number> {
         selectedTree: selection.tree,
         runAppDir: path.join(runRoot, app),
         analyticsUrl,
+        analyticsToken,
+        analyticsScopeHash,
         refresh: values.refresh === true,
       });
       if (capture.failures > 0) {
@@ -1354,6 +1429,13 @@ async function main(argv: string[]): Promise<number> {
       (capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0,
     );
     if (!nonempty.length) {
+      if (
+        isCohortResponse(result) &&
+        result.experiment?.assignedSessions === 0 &&
+        targetBands.length === 0
+      ) {
+        continue;
+      }
       throw checkFailure(
         `${app} has no successfully captured screenshot-backed nodes; no canvas was published.`,
       );
@@ -1369,35 +1451,13 @@ async function main(argv: string[]): Promise<number> {
           ...(previousTree ? { previousTree } : {}),
           designUrl,
           designToken,
+          designScopeHash,
           bandDir: path.join(runRoot, app, "bands", capture.target.key),
           refresh: values.refresh === true,
         }),
       );
     }
 
-    if (isCohortResponse(result)) {
-      if (result.readCoverage.sessionlessMcpOauthSignupEvents > 0) {
-        cohortNotes.push(
-          `Design MCP OAuth signup tree: ${result.readCoverage.sessionlessMcpOauthSignupEvents} signup events without a first-party web session. This event-grain tree is in design/tree.json; it is not included in session conversions and has no replay screenshot.`,
-        );
-      }
-      if (result.experiment) {
-        const e = result.experiment;
-        cohortNotes.push(
-          `${app} ${e.id}: ${e.assignedSessions} sessions assigned (${e.exposureSessions} with an exposure event); ${e.unassignedSessions} unassigned and ${e.conflictingSessions} conflicting.`,
-        );
-        if (e.assignedSessions === 0) {
-          cohortNotes.push(
-            `${app}: no sessions were assigned by an exposure event; no experiment arm was substituted with the unsplit tree.`,
-          );
-        }
-      }
-      if (result.designFirstTouch?.conflictingSessions) {
-        cohortNotes.push(
-          `Design: ${result.designFirstTouch.conflictingSessions} sessions had both OAuth and non-OAuth first-touch signup paths; they are shown in the unknown cohort.`,
-        );
-      }
-    }
   }
 
   const summary = renderSummary({

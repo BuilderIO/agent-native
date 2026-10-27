@@ -2107,6 +2107,12 @@ export async function getOnboardingJourney(
   args: OnboardingJourneyArgs,
   signal?: AbortSignal,
 ): Promise<JourneyTree | JourneySummary | OnboardingJourneyCohorts> {
+  if (
+    (args.experimentId || args.splitDesignFirstTouch) &&
+    args.followUpMode === "person"
+  ) {
+    throw new Error("Person follow-up is not available with cohort splits.");
+  }
   throwIfAborted(signal);
   const observation = freezeOnboardingJourneyObservationWindow(args);
   let read: EventRead;

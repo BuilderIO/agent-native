@@ -378,6 +378,28 @@ describe("partitionOnboardingJourneyCohorts", () => {
 });
 
 describe("getOnboardingJourney", () => {
+  it.each([
+    [
+      "experiment arms",
+      { app: "clips", experimentId: "first_run_builder_credits" },
+    ],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)(
+    "rejects person follow-up with %s before reading events",
+    async (_label, cohort) => {
+      await expect(
+        getOnboardingJourney(scope, {
+          ...ARGS,
+          ...cohort,
+          followUpMode: "person",
+        }),
+      ).rejects.toThrow(
+        "Person follow-up is not available with cohort splits.",
+      );
+      expect(mocks.queryFirstPartyAnalytics).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns exactly the JourneyTree contract", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: journeyRows(),

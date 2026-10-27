@@ -276,6 +276,34 @@ describe("onboarding journey events SQL", () => {
     }
   });
 
+  it("applies host exclusion to both follow-up activity reads", async () => {
+    await setup();
+    const selectedFilters = filters({ excludeNonProductionHosts: true });
+    const window = observation();
+    const terminal = {
+      sessionId: "session-1",
+      stepKey: "step:role",
+      tsMs: Date.parse(`${today}T12:00:00.000Z`),
+    };
+    const sessionSql = buildOnboardingJourneyFollowupSql(
+      selectedFilters,
+      [terminal],
+      window,
+    );
+    const personSql = buildOnboardingJourneyPersonFollowupSql(
+      selectedFilters,
+      [{ ...terminal, app: "clips", authUserId: "person-1" }],
+      window,
+    );
+
+    expect(sessionSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
+    expect(personSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
+  });
+
   it("reuses one scoped source pass and preserves output uniqueness in BigQuery", async () => {
     await setup();
     const sql = buildOnboardingJourneyEventsSql(

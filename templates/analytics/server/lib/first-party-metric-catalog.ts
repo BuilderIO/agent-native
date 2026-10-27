@@ -1973,6 +1973,7 @@ export function buildOnboardingJourneyFollowupSql(
     dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
     observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
     includeIdentityBridge: false,
+    excludeNonProductionHosts: filters.excludeNonProductionHosts,
   });
   const query = `${baseCte}${ONBOARDING_JOURNEY_SCOPE_CTES}, cohort_sessions AS (
   SELECT DISTINCT i.session_id
@@ -2113,6 +2114,9 @@ export function buildOnboardingJourneyPersonFollowupSql(
   const appExpression = TEMPLATE_EXPR.replace(/\btemplate\b/g, "e.template")
     .replace(/\bproperties\b/g, "e.properties")
     .replace(/\bapp\b/g, "e.app");
+  const nonProductionActivityFilter = filters.excludeNonProductionHosts
+    ? `\n    AND NOT ${nonProductionHostSql("e")}`
+    : "";
 
   const query = `WITH terminal_members AS (
   SELECT ROW_NUMBER() OVER (
@@ -2145,7 +2149,7 @@ export function buildOnboardingJourneyPersonFollowupSql(
     AND e.timestamp::timestamptz < NULLIF('{{activityEnd}}', '')::timestamptz
     AND e.timestamp::timestamptz < NULLIF('{{observationWatermark}}', '')::timestamptz
     AND e.received_at::timestamptz < NULLIF('{{observationWatermark}}', '')::timestamptz
-    AND ${FIRST_PARTY_TEMPLATE_FILTER}
+    AND ${FIRST_PARTY_TEMPLATE_FILTER}${nonProductionActivityFilter}
 ), activity_session_identity AS (
   SELECT session_id,
     MAX(CAST(${testIdentityEmailSql("funnel_user_email")} AS integer)) AS has_test,
