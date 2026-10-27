@@ -9,7 +9,7 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
-import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 
 interface Bullet {
   text: string;
@@ -104,25 +104,10 @@ export default defineAction({
       ? actionItemRows
       : actionItemsParsed;
 
-    let recording = null;
-    let transcript = null;
-    if (row.recordingId) {
-      const recordingRows = await db
-        .select()
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, row.recordingId))
-        .limit(1);
-      const rec = recordingRows.values().next().value;
-      if (rec && !isRecordingExpiredForEmail(rec, getRequestUserEmail())) {
-        recording = rec;
-        const transcriptRows = await db
-          .select()
-          .from(schema.recordingTranscripts)
-          .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-          .limit(1);
-        transcript = transcriptRows.values().next().value ?? null;
-      }
-    }
+    const { recording, transcript } = await loadMeetingRecordingContent(
+      row,
+      getRequestUserEmail(),
+    );
 
     return {
       meeting,

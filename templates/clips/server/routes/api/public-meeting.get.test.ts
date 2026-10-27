@@ -20,7 +20,8 @@ vi.mock("h3", () => ({
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column, value) => ({ column, value })),
 }));
 

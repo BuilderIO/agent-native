@@ -22,7 +22,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
-import { isRecordingExpiredForEmail } from "../../lib/recording-page-access.js";
+import { loadMeetingRecordingContent } from "../../lib/meeting-recording-access.js";
 
 interface Bullet {
   text: string;
@@ -95,22 +95,7 @@ export default defineEventHandler(async (event) => {
     }
 
     db ??= getDb();
-    let canReadTranscript = false;
-    if (meeting.shareTranscript && meeting.recordingId) {
-      const recordingRows = await db
-        .select({
-          ownerEmail: schema.recordings.ownerEmail,
-          expiresAt: schema.recordings.expiresAt,
-        })
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, meeting.recordingId))
-        .limit(1);
-      const recording = recordingRows.values().next().value;
-      canReadTranscript = Boolean(
-        recording && !isRecordingExpiredForEmail(recording, session?.email),
-      );
-    }
-    const [participants, actionItems, transcriptRows] = await Promise.all([
+    const [participants, actionItems, linked] = await Promise.all([
       db
         .select({
           email: schema.meetingParticipants.email,
@@ -128,25 +113,12 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.meetingActionItems)
         .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-      canReadTranscript && meeting.recordingId
-        ? db
-            .select({
-              status: schema.recordingTranscripts.status,
-              language: schema.recordingTranscripts.language,
-              fullText: schema.recordingTranscripts.fullText,
-              failureReason: schema.recordingTranscripts.failureReason,
-              segmentsJson: schema.recordingTranscripts.segmentsJson,
-              updatedAt: schema.recordingTranscripts.updatedAt,
-            })
-            .from(schema.recordingTranscripts)
-            .where(
-              eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
-            )
-            .limit(1)
-        : Promise.resolve([]),
+      meeting.shareTranscript
+        ? loadMeetingRecordingContent(meeting, session?.email)
+        : Promise.resolve(null),
     ]);
 
-    const transcript = transcriptRows[0] ?? null;
+    const transcript = linked?.transcript ?? null;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
     const transcriptSegments = transcript
       ? normalizeTranscriptSegments({

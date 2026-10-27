@@ -7,7 +7,7 @@ import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
@@ -63,38 +63,27 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    const recordingRows = meeting.recordingId
-      ? await db
-          .select({
-            id: schema.recordings.id,
-            ownerEmail: schema.recordings.ownerEmail,
-            expiresAt: schema.recordings.expiresAt,
-            title: schema.recordings.title,
-            sourceAppName: schema.recordings.sourceAppName,
-            sourceWindowTitle: schema.recordings.sourceWindowTitle,
-            description: schema.recordings.description,
-          })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, meeting.recordingId))
-          .limit(1)
-      : [];
-    const linkedRecording = recordingRows.values().next().value;
-    if (
-      linkedRecording &&
-      isRecordingExpiredForEmail(linkedRecording, getRequestUserEmail())
-    ) {
+    const linked = await loadMeetingRecordingContent(
+      meeting,
+      getRequestUserEmail(),
+    );
+    if (linked.sourcePresent && !linked.canReadTranscript)
       throw new ForbiddenError();
-    }
-
-    let transcriptText = args.overrideTranscript ?? "";
-    if (!transcriptText && linkedRecording) {
-      const [t] = await db
-        .select()
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, linkedRecording.id))
-        .limit(1);
-      transcriptText = t?.fullText ?? "";
-    }
+    const [linkedRecording] =
+      linked.canReadRecording && meeting.recordingId
+        ? await db
+            .select({
+              title: schema.recordings.title,
+              sourceAppName: schema.recordings.sourceAppName,
+              sourceWindowTitle: schema.recordings.sourceWindowTitle,
+              description: schema.recordings.description,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, meeting.recordingId))
+            .limit(1)
+        : [];
+    const transcriptText =
+      args.overrideTranscript || linked.transcript?.fullText || "";
     if (!transcriptText.trim()) {
       if (meeting.transcriptStatus === "pending") {
         return skippedFinalizeResult(args.meetingId, "transcript-pending");
@@ -217,22 +206,24 @@ export default defineAction({
         task: "summary",
         contextPack,
       });
-      if (linkedRecording) {
-        const currentRecordings = await db
+      if (linked.sourcePresent) {
+        const currentMeetings = await db
           .select({
-            ownerEmail: schema.recordings.ownerEmail,
-            expiresAt: schema.recordings.expiresAt,
+            recordingId: schema.meetings.recordingId,
+            shareTranscript: schema.meetings.shareTranscript,
           })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, linkedRecording.id))
+          .from(schema.meetings)
+          .where(eq(schema.meetings.id, args.meetingId))
           .limit(1);
-        const currentRecording = currentRecordings.values().next().value;
-        if (
-          !currentRecording ||
-          isRecordingExpiredForEmail(currentRecording, getRequestUserEmail())
-        ) {
-          throw new ForbiddenError();
-        }
+        const currentMeeting = currentMeetings.values().next().value;
+        const current =
+          currentMeeting?.recordingId === meeting.recordingId
+            ? await loadMeetingRecordingContent(
+                currentMeeting,
+                getRequestUserEmail(),
+              )
+            : null;
+        if (!current?.canReadTranscript) throw new ForbiddenError();
       }
     } catch (err) {
       await db

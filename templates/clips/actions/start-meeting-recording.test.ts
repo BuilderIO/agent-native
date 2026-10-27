@@ -143,11 +143,22 @@ describe("existing meeting recording expiry", () => {
     async (recording) => {
       state.email = "owner@example.com";
       state.meeting = { id: "meeting-1", recordingId: "existing" };
-      state.existingRecording = { id: "existing", ...recording };
+      state.existingRecording = {
+        id: "existing",
+        title: "Fake title",
+        status: "ready",
+        durationMs: 4000,
+        ...recording,
+      };
       await expect(
         action.run({ meetingId: "meeting-1" }),
       ).resolves.toMatchObject({
-        recording: state.existingRecording,
+        recording: {
+          id: "existing",
+          title: "Fake title",
+          status: "ready",
+          durationMs: 4000,
+        },
         created: false,
       });
     },

@@ -17,7 +17,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { meetingRecordingTranscriptFilter } from "../server/lib/meeting-recording-access.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
@@ -151,7 +151,7 @@ export default defineAction({
         .where(
           and(
             visible(),
-            recordingExpiryQuery(getRequestUserEmail()).available,
+            meetingRecordingTranscriptFilter(getRequestUserEmail()),
             sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
           ),
         )

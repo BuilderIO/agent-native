@@ -9,8 +9,11 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import {
+  isMeetingRecordingAvailable,
+  meetingRecordingReference,
+} from "../server/lib/meeting-recording-access.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
-import { isRecordingExpiredForEmail } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
@@ -58,11 +61,17 @@ export default defineAction({
         .where(eq(schema.recordings.id, meeting.recordingId))
         .limit(1);
       if (existing) {
-        if (isRecordingExpiredForEmail(existing, ownerEmail)) {
+        await assertAccess("recording", existing.id, "editor");
+        if (
+          !isMeetingRecordingAvailable(
+            { ...existing, hasPassword: Boolean(existing.password) },
+            ownerEmail,
+          )
+        ) {
           throw new ForbiddenError();
         }
         return {
-          recording: existing,
+          recording: meetingRecordingReference(existing),
           meetingId,
           created: false,
           scheduledEnd: meeting.scheduledEnd,
@@ -116,14 +125,16 @@ export default defineAction({
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const [recording] = await db
+    const recordingRows = await db
       .select()
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
+    const recording = recordingRows.values().next().value;
+
     return {
-      recording,
+      recording: recording ? meetingRecordingReference(recording) : undefined,
       meetingId,
       created: true,
       scheduledEnd: meeting.scheduledEnd,
