@@ -355,6 +355,65 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
   });
 
+  it("keeps Dispatch-page apps out of the granted list when the registry omits them", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not route Workspace chat to a Dispatch-page app with an invalid mounted path", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "//evil.example",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+            "customer-ticket-triage",
+          ),
+      ),
+    ).rejects.toThrow();
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
   it("defaults to exposing every discovered app", async () => {
     mocks.getUserSetting.mockResolvedValue(null);
     const apps = await runWithRequestContext(

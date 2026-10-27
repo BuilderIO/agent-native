@@ -591,11 +591,10 @@ function safeAppOrigin(
 }
 
 function isDispatchAppPageUrl(url: string): boolean {
-  try {
-    return new URL(url).pathname.startsWith("/dispatch/apps/");
-  } catch {
-    return false;
-  }
+  return (
+    safeAppOrigin({ url }) !== null &&
+    new URL(url).pathname.startsWith("/dispatch/apps/")
+  );
 }
 
 function mountedWorkspaceAppHomeUrl(app: {
@@ -796,22 +795,19 @@ export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
 }> {
-  const [settings, agents, mountedAppsLookup] = await Promise.all([
+  const [settings, agents, mountedApps] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).then(
-      (apps) => ({ apps, unavailable: false }),
-      (error: unknown) => {
-        console.warn(
-          "[dispatch] Workspace app lookup failed during MCP app discovery",
-          { status: httpStatusFromError(error) },
-        );
-        return { apps: [], unavailable: true };
-      },
-    ),
+    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
+      console.warn(
+        "[dispatch] Workspace app lookup failed during MCP app discovery",
+        { status: httpStatusFromError(error) },
+      );
+      return [];
+    }),
   ]);
   const mountedAppsById = new Map(
-    mountedAppsLookup.apps.map((app) => [normalizeAppId(app.id), app]),
+    mountedApps.map((app) => [normalizeAppId(app.id), app]),
   );
   return {
     settings,
@@ -831,10 +827,8 @@ export async function listDispatchMcpApps(): Promise<{
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
           if (homeUrl) return { ...accessible, homeUrl };
-          // Without a verified mount, a Dispatch app-page URL must not be used as the chat base.
-          const mountUnverified =
-            (mountedAppsLookup.unavailable && !mountedApp) ||
-            (sameOriginMount && !homeUrl);
+          // A Dispatch app-page URL is only usable through a verified mount.
+          const mountUnverified = !mountedApp || (sameOriginMount && !homeUrl);
           return mountUnverified && isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
             : accessible;
@@ -918,6 +912,8 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       mode: "all-apps",
       selectedAppIds: [],
     });
+    // A Dispatch app-page URL is only routable through a verified mount.
+    if (isDispatchAppPageUrl(accessible.url)) continue;
     candidatesById.set(agent.id, {
       ...accessible,
       homeUrl: defaultWorkspaceSsoHomeUrl(accessible, builtinHomeUrls),
