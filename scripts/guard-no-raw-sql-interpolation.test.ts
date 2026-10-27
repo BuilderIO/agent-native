@@ -491,6 +491,67 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("traces exported SQL helpers that return reassigned local strings", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      '  let clause = "";',
+      "  clause += ownerId;",
+      "  return clause;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([3]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 3,
+        snippet: "clause += ownerId;",
+      },
+    ]);
+  });
+
+  it("traces exported SQL helpers with local string type aliases", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "type Column = string;",
+      "export function ownerFilter(ownerId: Column) {",
+      "  return ownerId;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([3]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 3,
+        snippet: "return ownerId;",
+      },
+    ]);
+  });
+
   it("traces SQL passed through the PostgreSQL placeholder formatter", () => {
     const formatterFile = "packages/core/src/db/client.ts";
     const storeFile = "packages/core/src/store.ts";

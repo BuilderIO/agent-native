@@ -2306,19 +2306,21 @@ function intersectsLines(
 function isStringTypeNode(
   type: ts.TypeNode | undefined,
   stringTypeNames: ReadonlySet<string>,
+  checker: ts.TypeChecker,
 ): boolean {
   if (!type) return false;
+  if (mayBeStringType(checker.getTypeAtLocation(type))) return true;
   if (type.kind === ts.SyntaxKind.StringKeyword) return true;
   if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) {
     return true;
   }
   if (ts.isUnionTypeNode(type) || ts.isIntersectionTypeNode(type)) {
     return type.types.some((member) =>
-      isStringTypeNode(member, stringTypeNames),
+      isStringTypeNode(member, stringTypeNames, checker),
     );
   }
   if (ts.isParenthesizedTypeNode(type)) {
-    return isStringTypeNode(type.type, stringTypeNames);
+    return isStringTypeNode(type.type, stringTypeNames, checker);
   }
   return (
     ts.isTypeReferenceNode(type) &&
@@ -2337,37 +2339,51 @@ function hasReturnedStringValue(
 
   const stringTypeNames = new Set<string>(["String"]);
   for (const typeParameter of declaration.typeParameters ?? []) {
-    if (isStringTypeNode(typeParameter.constraint, stringTypeNames)) {
+    if (isStringTypeNode(typeParameter.constraint, stringTypeNames, checker)) {
       stringTypeNames.add(typeParameter.name.text);
     }
   }
-  if (isStringTypeNode(declaration.type, stringTypeNames)) return true;
+  if (isStringTypeNode(declaration.type, stringTypeNames, checker)) return true;
 
   const stringParameters = new Set<string>();
   for (const parameter of declaration.parameters) {
     if (
       ts.isIdentifier(parameter.name) &&
-      isStringTypeNode(parameter.type, stringTypeNames)
+      isStringTypeNode(parameter.type, stringTypeNames, checker)
     ) {
       stringParameters.add(parameter.name.text);
     }
   }
 
   const localDeclarations = new Map<string, ts.VariableDeclaration>();
+  const localWrites = new Map<string, ts.Expression[]>();
   const body = declaration.body;
   if (body && ts.isBlock(body)) {
     const collect = (node: ts.Node) => {
       if (node !== body && ts.isFunctionLike(node)) return;
-      if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.initializer
-      ) {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
         localDeclarations.set(node.name.text, node);
       }
       ts.forEachChild(node, collect);
     };
     collect(body);
+
+    const collectWrites = (node: ts.Node) => {
+      if (node !== body && ts.isFunctionLike(node)) return;
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        ts.isIdentifier(node.left) &&
+        localDeclarations.has(node.left.text)
+      ) {
+        const writes = localWrites.get(node.left.text) ?? [];
+        writes.push(node.right);
+        localWrites.set(node.left.text, writes);
+      }
+      ts.forEachChild(node, collectWrites);
+    };
+    collectWrites(body);
   }
 
   const stringMethods = new Set([
@@ -2408,10 +2424,14 @@ function hasReturnedStringValue(
       if (stringParameters.has(node.text)) return true;
       const declaration = localDeclarations.get(node.text);
       if (!declaration) return false;
-      if (isStringTypeNode(declaration.type, stringTypeNames)) return true;
-      return declaration.initializer
-        ? includesStringSource(declaration.initializer, seen)
-        : false;
+      if (isStringTypeNode(declaration.type, stringTypeNames, checker)) {
+        return true;
+      }
+      const expressions = [
+        ...(declaration.initializer ? [declaration.initializer] : []),
+        ...(localWrites.get(node.text) ?? []),
+      ];
+      return expressions.some((source) => includesStringSource(source, seen));
     }
     if (
       ts.isPropertyAccessExpression(node) ||
