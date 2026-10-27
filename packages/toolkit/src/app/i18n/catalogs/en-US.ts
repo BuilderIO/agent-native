@@ -128,6 +128,8 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
+  "onboarding.builderProvisionFailedDetail":
+    "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
