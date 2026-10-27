@@ -833,32 +833,40 @@ export function FirstRunOnboarding({
       return;
     }
     creditsV2ExposureConfirmationStartedRef.current = true;
-    void creditsV2Exposure
-      .mutateAsync({
-        confirmedVariant: creditsV2Assignment.experiment_variant,
-      })
-      .then(({ assignment }) => {
-        if (
-          assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
-          assignment.experiment_variant !==
-            creditsV2Assignment.experiment_variant
-        ) {
+    const confirmExposure = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const { assignment } = await creditsV2Exposure.mutateAsync({
+            confirmedVariant: creditsV2Assignment.experiment_variant,
+          });
+          if (
+            assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
+            assignment.experiment_variant !==
+              creditsV2Assignment.experiment_variant
+          ) {
+            throw new Error(
+              "The server did not confirm the displayed first-run Builder credits v2 assignment.",
+            );
+          }
+          creditsV2ExposureTrackedRef.current = true;
+          trackOnboardingEvent("onboarding_experiment_exposed", {
+            flow: "first_run",
+            step_id: "choice",
+            experiment_id: creditsV2Assignment.experiment_id,
+            experiment_variant: creditsV2Assignment.experiment_variant,
+          });
           return;
+        } catch (error: unknown) {
+          lastError = error;
         }
-        creditsV2ExposureTrackedRef.current = true;
-        trackOnboardingEvent("onboarding_experiment_exposed", {
-          flow: "first_run",
-          step_id: "choice",
-          experiment_id: creditsV2Assignment.experiment_id,
-          experiment_variant: creditsV2Assignment.experiment_variant,
-        });
-      })
-      .catch((error: unknown) => {
-        console.error(
-          "Failed to confirm first-run Builder credits v2 exposure:",
-          error,
-        );
-      });
+      }
+      console.error(
+        "Failed to confirm first-run Builder credits v2 exposure:",
+        lastError,
+      );
+    };
+    void confirmExposure();
   }, [
     creditsV2Assignment,
     creditsV2Enabled,

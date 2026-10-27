@@ -3305,6 +3305,56 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    it("retries post-render confirmation and tracks only after it succeeds", async () => {
+      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      let confirmationAttempts = 0;
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          confirmationAttempts += 1;
+          if (confirmationAttempts === 1) {
+            return Promise.reject(new Error("temporary confirmation failure"));
+          }
+        }
+        return Promise.resolve({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+      });
+      mocks.trackOnboardingEvent.mockImplementation((name: string) => {
+        if (name === "onboarding_experiment_exposed") {
+          expect(q("first-run-credits-offer")).not.toBeNull();
+        }
+      });
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(3, {
+        confirmedVariant: "credits",
+      });
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+    });
+
     it("shows one activate action instead of the two setup cards", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
