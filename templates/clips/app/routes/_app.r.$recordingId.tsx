@@ -493,6 +493,29 @@ export function buildRecordingBreadcrumbItems({
   ];
 }
 
+/**
+ * What the page shows for its player-data read. "share" redirects to the
+ * share page, so the page must paint only its skeleton until the redirect
+ * lands; reading the redirect and the skeleton from different checks is how
+ * a signed-out private Clip flashed "Something went wrong".
+ */
+export function recordingAccessView({
+  isPending,
+  accessStatus,
+  signedIn,
+}: {
+  isPending: boolean;
+  accessStatus: number | undefined;
+  signedIn: boolean;
+}): "pending" | "share" | "retry" | "page" {
+  if (isPending) return "pending";
+  if (accessStatus === 403 || (accessStatus === 401 && !signedIn)) {
+    return "share";
+  }
+  if (accessStatus === 401) return "retry";
+  return "page";
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -892,20 +915,20 @@ export default function RecordingPage() {
   const playerDataAccessStatus = playerDataQ.isError
     ? (playerDataQ.error as { status?: number } | undefined)?.status
     : undefined;
-  const playerDataUnauthorized = playerDataAccessStatus === 401;
-  const playerDataForbidden = playerDataAccessStatus === 403;
-
-  const shouldFallbackToShare =
-    playerDataForbidden || (playerDataUnauthorized && !session);
+  const accessView = recordingAccessView({
+    isPending: playerDataQ.isPending,
+    accessStatus: playerDataAccessStatus,
+    signedIn: Boolean(session),
+  });
   useEffect(() => {
-    if (!recordingId || !shouldFallbackToShare) return;
+    if (!recordingId || accessView !== "share") return;
     void navigate(
       `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
       {
         replace: true,
       },
     );
-  }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
+  }, [legacyShareQuery, recordingId, accessView, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const hostedFailureCode = (recording as any)?.failureCode;
@@ -2222,11 +2245,11 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isPending || shouldFallbackToShare) {
+  if (accessView === "pending" || accessView === "share") {
     return <RecordingWorkspaceSkeleton />;
   }
 
-  if (playerDataUnauthorized) {
+  if (accessView === "retry") {
     return (
       <Empty className="min-h-[calc(100dvh-3.5rem)] rounded-none border-0">
         <EmptyHeader>

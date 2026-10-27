@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRecordingBreadcrumbItems,
   mergeRecordingReactions,
+  recordingAccessView,
   removePendingReaction,
 } from "./_app.r.$recordingId";
 
@@ -130,5 +131,34 @@ describe("removePendingReaction", () => {
         recordingId: "recording-1",
       },
     ]);
+  });
+});
+
+describe("recordingAccessView", () => {
+  it.each([
+    [401, false, "share"],
+    [403, false, "share"],
+    [403, true, "share"],
+    [401, true, "retry"],
+    [404, false, "page"],
+    [500, true, "page"],
+    [undefined, false, "page"],
+  ] as const)(
+    "a %s read with signedIn=%s shows %s",
+    (accessStatus, signedIn, view) => {
+      expect(
+        recordingAccessView({ isPending: false, accessStatus, signedIn }),
+      ).toBe(view);
+    },
+  );
+
+  it("waits on the read before deciding", () => {
+    expect(
+      recordingAccessView({
+        isPending: true,
+        accessStatus: undefined,
+        signedIn: false,
+      }),
+    ).toBe("pending");
   });
 });

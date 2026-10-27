@@ -399,9 +399,10 @@ describe("direct recording route shell cue", () => {
   it("keeps protected recordings out of anonymous agent context links", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
+    // oracle-change: the signed-out 401 redirect is pinned by behavior in
+    // recordingAccessView's tests (_app.r.$recordingId.test.tsx), not by the
+    // names of the variables that used to compute it.
     expect(route).toContain("recording.hasPassword === true");
-    expect(route).toContain("const shouldFallbackToShare =");
-    expect(route).toContain("playerDataUnauthorized && !session");
   });
 
   it("opens ?panel=comments even while the recording is still loading", () => {
