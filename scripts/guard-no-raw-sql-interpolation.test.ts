@@ -1,9 +1,12 @@
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
   findChangedSqlHelperExports,
+  resolveImportedSourceFile,
 } from "./guard-no-raw-sql-interpolation.js";
 
 const FILE = "packages/core/src/example.ts";
@@ -113,12 +116,21 @@ describe("raw SQL interpolation guard", () => {
       "const { execute: runQuery } = database;",
       "runQuery(`DELETE FROM records WHERE id = ${recordId}`);",
     ]);
+    const assigned = source([
+      "const database = getDbExec();",
+      "let runQuery: (...args: unknown[]) => unknown;",
+      "({ execute: runQuery } = database);",
+      "runQuery(`DELETE FROM records WHERE id = ${recordId}`);",
+    ]);
 
     expect(
       findRawSqlInterpolationViolations(FILE, direct, new Set([2])),
     ).toHaveLength(1);
     expect(
       findRawSqlInterpolationViolations(FILE, renamed, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, assigned, new Set([4])),
     ).toHaveLength(1);
   });
 
@@ -522,6 +534,98 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("traces exported SQL helpers through export-list aliases", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const helper = [
+      "function ownerFilter(ownerId: string) {",
+      "  return `owner_id = ${ownerId}`;",
+      "}",
+      "export { ownerFilter as ownerPredicate };",
+    ].join("\n");
+    const store = source([
+      'import { ownerPredicate } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records WHERE ${ownerPredicate(ownerId)}`);",
+    ]);
+
+    expect(
+      findChangedSqlHelperExports(helper, helperFile, new Set([2])),
+    ).toEqual(new Set(["ownerPredicate"]));
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 2,
+        snippet: "return `owner_id = ${ownerId}`;",
+      },
+    ]);
+  });
+
+  it("traces an exported SQL helper into JavaScript callers", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.js";
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      "  return `owner_id = ${ownerId}`;",
+      "}",
+    ].join("\n");
+    const store = source([
+      'import { ownerFilter } from "./sql-helpers.js";',
+      "database.execute(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+          [storeFile, { source: store, addedLines: new Set<number>() }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: helperFile,
+        line: 2,
+        snippet: "return `owner_id = ${ownerId}`;",
+      },
+    ]);
+  });
+
+  it("reports a new interpolated string passed to an unchanged execute wrapper", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
   it("traces exported SQL helpers with local string type aliases", () => {
     const helperFile = "packages/core/src/sql-helpers.ts";
     const storeFile = "packages/core/src/store.ts";
@@ -648,6 +752,32 @@ describe("raw SQL interpolation guard", () => {
           snippet: "const query = { sql: statement };",
         },
       ],
+    );
+  });
+
+  it("checks an overloaded SQL helper implementation before its alias", () => {
+    const helperFile = "packages/core/src/sql-helpers.ts";
+    const helper = [
+      "function ownerFilter(ownerId: string): string;",
+      "function ownerFilter(ownerId: string) {",
+      "  return `owner_id = ${ownerId}`;",
+      "}",
+      "export { ownerFilter as ownerPredicate };",
+    ].join("\n");
+
+    expect(
+      findChangedSqlHelperExports(helper, helperFile, new Set([3])),
+    ).toEqual(new Set(["ownerPredicate"]));
+  });
+
+  it("resolves an explicit JavaScript wrapper when no TypeScript sibling exists", () => {
+    const sourceFile = resolveImportedSourceFile(
+      "./agent-friction-report.mjs",
+      resolve(process.cwd(), "scripts/guard-no-raw-sql-interpolation.test.ts"),
+    );
+
+    expect(sourceFile?.fileName).toBe(
+      resolve(process.cwd(), "scripts/agent-friction-report.mjs"),
     );
   });
 
@@ -1227,6 +1357,54 @@ describe("raw SQL interpolation guard", () => {
         [],
       );
     }
+  });
+
+  it("accepts a pragma after an object property separator", () => {
+    const text = source([
+      "const query = {",
+      "  sql: `SELECT ${recordId}`, // raw-sql-ok: reviewed adapter boundary",
+      "  args: [],",
+      "};",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2, 5])),
+    ).toEqual([]);
+  });
+
+  it("scopes a same-line pragma to the statement it follows", () => {
+    const text = source([
+      "const reviewed = { sql: `SELECT ${reviewedId}` }; /* raw-sql-ok: reviewed legacy clause */ const unsafe = { sql: `SELECT ${unsafeId}` };",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([1]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 1,
+          snippet:
+            "const reviewed = { sql: `SELECT ${reviewedId}` }; /* raw-sql-ok: reviewed legacy clause */ const unsafe = { sql: `SELECT ${unsafeId}` };",
+        },
+      ],
+    );
+  });
+
+  it("does not let a later same-line pragma suppress an earlier statement", () => {
+    const text = source([
+      "const unsafe = { sql: `SELECT ${unsafeId}` }; const reviewed = { sql: `SELECT ${reviewedId}` }; // raw-sql-ok: reviewed compatibility clause",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([1]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 1,
+          snippet:
+            "const unsafe = { sql: `SELECT ${unsafeId}` }; const reviewed = { sql: `SELECT ${reviewedId}` }; // raw-sql-ok: reviewed compatibility clause",
+        },
+      ],
+    );
   });
 
   it("does not accept an empty pragma reason", () => {

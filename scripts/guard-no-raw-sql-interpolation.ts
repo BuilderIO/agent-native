@@ -642,7 +642,7 @@ function isDbExecSymbol(
   );
 }
 
-function resolveImportedSourceFile(
+export function resolveImportedSourceFile(
   moduleName: string,
   containingFile: string,
 ): ts.SourceFile | undefined {
@@ -664,16 +664,18 @@ function resolveImportedSourceFile(
     if (ext === ".cjs") return ".cts";
     return ext === ".jsx" ? ".tsx" : ".ts";
   });
-  const candidates = sourceExtension.test(modulePath)
-    ? [jsSourcePath]
-    : [
-        `${modulePath}.ts`,
-        `${modulePath}.tsx`,
-        `${modulePath}.mts`,
-        `${modulePath}.cts`,
-        path.join(modulePath, "index.ts"),
-        path.join(modulePath, "index.tsx"),
-      ];
+  const candidates = /\.(?:[cm]?js|jsx)$/i.test(modulePath)
+    ? [jsSourcePath, modulePath]
+    : sourceExtension.test(modulePath)
+      ? [modulePath]
+      : [
+          `${modulePath}.ts`,
+          `${modulePath}.tsx`,
+          `${modulePath}.mts`,
+          `${modulePath}.cts`,
+          path.join(modulePath, "index.ts"),
+          path.join(modulePath, "index.tsx"),
+        ];
   const candidate = candidates.find((fileName) => existsSync(fileName));
   if (!candidate) return undefined;
   return ts.createSourceFile(
@@ -1323,6 +1325,30 @@ function buildSqlAnalysis(
           }
         }
       } else {
+        if (
+          ts.isObjectLiteralExpression(node.left) &&
+          isDbExecExpression(node.right, checker, sourceFile)
+        ) {
+          for (const property of node.left.properties) {
+            if (
+              ts.isShorthandPropertyAssignment(property) &&
+              property.name.text === "execute"
+            ) {
+              const symbol = checker.getSymbolAtLocation(property.name);
+              if (symbol) executeAliases.add(symbol);
+            } else if (
+              ts.isPropertyAssignment(property) &&
+              ((ts.isIdentifier(property.name) &&
+                property.name.text === "execute") ||
+                (ts.isStringLiteral(property.name) &&
+                  property.name.text === "execute")) &&
+              ts.isIdentifier(property.initializer)
+            ) {
+              const symbol = checker.getSymbolAtLocation(property.initializer);
+              if (symbol) executeAliases.add(symbol);
+            }
+          }
+        }
         const receiver = sqlPropertyReceiver(node.left);
         const symbol = receiver && checker.getSymbolAtLocation(receiver);
         if (symbol) {
@@ -2048,11 +2074,97 @@ function findUnsafeSqlSources(
     : new Set();
 }
 
-function hasPragma(
-  lines: string[],
-  startLine: number,
-  endLine: number,
-): boolean {
+function executeWrapperArgumentIndexes(
+  call: ts.CallExpression,
+  analysis: SqlAnalysis,
+): number[] {
+  const symbol = analysis.checker.getSymbolAtLocation(call.expression);
+  const resolvedSymbol =
+    symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0
+      ? analysis.checker.getAliasedSymbol(symbol)
+      : symbol;
+  const functionSymbols = [symbol, resolvedSymbol].filter(
+    (candidate): candidate is ts.Symbol => candidate !== undefined,
+  );
+  const declarations = functionSymbols.flatMap((candidate) => {
+    const localDeclarations = analysis.functions.get(candidate);
+    if (localDeclarations) return localDeclarations;
+    return (candidate.declarations ?? []).flatMap((declaration) => {
+      if (
+        ts.isFunctionLike(declaration) &&
+        "body" in declaration &&
+        declaration.body !== undefined
+      ) {
+        return [declaration];
+      }
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+        const fn = functionExpression(declaration.initializer);
+        return fn ? [fn] : [];
+      }
+      return [];
+    });
+  });
+  const indexes = new Set<number>();
+
+  for (const declaration of new Set(declarations)) {
+    if (!declaration.body) continue;
+    const wrapperAnalysis =
+      analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis;
+    const parameterIndexes = new Map<ts.Node, number>();
+    declaration.parameters.forEach((parameter, index) => {
+      if (!ts.isIdentifier(parameter.name)) return;
+      const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
+        parameter.name,
+      );
+      if (parameterSymbol?.valueDeclaration) {
+        parameterIndexes.set(parameterSymbol.valueDeclaration, index);
+      }
+    });
+    if (parameterIndexes.size === 0) continue;
+
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        isExecuteCall(
+          node.expression,
+          wrapperAnalysis.checker,
+          node.getSourceFile(),
+          wrapperAnalysis.executeAliases,
+        )
+      ) {
+        const argument = executeArgument(
+          node,
+          wrapperAnalysis.checker,
+          node.getSourceFile(),
+        );
+        if (argument) {
+          const sources = findUnsafeSqlSources(
+            argument,
+            wrapperAnalysis,
+            new Set(),
+            new Set(),
+            true,
+          );
+          for (const source of sources) {
+            const index = parameterIndexes.get(source);
+            if (index !== undefined) indexes.add(index);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(declaration.body);
+  }
+
+  return [...indexes];
+}
+
+function hasPragma(node: ts.Node): boolean {
+  const sourceFile = node.getSourceFile();
+  const text = sourceFile.text;
+  const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+  const endLine = lineNumberAt(sourceFile, node.end);
+  const lines = text.split(/\r?\n/);
   const previousLine = lines[startLine - 2] ?? "";
   const trimmedPreviousLine = previousLine.trim();
   const previousLineIsComment =
@@ -2063,9 +2175,52 @@ function hasPragma(
     (trimmedPreviousLine.startsWith("*") &&
       (!trimmedPreviousLine.includes("*/") ||
         trimmedPreviousLine.endsWith("*/")));
+  if (previousLineIsComment && pragma.test(previousLine)) return true;
+
+  const hasPragmaComment = (
+    ranges: readonly ts.CommentRange[] | undefined,
+    expectedLine: number,
+  ) =>
+    ranges?.some(
+      (range) =>
+        lineNumberAt(sourceFile, range.pos) === expectedLine &&
+        pragma.test(text.slice(range.pos, range.end)),
+    ) ?? false;
+
+  if (pragma.test(text.slice(node.getStart(sourceFile), node.end))) return true;
+  const lineEnd = text.indexOf("\n", node.end);
+  const endOfLine = lineEnd === -1 ? text.length : lineEnd;
+  const trailingLine = text.slice(node.end, endOfLine);
+  const commentPrefix = /^\s*,?\s*(\/\/|--|\/\*)/.exec(trailingLine);
+  if (commentPrefix?.[1]) {
+    const commentStart = commentPrefix[0].length - commentPrefix[1].length;
+    const comment = trailingLine.slice(commentStart);
+    const closeIndex = comment.startsWith("/*") ? comment.indexOf("*/") : -1;
+    const blockCommentEnd = closeIndex === -1 ? comment.length : closeIndex + 2;
+    if (pragma.test(comment.slice(0, blockCommentEnd))) return true;
+  }
+  if (
+    hasPragmaComment(
+      ts.getLeadingCommentRanges(text, node.getFullStart()),
+      startLine,
+    )
+  ) {
+    return true;
+  }
+  if (hasPragmaComment(ts.getTrailingCommentRanges(text, node.end), endLine)) {
+    return true;
+  }
+
+  let statement: ts.Node = node;
+  while (statement.parent && !ts.isStatement(statement)) {
+    statement = statement.parent;
+  }
   return (
-    (previousLineIsComment && pragma.test(previousLine)) ||
-    lines.slice(startLine - 1, endLine).some((line) => pragma.test(line))
+    ts.isStatement(statement) &&
+    hasPragmaComment(
+      ts.getTrailingCommentRanges(text, statement.end),
+      lineNumberAt(sourceFile, statement.end),
+    )
   );
 }
 
@@ -2179,8 +2334,7 @@ export function findRawSqlInterpolationViolationsInSources(
     const endLine = lineNumberAt(sourceFile, node.end);
     const filePath = path.resolve(sourceFile.fileName);
     const lines = linesFor(sourceFile);
-    if (!touchesAddedLines(node) || hasPragma(lines, startLine, endLine))
-      return;
+    if (!touchesAddedLines(node) || hasPragma(node)) return;
     const file = path.relative(rootDir, filePath).replace(/\\/g, "/");
     const key = `${file}:${startLine}`;
     if (reportedLines.has(key)) return;
@@ -2197,17 +2351,7 @@ export function findRawSqlInterpolationViolationsInSources(
     sink: ts.Node,
     value: ts.Expression,
   ) => {
-    const sinkFile = sink.getSourceFile();
-    const sinkLines = linesFor(sinkFile);
-    if (
-      hasPragma(
-        sinkLines,
-        lineNumberAt(sinkFile, sink.getStart(sinkFile)),
-        lineNumberAt(sinkFile, sink.end),
-      )
-    ) {
-      return;
-    }
+    if (hasPragma(sink)) return;
     const unsafeSources = findUnsafeSqlSources(
       value,
       analysis,
@@ -2266,6 +2410,21 @@ export function findRawSqlInterpolationViolationsInSources(
       ) {
         const argument = executeArgument(node, checker, sourceFile);
         if (argument) reportUnsafeSqlValue(analysis, node, argument);
+      }
+      if (
+        ts.isCallExpression(node) &&
+        touchesAddedLines(node) &&
+        !isExecuteCall(
+          node.expression,
+          checker,
+          sourceFile,
+          analysis.executeAliases,
+        )
+      ) {
+        for (const index of executeWrapperArgumentIndexes(node, analysis)) {
+          const argument = node.arguments[index];
+          if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        }
       }
       if (
         ts.isBinaryExpression(node) &&
@@ -2502,6 +2661,40 @@ export function findChangedSqlHelperExports(
   );
   const checker = createChecker(sourceFile);
   const names = new Set<string>();
+  const changedStringHelper = (localName: string): boolean => {
+    for (const statement of sourceFile.statements) {
+      if (
+        ts.isFunctionDeclaration(statement) &&
+        statement.name?.text === localName
+      ) {
+        if (
+          intersectsLines(statement, sourceFile, addedLines) &&
+          hasReturnedStringValue(statement, checker, sourceFile)
+        ) {
+          return true;
+        }
+      }
+      if (!ts.isVariableStatement(statement)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (
+          !ts.isIdentifier(declaration.name) ||
+          declaration.name.text !== localName ||
+          declaration.initializer === undefined
+        ) {
+          continue;
+        }
+        const fn = functionExpression(declaration.initializer);
+        if (
+          fn &&
+          intersectsLines(declaration, sourceFile, addedLines) &&
+          hasReturnedStringValue(fn, checker, sourceFile)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
   for (const statement of sourceFile.statements) {
     if (
       ts.isFunctionDeclaration(statement) &&
@@ -2533,6 +2726,16 @@ export function findChangedSqlHelperExports(
         }
       }
     }
+    if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const specifier of statement.exportClause.elements) {
+        const localName = specifier.propertyName ?? specifier.name;
+        if (changedStringHelper(localName.text)) names.add(specifier.name.text);
+      }
+    }
   }
   return names;
 }
@@ -2556,6 +2759,10 @@ function gitGrepMatches(names: readonly string[]): string[] {
         ":(glob)**/*.tsx",
         ":(glob)**/*.mts",
         ":(glob)**/*.cts",
+        ":(glob)**/*.js",
+        ":(glob)**/*.jsx",
+        ":(glob)**/*.mjs",
+        ":(glob)**/*.cjs",
       ],
       { cwd: rootDir, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
     );
@@ -2573,6 +2780,92 @@ function gitGrepMatches(names: readonly string[]): string[] {
       return [];
     }
     throw error;
+  }
+}
+
+function hasInterpolatedTemplate(node: ts.Node): boolean {
+  let found = false;
+  const visit = (current: ts.Node) => {
+    if (ts.isTemplateExpression(current)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
+function addChangedSqlExecuteWrapperModules(
+  sources: Map<string, RawSqlGuardSource>,
+): void {
+  for (const [file, input] of [...sources]) {
+    if (input.addedLines.size === 0) continue;
+    const sourceFile = ts.createSourceFile(
+      file,
+      input.source,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind(file),
+    );
+    const calledNames = new Set<string>();
+    const collectCalls = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        node.arguments.some(hasInterpolatedTemplate)
+      ) {
+        if (ts.isIdentifier(node.expression)) {
+          calledNames.add(node.expression.text);
+        } else if (
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression)
+        ) {
+          calledNames.add(node.expression.expression.text);
+        }
+      }
+      ts.forEachChild(node, collectCalls);
+    };
+    collectCalls(sourceFile);
+    if (calledNames.size === 0) continue;
+
+    for (const statement of sourceFile.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        !statement.importClause
+      ) {
+        continue;
+      }
+      const bindings = statement.importClause.namedBindings;
+      const defaultName = statement.importClause.name?.text;
+      const namespaceName =
+        bindings && ts.isNamespaceImport(bindings)
+          ? bindings.name.text
+          : undefined;
+      const hasMatchingNamedImport =
+        bindings &&
+        ts.isNamedImports(bindings) &&
+        bindings.elements.some((element) => calledNames.has(element.name.text));
+      if (
+        (defaultName && calledNames.has(defaultName)) ||
+        (namespaceName && calledNames.has(namespaceName)) ||
+        hasMatchingNamedImport
+      ) {
+        const moduleSource = resolveImportedSourceFile(
+          statement.moduleSpecifier.text,
+          sourceFile.fileName,
+        );
+        if (moduleSource) {
+          const modulePath = path.resolve(moduleSource.fileName);
+          if (!sources.has(modulePath)) {
+            sources.set(modulePath, {
+              source: moduleSource.text,
+              addedLines: new Set(),
+            });
+          }
+        }
+      }
+    }
   }
 }
 
@@ -2653,6 +2946,7 @@ function main() {
   let findings: RawSqlInterpolationFinding[];
   try {
     addChangedSqlHelperCallers(sources);
+    addChangedSqlExecuteWrapperModules(sources);
     findings = findRawSqlInterpolationViolationsInSources(sources);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
