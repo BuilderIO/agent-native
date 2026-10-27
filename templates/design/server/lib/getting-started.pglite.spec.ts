@@ -140,6 +140,36 @@ describe("Getting started completion", () => {
     );
   });
 
+  it("keeps a completed template step available after its design is removed", async () => {
+    const saveTemplate = GETTING_STARTED_STEPS.find(
+      (step) => step.id === "save-template",
+    );
+    expect(saveTemplate?.isAvailable).toBeTypeOf("function");
+    await insert(`INSERT INTO designs (id, owner_email) VALUES ('d1', $1)`, ME);
+    expect(await as(async () => await saveTemplate!.isAvailable!(ctx()))).toBe(
+      true,
+    );
+    expect(await as(async () => await saveTemplate!.isComplete(ctx()))).toBe(
+      false,
+    );
+
+    await insert(
+      `INSERT INTO design_templates (id, owner_email) VALUES ('t1', $1)`,
+      ME,
+    );
+    expect(await as(async () => await saveTemplate!.isComplete(ctx()))).toBe(
+      true,
+    );
+    await mocks.pglite.exec(`DELETE FROM designs WHERE id = 'd1'`);
+
+    expect(await as(async () => await saveTemplate!.isAvailable!(ctx()))).toBe(
+      true,
+    );
+    expect(await as(async () => await saveTemplate!.isComplete(ctx()))).toBe(
+      true,
+    );
+  });
+
   it("counts only designs the user owns", async () => {
     expect(await as(() => hasOwnDesign(ctx()))).toBe(false);
     await insert(

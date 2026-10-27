@@ -170,6 +170,8 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ search: "", hash: "", key: "test" }),
+  useNavigationType: () => "POP",
   useNavigate: () => mocks.navigate,
   useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
   Link: ({ children }: { children: unknown }) => <>{children as never}</>,

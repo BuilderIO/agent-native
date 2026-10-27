@@ -191,6 +191,11 @@ export async function hasSavedTemplate(ctx: Ctx): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** Keep the completed step visible if its source design is later removed. */
+async function isSaveTemplateStepVisible(ctx: Ctx): Promise<boolean> {
+  return (await hasOwnDesign(ctx)) || (await hasSavedTemplate(ctx));
+}
+
 type GettingStartedStep = Pick<
   OnboardingStep,
   | "id"
@@ -250,7 +255,7 @@ export const GETTING_STARTED_STEPS: GettingStartedStep[] = [
     title: "Save a design as a template",
     description: "Turn a finished design into something your team can reuse.",
     href: "/home?gettingStarted=save-template#design-home-library",
-    isAvailable: hasOwnDesign,
+    isAvailable: isSaveTemplateStepVisible,
     isComplete: hasSavedTemplate,
   },
 ];
