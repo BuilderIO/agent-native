@@ -23,7 +23,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
-        alt: "कोडिंग एजेंट की चैट, जिसमें \"/visual-recap of everything you changed in this thread\" भेजा गया है, और एजेंट के जवाब में पब्लिश हुए रीकैप का लिंक है।"
+        alt: 'कोडिंग एजेंट की चैट, जिसमें "/visual-recap of everything you changed in this thread" भेजा गया है, और एजेंट के जवाब में पब्लिश हुए रीकैप का लिंक है।'
     - title: "पहले बदलाव को तस्वीरों में देखें"
       body: "पहले और बाद के वायरफ़्रेम, मार्क किए गए डेटा बदलाव और बदली गई फ़ाइलों के मैप से शुरू करें। फिर **Key changes** खोलें, जहाँ हर अहम फ़ाइल का अपना टैब है, जिसमें आमने-सामने का diff और नोट्स हैं।"
       image:

@@ -21,7 +21,7 @@ how_to:
   heading: コーディングエージェントが作る前に画面をワイヤーフレーム化する方法
   steps:
     - title: エージェントに画面を依頼する
-      body: '[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)でClaude Code、Codex、Cursor、OpenCode、GitHub CopilotにPlanを追加し、`/visual-plan`と入力して欲しい画面を説明します。コーディングエージェントがアプリを読み、画面のワイヤーフレームを作って計画のリンクを返します。'
+      body: "[1つのインストールコマンド](https://www.agent-native.com/docs/plan-plugin/)でClaude Code、Codex、Cursor、OpenCode、GitHub CopilotにPlanを追加し、`/visual-plan`と入力して欲しい画面を説明します。コーディングエージェントがアプリを読み、画面のワイヤーフレームを作って計画のリンクを返します。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
@@ -33,7 +33,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
         alt: 請求書一覧のフレームの拡大図。ステータスフィルターにコメントがピン留めされています。コメント欄はエージェント宛てに設定され、ステータスフィルターを「すべて」「支払い済み」「期限超過」のセグメントコントロールにするよう書かれています。
     - title: コメントをエージェントに送る
-      body: '**エージェントに送信**をクリックして**エージェント用にコピー**を選び、プロンプトをエージェントのチャットに貼り付けます。コーディングエージェントが計画を更新し、対応したコメントを解決します。画面に納得したら、エージェントに実装を頼みましょう。'
+      body: "**エージェントに送信**をクリックして**エージェント用にコピー**を選び、プロンプトをエージェントのチャットに貼り付けます。コーディングエージェントが計画を更新し、対応したコメントを解決します。画面に納得したら、エージェントに実装を頼みましょう。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff

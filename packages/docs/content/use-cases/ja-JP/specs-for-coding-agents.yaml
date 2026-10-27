@@ -26,7 +26,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
         alt: 会議メモからチーム招待の仕様書を依頼するエージェントチャット。エージェントの返信には書いたセクションが並び、その横に新しいページがあります。
     - title: コーディングエージェントで開く
-      body: '**共有**で**エージェント**を開き、**Claude Code で開く**か**Codex で開く**を選びます。エージェントがページを読みます。先にContentの接続を求められることもあります。CursorやVS Codeでは、Contentを追加し、**エージェント用指示をコピー**をクリックして貼り付けます。'
+      body: "**共有**で**エージェント**を開き、**Claude Code で開く**か**Codex で開く**を選びます。エージェントがページを読みます。先にContentの接続を求められることもあります。CursorやVS Codeでは、Contentを追加し、**エージェント用指示をコピー**をクリックして貼り付けます。"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e

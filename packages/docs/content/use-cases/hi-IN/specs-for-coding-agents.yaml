@@ -15,12 +15,12 @@ hero:
   image:
     dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
     light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
-    alt: "Content में खुला \"Team invites\" नाम का स्पेक, जिसमें Goals, Non-goals, Decisions और Open questions सेक्शन हैं, और बाईं ओर पेज ट्री है। दाईं ओर एजेंट चैट ने एक फ़ैसला जोड़ा है कि इनवाइट लिंक कितने समय तक चलते हैं।"
+    alt: 'Content में खुला "Team invites" नाम का स्पेक, जिसमें Goals, Non-goals, Decisions और Open questions सेक्शन हैं, और बाईं ओर पेज ट्री है। दाईं ओर एजेंट चैट ने एक फ़ैसला जोड़ा है कि इनवाइट लिंक कितने समय तक चलते हैं।'
 how_to:
   heading: "अपने कोडिंग एजेंट के लिए स्पेक कैसे लिखें"
   steps:
     - title: "एजेंट के साथ स्पेक लिखें"
-      body: "साइडबार में **+** पर क्लिक करें, **पेज** चुनें और अपने नोट्स पेस्ट करें, या [Content के बिल्ट-इन एजेंट](https://www.agent-native.com/docs/template-content/) से उनसे \"नए फ़ीचर के लिए PRD का ड्राफ़्ट बनाओ\" कहें। इसे हाथ से एडिट करें, या कोई सेक्शन चुनकर दोबारा लिखने को कहें।"
+      body: 'साइडबार में **+** पर क्लिक करें, **पेज** चुनें और अपने नोट्स पेस्ट करें, या [Content के बिल्ट-इन एजेंट](https://www.agent-native.com/docs/template-content/) से उनसे "नए फ़ीचर के लिए PRD का ड्राफ़्ट बनाओ" कहें। इसे हाथ से एडिट करें, या कोई सेक्शन चुनकर दोबारा लिखने को कहें।'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b

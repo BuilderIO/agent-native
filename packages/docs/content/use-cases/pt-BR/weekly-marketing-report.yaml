@@ -25,7 +25,7 @@ how_to:
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
         alt: Detalhe da página Fontes de dados com o Google Analytics e o HubSpot conectados. O painel de configuração do HubSpot está aberto ao lado, com o token configurado e o teste de conexão mostrando Connection successful.
     - title: Pergunte como foi a semana
-      body: "Pergunte o que você perguntaria a um analista. Por exemplo: \"Como foram os cadastros vindos da busca orgânica nesta semana em comparação com a anterior?\" O agente roda uma consulta ao vivo nos seus dados e responde com um gráfico."
+      body: 'Pergunte o que você perguntaria a um analista. Por exemplo: "Como foram os cadastros vindos da busca orgânica nesta semana em comparação com a anterior?" O agente roda uma consulta ao vivo nos seus dados e responde com um gráfico.'
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb

@@ -25,13 +25,13 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
-        alt: "Design होम के प्रॉम्प्ट बॉक्स का क्लोज़-अप, जिसमें एक्सपेंस ऐप के ऑनबोर्डिंग फ़्लो का छोटा ब्रीफ़ पेस्ट है, जो \"Show me three directions\" पर खत्म होता है।"
+        alt: 'Design होम के प्रॉम्प्ट बॉक्स का क्लोज़-अप, जिसमें एक्सपेंस ऐप के ऑनबोर्डिंग फ़्लो का छोटा ब्रीफ़ पेस्ट है, जो "Show me three directions" पर खत्म होता है।'
     - title: "पसंद की दिशा चुनें"
       body: "Design तीनों दिशाओं को कैनवस पर अगल-बगल रखता है, हर एक अपनी स्टाइल में काम करती स्क्रीन। हर एक को **इंटरैक्ट** में आज़माएँ, **दिशा चुनें** के नीचे एक चुनें, और एजेंट उसका बाकी हिस्सा बना देता है।"
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
-        alt: "कैनवस पर ऑनबोर्डिंग की तीनों दिशाएँ अगल-बगल, और एजेंट चैट में \"Pick a direction\" के साथ हर दिशा के नाम का बटन।"
+        alt: 'कैनवस पर ऑनबोर्डिंग की तीनों दिशाएँ अगल-बगल, और एजेंट चैट में "Pick a direction" के साथ हर दिशा के नाम का बटन।'
     - title: "अपनी टीम के साथ बेहतर बनाएँ"
       body: "**डिज़ाइन** टैब में कॉपी, स्पेसिंग और रंग एडिट करें, या कोई एलिमेंट चुनकर एजेंट से कहें। जब कोई टीममेट कमेंट पिन करे, तो **एजेंट को भेजें** पर क्लिक करें और एजेंट वह बदलाव कर देता है।"
       image:

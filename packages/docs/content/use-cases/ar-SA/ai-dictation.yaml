@@ -36,7 +36,7 @@ how_to:
       image:
         dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
         light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
-        alt: 'قائمة البحث في Clips وقد كُتبت فيها «webhook»، وتسرد إملاءين سابقين تحت إملاء: مطالبة أُمليت في Cursor ورسالة أُمليت في Slack.'
+        alt: "قائمة البحث في Clips وقد كُتبت فيها «webhook»، وتسرد إملاءين سابقين تحت إملاء: مطالبة أُمليت في Cursor ورسالة أُمليت في Slack."
 features:
   heading: "كل ما تحتاجه لتملي بدلًا من أن تكتب"
   items:
