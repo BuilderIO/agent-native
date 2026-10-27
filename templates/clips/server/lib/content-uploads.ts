@@ -45,8 +45,10 @@ export function activeUploadFromContent() {
 }
 
 /**
- * True for an upload whose page is in Trash. It lists nowhere, not even in a
- * folder someone moved it into, until its page is restored.
+ * True for an upload whose page is in Trash. Every Clips list and folder
+ * count leaves it out, a folder or space someone moved it into included,
+ * until its page is restored; search still finds it, as it does a Clip in
+ * Trash.
  */
 export function uploadFromTrashedPage() {
   return sql`(${uploadedFromContent()} AND NOT ${activeUploadFromContent()})`;

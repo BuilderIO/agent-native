@@ -184,6 +184,7 @@ export default defineAction({
           userEmail: ctx?.userEmail,
         },
       ),
+      not(uploadFromTrashedPage()),
     ];
 
     if (args.recordingIds) {
@@ -200,9 +201,8 @@ export default defineAction({
     // admits all owner rows regardless of org, so library must add both the
     // owner-email and current-org predicates to scope correctly. A Clip
     // uploaded from a Content page is never in Library's own list, and lists
-    // under From Content only while its page binding is active. A folder
-    // someone moved it into lists it on the same terms; one linked into a
-    // page stays in Library.
+    // under From Content, or in a folder or space someone moved it into, only
+    // while its page isn't in Trash; one linked into a page stays in Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -217,8 +217,6 @@ export default defineAction({
         whereClauses.push(activeUploadFromContent());
       } else if (args.folderId == null) {
         whereClauses.push(not(uploadedFromContent()));
-      } else {
-        whereClauses.push(not(uploadFromTrashedPage()));
       }
     }
 

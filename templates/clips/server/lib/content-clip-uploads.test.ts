@@ -2005,9 +2005,9 @@ describe("From Content and Library in Clips", () => {
   async function list(
     editor: string,
     orgId: string,
-    view: "library" | "from-content",
+    view: "library" | "from-content" | "space",
     countOnly = false,
-    folderId?: string,
+    where: { folderId?: string; spaceId?: string } = {},
   ) {
     return withDbExec(coreDb(), () =>
       runWithRequestContext({ userEmail: editor, orgId }, () =>
@@ -2020,7 +2020,7 @@ describe("From Content and Library in Clips", () => {
             offset: 0,
             countOnly,
             includeMedia: false,
-            ...(folderId ? { folderId } : {}),
+            ...where,
           },
           { caller: "frontend", userEmail: editor },
         ),
@@ -2081,11 +2081,14 @@ describe("From Content and Library in Clips", () => {
       [moved],
     );
 
-    const folder = await list(editor, orgId, "library", false, "folder-1");
+    const folder = await list(editor, orgId, "library", false, {
+      folderId: "folder-1",
+    });
     expect(folder.recordings.map((r: any) => r.id)).toEqual([moved]);
-    expect((await list(editor, orgId, "library", true, "folder-1")).total).toBe(
-      1,
-    );
+    expect(
+      (await list(editor, orgId, "library", true, { folderId: "folder-1" }))
+        .total,
+    ).toBe(1);
     expect((await list(editor, orgId, "library")).recordings).toEqual([]);
     const fromContent = await list(editor, orgId, "from-content");
     expect(fromContent.recordings.map((r: any) => r.id).sort()).toEqual(
@@ -2116,7 +2119,7 @@ describe("From Content and Library in Clips", () => {
     expect((await list(editor, orgId, "library", true)).total).toBe(0);
   });
 
-  it("drops an upload from the folder someone moved it into while its page is in Trash", async () => {
+  it("drops an upload from the folder and space someone moved it into while its page is in Trash", async () => {
     const editor = await clipsEditor();
     const bearer = await token({ sub: editor });
     const trashed = (await startUpload(bearer)).body.recordingId;
@@ -2131,9 +2134,10 @@ describe("From Content and Library in Clips", () => {
       title: "rec-made-in-clips",
       status: "ready",
       folderId: "folder-1",
+      spaceIds: '["space-1"]',
     });
     await client.query(
-      "UPDATE recordings SET folder_id = 'folder-1' WHERE id = ANY($1)",
+      `UPDATE recordings SET folder_id = 'folder-1', space_ids = '["space-1"]' WHERE id = ANY($1)`,
       [[trashed, kept]],
     );
     await client.query(
@@ -2146,13 +2150,24 @@ describe("From Content and Library in Clips", () => {
       orgId,
       "library",
       false,
-      "folder-1",
+      { folderId: "folder-1" },
     );
     expect(folder.recordings.map((r) => r.id).sort()).toEqual(
       [kept, "rec-made-in-clips"].sort(),
     );
-    expect((await list(editor, orgId, "library", true, "folder-1")).total).toBe(
-      2,
+    expect(
+      (await list(editor, orgId, "library", true, { folderId: "folder-1" }))
+        .total,
+    ).toBe(2);
+    const space: { recordings: { id: string }[] } = await list(
+      editor,
+      orgId,
+      "space",
+      false,
+      { folderId: "folder-1", spaceId: "space-1" },
+    );
+    expect(space.recordings.map((r) => r.id).sort()).toEqual(
+      [kept, "rec-made-in-clips"].sort(),
     );
   });
 
