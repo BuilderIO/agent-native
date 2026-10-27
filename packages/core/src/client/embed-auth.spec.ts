@@ -197,6 +197,29 @@ describe("embed auth client", () => {
     ).toBe("transplanted-token");
   });
 
+  it("does not reuse an external token when its workspace target has no mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/mail",
+      workspaceAppMountPaths: ["/mail"],
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/reports/detail",
+      token: "unresolved-target-token",
+    };
+    window.history.replaceState(null, "", "/mail/inbox");
+
+    const auth = await loadEmbedAuth();
+
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(embedTokenStorageKey("", true))).toBeNull();
+  });
+
   it("forwards requests when the current workspace route has no mount", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }

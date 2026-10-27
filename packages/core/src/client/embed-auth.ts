@@ -111,10 +111,10 @@ function externalEmbedTokenStorageKey(win: Window): string | null {
   ).__AGENT_NATIVE_EXTERNAL_EMBED;
   const target = config?.target;
   if (typeof target !== "string" || !target.startsWith("/")) return null;
-  return embedTokenStorageKey(
-    resolveExternalEmbedTargetAppBasePath(target),
-    isWorkspaceRuntime(),
-  );
+  const workspaceRuntime = isWorkspaceRuntime();
+  const basePath = resolveExternalEmbedTargetAppBasePath(target);
+  if (workspaceRuntime && basePath === undefined) return null;
+  return embedTokenStorageKey(basePath, workspaceRuntime);
 }
 
 function currentUrl(win: Window): URL | null {

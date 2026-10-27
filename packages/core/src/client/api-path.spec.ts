@@ -10,6 +10,7 @@ import {
   frameworkRoutePrefix,
   isFrameworkRoutePath,
   isWorkspaceAppPath,
+  resolveExternalEmbedTargetAppBasePath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
 
@@ -243,6 +244,21 @@ describe("agentNativePath", () => {
     expect(appBasePath()).toBe("/mail");
     expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
       "/mail/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("does not infer an external workspace target outside declared mounts", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/inbox" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail",
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(resolveExternalEmbedTargetAppBasePath("/reports/detail")).toBe(
+      undefined,
     );
   });
 
