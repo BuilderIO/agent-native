@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: Dictado con IA
-seo_title: Dictado con IA para agentes de código, Slack y documentos
-meta_description: Dicta prompts largos en Claude Code, Slack o un documento en vez de escribirlos. Agent-Native Clips es un dictado con IA gratuito y de código abierto que guarda cada dictado.
+title: Dicta tus prompts en vez de escribirlos
+seo_title: Dictado con IA que escribe en cualquier aplicación
+meta_description: Usa el dictado con IA para hablar en Claude Code, Slack o un documento y obtener texto limpio en tu cursor. Agent-Native Clips guarda cada dictado para buscarlo después.
 updated: 2026-10-26
 hero:
-  body: Di el prompt entero en vez de escribirlo y aparece en tu cursor, de Claude Code a Slack. Agent-Native Clips guarda cada dictado, y su agente lo reelabora cuando se lo pides.
+  body: Tus prompts, tickets y respuestas dictados aparecen como texto limpio en tu cursor, de Claude Code a Slack. Agent-Native Clips guarda cada dictado, y su agente lo reelabora cuando se lo pides.
   button:
     label: Empieza a dictar
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
 other_uses:
-  heading: Otras cosas que puedes hacer con Clips
+  heading: Otras cosas que puedes hacer con Agent-Native Clips
   cards:
-    - title: Notas de reuniones con IA
+    - title: Obtén notas de reunión sin bots en la llamada
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Graba tus reuniones desde tu propio ordenador y obtén un resumen, notas y tareas.
-    - title: Reportes de bugs con IA
+    - title: Graba bugs con sus registros de consola y de red
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Graba un bug con los registros de consola y de red del navegador, listo para tu agente de código.
+      body: Muestra el bug una vez en Chrome y tu agente de código recibe la grabación y lo que registró la página.
 faqs:
   heading: ¿Dudas? Aquí tienes las respuestas
   items:

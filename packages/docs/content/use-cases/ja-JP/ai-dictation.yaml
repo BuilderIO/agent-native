@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: AIディクテーション
-seo_title: コーディングエージェント、Slack、ドキュメント向けAIディクテーション
-meta_description: 長いプロンプトを入力する代わりに、Claude CodeやSlack、ドキュメントに話しかけられます。Agent-Native Clipsは、すべてのディクテーションを保存する無料のオープンソースAIディクテーションです。
+title: プロンプトはタイプせず、話して入力
+seo_title: どのアプリにも入力できるAIディクテーション
+meta_description: AIディクテーションでClaude CodeやSlack、ドキュメントに話しかければ、整ったテキストがカーソル位置に入力されます。Agent-Native Clipsはすべてのディクテーションを保存し、後から検索できます。
 updated: 2026-10-26
 hero:
-  body: プロンプトを入力する代わりに丸ごと話せば、Claude CodeからSlackまで、カーソルの位置に入力されます。Agent-Native Clipsはすべてのディクテーションを保存し、頼めばエージェントが書き直します。
+  body: 話したプロンプトやチケット、返信が、Claude CodeからSlackまで、整ったテキストでカーソル位置に入ります。Agent-Native Clipsはすべてのディクテーションを保存し、頼めばエージェントが書き直します。
   button:
     label: ディクテーションを始める
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
 other_uses:
-  heading: Clipsでできるその他のこと
+  heading: Agent-Native Clipsでできるその他のこと
   cards:
-    - title: AI議事録
+    - title: ボットなしで通話の議事録を作成
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: ご自身のパソコンから会議を録音し、要約、ノート、アクションアイテムを手に入れます。
-    - title: AIバグ報告ツール
+    - title: コンソールログとネットワークログ付きでバグを録画
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: ブラウザのコンソールログとネットワークログ付きでバグを録画し、コーディングエージェントに渡せる状態にします。
+      body: Chromeでバグを一度再現すれば、コーディングエージェントに録画とページのログが渡ります。
 faqs:
   heading: よくある質問
   items:

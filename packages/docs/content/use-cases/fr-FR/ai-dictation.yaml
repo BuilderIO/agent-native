@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: Dictée par IA
-seo_title: Dictée par IA pour agents de code, Slack et docs
-meta_description: Dites vos longs prompts à Claude Code, Slack ou un doc au lieu de les taper. Agent-Native Clips est une dictée par IA gratuite et open source qui garde chaque dictée.
+title: Dictez vos prompts au lieu de les taper
+seo_title: Dictée par IA qui écrit dans n'importe quelle app
+meta_description: Utilisez la dictée par IA pour parler à Claude Code, Slack ou un doc et obtenir un texte propre à votre curseur. Agent-Native Clips garde chaque dictée pour la retrouver plus tard.
 updated: 2026-10-26
 hero:
-  body: Dites votre prompt entier au lieu de le taper, et il arrive à votre curseur, de Claude Code à Slack. Agent-Native Clips garde chaque dictée, et son agent la retravaille à votre demande.
+  body: Vos prompts, tickets et réponses dictés arrivent en texte propre à votre curseur, de Claude Code à Slack. Agent-Native Clips garde chaque dictée, et son agent la retravaille à votre demande.
   button:
     label: Commencer à dicter
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
 other_uses:
-  heading: Autres usages de Clips
+  heading: Autres usages d'Agent-Native Clips
   cards:
-    - title: Notes de réunion par IA
+    - title: Vos notes de réunion, sans bot dans l'appel
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Enregistrez vos réunions depuis votre propre ordinateur et obtenez un résumé, des notes et les actions à faire.
-    - title: Rapport de bug par IA
+    - title: Enregistrez vos bugs avec leurs logs console et réseau
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Enregistrez un bug avec les logs console et réseau du navigateur, prêt pour votre agent de code.
+      body: Montrez le bug une fois dans Chrome, et votre agent de code reçoit l'enregistrement et les logs de la page.
 faqs:
   heading: Des questions ? Nous avons les réponses
   items:

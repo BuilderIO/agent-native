@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: KI-Diktat
-seo_title: KI-Diktat für Coding-Agenten, Slack und Dokumente
-meta_description: Sprechen Sie lange Prompts in Claude Code, Slack oder ein Dokument, statt sie zu tippen. Agent-Native Clips ist kostenloses Open-Source-KI-Diktat, das jedes Diktat speichert.
+title: Ihre Prompts diktieren statt tippen
+seo_title: KI-Diktat, das in jede App tippt
+meta_description: Sprechen Sie mit KI-Diktat in Claude Code, Slack oder ein Dokument und erhalten Sie sauberen Text am Cursor. Agent-Native Clips speichert jedes Diktat, damit Sie es später finden.
 updated: 2026-10-26
 hero:
-  body: Sprechen Sie Ihren ganzen Prompt, statt ihn zu tippen, und er landet am Cursor, von Claude Code bis Slack. Agent-Native Clips speichert jedes Diktat, und sein Agent überarbeitet es auf Anfrage.
+  body: Ihre gesprochenen Prompts, Tickets und Antworten landen als sauberer Text am Cursor, von Claude Code bis Slack. Agent-Native Clips speichert jedes Diktat, und sein Agent überarbeitet es auf Anfrage.
   button:
     label: Diktieren starten
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
 other_uses:
-  heading: Was Sie sonst noch mit Clips tun können
+  heading: Was Sie sonst noch mit Agent-Native Clips tun können
   cards:
-    - title: KI-Meeting-Notizen
+    - title: Meeting-Notizen ohne Bot im Anruf erstellen
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Nehmen Sie Meetings von Ihrem eigenen Computer auf und erhalten Sie Zusammenfassung, Notizen und Aufgaben.
-    - title: KI-Tool für Fehlerberichte
+    - title: Fehler samt Konsolen- und Netzwerk-Logs aufnehmen
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Nehmen Sie einen Fehler samt Browser-Konsole und Netzwerk-Logs auf, bereit für Ihren Coding-Agenten.
+      body: Zeigen Sie den Fehler einmal in Chrome, und Ihr Coding-Agent erhält die Aufnahme und das, was die Seite protokolliert hat.
 faqs:
   heading: Fragen? Wir haben Antworten
   items:

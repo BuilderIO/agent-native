@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: AI 听写
-seo_title: 适用于编码 agent、Slack 和文档的 AI 听写
-meta_description: 向 Claude Code、Slack 或文档说出长提示词，不用再打字。Agent-Native Clips 是免费、开源的 AI 听写工具，会保存每一次听写。
+title: 口述提示词，不用再打字
+seo_title: 能输入到任何应用的 AI 听写
+meta_description: 用 AI 听写向 Claude Code、Slack 或文档说话，整理好的文字直接出现在光标处。Agent-Native Clips 会保存每一次听写，方便日后搜索。
 updated: 2026-10-26
 hero:
-  body: 把整段提示词说出来，不用打字，文字就落在光标处，从 Claude Code 到 Slack 都行。Agent-Native Clips 会保存每一次听写，需要时，它的 agent 还能帮你改写。
+  body: 你说出的提示词、工单和回复，会变成整理好的文字落在光标处，从 Claude Code 到 Slack 都行。Agent-Native Clips 会保存每一次听写，需要时，它的 agent 还能帮你改写。
   button:
     label: 开始听写
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
 other_uses:
-  heading: 用 Clips 还能做的其他事
+  heading: 用 Agent-Native Clips 还能做的其他事
   cards:
-    - title: AI 会议笔记
+    - title: 无需机器人入会，也能拿到会议笔记
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: 在你自己的电脑上录下会议，得到摘要、笔记和行动项。
-    - title: AI 缺陷报告工具
+    - title: 录下 bug，附带控制台和网络日志
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: 录下一个 bug，连同浏览器控制台和网络日志，交给你的编码 agent。
+      body: 在 Chrome 里演示一次 bug，你的编码 agent 就能拿到录屏和页面记录下的内容。
 faqs:
   heading: 有疑问？这里有答案
   items:

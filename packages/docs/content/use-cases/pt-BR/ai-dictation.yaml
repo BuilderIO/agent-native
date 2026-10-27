@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: Ditado com IA
-seo_title: Ditado com IA para agentes de código, Slack e docs
-meta_description: Fale prompts longos no Claude Code, no Slack ou em um doc em vez de digitar. O Agent-Native Clips é um ditado com IA gratuito e open source que salva cada ditado.
+title: Dite seus prompts em vez de digitá-los
+seo_title: Ditado com IA que digita em qualquer app
+meta_description: Use ditado com IA para falar no Claude Code, no Slack ou em um doc e receber texto limpo no cursor. O Agent-Native Clips salva cada ditado para você pesquisar depois.
 updated: 2026-10-26
 hero:
-  body: Fale o prompt inteiro em vez de digitar, e ele aparece onde está o cursor, do Claude Code ao Slack. O Agent-Native Clips salva cada ditado, e o agente dele refaz um quando você pede.
+  body: Seus prompts, tickets e respostas falados viram texto limpo no cursor, do Claude Code ao Slack. O Agent-Native Clips salva cada ditado, e o agente dele refaz um quando você pede.
   button:
     label: Comece a ditar
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
 other_uses:
-  heading: Outras coisas que você pode fazer com o Clips
+  heading: Outras coisas que você pode fazer com o Agent-Native Clips
   cards:
-    - title: Notas de reunião com IA
+    - title: Tenha notas de reunião sem bot na chamada
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Grave suas reuniões do seu próprio computador e receba resumo, notas e itens de ação.
-    - title: Relatório de bugs com IA
+    - title: Grave bugs com os logs de console e de rede
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Grave um bug com os logs de console e de rede do navegador, pronto para o seu agente de código.
+      body: Mostre o bug uma vez no Chrome, e seu agente de código recebe a gravação e o que a página registrou.
 faqs:
   heading: Dúvidas? Temos respostas
   items:

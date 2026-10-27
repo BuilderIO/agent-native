@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: "الإملاء بالذكاء الاصطناعي"
-seo_title: "إملاء بالذكاء الاصطناعي لوكلاء البرمجة وSlack والمستندات"
-meta_description: "قُل مطالباتك الطويلة في Claude Code أو Slack أو مستند بدلًا من كتابتها. Agent-Native Clips إملاء مجاني ومفتوح المصدر بالذكاء الاصطناعي يحفظ كل ما تمليه."
+title: "أملِ مطالباتك بدلًا من كتابتها"
+seo_title: "إملاء بالذكاء الاصطناعي يكتب في أي تطبيق"
+meta_description: "استخدم الإملاء بالذكاء الاصطناعي لتتحدث في Claude Code أو Slack أو مستند، واحصل على نص منقّح عند المؤشر. يحفظ Agent-Native Clips كل ما تمليه لتبحث فيه لاحقًا."
 updated: 2026-10-26
 hero:
-  body: "قُل مطالبتك كاملة بدلًا من كتابتها، فتصل إلى موضع المؤشر، من Claude Code إلى Slack. يحفظ Agent-Native Clips كل ما تمليه، ويعيد وكيله صياغته عندما تطلب."
+  body: "تصل مطالباتك وتذاكرك وردودك المنطوقة نصًا منقّحًا إلى موضع المؤشر، من Claude Code إلى Slack. يحفظ Agent-Native Clips كل ما تمليه، ويعيد وكيله صياغته عندما تطلب."
   button:
     label: "ابدأ الإملاء"
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
 other_uses:
-  heading: "أشياء أخرى يمكنك فعلها مع Clips"
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Clips"
   cards:
-    - title: ملاحظات الاجتماعات الذكية
+    - title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: "سجّل اجتماعاتك من جهازك واحصل على ملخص وملاحظات وعناصر عمل."
-    - title: تقارير الأخطاء الذكية
+    - title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: "سجّل الخطأ مع سجلات وحدة تحكم المتصفح والشبكة، جاهزًا لوكيل البرمجة لديك."
+      body: "اعرض الخطأ مرة واحدة في Chrome، ويحصل وكيل البرمجة لديك على التسجيل وما سجّلته الصفحة."
 faqs:
   heading: "لديك أسئلة؟ لدينا الإجابات"
   items:
