@@ -3632,7 +3632,7 @@ export async function builderBodyChangeForLocalContent(args: {
    * the body Content saved over it. Only its hash is kept, so the body is
    * converted and compared by hash.
    */
-  liveBaseline?: { blocksHash: string | null } | null;
+  liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -3653,7 +3653,15 @@ export async function builderBodyChangeForLocalContent(args: {
   const sidecarsJson =
     stringSourceValue(sourceValues, BUILDER_CMS_BODY_SIDECARS_KEY) ?? "{}";
   const localContent = args.localContent ?? "";
-  if (!currentHash && !currentContent && !localContent.trim()) return null;
+  // Over a live baseline, Content saved this body, so an empty one clears
+  // Builder's unless Builder's body was known to be empty too.
+  if (
+    liveBaseline
+      ? liveBaseline.bodyEmpty && !localContent.trim()
+      : !currentHash && !currentContent && !localContent.trim()
+  ) {
+    return null;
+  }
   // A row with no stored body has an unknown baseline, unless the body is
   // known to be empty or Builder's live body is the baseline.
   if (
@@ -3851,7 +3859,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   bodyHydrationVersion?: string | null;
   allowUnsourcedCreate: boolean;
   localContent: string | null | undefined;
-  liveBaseline?: { blocksHash: string | null } | null;
+  liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
