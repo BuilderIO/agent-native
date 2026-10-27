@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     userEmail: "person@example.test",
     orgId: "org-1",
   } as Record<string, string | null> | null,
-  isEnabled: vi.fn(),
+  getRules: vi.fn(),
   recordExposure: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/feature-flags", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/feature-flags")
   >()),
-  isFeatureFlagEnabled: (...args: unknown[]) => mocks.isEnabled(...args),
+  getFeatureFlagRulesStrict: (...args: unknown[]) => mocks.getRules(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => mocks.context,
@@ -29,7 +29,6 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   evaluateFeatureFlagRules,
   normalizeFeatureFlagRules,
-  type FeatureFlagScope,
 } from "@agent-native/core/feature-flags";
 
 import action from "./record-first-run-builder-credits-v2-exposure.js";
@@ -41,22 +40,19 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
       userEmail: "person@example.test",
       orgId: "org-1",
     };
-    mocks.isEnabled.mockReset();
+    mocks.getRules
+      .mockReset()
+      .mockResolvedValue(normalizeFeatureFlagRules({ mode: "off" }));
     mocks.recordExposure.mockReset();
   });
 
   it("does not persist an assignment while the Clips flag is off", async () => {
-    mocks.isEnabled.mockResolvedValue(false);
-
     await expect(action.run({})).resolves.toEqual({ assignment: null });
 
-    expect(mocks.isEnabled).toHaveBeenCalledWith(
-      expect.objectContaining({ key: "clips-first-run-credits-v2" }),
-      {
-        userEmail: "person@example.test",
-        orgId: "org-1",
-      },
-    );
+    expect(mocks.getRules).toHaveBeenCalledWith("clips-first-run-credits-v2", {
+      userEmail: "person@example.test",
+      orgId: "org-1",
+    });
     expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 
@@ -77,10 +73,7 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
         userKey: "auth-user-1",
       }),
     ).toBe(false);
-    mocks.isEnabled.mockImplementation(
-      (definition: { key: string }, scope: FeatureFlagScope) =>
-        evaluateFeatureFlagRules(definition.key, rules, scope),
-    );
+    mocks.getRules.mockResolvedValue(rules);
     mocks.recordExposure.mockResolvedValue({
       experiment_id: "first_run_builder_credits_v2",
       experiment_variant: "control",
@@ -93,15 +86,21 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
       },
     });
 
-    expect(mocks.isEnabled).toHaveBeenCalledWith(
-      expect.objectContaining({ key: flag }),
-      clientScope,
-    );
+    expect(mocks.getRules).toHaveBeenCalledWith(flag, clientScope);
     expect(mocks.recordExposure).toHaveBeenCalledWith({ flagEnabled: true });
   });
 
+  it("propagates flag read failures so exposure can be retried", async () => {
+    const error = new Error("temporary flag read failure");
+    mocks.getRules.mockRejectedValue(error);
+
+    await expect(action.run({})).rejects.toBe(error);
+
+    expect(mocks.recordExposure).not.toHaveBeenCalled();
+  });
+
   it("persists only an authenticated user's assignment after exposure", async () => {
-    mocks.isEnabled.mockResolvedValue(true);
+    mocks.getRules.mockResolvedValue(normalizeFeatureFlagRules({ mode: "on" }));
     mocks.recordExposure.mockResolvedValue({
       experiment_id: "first_run_builder_credits_v2",
       experiment_variant: "credits",
@@ -122,7 +121,7 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
 
     await expect(action.run({})).resolves.toEqual({ assignment: null });
 
-    expect(mocks.isEnabled).not.toHaveBeenCalled();
+    expect(mocks.getRules).not.toHaveBeenCalled();
     expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 });

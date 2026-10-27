@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import {
+  evaluateFeatureFlagRules,
+  getFeatureFlagRulesStrict,
+} from "@agent-native/core/feature-flags";
 import {
   getRequestContext,
   recordFirstRunBuilderCreditsV2Exposure,
@@ -24,12 +27,18 @@ export default defineAction({
     const context = getRequestContext();
     if (!context?.authUserId) return { assignment: null };
 
-    const flagEnabled = await isFeatureFlagEnabled(
-      FIRST_RUN_BUILDER_CREDITS_V2_FLAG,
-      {
-        ...(context.userEmail ? { userEmail: context.userEmail } : {}),
-        ...(context.orgId ? { orgId: context.orgId } : {}),
-      },
+    const flagScope = {
+      ...(context.userEmail ? { userEmail: context.userEmail } : {}),
+      ...(context.orgId ? { orgId: context.orgId } : {}),
+    };
+    const flagRules = await getFeatureFlagRulesStrict(
+      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
+      flagScope,
+    );
+    const flagEnabled = evaluateFeatureFlagRules(
+      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
+      flagRules,
+      flagScope,
     );
     if (!flagEnabled) return { assignment: null };
 
