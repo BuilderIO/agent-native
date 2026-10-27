@@ -49,6 +49,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: added the "Read the whole attachment" shared prompt rule that #8129 introduced and this snapshot missed
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
