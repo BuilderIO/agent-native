@@ -83,6 +83,7 @@ import {
 
 type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
 type FirstRunExtensionPlacement = "before-setup" | "after-setup";
+const FIRST_RUN_CREDITS_V2_APP_IDS = new Set(["clips", "design", "slides"]);
 type FirstRunSetupMethodId =
   | "builder_create_account"
   | "builder_sign_in"
@@ -239,6 +240,9 @@ export function FirstRunOnboarding({
   const creditsV2Flag = useFeatureFlagState(
     FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   );
+  const creditsV2FlagAppliesToApp = FIRST_RUN_CREDITS_V2_APP_IDS.has(
+    profile?.appId ?? "",
+  );
   const creditsV2Exposure = useActionMutation<
     {
       assignment: {
@@ -256,10 +260,14 @@ export function FirstRunOnboarding({
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("experiment") === "v2";
   const creditsV2Enabled =
-    creditsV2Flag.status === "ready" && creditsV2Flag.enabled;
+    creditsV2FlagAppliesToApp &&
+    creditsV2Flag.status === "ready" &&
+    creditsV2Flag.enabled;
   const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
   const creditsV2FlagPending =
-    !previewMode && creditsV2Flag.status === "loading";
+    !previewMode &&
+    creditsV2FlagAppliesToApp &&
+    creditsV2Flag.status === "loading";
   const setupVariant = useMemo(() => {
     const previewVariant =
       previewMode && getPreviewFirstRunSetupVariant(window.location.search);

@@ -1873,6 +1873,39 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
+  it("does not hold another app's first-run screen while the v2 flag loads", async () => {
+    mocks.creditsV2FlagState = { status: "loading", enabled: false };
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "forms", appName: "Forms", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    await act(async () => {
+      document.body
+        .querySelector<HTMLButtonElement>("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-loading='true']"),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).not.toBeNull();
+    expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
+  });
+
   it.each(["design", "slides", "clips"])(
     "shows the v2 credits actions in %s",
     async (appId) => {
