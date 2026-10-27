@@ -896,8 +896,8 @@ const generateDesignAction = defineAction({
       try {
         assertHubSpotEmailFrameContent({
           content: file.content,
-          fileType: file.fileType ?? "html",
-          frameType: file.frameType,
+          fileType: file.fileType,
+          ...(file.frameType ? { frameType: file.frameType } : {}),
         });
       } catch (error) {
         throw noWriteValidationError(error);
@@ -919,8 +919,8 @@ const generateDesignAction = defineAction({
       const workspaceFile: SourceWorkspaceFile = {
         id: existing.id,
         designId: existing.designId,
-        filename: existing.filename ?? "",
-        fileType: existing.fileType ?? "html",
+        filename: existing.filename,
+        fileType: existing.fileType,
         content: existing.content,
         createdAt: null,
         updatedAt: null,
@@ -992,6 +992,7 @@ const generateDesignAction = defineAction({
             };
             const live = liveFilesById.get(existing.id);
             if (!live) {
+              // guard:allow-bare-error — invariant: every existing file is inserted during the preflight loop before this write phase.
               throw new Error(
                 `Missing preflight source version for ${existing.filename}`,
               );
