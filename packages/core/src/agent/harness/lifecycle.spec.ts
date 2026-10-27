@@ -18,6 +18,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   startRun: vi.fn(),
+  tryClaimRunSlot: vi.fn(),
   resolveRunSoftTimeoutMs: vi.fn(
     (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
       overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
@@ -55,6 +56,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../run-manager.js", () => ({
   startRun: mocks.startRun,
+  tryClaimRunSlot: mocks.tryClaimRunSlot,
   resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
 }));
 
@@ -452,6 +454,12 @@ describe("agent harness lifecycle", () => {
       },
     );
     mocks.persistFollowUpEvent.mockResolvedValue(undefined);
+    mocks.tryClaimRunSlot.mockImplementation(
+      async (_threadId, _runId, _maxStaleMs, options) => {
+        await options?.afterInsert?.({} as never);
+        return { claimed: true, activeRunId: null };
+      },
+    );
     mocks.startFollowUpDispatch.mockImplementation(
       async (_id, expectedGeneration, claimId, start) => {
         if (
@@ -467,7 +475,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        const started = await start();
+        const started = await start(async () => {});
         return { session: stored, started };
       },
     );
@@ -1208,10 +1216,12 @@ describe("agent harness lifecycle", () => {
     };
     register(stored, session);
 
+    const onRunComplete = vi.fn();
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
       prompt: " next task ",
       scope: ownerScope(),
+      onRunComplete,
     });
 
     expect(result.ok).toBe(true);
@@ -1226,7 +1236,7 @@ describe("agent harness lifecycle", () => {
       followUpId,
       stored.threadId,
       expect.any(Function),
-      undefined,
+      onRunComplete,
       expect.objectContaining({
         turnId: followUpId,
         parentId: stored.runId,
@@ -1237,9 +1247,19 @@ describe("agent harness lifecycle", () => {
         engineName: "fake-engine",
         model: "model-v1",
         attemptCount: 2,
-        afterRunInsert: expect.any(Function),
+        runRowAlreadyInserted: true,
       }),
     );
+    expect(mocks.tryClaimRunSlot).toHaveBeenCalledWith(
+      stored.threadId,
+      followUpId,
+      undefined,
+      expect.objectContaining({
+        turnId: followUpId,
+        afterInsert: expect.any(Function),
+      }),
+    );
+    expect(mocks.startRun.mock.calls[0]?.[3]).toBe(onRunComplete);
     expect(mocks.claimFollowUp).toHaveBeenCalledWith(
       stored.id,
       0,
@@ -1385,6 +1405,51 @@ describe("agent harness lifecycle", () => {
     expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
     expect(session.streamTurn).not.toHaveBeenCalled();
     expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not dispatch when another run holds the thread slot", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.tryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "other-run",
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the persisted follow-up claim immediately before provider dispatch", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.tryClaimRunSlot.mockImplementationOnce(
+      async (_threadId, _runId, _maxStaleMs, options) => {
+        await options?.afterInsert?.({} as never);
+        stored = {
+          ...stored,
+          status: "stopped",
+          followUpClaimId: null,
+          generation: stored.generation + 1,
+        };
+        return { claimed: true, activeRunId: null };
+      },
+    );
+
+    await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(session.streamTurn).not.toHaveBeenCalled();
+    expect(mocks.persistFollowUpEvent).not.toHaveBeenCalled();
   });
 
   it("retries releasing its claim after a transient resume failure", async () => {
@@ -1818,7 +1883,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        return { session: stored, started: await start() };
+        return { session: stored, started: await start(async () => {}) };
       },
     );
 
@@ -1886,6 +1951,7 @@ describe("agent harness lifecycle", () => {
       approvalEvent("approval-chained"),
       { type: "done" },
     ]);
+    session.checkpoint = vi.fn(async () => ({ token: "approval-checkpoint" }));
     register(stored, session);
     mocks.updateIfFollowUpClaim.mockImplementationOnce(
       async (_id, expectedClaimId, patch) => {
@@ -1903,10 +1969,21 @@ describe("agent harness lifecycle", () => {
       },
     );
 
+    let approvalStateAtCallback:
+      | Pick<StoredAgentHarnessSession, "pendingApproval" | "resumeState">
+      | undefined;
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
       prompt: "continue",
       scope: ownerScope(),
+      onHarnessEvent: (event) => {
+        if (event.type === "approval-request") {
+          approvalStateAtCallback = {
+            pendingApproval: stored.pendingApproval,
+            resumeState: stored.resumeState,
+          };
+        }
+      },
     });
 
     expect(result).toMatchObject({
@@ -1915,6 +1992,11 @@ describe("agent harness lifecycle", () => {
         status: "idle",
         pendingApproval: { id: "approval-chained" },
       },
+    });
+    expect(session.checkpoint).toHaveBeenCalled();
+    expect(approvalStateAtCallback).toEqual({
+      pendingApproval: approvalEvent("approval-chained"),
+      resumeState: { token: "approval-checkpoint" },
     });
     expect(session.detach).not.toHaveBeenCalled();
   });

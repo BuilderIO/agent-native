@@ -17,6 +17,7 @@ export interface DriveAgentHarnessTurnChunksOptions {
     "turnSignal" | "chunkSignal" | "chunkBoundaryReason" | "beginChunk"
   >;
   consume: (stream: AsyncIterable<AgentHarnessEvent>) => Promise<"stop" | void>;
+  beforeStream?: () => Promise<void>;
   afterStream?: () => Promise<"stop" | void>;
 }
 
@@ -27,6 +28,8 @@ export async function driveAgentHarnessTurnChunks(
   let firstStream = input !== undefined;
 
   while (!isAborted(options.control.turnSignal)) {
+    await options.beforeStream?.();
+    if (isAborted(options.control.turnSignal)) return;
     const stream = firstStream
       ? options.session.streamTurn({
           ...input,

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
-import { startRun } from "../run-manager.js";
-import type { RunChunkControl, StartedRun } from "../run-manager.js";
+import { startRun, tryClaimRunSlot } from "../run-manager.js";
+import type { ActiveRun, RunChunkControl, StartedRun } from "../run-manager.js";
 import type { AgentChatEvent } from "../types.js";
 import { resolveAgentHarness } from "./registry.js";
 import { agentHarnessFollowUpRunOptions } from "./run-policy.js";
@@ -739,6 +739,7 @@ export async function sendAgentHarnessFollowUp(input: {
   scope: AgentHarnessOwnerScope;
   metadata?: Record<string, unknown>;
   onHarnessEvent?: (event: AgentHarnessEvent) => void | Promise<void>;
+  onRunComplete?: (run: ActiveRun) => void | Promise<void>;
 }): Promise<AgentHarnessLifecycleResult> {
   if (activeFollowUps.has(input.runId)) {
     const session = await getAgentHarnessSessionByRunId(input.runId);
@@ -925,6 +926,21 @@ export async function sendAgentHarnessFollowUp(input: {
         session.runPolicy,
       );
       const followUpSoftTimeoutMs = followUpRunOptions.softTimeoutMs ?? 0;
+      const assertFollowUpClaimCanDispatch = async () => {
+        const latest = await getAgentHarnessSession(session.id);
+        const now = Date.now();
+        if (
+          !latest ||
+          latest.status !== "running" ||
+          latest.followUpClaimId !== claimId ||
+          latest.followUpId !== followUpId ||
+          (latest.followUpClaimExpiresAt ?? 0) <= now ||
+          (latest.followUpDeadlineAt ?? 0) <= now ||
+          latest.expiryCleanupId != null
+        ) {
+          throw new AgentHarnessSessionConflictError(session.id);
+        }
+      };
       for (;;) {
         if (isAbortRequested(followUpAbort.signal)) {
           throw (
@@ -979,13 +995,25 @@ export async function sendAgentHarnessFollowUp(input: {
             session.id,
             dispatchGeneration,
             claimId,
-            (assertCurrent) => {
+            async (assertCurrent) => {
               try {
                 if (
                   softTimeoutDeadlineAt === undefined &&
                   followUpSoftTimeoutMs > 0
                 ) {
                   softTimeoutDeadlineAt = Date.now() + followUpSoftTimeoutMs;
+                }
+                const admission = await tryClaimRunSlot(
+                  session.threadId,
+                  physicalRunId,
+                  undefined,
+                  {
+                    turnId: followUpId,
+                    afterInsert: (tx) => assertCurrent(tx),
+                  },
+                );
+                if (!admission.claimed) {
+                  throw new AgentHarnessSessionConflictError(session.id);
                 }
                 const started = startRun(
                   physicalRunId,
@@ -1006,6 +1034,7 @@ export async function sendAgentHarnessFollowUp(input: {
                               },
                             }),
                         control: runControl,
+                        beforeStream: assertFollowUpClaimCanDispatch,
                         consume: async (stream) => {
                           const iterator = stream[Symbol.asyncIterator]();
                           const firstNext = nextHarnessEvent(
@@ -1032,6 +1061,35 @@ export async function sendAgentHarnessFollowUp(input: {
                                 iterator,
                                 liveSession: acquired.live.session,
                                 allowCurrentApprovalResolution: true,
+                                persistFollowUpApprovalRequest: async (
+                                  event,
+                                ) => {
+                                  const latest = await getAgentHarnessSession(
+                                    session.id,
+                                  );
+                                  if (!latest) return null;
+                                  const checkpoint =
+                                    await acquired.live.session.checkpoint?.();
+                                  const resumeState =
+                                    checkpoint === undefined
+                                      ? latest.resumeState
+                                      : checkpoint;
+                                  return updateAgentHarnessSessionIfFollowUpClaim(
+                                    session.id,
+                                    claimId,
+                                    {
+                                      pendingApproval: event,
+                                      ...(resumeState === undefined
+                                        ? {}
+                                        : { resumeState }),
+                                    },
+                                    {
+                                      expectedApprovalResolutionId:
+                                        latest.approvalResolutionId ?? null,
+                                      allowCurrentApprovalResolution: true,
+                                    },
+                                  );
+                                },
                                 persistEvent: async (event) => {
                                   for (const chatEvent of agentHarnessEventToAgentChatEvents(
                                     event,
@@ -1117,10 +1175,10 @@ export async function sendAgentHarnessFollowUp(input: {
                       throw error;
                     }
                   },
-                  undefined,
+                  input.onRunComplete,
                   {
                     ...followUpRunOptions,
-                    afterRunInsert: (tx) => assertCurrent(tx),
+                    runRowAlreadyInserted: true,
                     ...(softTimeoutDeadlineAt === undefined
                       ? {}
                       : { softTimeoutDeadlineAt }),
@@ -1132,9 +1190,10 @@ export async function sendAgentHarnessFollowUp(input: {
                 void started.finalized.then(() => {
                   if (!firstDispatchResolved) {
                     rejectFirstDispatch(
-                      new Error(
-                        "The AgentHarness follow-up run ended before provider dispatch.",
-                      ),
+                      runFailure ??
+                        new Error(
+                          "The AgentHarness follow-up run ended before provider dispatch.",
+                        ),
                     );
                   }
                 }, rejectFirstDispatch);
@@ -1936,6 +1995,9 @@ async function consumeEvents(
     firstNext?: Promise<IteratorResult<AgentHarnessEvent>>;
     followUpClaimId?: string;
     allowCurrentApprovalResolution?: boolean;
+    persistFollowUpApprovalRequest?: (
+      event: Extract<AgentHarnessEvent, { type: "approval-request" }>,
+    ) => Promise<StoredAgentHarnessSession | null>;
     persistEvent?: (event: AgentHarnessEvent) => void | Promise<void>;
     iterator?: AsyncIterator<AgentHarnessEvent>;
     liveSession?: AgentHarnessSession;
@@ -1954,16 +2016,27 @@ async function consumeEvents(
       events.push(event);
       if (event.type === "approval-request") {
         const updated = options?.followUpClaimId
-          ? await updateAgentHarnessSessionIfFollowUpClaim(
-              sessionId,
-              options.followUpClaimId,
-              { pendingApproval: event },
-              {
-                expectedApprovalResolutionId: options.approvalResolutionId,
-                allowCurrentApprovalResolution:
-                  options.allowCurrentApprovalResolution,
-              },
-            )
+          ? options.persistFollowUpApprovalRequest
+            ? await options.persistFollowUpApprovalRequest(event)
+            : await updateAgentHarnessSessionIfFollowUpClaim(
+                sessionId,
+                options.followUpClaimId,
+                { pendingApproval: event },
+                {
+                  ...(options.approvalResolutionId === undefined
+                    ? {}
+                    : {
+                        expectedApprovalResolutionId:
+                          options.approvalResolutionId,
+                      }),
+                  ...(options.allowCurrentApprovalResolution === undefined
+                    ? {}
+                    : {
+                        allowCurrentApprovalResolution:
+                          options.allowCurrentApprovalResolution,
+                      }),
+                },
+              )
           : options?.approvalResolutionId !== undefined
             ? await updateApprovalContinuationPending(
                 sessionId,

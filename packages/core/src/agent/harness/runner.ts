@@ -70,9 +70,10 @@ export function startAgentHarnessRun(
 ): ActiveRun {
   let harnessSession: AgentHarnessSession | undefined = opts.session;
   const detachOnComplete = opts.detachOnComplete !== false;
+  const runTurnId = opts.turnId ?? opts.runOptions?.turnId;
   const runOptions: StartRunOptions = {
     ...(opts.runOptions ?? {}),
-    turnId: opts.turnId ?? opts.runOptions?.turnId,
+    ...(runTurnId === undefined ? {} : { turnId: runTurnId }),
     recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
     useHostedSoftTimeoutDefault:
       opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
