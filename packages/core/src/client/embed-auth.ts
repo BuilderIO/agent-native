@@ -167,11 +167,12 @@ function clearMcpChatBridge(win: Window): void {
 export function markEmbedMcpChatBridgeActive(): void {
   const win = browserWindow();
   const storageKey = currentMcpChatBridgeStorageKey();
-  if (storageKey === null) return;
-  const scope = win ? currentMcpChatBridgeScope(win) : null;
+  const scope =
+    win && storageKey !== null ? currentMcpChatBridgeScope(win) : null;
   mcpChatBridgeActive = true;
   mcpChatBridgeScope = scope;
   mcpChatBridgeStorageKeyAtState = storageKey;
+  if (storageKey === null) return;
   try {
     if (scope) {
       win?.sessionStorage.setItem(storageKey, scope);
@@ -189,9 +190,15 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   if (!win) return false;
   const storageKey = currentMcpChatBridgeStorageKey();
   if (storageKey === null) {
+    if (isEmbedAuthActive() && readEmbedMcpChatBridgeFlagFromUrl()) {
+      markEmbedMcpChatBridgeActive();
+    }
     // A temporary route without a declared mount does not prove the host
     // unenrolled this document from the bridge.
     return mcpChatBridgeActive;
+  }
+  if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState === null) {
+    markEmbedMcpChatBridgeActive();
   }
   if (mcpChatBridgeActive && mcpChatBridgeStorageKeyAtState !== storageKey) {
     mcpChatBridgeActive = false;

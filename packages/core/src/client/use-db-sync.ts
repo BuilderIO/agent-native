@@ -1823,7 +1823,10 @@ export function useDbSync(
     }
 
     const sideEffectToolsByTab = new Map<string, Map<string, boolean>>();
-    const browserTabIdsByTab = new Map<string, string>();
+    const browserTabIdsByTab = new Map<
+      string,
+      { browserTabId: string; runId?: string }
+    >();
     const eventsForTool = (
       tool: string,
       completedSideEffect: boolean,
@@ -1891,6 +1894,7 @@ export function useDbSync(
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
+          runId?: unknown;
         }>
       ).detail;
       if (typeof detail?.tool !== "string") return;
@@ -1900,13 +1904,21 @@ export function useDbSync(
         typeof detail.tabId === "string" && detail.tabId
           ? detail.tabId
           : "__default__";
+      const runId =
+        typeof detail.runId === "string" && detail.runId
+          ? detail.runId
+          : undefined;
+      const runStart = browserTabIdsByTab.get(tabId);
       const browserTabId =
-        browserTabIdsByTab.get(tabId) ??
+        runStart?.browserTabId ??
         (typeof detail.browserTabId === "string"
           ? detail.browserTabId
           : getBrowserTabId());
-      if (completedSideEffect && !browserTabIdsByTab.has(tabId)) {
-        browserTabIdsByTab.set(tabId, browserTabId);
+      if (completedSideEffect && !runStart) {
+        browserTabIdsByTab.set(tabId, {
+          browserTabId,
+          ...(runId ? { runId } : {}),
+        });
       }
       const events = eventsForTool(
         tool,
@@ -1933,6 +1945,7 @@ export function useDbSync(
           isRunning?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
+          runId?: unknown;
         }>
       ).detail;
       if (detail?.isRunning === true) {
@@ -1940,13 +1953,21 @@ export function useDbSync(
           typeof detail.tabId === "string" && detail.tabId
             ? detail.tabId
             : "__default__";
-        if (!browserTabIdsByTab.has(tabId)) {
-          browserTabIdsByTab.set(
-            tabId,
-            typeof detail.browserTabId === "string"
-              ? detail.browserTabId
-              : getBrowserTabId(),
-          );
+        const browserTabId =
+          typeof detail.browserTabId === "string"
+            ? detail.browserTabId
+            : getBrowserTabId();
+        const runId =
+          typeof detail.runId === "string" && detail.runId
+            ? detail.runId
+            : undefined;
+        const runStart = browserTabIdsByTab.get(tabId);
+        if (!runId) {
+          browserTabIdsByTab.set(tabId, { browserTabId });
+        } else if (!runStart || (runStart.runId && runStart.runId !== runId)) {
+          browserTabIdsByTab.set(tabId, { browserTabId, runId });
+        } else if (!runStart.runId) {
+          browserTabIdsByTab.set(tabId, { ...runStart, runId });
         }
         sideEffectToolsByTab.delete(tabId);
         return;
@@ -1956,8 +1977,14 @@ export function useDbSync(
         typeof detail.tabId === "string" && detail.tabId
           ? detail.tabId
           : "__default__";
+      const runStart = browserTabIdsByTab.get(tabId);
+      const runId =
+        typeof detail.runId === "string" && detail.runId
+          ? detail.runId
+          : undefined;
+      if (runId && runStart?.runId && runId !== runStart.runId) return;
       const browserTabId =
-        browserTabIdsByTab.get(tabId) ??
+        runStart?.browserTabId ??
         (typeof detail.browserTabId === "string"
           ? detail.browserTabId
           : getBrowserTabId());

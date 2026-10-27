@@ -465,6 +465,46 @@ describe("embed auth client", () => {
     expect(auth.isEmbedMcpChatBridgeActive()).toBe(false);
   });
 
+  it("adopts a chat bridge URL flag when an unmatched route resolves to a mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/opening?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+    expect(window.location.search).toContain(
+      `${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
+
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+    expect(sessionStorage.getItem(`${BRIDGE_STORAGE_KEY}:/mail`)).toBe(
+      "signed-token",
+    );
+    expect(sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe("signed-token");
+    expect(window.location.search).toBe(
+      `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+    );
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
+  });
+
   it("clears the MCP chat bridge when the embed token actually changes", async () => {
     window.history.replaceState(
       null,
