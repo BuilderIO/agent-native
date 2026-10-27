@@ -5,6 +5,10 @@ import type {
   AgentHarnessTurnInput,
 } from "./types.js";
 
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 export interface DriveAgentHarnessTurnChunksOptions {
   session: AgentHarnessSession;
   input?: AgentHarnessTurnInput;
@@ -22,7 +26,7 @@ export async function driveAgentHarnessTurnChunks(
   let input = options.input;
   let firstStream = input !== undefined;
 
-  while (!options.control.turnSignal.aborted) {
+  while (!isAborted(options.control.turnSignal)) {
     const stream = firstStream
       ? options.session.streamTurn({
           ...input,
@@ -36,7 +40,7 @@ export async function driveAgentHarnessTurnChunks(
     if (!stream) return;
 
     if ((await options.consume(stream)) === "stop") return;
-    if (options.control.turnSignal.aborted) return;
+    if (isAborted(options.control.turnSignal)) return;
     if ((await options.afterStream?.()) === "stop") return;
     if (!options.control.chunkBoundaryReason()) return;
     if (!options.session.continueTurn) return;

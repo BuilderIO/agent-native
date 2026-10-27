@@ -78,17 +78,20 @@ export function startAgentHarnessRun(
   return startRun(
     opts.runId,
     opts.threadId,
-    async (send, signal, control) => {
+    async (send, signal, control?: RunChunkControl) => {
       const runControl: RunChunkControl = control ?? {
         turnSignal: signal,
         chunkSignal: signal,
         chunkBoundaryReason: () => null,
         beginChunk: () => signal,
+        flushEvents: async () => {},
       };
       let storedSessionId: string | undefined;
       let harnessSessionRegistered = false;
       let keepLiveSession = false;
       let liveSessionReleasedBeforeCheckpoint = false;
+      const wasLiveSessionReleasedBeforeCheckpoint = (): boolean =>
+        liveSessionReleasedBeforeCheckpoint;
       const releaseLiveSessionBeforeCheckpoint = () => {
         if (
           !liveSessionReleasedBeforeCheckpoint &&
@@ -100,7 +103,7 @@ export function startAgentHarnessRun(
         }
       };
       try {
-        send({
+        await send({
           type: "activity",
           label: `Starting ${opts.adapter.label}`,
           tool: "harness",
@@ -144,11 +147,12 @@ export function startAgentHarnessRun(
           abortSignal: runControl.chunkSignal,
         };
         const currentHarnessSession = harnessSession;
-        if (!currentHarnessSession || !storedSessionId) {
+        if (!storedSessionId) {
           throw new Error("Harness session is unavailable for turn driving.");
         }
         const currentStoredSessionId = storedSessionId;
         let checkpointHandled = false;
+        const wasCheckpointHandled = (): boolean => checkpointHandled;
 
         let pendingApproval: Extract<
           AgentHarnessEvent,
@@ -178,7 +182,7 @@ export function startAgentHarnessRun(
                 for (const chatEvent of agentHarnessEventToAgentChatEvents(
                   event,
                 )) {
-                  send(chatEvent);
+                  await send(chatEvent);
                 }
               }
             } catch (error) {
@@ -248,7 +252,7 @@ export function startAgentHarnessRun(
           await stopHarnessSession(harnessSession);
           return;
         }
-        if (checkpointHandled) return;
+        if (wasCheckpointHandled()) return;
 
         let resumeState: unknown = opts.createSession?.resumeState;
         await persistHarnessCheckpoint(
@@ -316,7 +320,7 @@ export function startAgentHarnessRun(
           }
           return;
         }
-        if (harnessSession && !keepLiveSession) {
+        if (harnessSession) {
           await stopHarnessSession(harnessSession).catch(() => undefined);
         }
         if (storedSessionId) {
@@ -330,7 +334,7 @@ export function startAgentHarnessRun(
       } finally {
         if (
           !keepLiveSession &&
-          !liveSessionReleasedBeforeCheckpoint &&
+          !wasLiveSessionReleasedBeforeCheckpoint() &&
           storedSessionId
         ) {
           releaseLiveAgentHarnessSession(storedSessionId, harnessSession);

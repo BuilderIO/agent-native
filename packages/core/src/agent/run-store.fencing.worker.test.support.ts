@@ -289,7 +289,9 @@ class SubprocessApprovalSession implements AgentHarnessSession {
 async function main(): Promise<void> {
   const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL; // config-ok: isolated integration-test database selector, not app runtime config
   if (!databaseUrl) throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required");
-  const [mode, threadId, turnId, runId, stepId, extra] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const [mode, threadId, turnId, runId, stepId] = args;
+  const extra = args.at(5);
   if (!mode || !threadId || !turnId || !runId) {
     throw new Error("Expected mode, threadId, turnId, and runId");
   }
@@ -302,6 +304,9 @@ async function main(): Promise<void> {
         await withMigrationRuntime(() => ensureRunTables());
       }
       if (mode === "stale-write") {
+        if (extra === undefined) {
+          throw new Error("Expected stale-write execution fence payload.");
+        }
         const staleFence = JSON.parse(extra) as ExecutionFence;
         await withExecutionFence(staleFence, () =>
           insertRunEvent(
@@ -316,6 +321,9 @@ async function main(): Promise<void> {
       }
       if (mode === "harness-approval-rehydrate-subprocess") {
         await withMigrationRuntime(() => ensureAgentHarnessSessionTables());
+        if (extra === undefined) {
+          throw new Error("Expected approval rehydration payload.");
+        }
         const { approvalId, ownerEmail, orgId } = JSON.parse(extra) as {
           approvalId: string;
           ownerEmail: string;
@@ -406,6 +414,9 @@ async function main(): Promise<void> {
           await ensureRunTables();
           await ensureAgentHarnessSessionTables();
         });
+        if (extra === undefined) {
+          throw new Error("Expected follow-up approval payload.");
+        }
         const { approvalId, ownerEmail, orgId, effectId } = JSON.parse(
           extra,
         ) as {
@@ -476,7 +487,9 @@ async function main(): Promise<void> {
         });
 
         if (mode === "harness-follow-up-native-approval-crash") {
-          const [backendPidRow] = await sql`SELECT pg_backend_pid() AS pid`;
+          const backendPidRow = (await sql`SELECT pg_backend_pid() AS pid`).at(
+            0,
+          );
           if (!backendPidRow) {
             throw new Error("Postgres did not return a backend pid.");
           }

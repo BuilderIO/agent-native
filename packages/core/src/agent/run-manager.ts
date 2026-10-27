@@ -1005,7 +1005,7 @@ export function startRun(
           ...(options?.turnInitiator
             ? { turnInitiator: options.turnInitiator }
             : {}),
-          ...(options?.afterRunInsert
+          ...(options.afterRunInsert
             ? { afterInsert: options.afterRunInsert }
             : {}),
         }
@@ -1835,8 +1835,9 @@ export function startRun(
     hasSoftTimeout && !recoverChunkBoundaries
       ? setTimeout(
           () => {
+            const lastEventType = run.events.at(-1)?.event.type;
             reachRunBoundary("run_timeout", {
-              lastEventType: run.events.at(-1)?.event.type,
+              ...(lastEventType === undefined ? {} : { lastEventType }),
             });
           },
           Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),

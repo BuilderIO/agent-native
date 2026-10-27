@@ -498,7 +498,8 @@ export function validateScheduledRecoveryOutcome(
     1,
     "canary turn must have exactly one successor",
   );
-  const successor = successors[0]!;
+  const [successor] = successors;
+  assert.ok(successor, "canary turn must have exactly one successor");
   assert.equal(
     successor.status,
     "completed",
@@ -613,6 +614,7 @@ async function runObserver(
       if (lastValidationError) throw lastValidationError;
       throw new Error("Timed out waiting for scheduled checkpoint recovery");
     }
+    const successorRunId = outcome.successorRunId;
     return {
       schemaVersion: 1,
       target: { host: site.hostname, appId },
@@ -634,14 +636,11 @@ async function runObserver(
           ?.status,
         checkpointCount: after.checkpointCount,
         predecessorTerminalCount: after.predecessorTerminalCount,
-        successorRunId: outcome.successorRunId,
-        successorStatus: after.runs.find(
-          (run) => run.id === outcome!.successorRunId,
-        )?.status,
-        successorTerminalCount:
-          after.successorTerminalCounts[outcome.successorRunId],
-        expectedMarkerCount:
-          after.successorMarkerCounts[outcome.successorRunId],
+        successorRunId,
+        successorStatus: after.runs.find((run) => run.id === successorRunId)
+          ?.status,
+        successorTerminalCount: after.successorTerminalCounts[successorRunId],
+        expectedMarkerCount: after.successorMarkerCounts[successorRunId],
         turnRunCount: after.turnRunCount,
         liveLeaseCount: after.liveLeaseCount,
         externalEffectCount: null,
