@@ -1,0 +1,101 @@
+slug: landing-page-prototypes
+app: design
+roles:
+  - marketing
+  - design
+  - founders
+title: ローンチブリーフからランディングページを試作
+seo_title: ローンチ向けAIランディングページプロトタイプ
+meta_description: Agent-Native Designにローンチブリーフを渡すと、自社ブランドのランディングページ案が複数でき、クリックして比べ、HTMLで書き出せます。無料のオープンソースです。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Designは、自社ブランドで複数の案を並べて作ります。選んだ案を手作業や依頼で編集し、HTMLファイルとしてダウンロードしてサイトに追加できます。
+  button:
+    label: ページをデザインする
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: Designエディター。Ledgerlaneの即日の業務委託報酬支払いのローンチページの「Product-first」案が、デスクトップとモバイルのフレームで表示されています。左のエージェントチャットには、ローンチブリーフ、提案された3つの案と選ばれた「Product-first」、ページを作り込んだというエージェントのメモが並んでいます。
+how_to:
+  heading: AIでランディングページのプロトタイプを作る方法
+  steps:
+    - title: ローンチの内容を説明する
+      body: Designのホーム画面で、**新しいデザイン**ボックスにローンチブリーフを貼り付けます。[オファー、対象ユーザー、行動喚起](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/)を書きましょう。ブリーフをファイルとして添付し、ボックスの下で自社ブランドのデザインシステムを選ぶこともできます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: Designのホーム画面にある「新しいデザイン」ボックスの拡大図。Ledgerlaneの即日支払いについてのローンチブリーフが入力され、ブリーフのPDFが添付され、Ledgerlane Brandのデザインシステムが選ばれています。
+    - title: 複数の案を比べる
+      body: エージェントに「案を3つ」と頼みます。それぞれが独立した画面として、ボード上に並んで表示されます。チャットで1つを選ぶと、エージェントがそれを完全なページに仕上げ、ほかの案を片付けます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: 即日支払いのローンチページの3つの案「Product-first」「Editorial」「Proof-led」が、ボード上に並んでいます。エージェントチャットでは、どれを作り込むかを、案ごとのボタン付きで尋ねています。
+    - title: ページのHTMLを書き出す
+      body: エディターのメニューで**ファイル**、**エクスポート**の順に選びます。**HTML をダウンロード**では、どのブラウザーでも開ける1つのファイルが得られます。**コーディング引き継ぎをコピー**では、ページをサイトに組み込むのに必要なものをコーディングエージェントに渡せます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: 「Product-first」のローンチページの上で、エディターのメニューの「ファイル」と「エクスポート」を開いた拡大図。選択肢には「HTML をダウンロード」「ZIP をダウンロード」「Figma 用にダウンロード（SVG）」「コーディング引き継ぎをコピー」があります。
+features:
+  heading: ローンチページのデザインに必要な機能がすべて揃っています
+  items:
+    - title: ブリーフからランディングページへ
+      body: エージェントは新しい主張を作らず、ブリーフにある主張をもとに作ります。ブリーフで決まっていない点は、質問するか、置いた前提を伝えます。
+    - title: AIとビジュアル編集
+      body: 見出し、色、余白を自分で変えることも、セクションの作り直しをエージェントに頼むこともできます。どちらも同じページを編集します。
+    - title: 案を並べて比較
+      body: 案ごとに独自の見た目とモバイルレイアウトがあるので、公開前にチームで実際の方向性を比べられます。
+    - title: どのローンチもブランドどおり
+      body: Figmaファイル、Webサイト、コードからデザインシステムを一度作れば、新しいローンチページはすべて自社の色、フォント、スタイルを使います。
+    - title: ページにピン留めするフィードバック
+      body: レビュー担当者は、見出しやボタンそのものにコメントをピン留めします。エージェントに送れば、その変更を行うか、判断を仰ぎます。
+    - title: 開発者へのコード引き継ぎ
+      body: エージェント用プロンプトには、デザイントークン、ページのファイル、コーディングエージェントがサイトに組み込むための指示が含まれます。
+integrations:
+  heading: いつものツールとDesignを連携
+  cards:
+    - title: 自社ブランドから始める
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: FigmaファイルやGitHub上のサイトのコードからデザインシステムを作れば、どのローンチページもブランドどおりに始まります。
+    - title: コーディングエージェントに渡す
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: エージェント用プロンプトをClaude Code、Codex、Cursorに貼り付ければ、ページをサイト用のコードにします。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Designでできるその他のこと
+  cards:
+    - title: ブリーフからクリックできるプロトタイプを作成
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: デザインブリーフから新しい画面やプロダクトのフローをプロトタイプにし、チームでクリックして試せます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Designは無料ですか？
+      a: はい、Agent-Native Designは無料のオープンソースです。ページを作るには、Builder.io AIクレジットかご自身のAIキーによるAI接続が必要なので、AIを無制限に使えるわけではありません。Designはアルファ版のため、成長に合わせて変更が加わる可能性があります。
+    - q: Designはランディングページを公開またはホストしますか？
+      a: いいえ。Designはランディングページを作って書き出すところまでで、デプロイは今お使いのツールで行います。HTMLやファイルのZIPをダウンロードするか、コーディングエージェントがページをサイトに追加するためのプロンプトをコピーします。
+    - q: 自社ブランドを使えますか？
+      a: はい。Figmaファイル、Webサイト、GitHubリポジトリ、アップロードしたファイルからデザインシステムを作り、ページを作り始めるときに選びます。エージェントは、作るすべての案でその色、フォント、スタイルを守ります。
+    - q: AIが作ったランディングページを後から編集できますか？
+      a: はい。テキスト、色、余白、レイアウトをページ上で手作業で変えるか、セクションの変更をエージェントに頼めます。**バージョン履歴**から、いつでも以前の版に戻せます。
+    - q: ランディングページを書き出すと何が得られますか？
+      a: '**HTML をダウンロード**では、どのブラウザーでも開け、スタイルをインターネット経由で読み込む1つのファイルが得られます。**ZIP をダウンロード**にはページのすべてのファイルが入り、**Figma 用にダウンロード（SVG）**ではFigmaで編集できるレイヤーが得られます。ドキュメントで[すべての書き出し方法](https://www.agent-native.com/docs/template-design-features/#export)を確認できます。'
+    - q: チャットボットにランディングページを頼むのと何が違いますか？
+      a: チャットボットでは、ページを見るにはまず受け取ったコードをどこかに貼り付ける必要があります。Designでは、エージェントが見てクリックできるエディター上に、複数の案でページを作ります。同じページを手作業でも、依頼でも変更できます。これが[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。

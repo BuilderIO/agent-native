@@ -1,0 +1,111 @@
+slug: ai-funnel-analysis
+app: analytics
+roles:
+  - product
+  - founders
+  - engineering
+title: "जानें कि नए यूज़र्स कहाँ छोड़ देते हैं"
+seo_title: "सेशन रीप्ले के साथ AI फ़नल एनालिसिस"
+meta_description: "Agent-Native Analytics से आसान भाषा में पूछें कि साइनअप का कौन-सा स्टेप नए यूज़र्स खोता है, अपने इवेंट्स से फ़नल पाएँ, फिर छोड़कर गए लोगों के रीप्ले देखें।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics से पूछें कि साइनअप का कौन-सा स्टेप सबसे ज़्यादा लोगों को खोता है, और एजेंट आपके अपने इवेंट्स से फ़नल बनाता है। फिर छोड़कर गए लोगों के रीप्ले देखें और एजेंट से वजह पूछें।"
+  button:
+    label: "अपना ड्रॉप-ऑफ़ ढूँढें"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: "\"Activation funnel\" डैशबोर्ड पर Analytics की विंडो। इसके फ़नल में चार स्टेप हैं: Signed up, Created a project, Connected a data source और Invited a teammate। हर स्टेप अपनी गिनती, साइनअप्स में अपना हिस्सा और पिछले स्टेप से गिरावट दिखाता है, और सबसे बड़ी गिरावट Created a project पर है। बगल में एजेंट चैट समझाती है कि पिछले हफ़्ते के साइनअप्स कहाँ रुके।"
+how_to:
+  heading: "AI से फ़नल एनालिसिस कैसे करें"
+  steps:
+    - title: "पूछें कि नए यूज़र्स कहाँ रुकते हैं"
+      body: "अपने साइनअप इवेंट्स Analytics में लाएँ। **पूछें** पर सवाल करें, और एजेंट SQL लिखकर हर स्टेप की गिनती और गिरावट वाला [फ़नल पैनल](https://www.agent-native.com/docs/template-analytics-dashboards/) जोड़ देता है। आज़माएँ: \"मेरे Activation funnel डैशबोर्ड में फ़नल जोड़ो: पिछले हफ़्ते के साइनअप्स कहाँ रुके?\""
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: "एजेंट चैट में वही रिक्वेस्ट और एजेंट का जवाब, बगल में उसका जोड़ा हुआ फ़नल। स्टेप्स हैं Signed up 1,240, Created a project 612, Connected a data source 418 और Invited a teammate 302, हर एक के साथ उसकी गिरावट।"
+    - title: "रुकने वाले लोगों को ढूँढें"
+      body: "Analytics की सेटिंग्स में Sessions triage चालू करें। **सत्र** पर **इवेंट** खोलें। गिरावट से पहले वाले स्टेप के लिए **हुआ** चुनें, जैसे \"signed_up\", और जिस स्टेप तक वे कभी नहीं पहुँचे उसके लिए **नहीं हुआ**, जैसे \"project_created\"।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: "Sessions पेज का क्लोज़-अप, जिसमें Events फ़िल्टर खुला है, signed_up, Did पर और project_created, Didn't पर सेट है। नीचे नए यूज़र्स के सेशन्स की फ़िल्टर की हुई लिस्ट है, हर एक के साथ उसकी अवधि, पेज और rage clicks।"
+    - title: "पूछें कि सेशन में क्या हुआ"
+      body: "पेज, क्लिक्स और नेटवर्क रिक्वेस्ट्स देखने के लिए कोई रीप्ले खोलें। **एजेंट से पूछें** पर क्लिक करें और पूछें \"इस सेशन में क्या हुआ?\" एजेंट एरर, बार-बार के क्लिक्स और उस व्यक्ति के देखे पेजों का सार बताता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: "create-project पेज पर एक नए यूज़र का रीप्ले, बगल में एजेंट का जवाब। व्यक्ति ने प्रोजेक्ट का नाम टाइप किया और तीन बार Create project पर क्लिक किया। projects API की रिक्वेस्ट हर बार फ़ेल हुई, और वे चले गए।"
+features:
+  heading: "ड्रॉप-ऑफ़ ढूँढने और ठीक करने के लिए आपको जो कुछ चाहिए"
+  items:
+    - title: "स्किप करना छोड़ना नहीं है"
+      body: "एजेंट को बताएँ कि लोग कौन-से स्टेप स्किप कर सकते हैं, और फ़नल उन्हें स्किप करने वालों को वहाँ ऐप छोड़ने वालों से अलग दिखाता है।"
+    - title: "आपके अपने इवेंट नाम"
+      body: "एडमिन **सिमेंटिक लेयर** पेज पर आपके इवेंट्स और मेट्रिक्स का विवरण लिखते हैं, और एजेंट हर क्वेरी में ठीक वही नाम इस्तेमाल करता है।"
+    - title: "फ़ेल हुई रिक्वेस्ट देखें"
+      body: "रीप्ले पर **डेव टूल्स** खोलकर उसका कंसोल और नेटवर्क रिक्वेस्ट्स पढ़ें, और सीधे उस पल पर जाएँ जब कोई रिक्वेस्ट फ़ेल हुई।"
+    - title: "एजेंट्स के लिए छँटे हुए रीप्ले"
+      body: "बाहरी एजेंट को रीप्ले की कंसोल और नेटवर्क एंट्रीज़ मिलती हैं, एरर सबसे पहले, रिकॉर्डिंग खुद कभी नहीं। उसका लिंक दो घंटे में एक्सपायर हो जाता है।"
+    - title: "डिफ़ॉल्ट रूप से प्राइवेट"
+      body: "हर रीप्ले में टाइपिंग छिपी रहती है, और आप तय करते हैं कि पेज के कौन-से दूसरे हिस्से छिपे रहें।"
+    - title: "हर दिन फ़नल"
+      body: "एजेंट से कहें कि आपका फ़नल डैशबोर्ड रोज़ आपके चुने समय पर, पाँच लोगों तक को ईमेल से या Slack पर भेजे।"
+integrations:
+  heading: "Analytics को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "जो इवेंट्स आप ट्रैक करते हैं, उनके बारे में पूछें"
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: "एजेंट उस प्रोडक्ट डेटा पर क्वेरी करता है जो आप इन टूल्स में पहले से इकट्ठा करते हैं, या उन इवेंट्स पर जो आपका ऐप Analytics को भेजता है।"
+    - title: "रीप्ले को अपने कोडिंग एजेंट में पेस्ट करें"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: "रीप्ले पर **एजेंट के लिए कॉपी करें** पर क्लिक करें और लिंक अपने कोडिंग एजेंट में पेस्ट करें, ताकि वह उस सेशन के लॉग्स से डीबग करे।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Analytics से आप और क्या कर सकते हैं"
+  cards:
+    - title: "अपने स्टार्टअप के लिए KPI डैशबोर्ड बनाएँ"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "जिन KPIs को आप ट्रैक करते हैं उन्हें बताएँ, और एजेंट Stripe, HubSpot और प्रोडक्ट डेटा से एक डैशबोर्ड बनाता है।"
+    - title: "अपने डेटा से आसान भाषा में सवाल पूछें"
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: "अपने BigQuery डेटा से सवाल पूछें, और एजेंट read-only SQL लिखता है जिसे आप जाँच सकते हैं।"
+    - title: "स्प्रेडशीट के बिना अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "पूछें कि आपका मार्केटिंग हफ़्ता कैसा रहा, और एजेंट Google Analytics और HubSpot से डैशबोर्ड में जवाब देता है।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Analytics फ़्री है?"
+      a: "हाँ, Agent-Native Analytics फ़्री और ओपन सोर्स है। होस्टेड ऐप इस्तेमाल करें, या [अपनी कॉपी चलाएँ](https://www.agent-native.com/docs/template-analytics/)। डेटा आप लाते हैं: आपके अपने इवेंट्स, या आपके कनेक्ट किए टूल्स। Analytics अभी alpha में है, इसलिए बदलाव होते रहेंगे।"
+    - q: "क्या मुझे SQL आना चाहिए?"
+      a: "नहीं। आसान भाषा में पूछें, और एजेंट SQL लिखकर चलाता है, फिर चार्ट, टेबल या संख्या के साथ जवाब देता है। जाँचना हो तो क्वेरी दिखाने को कहें। हो सकता है आपके डेटा को जानने वाले किसी व्यक्ति को पहले [आपके सोर्स कनेक्ट](https://www.agent-native.com/docs/template-analytics-connectors/) करने पड़ें।"
+    - q: "सेशन रीप्ले कहाँ से आते हैं?"
+      a: "आपके अपने वेब ऐप से। **डेटा स्रोत** पर एक public key बनाएँ, फिर **सत्र** पेज से छोटा ट्रैकिंग स्निपेट अपने ऐप में जोड़ें, सेशन रीप्ले चालू करके। रिकॉर्डिंग्स के लिए स्टोरेज कनेक्ट करें: Builder.io या आपका अपना S3 bucket। डिफ़ॉल्ट रूप से [रीप्ले](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/) सिर्फ़ साइन इन किए यूज़र्स को रिकॉर्ड करते हैं।"
+    - q: "सेशन रीप्ले क्या-क्या रिकॉर्ड करता है?"
+      a: "रीप्ले पेज, क्लिक्स और स्क्रॉलिंग, कंसोल आउटपुट और नेटवर्क रिक्वेस्ट्स दोबारा चलाता है। टाइपिंग डिफ़ॉल्ट रूप से छिपी रहती है, और पासवर्ड या कार्ड डिटेल्स वाले फ़ील्ड कभी कैप्चर नहीं होते। कुछ और छिपाने के लिए पेज के उस हिस्से में एक class जोड़ें।"
+    - q: "क्या मैं अपना PostHog, Amplitude या Mixpanel डेटा इस्तेमाल कर सकता हूँ?"
+      a: "हाँ। उन्हें **डेटा स्रोत** पर कनेक्ट करें और वहाँ ट्रैक होने वाले इवेंट्स के बारे में पूछें। एजेंट आपके लिए हर टूल पर क्वेरी करता है। सेशन रीप्ले सिर्फ़ Analytics की अपनी ट्रैकिंग से आते हैं, इसलिए रुकने वाले लोगों को देखने के लिए उसे अपने ऐप में जोड़ें।"
+    - q: "Analytics मेरे एनालिटिक्स टूल के AI से कैसे अलग है?"
+      a: "किसी एनालिटिक्स टूल का AI उसी टूल के डेटा पर काम करता है। Analytics एजेंट आपके कनेक्ट किए हर सोर्स पर काम करता है, ठीक उन्हीं लोगों के रीप्ले ढूँढता है जो रुक गए, और उनमें से किसी को भी समझाता है या आपके कोडिंग एजेंट को सौंप देता है। यह ओपन सोर्स भी है। यही एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) है: एजेंट का दिमाग, ऐप जैसी आसानी।"

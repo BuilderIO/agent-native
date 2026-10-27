@@ -1,0 +1,104 @@
+slug: ai-dictation
+app: clips
+roles:
+  - engineering
+  - product
+title: "أملِ مطالباتك بدلًا من كتابتها"
+seo_title: "إملاء بالذكاء الاصطناعي يكتب في أي تطبيق"
+meta_description: "استخدم الإملاء بالذكاء الاصطناعي لتتحدث في Claude Code أو Slack أو مستند، واحصل على نص منقّح عند المؤشر. يحفظ Agent-Native Clips كل ما تمليه لتبحث فيه لاحقًا."
+updated: 2026-10-26
+hero:
+  body: "تصل مطالباتك وتذاكرك وردودك المنطوقة نصًا منقّحًا إلى موضع المؤشر، من Claude Code إلى Slack. يحفظ Agent-Native Clips كل ما تمليه، ويعيد وكيله صياغته عندما تطلب."
+  button:
+    label: "ابدأ الإملاء"
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: "صفحة إملاء في Clips تعرض إملاءات اليوم: مطالبة طويلة لوكيل برمجة وتذكرة خطأ وتحديث في Slack. بطاقة المطالبة مفتوحة وفيها النص الأصلي والنص المنظّف."
+how_to:
+  heading: "كيف تستخدم الإملاء بالذكاء الاصطناعي"
+  steps:
+    - title: "أملِ في أي تطبيق"
+      body: "ثبّت Clips Desktop، وانقر داخل Claude Code أو Linear أو Slack، واضغط اختصارك (Fn افتراضيًا، أو اختصارًا تختاره في الإعدادات) مع الاستمرار وأنت تتحدث. ارفع إصبعك، فيضع Clips كلماتك عند المؤشر."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: "محادثة مع وكيل برمجة: أُرسلت مطالبة مُملاة عن إعادة محاولات webhook، ونفّذ الوكيل التعديل. يبقى المؤشر في مربع الرسالة بينما تستمع شارة Clips أسفله إلى المطالبة التالية، وموجتها الخضراء مرتفعة."
+    - title: "علّم Clips كلماتك"
+      body: "افتح القاموس في صفحة إملاء وأضف اسم منتجك ومكتباتك وأسماء زملائك، أو «مصطلح → بديل» لكلمة يسيء Clips سماعها دائمًا. استورد ملف CSV لإضافة قائمة كاملة دفعة واحدة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: "لوحة القاموس في Clips، وفيها إضافة مصطلحات واستيراد وتصدير CSV. وتحتها مصطلحات مثل Agent-Native و«web hooks → webhooks» و«kube control → kubectl»."
+    - title: "ابحث عن إملاء سابق"
+      body: "اضغط Cmd+K في Clips واكتب كلمة قلتها، فتظهر الإملاءات المطابقة مع التطبيق الذي أمليتها فيه. اختر واحدًا لفتحه في صفحة إملاء."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: 'قائمة البحث في Clips وقد كُتبت فيها «webhook»، وتسرد إملاءين سابقين تحت إملاء: مطالبة أُمليت في Cursor ورسالة أُمليت في Slack.'
+features:
+  heading: "كل ما تحتاجه لتملي بدلًا من أن تكتب"
+  items:
+    - title: "حافظتك تبقى كما هي"
+      body: "يلصق Clips في التطبيقات ثم يعيد حافظتك كما كانت، فيبقى الرابط الذي نسخته موجودًا. وفي الطرفيات يكتب النص كتابةً."
+    - title: "تنظيف بالذكاء الاصطناعي يمكنك التراجع عنه"
+      body: "يصحّح Clips الكلمات المسموعة خطأً والفواصل والأحرف الكبيرة ويحذف البدايات المتعثرة: تلقائيًا بمحرك سحابي، أو بنقرة واحدة. ويبقى الأصل محفوظًا."
+    - title: "يتعلم من تصحيحاتك"
+      body: "صحّح كلمة سُمعت خطأً بعد لصق Clips لها مباشرة، فيضيف تطبيق سطح المكتب هذا التصحيح إلى القاموس، فيصيب الإملاء التالي."
+    - title: "دون استخدام اليدين للمطالبات الطويلة"
+      body: "اضغط اختصارك مرتين ليواصل الاستماع بينما تفكر بصوت عالٍ، واضغط مرة أخرى للإيقاف. اضغط Esc لتتخلص من الإملاء."
+    - title: "الصقه مجددًا"
+      body: "اضغط Cmd+Ctrl+V للصق آخر إملاء في حقل نص آخر، وهذا مفيد عندما يكون المؤشر في المكان الخطأ."
+    - title: "اسأل الوكيل عنه"
+      body: "اسأل «ماذا قلت عن ميزانية الربع الثالث؟» أو «حوّل هذا الكلام المتشعب إلى نقاط»، فيعمل الوكيل من سجلك."
+integrations:
+  heading: "اربط Clips بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "وجّه مطالباتك إلى وكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "قُل المهمة كاملة لـ Claude Code أو Cursor أو Codex: الملفات والحالات الحدّية والاختبار المطلوب تشغيله."
+    - title: "اكتب حيث تعمل بالفعل"
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: "أملِ التحديثات والردود والمسودات مباشرة في الرسالة أو المستند. وفي Slack يحذف Clips النقطة الأخيرة."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Clips"
+  cards:
+    - title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: "سجّل اجتماعاتك من جهازك واحصل على ملخص وملاحظات وعناصر عمل."
+    - title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: "اعرض الخطأ مرة واحدة في Chrome، ويحصل وكيل البرمجة لديك على التسجيل وما سجّلته الصفحة."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Clips مجاني؟"
+      a: "نعم. Agent-Native Clips مجاني ومفتوح المصدر، والإملاء الصوتي مفعّل افتراضيًا في تطبيق سطح المكتب. يعمل التنظيف بالذكاء الاصطناعي على أرصدة Builder.io للذكاء الاصطناعي أو على مفتاحك الخاص، فهو ليس غير محدود. لا يزال Clips في مرحلة ألفا، فتوقّع تغييرات مع تطوّره."
+    - q: "كيف يختلف Clips عن الإملاء المدمج في جهازي؟"
+      a: "الإملاء المدمج لا يحتاج إلى إعداد، لكنه لا يحتفظ بـ[سجل قابل للبحث لما قلته](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). أما Clips فيحفظ كل إملاء بنصه الأصلي والمنظّف، ويتعلم كلماتك وينقّح النص بالذكاء الاصطناعي. ويستطيع وكيل Clips أن يجد ما قلته ويعيد صياغته، كأن يحوّل كلامًا متشعبًا إلى نقاط."
+    - q: "هل سيكتب Clips مصطلحات فريقي بشكل صحيح؟"
+      a: "نعم، متى أصبحت المصطلحات في قاموسك. أضفها واحدًا في كل سطر، أو بصيغة «مصطلح → بديل» لكلمة يسيء سماعها دائمًا. ويمكنك أيضًا استيراد ملف CSV بالمصطلحات. وعندما تصحّح كلمة بعد لصق Clips لها مباشرة، يحفظ تطبيق سطح المكتب هذا التصحيح في قاموسك للمرة القادمة."
+    - q: "هل تُحفظ إملاءاتي، وهل أستطيع العثور على إملاء قديم؟"
+      a: "يُحفظ كل إملاء بنصه الأصلي والمنظّف ووقته ومدته، ويظهر في صفحة إملاء مجمّعًا حسب اليوم. اضغط Cmd+K للبحث فيها بما قلته، أو اسأل [وكيل Clips](https://www.agent-native.com/docs/template-clips-agent/)، مثل «أرني ما أمليته أمس». ويمكنك حذف أي إملاء."
+    - q: "هل يغادر صوتي جهازي؟"
+      a: "لا يلزم ذلك. يستطيع Clips Desktop تحويل الكلام إلى نص على جهازك، بالتعرف المدمج على الكلام أو Local Whisper ([محركات النسخ في Clips](https://www.agent-native.com/docs/template-clips-features/)). ومع Builder.io أو مفتاحك الخاص، يرسل Clips إملاءك إلى خدمة الذكاء الاصطناعي تلك لتنظيفه. ويُحفظ نص كل إملاء في حساب Clips الخاص بك."

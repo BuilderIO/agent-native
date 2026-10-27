@@ -1,0 +1,99 @@
+slug: ai-meeting-notes
+app: clips
+roles:
+  - everyone
+title: Meeting-Notizen ohne Bot im Anruf erstellen
+seo_title: KI-Meeting-Notizen ohne Bot in Ihrem Anruf
+meta_description: Erhalten Sie Transkript, Zusammenfassung und Aufgaben aus jedem Anruf. Agent-Native Clips nimmt auf Ihrem eigenen Computer auf, sodass Sie jedes Meeting später durchsuchen oder dazu befragen können.
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips macht aus Anrufen Notizen: Transkript, Zusammenfassung und Aufgaben pro Person. Es nimmt direkt am Computer auf, und Sie durchsuchen oder befragen jeden Anruf."
+  button:
+    label: Meeting-Notizen erstellen
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: Ein abgeschlossener wöchentlicher Produkt-Sync in Clips. Links zeigt der Notizbereich eine kurze Zusammenfassung, Kernpunkte und Aufgaben, gruppiert nach Teilnehmer. Rechts läuft das Transkript mit den Beiträgen der einzelnen Sprecher.
+how_to:
+  heading: So erstellen Sie Meeting-Notizen mit KI
+  steps:
+    - title: Kalender verbinden
+      body: Installieren Sie Clips Desktop, aktivieren Sie in den Clips-Einstellungen „Meetings und Transkription“ und verbinden Sie auf der Seite „Treffen“ Google Calendar. Ihre kommenden Meetings erscheinen im Tab „Agenda“.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: Nahaufnahme des Tabs „Agenda“ auf der Seite „Treffen“ mit den heutigen Meetings aus Google Calendar. Beim Meeting, das in 2 Minuten beginnt, stehen die Schaltflächen „Beitreten“ und „Notizen öffnen“.
+    - title: Notizen über die Erinnerung starten
+      body: Clips Desktop zeigt eine Minute vor jedem Kalender-Meeting eine Erinnerung an. Mit „Join“ treten Sie dem Anruf bei und starten sofort die Notizen, über das Menü der Schaltfläche starten Sie Notizen ohne Beitritt. Clips nimmt dann Ihr Mikrofon und den Ton des Anrufs auf.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "Nahaufnahme der Clips-Desktop-Erinnerung für den wöchentlichen Produkt-Sync. Das Menü der Schaltfläche „Join Meet & open Clips“ ist geöffnet: Join only, Start notes only und Snooze 5 min."
+    - title: Notizen und Aufgaben lesen
+      body: "Nach dem Anruf zeigt die Meeting-Seite Ihre Notizen und die KI-Notizen neben dem Transkript: Zusammenfassung, Kernpunkte und Aufgaben pro Teilnehmer. [Prüfen Sie KI-Meeting-Notizen](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/) am Transkript, bevor Sie sie teilen."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "Nahaufnahme des Bereichs „KI-Notizen“ eines abgeschlossenen Meetings: die Zusammenfassung, vier Kernpunkte und Aufgaben, gruppiert unter zwei Teilnehmern."
+features:
+  heading: Alles, was Sie aus jedem Meeting brauchen
+  items:
+    - title: Kein Bot in Ihren Anrufen
+      body: Clips Desktop nimmt Ihr Mikrofon und den Ton des Anrufs auf Ihrem eigenen Computer auf, damit das Meeting für alle anderen unverändert aussieht.
+    - title: Aufgaben pro Person
+      body: Jede Aufgabe nennt, wer zuständig ist, abgeleitet aus dem Anruf. Vor dem Teilen lässt sie sich bearbeiten.
+    - title: Fragen während des Anrufs
+      body: "Fragen Sie live zum Meeting: was Sie verpasst haben, eine Zusammenfassung der letzten fünf Minuten oder eine gute nächste Frage."
+    - title: Suche nach Gesagtem
+      body: Finden Sie Meetings über Wörter aus Transkript oder Notizen oder über Teilnehmernamen, oder fragen Sie den Agenten.
+    - title: Notizen mit Rücksprung
+      body: Klicken Sie in den KI-Notizen auf einen Kernpunkt, um im Transkript zu der Stelle zu springen, an der er gesagt wurde.
+    - title: Meeting-Notizen teilen
+      body: Ein Link teilt Zusammenfassung, Kernpunkte, Aufgaben und das gesamte Transkript, ohne Video und Kommentare der Aufnahme.
+integrations:
+  heading: Verbinden Sie Clips mit den Tools, die Sie schon nutzen
+  cards:
+    - title: Ihr Kalender und Ihre Anrufe
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: Clips zeigt Ihre Meetings aus Google Calendar und erstellt Notizen in Google Meet, Microsoft Teams und anderen Videoanrufen.
+    - title: Den Agenten aus Slack fragen
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: Mit verbundenem Slack oder Microsoft Teams fragen Sie den Clips-Agenten nach Meetings, Notizen oder Ihren offenen Aufgaben.
+    - title: Alles per MCP verbinden
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
+other_uses:
+  heading: Was Sie sonst noch mit Agent-Native Clips tun können
+  cards:
+    - title: Fehler samt Konsolen- und Netzwerk-Logs aufnehmen
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Jede Aufnahme ist bereit für Ihren Coding-Agenten, damit er sieht, was schiefgelaufen ist.
+    - title: Ihre Prompts diktieren statt tippen
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Taste halten und sprechen, und Clips tippt den bereinigten Text in die App, die Sie gerade nutzen.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Agent-Native Clips kostenlos?
+      a: Ja, Agent-Native Clips ist kostenlos und Open Source. Zusammenfassungen, Titel und die Bereinigung des Transkripts laufen standardmäßig über [Builder.io-KI-Guthaben](https://www.agent-native.com/docs/template-clips-features/). Ist das Guthaben aufgebraucht, pausieren diese Funktionen, bis Sie Guthaben ergänzen oder Ihren eigenen Gemini-Schlüssel verbinden. Clips ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Tritt ein Bot meinen Meetings bei?
+      a: "Nein. Clips erstellt Notizen von Ihrem eigenen Computer: Clips Desktop nimmt Ihr Mikrofon und den Ton des Anrufs auf, es tritt also nichts Ihrem Zoom-, Google-Meet- oder Microsoft-Teams-Anruf bei. Da kein Bot beitritt, sagen Sie den Teilnehmern, dass Sie Notizen erstellen."
+    - q: Mit welchen Kalender- und Videoanruf-Apps funktioniert Clips?
+      a: Clips verbindet sich nur mit Google Calendar. Notizen funktionieren in Zoom, Google Meet, Microsoft Teams, Webex und jedem anderen Anruf, dessen Ton Ihr Computer wiedergibt. Auf einem Mac erkennt Clips Desktop solche Anrufe auch, wenn sie nicht im Kalender stehen, und bietet an, Notizen zu starten. Die Stimmen der anderen Teilnehmer werden nur auf dem Mac aufgenommen.
+    - q: Erstellt Clips auch unter Windows Meeting-Notizen?
+      a: Clips Desktop läuft auf Mac, Windows und Linux, aber die Stimmen der anderen Teilnehmer werden nur auf dem Mac erfasst. Unter Windows und Linux nimmt Clips nur Ihr Mikrofon auf, sodass externe Teilnehmer im Transkript und in den Aufgaben fehlen.
+    - q: Worin unterscheidet sich Clips vom KI-Notizassistenten in Zoom oder Google Meet?
+      a: "Der KI-Notizassistent einer Anruf-App ist an die Anrufe dieser App gebunden. Clips bewahrt jedes Meeting aus jeder Anruf-App in einer Bibliothek auf. Fragen Sie den [Clips-Agenten](https://www.agent-native.com/docs/template-clips-agent/) „Was hat Daniel letzten Dienstag zugesagt?“, und er durchsucht Ihre Meetings nach dem Gesagten. Das ist eine [agentische App](https://www.agent-native.com/articles/what-is-an-agent-native-app/): die Intelligenz eines Agenten, die Intuitivität einer App."

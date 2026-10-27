@@ -1,0 +1,101 @@
+slug: ai-sales-analytics
+app: analytics
+roles:
+  - revops
+  - sales
+title: "HubSpot और Gong डेटा से अपनी सेल्स पाइपलाइन रिव्यू करें"
+seo_title: "HubSpot और Gong के लिए AI सेल्स एनालिटिक्स"
+meta_description: "पाइपलाइन रिव्यू से पहले देखें कि कौन-सी डील्स अटकीं और क्यों। Agent-Native Analytics से HubSpot और Gong के बारे में आसान भाषा में पूछें, और जवाब डैशबोर्ड में रखें।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics आपकी HubSpot डील्स और Gong कॉल्स को हर पाइपलाइन रिव्यू के लिए डैशबोर्ड में बदलता है। आप आसान भाषा में पूछते हैं कि कौन-सी डील्स अटकीं और क्यों, और एजेंट दोनों से जवाब देता है।"
+  button:
+    label: "अपनी पाइपलाइन से पूछें"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: "Analytics में Weekly pipeline review डैशबोर्ड, जिसमें स्टेज के हिसाब से खुली पाइपलाइन, ओनर के हिसाब से डील्स और 30 दिन से अटकी डील्स के पैनल हैं। दाईं ओर एजेंट चैट बताती है कि एक अटकी डील क्यों रुकी, उसकी HubSpot स्टेज हिस्ट्री और आखिरी Gong कॉल के आधार पर।"
+how_to:
+  heading: "AI से अपनी सेल्स पाइपलाइन का विश्लेषण कैसे करें"
+  steps:
+    - title: "अपना CRM और कॉल डेटा कनेक्ट करें"
+      body: "**डेटा स्रोत** खोलें और **CRM & Sales** के नीचे HubSpot के आगे **कनेक्ट करें** पर क्लिक करें। HubSpot की सेटिंग्स में बनाए गए प्राइवेट ऐप का टोकन पेस्ट करें और **क्रेडेंशियल सहेजें** पर क्लिक करें। Gong भी इसी तरह जुड़ता है, एक्सेस key और secret के साथ।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: "Data Sources पेज, जिसमें HubSpot, Connected के नीचे और Gong, CRM & Sales के नीचे है। Gong की सेटअप शीट अपने Access Key Secret स्टेप पर खुली है, key पेस्ट की हुई है, और नीचे Save Credentials है।"
+    - title: "अपनी पाइपलाइन के बारे में पूछें"
+      body: "**पूछें** पर आसान भाषा में पूछें: \"कौन-सी खुली डील्स 30 दिन या उससे ज़्यादा से एक ही स्टेज में हैं?\"। एजेंट आपकी HubSpot डील्स खोजता है और एक टेबल के साथ जवाब देता है, जिसे आप सॉर्ट कर सकते हैं और आगे सवाल पूछ सकते हैं।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: "Ask चैट में 30 दिन से अटकी डील्स वाला सवाल। एजेंट छह खुली डील्स की टेबल के साथ जवाब देता है: स्टेज, ओनर, रकम और स्टेज में बीते दिन।"
+    - title: "जवाबों को डैशबोर्ड में सेव करें"
+      body: "एजेंट से कहें कि \"इसे पाइपलाइन रिव्यू के लिए डैशबोर्ड के रूप में सेव करो।\" वह हर जवाब का एक पैनल बनाता है, और पैनल HubSpot के नए डेटा से रिफ़्रेश होते हैं। पाइपलाइन रिव्यू से पहले डैशबोर्ड अपनी टीम के साथ शेयर करें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: "एजेंट चैट पुष्टि करती है कि उसने Weekly pipeline review डैशबोर्ड सेव कर दिया, बगल में नया डैशबोर्ड अपनी अटकी डील्स की टेबल और स्टेज के हिसाब से पाइपलाइन चार्ट के साथ।"
+features:
+  heading: "पाइपलाइन रिव्यू के लिए आपको जो कुछ चाहिए"
+  items:
+    - title: "आपकी डील्स और कॉल्स एक साथ"
+      body: "एक सवाल HubSpot से डील की स्टेज और ओनर, और Gong से यह ला सकता है कि उसकी कॉल्स में खरीदार ने क्या कहा।"
+    - title: "एजेंट जिन्हें एडिट करता है, ऐसे डैशबोर्ड"
+      body: "नया पैनल, ओनर के हिसाब से फ़िल्टर या अलग चार्ट माँगें, और एजेंट वह डैशबोर्ड अपडेट कर देता है जिसे आपकी टीम शेयर करती है।"
+    - title: "जवाब जिन्हें आप जाँच सकें"
+      body: "जब कोई आँकड़ा लाइव HubSpot या Gong क्वेरी से नहीं आया, तो एजेंट उसे Unverified मार्क करता है, ताकि आपको पता रहे कि क्या जाँचना है।"
+    - title: "रेवेन्यू के बगल में आपकी पाइपलाइन"
+      body: "Stripe और BigQuery भी कनेक्ट करें, और वही चैट आपकी डील्स के साथ-साथ रेवेन्यू और प्रोडक्ट इस्तेमाल के सवालों के जवाब देती है।"
+    - title: "आपकी पाइपलाइन की परिभाषाएँ"
+      body: "एक एडमिन **सिमेंटिक लेयर** पेज पर लिखता है कि अटकी डील या क्वालिफ़ाइड पाइपलाइन का मतलब क्या है। एजेंट जवाब देने से पहले उसे पढ़ता है।"
+    - title: "रोज़ की पाइपलाइन रिपोर्ट"
+      body: "ऐप खोले बिना, डैशबोर्ड हर दिन ईमेल से पाँच लोगों तक को या किसी Slack चैनल में पाएँ।"
+integrations:
+  heading: "Analytics को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "आपका CRM और आपकी कॉल्स"
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: "Analytics, HubSpot से डील्स, पाइपलाइन, स्टेज और ओनर पढ़ता है, और Gong से कॉल रिकॉर्डिंग और ट्रांसक्रिप्ट।"
+    - title: "वहाँ शेयर करें जहाँ आपकी टीम पढ़ती है"
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "डैशबोर्ड को किसी Slack चैनल में पोस्ट करें, या डील्स की टेबल को अपने कनेक्ट किए Google अकाउंट की नई Google Sheet में एक्सपोर्ट करें।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Analytics से आप और क्या कर सकते हैं"
+  cards:
+    - title: "अपने स्टार्टअप के लिए KPI डैशबोर्ड बनाएँ"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "आपका स्टार्टअप जिन चार्ट्स को ट्रैक करता है उन्हें माँगें, और एक डैशबोर्ड में रखें।"
+    - title: "स्प्रेडशीट के बिना अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "पूछें कि Google Analytics और HubSpot में हफ़्ता कैसा रहा, और रिपोर्ट रखें।"
+    - title: "जानें कि नए यूज़र्स कहाँ छोड़ देते हैं"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "देखें कि नए यूज़र्स कहाँ रुकते हैं, फिर वजह जानने के लिए उनके सेशन देखें।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Analytics फ़्री है?"
+      a: "हाँ, Agent-Native Analytics फ़्री और ओपन सोर्स है। एजेंट Builder.io AI क्रेडिट्स या आपकी अपनी AI key पर चलता है, इसलिए AI का इस्तेमाल असीमित नहीं है। कॉल्स के बारे में सवाल आपके Gong API क्रेडिट्स भी इस्तेमाल कर सकते हैं, जिसे एडमिन बंद कर सकता है। Analytics अभी alpha में है।"
+    - q: "Agent-Native Analytics किन CRM और कॉल टूल्स से जुड़ता है?"
+      a: "Analytics आपके CRM के लिए HubSpot और सेल्स कॉल्स के लिए Gong से जुड़ता है। कॉन्टैक्ट और कंपनी डेटा के लिए Apollo और Clay भी जुड़ते हैं। हर एक [डेटा स्रोत पेज पर जुड़ता है](https://www.agent-native.com/docs/template-analytics-connectors/), अपनी key के साथ, और एक सवाल HubSpot और Gong दोनों से जवाब ला सकता है।"
+    - q: "क्या मुझे SQL लिखना होगा?"
+      a: "नहीं। आप आसान भाषा में पूछते हैं, और एजेंट HubSpot या Gong में डेटा ढूँढता है, क्वेरी चलाता है और किसी संख्या, टेबल या चार्ट के साथ जवाब देता है। जब आप कोई जवाब डैशबोर्ड में सेव करते हैं, तो एजेंट तय करता है कि हर पैनल ताज़ा डेटा कैसे लाएगा।"
+    - q: "क्या मैं इन नंबरों पर भरोसा कर सकता हूँ?"
+      a: "हाँ, एक जाँच के साथ: एजेंट लाइव HubSpot और Gong डेटा से जवाब देता है और जो आँकड़ा लाइव क्वेरी से नहीं आया उसे Unverified मार्क करता है। वह आपकी टीम की [सिमेंटिक लेयर पेज वाली परिभाषाओं](https://www.agent-native.com/docs/template-analytics-dashboards/) को मानता है। इन पर भरोसा करने से पहले शुरुआती जवाबों को HubSpot से मिलाएँ।"
+    - q: "Agent-Native Analytics, HubSpot या Gong के साथ आने वाले AI से कैसे अलग है?"
+      a: "HubSpot या Gong का AI उसी एक टूल में बना है। Analytics एक ही सवाल का जवाब HubSpot और Gong दोनों से देता है, Stripe और BigQuery भी पढ़ता है, और जवाब को ऐसे डैशबोर्ड में रखता है जिसे आपकी टीम हर हफ़्ते दोबारा खोलती है। आप HubSpot और Gong पहले की तरह इस्तेमाल करते रहते हैं, और Analytics दोनों से पढ़ता है।"
+    - q: "मेरे डैशबोर्ड कौन देख सकता है?"
+      a: "सिर्फ़ आप, जब तक आप कोई शेयर न करें। डैशबोर्ड किसी टीममेट या पूरे संगठन के साथ viewer, editor या admin के रूप में शेयर करें। टीममेट्स HubSpot और Gong डेटा अपने कनेक्शन से देखते हैं, या उस कनेक्शन से जो एडमिन ने संगठन के लिए सेट किया है; दोनों में से कोई न हो तो वे पैनल एरर दिखाते हैं।"

@@ -1,91 +1,99 @@
 slug: ai-meeting-notes
-job_id: job-meeting-notes
 app: clips
-audience: broad
-title: "Meeting notes you don't have to take, and can search later"
-subhead: "Connect your calendar, hit record on a meeting, and get a transcript, summary, notes, and action items. Every meeting lands in the same searchable library as your recordings."
-meta_description: "Record meetings from your calendar and get a transcript, AI summary, notes, and action items you can search later. Free, open-source Clips from Agent-Native."
-cta_label: "Record a meeting"
-secondary_cta_label: "See how it works"
-app_cta_url: "https://clips.agent-native.com"
-screenshot_alt: "The Clips library with recordings, and the recorder panel open with screen, camera, and microphone options and Library, Meetings, Dictate, and Settings tabs"
-old_way:
-  heading: "How most people do it today"
-  body: "Someone is supposed to take notes. They end up half-listening, the notes land in a doc nobody opens again, and two weeks later you're asking the room who agreed to what."
-replaces:
-  - "Granola"
-new_way:
-  heading: "How it works in Clips"
+roles:
+  - everyone
+title: Get meeting notes without a bot in the call
+seo_title: AI meeting notes without a bot in your call
+meta_description: Get a transcript, a summary and action items from every call. Agent-Native Clips records on your own computer, so you can search or ask about any meeting later.
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips turns your calls into notes: a transcript, a summary and action items by attendee. It records your mic and the call audio on your computer, and you can search or ask about any call."
+  button:
+    label: Take meeting notes
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: A finished weekly product sync in Clips. The notes pane on the left shows a short summary, key points, and action items grouped under each attendee. The transcript runs down the right, with each speaker's lines.
+how_to:
+  heading: How to take meeting notes with AI
   steps:
-    - "Connect Google Calendar in Clips. Your upcoming meetings show up in the sidebar."
-    - "Hit record on the meeting."
-    - "Afterward you get a transcript, an AI summary, notes, and action items. Search across every meeting later, or ask the agent to find the one where you discussed something."
-todays_stack:
-  heading: "What changes for every meeting"
+    - title: Connect your calendar
+      body: Install Clips Desktop, turn on Meetings in Clips Settings and connect Google Calendar on the Meetings page. Your upcoming meetings appear on the Agenda tab.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: Close-up of the Meetings page's Agenda tab, listing today's meetings from Google Calendar, with Join and Open notes buttons on the meeting that starts in 2 minutes.
+    - title: Start notes from the reminder
+      body: Clips Desktop shows a reminder a minute before each calendar meeting. Its Join button joins the call and starts notes at once, and the button's menu starts notes without joining. Clips then captures your microphone and the call's audio.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "Close-up of the Clips Desktop reminder for the weekly product sync. Its Join Meet & open Clips button has its menu open: Join only, Start notes only and Snooze 5 min."
+    - title: Read your notes and action items
+      body: "When the call ends, the meeting page shows your notes and the AI notes next to the transcript: a summary, key points and action items by attendee. [Check AI meeting notes](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/) against the transcript before you share them."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "Close-up of the AI notes pane of a finished meeting: the summary, four key points, and action items grouped under two attendees."
+features:
+  heading: Everything you need from every meeting
   items:
-    - text: "**Typing notes while half-listening** leaves gaps, and whoever takes them misses part of the conversation."
-    - text: "**A separate note-taker, like Granola,** transcribes and summarizes, but its notes live apart from your screen recordings and dictations."
-    - text: "**A shared doc nobody opens again** is where decisions, owners, and dates usually get lost."
-  in_app: "Clips doesn't replace your calendar or your video call app. Meetings from your Google Calendar get a transcript, a summary, notes, and action items, in the same searchable library as your recordings."
-story: null
+    - title: No bot in your calls
+      body: Clips Desktop records your microphone and the call's audio on your own computer, so the meeting looks the same to everyone else.
+    - title: Action items by person
+      body: Each action item names who's responsible, based on who said what in the call. Add, edit or remove items before you share them.
+    - title: Ask during the call
+      body: "Ask about the meeting as it happens: what you missed, a recap of the last five minutes, or a good question to ask next."
+    - title: Search by what was said
+      body: Find a meeting by a word from the transcript, the notes or an attendee's name, or ask the agent for the call where something came up.
+    - title: Notes that link back
+      body: Click any key point in the AI notes to jump to the moment it was said in the transcript.
+    - title: Shareable meeting notes
+      body: One link shares the summary, key points, action items and full transcript, without the recording's video or comments.
+integrations:
+  heading: Connect Clips to the tools you already use
+  cards:
+    - title: Your calendar and your calls
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: Clips shows your meetings from Google Calendar and takes notes in Google Meet, Microsoft Teams and other video calls.
+    - title: Ask the agent from Slack
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: Once you connect Slack or Microsoft Teams, message the Clips agent there to find a meeting, its notes or the action items you owe.
+    - title: Connect anything through MCP
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Clips
+  cards:
+    - title: Record bugs with their console and network logs
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Each recording is ready to hand to your coding agent, so it can see what went wrong.
+    - title: Dictate your prompts instead of typing them
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Hold a key and speak, and Clips types cleaned-up text into the app you are using.
 faqs:
-  - q: "Which calendar does it work with?"
-    a: "Clips connects to Google Calendar. Connect it in Settings, and your upcoming meetings show in the sidebar."
-  - q: "Do I need permission to record a meeting?"
-    a: "Recording rules and company policies vary. Tell participants before you record, and check the rules that apply to you."
-  - q: "Are the notes always right?"
-    a: "AI summaries can miss or garble details. Check names, numbers, and decisions against the transcript before you share the notes."
-  - q: "Can I search past meetings?"
-    a: "Yes. Clips searches across every transcript, including screen recordings, meetings, and dictations, in one library."
-  - q: "Is Clips free?"
-    a: "Yes. Clips is free and open source. It's labeled alpha, so expect rough edges."
-cta_band_heading: "Record your next meeting"
-cta_band_subhead: "Get the transcript, the summary, and the action items without taking notes."
-updated: 2026-10-14
-internal:
-  job: "Meeting notes without taking them, searchable later"
-  recurs_when: "Every meeting"
-  first_session: "Connect Google Calendar, record one meeting"
-  return_signal: "Second meeting recorded within 7 days (proposal, confirm with Alice and Michael)"
-  target_terms: "ai meeting notes (US 1,400/mo, KD 0); meeting notes template (5,800, KD 10); ai meeting minutes (600); how to take meeting notes (500); granola alternative (200). Cluster about 9,800/mo."
-  basis: "hypothesis (high volume, low difficulty, recurs)"
-  replaces_source: "Clips README: alternative to Loom, Granola, and Wispr Flow."
-  verify: "Exact outputs of a recorded meeting, whether meetings need connected storage, and the default visibility of a meeting recording. Do not target Zoom searches until Zoom capture is confirmed."
-frequency: daily
-how_often_label: "Every meeting"
-roles: [everyone, revops, product]
-connects_to: ["Google Calendar"]
-next_jobs: [crm-and-call-questions, dictate-instead-of-typing]
-recipes:
-  - id: record-meeting
-    title: "Record your next meeting"
-    when: "Use this when a meeting is coming up on your calendar."
-    steps:
-      - "Connect Google Calendar in Clips."
-      - "Find the meeting in the sidebar and hit record."
-    result: "After the meeting, you'll have a transcript, an AI summary, notes, and action items."
-    tip: "Your calendar stays connected, so every meeting after this is one click."
-    how_often: "Every meeting"
-  - id: find-decision
-    title: "Find what was decided"
-    when: "Use this when someone asks who agreed to what."
-    steps:
-      - "Ask the agent to find the meeting where you discussed it, like a rollout plan."
-      - "Click a line in the transcript to replay that moment."
-    result: "You'll have the meeting and the exact moment the decision came up."
-    how_often: "Weekly"
-  - id: recap-from-actions
-    title: "Write the recap from the action items"
-    when: "Use this right after the meeting ends."
-    steps:
-      - "Copy the action items into your recap email or tracker."
-      - "Check names and dates against the transcript."
-      - "Send it."
-    result: "Your recap has owners and dates, and nobody had to rewrite it from memory."
-    how_often: "Every meeting"
-angles:
-  - id: revops
-    audience: "RevOps and sales"
-    title: "Call notes your team can search, without taking them"
-    subhead: "Record calls from your calendar and get a transcript, summary, and action items, in a library your whole team can search."
-    old_way_body: "Reps type notes during the call or skip them, the CRM gets a one-line summary, and the details live in someone's head."
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Clips free?
+      a: Yes, Agent-Native Clips is free and open source. Summaries, titles and transcript cleanup run on [Builder.io AI credits](https://www.agent-native.com/docs/template-clips-features/) by default. When credits run out, those features stop until you add credits or connect your own Gemini key. Clips is in alpha, so expect changes.
+    - q: Does a bot join my meetings?
+      a: "No. Clips takes notes from your own computer: Clips Desktop records your microphone and the call's audio, so nothing joins your Zoom, Google Meet or Microsoft Teams call. Since no bot joins, tell people you're taking notes."
+    - q: Which calendar and video call apps does Clips work with?
+      a: Clips connects to Google Calendar only. Notes work in Zoom, Google Meet, Microsoft Teams, Webex or any other call whose audio your computer plays. On a Mac, Clips Desktop also notices those calls when they aren't on your calendar, and offers to start notes. Other attendees' voices are captured on Mac only.
+    - q: Does Clips take meeting notes on Windows?
+      a: Clips Desktop runs on Mac, Windows and Linux, but capturing the other attendees' voices works on Mac only. On Windows and Linux, Clips records only your microphone, so remote attendees are missing from the transcript and the action items.
+    - q: How is Clips different from the AI note taker in Zoom or Google Meet?
+      a: "A call app's AI note taker is tied to that app's calls. Clips keeps every meeting, from any call app, in one library. Ask the [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) \"what did Daniel commit to last Tuesday?\" and it searches your meetings by what was said. That's an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."

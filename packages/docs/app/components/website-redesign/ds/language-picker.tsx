@@ -17,6 +17,7 @@ import {
   sitePathForLocale,
   type DocsLocale,
 } from "../../docs-locale";
+import { usePageLocales } from "../../page-locales";
 
 interface LanguagePickerProps {
   openUpward?: boolean;
@@ -34,6 +35,7 @@ export function LanguagePicker(props: LanguagePickerProps) {
   const openUpward = props.openUpward === true;
   const { preference, setPreference } = useLocale();
   const location = useLocation();
+  const pageLocales = usePageLocales();
   const [open, setOpen] = useState(false);
   const [systemLocale, setSystemLocale] =
     useState<DocsLocale>(DEFAULT_DOCS_LOCALE);
@@ -82,11 +84,12 @@ export function LanguagePicker(props: LanguagePickerProps) {
   }
 
   function hrefForPreference(value: string) {
+    const target = localeForPreference(value);
     const path = sitePathForLocale(
       location.pathname,
-      isCampaignPathname(location.pathname)
+      isCampaignPathname(location.pathname) && !pageLocales?.includes(target)
         ? DEFAULT_DOCS_LOCALE
-        : localeForPreference(value),
+        : target,
     );
     return `${path}${location.search}${location.hash}`;
   }

@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: "ऐसे स्पेक्स लिखें जो आपका कोडिंग एजेंट पढ़ सके"
+seo_title: "Claude Code, Codex और Cursor के लिए स्पेक्स"
+meta_description: "Agent-Native Content आपके स्पेक को एक पेज पर रखता है जिसे Claude Code, Codex या Cursor MCP से पढ़ते हैं, ताकि एजेंट उसी वर्ज़न से बनाए जिसे आपकी टीम एडिट कर रही है।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Content आपके नोट्स को स्पेक में बदलता है, जिस पर आप, आपकी टीम और कोडिंग एजेंट एक ही पेज पर काम करते हैं। Claude Code, Codex या Cursor लाइव पेज पढ़कर बदलाव सुझाते हैं, जिन्हें आप मंज़ूर करते हैं।"
+  button:
+    label: "स्पेक लिखें"
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: "Content में खुला \"Team invites\" नाम का स्पेक, जिसमें Goals, Non-goals, Decisions और Open questions सेक्शन हैं, और बाईं ओर पेज ट्री है। दाईं ओर एजेंट चैट ने एक फ़ैसला जोड़ा है कि इनवाइट लिंक कितने समय तक चलते हैं।"
+how_to:
+  heading: "अपने कोडिंग एजेंट के लिए स्पेक कैसे लिखें"
+  steps:
+    - title: "एजेंट के साथ स्पेक लिखें"
+      body: "साइडबार में **+** पर क्लिक करें, **पेज** चुनें और अपने नोट्स पेस्ट करें, या [Content के बिल्ट-इन एजेंट](https://www.agent-native.com/docs/template-content/) से उनसे \"नए फ़ीचर के लिए PRD का ड्राफ़्ट बनाओ\" कहें। इसे हाथ से एडिट करें, या कोई सेक्शन चुनकर दोबारा लिखने को कहें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: "एजेंट चैट में मीटिंग नोट्स से टीम इनवाइट्स का स्पेक माँगा गया है। एजेंट का जवाब उसके लिखे सेक्शन्स की लिस्ट देता है, बगल में नया पेज है।"
+    - title: "इसे अपने कोडिंग एजेंट में खोलें"
+      body: "**साझा करें** में **एजेंट** खोलें और **Claude Code में खोलें** या **Codex में खोलें** चुनें। आपका एजेंट पेज पढ़ता है, या पहले आपसे Content कनेक्ट करने को कहता है। Cursor या VS Code के लिए Content जोड़ें, **एजेंट निर्देश कॉपी करें** पर क्लिक करें और उसे पेस्ट करें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Share मेन्यू के Agents टैब का क्लोज़-अप: Copy agent prompt, Open in Claude, Open in Claude Code और Open in Codex। उनके नीचे Connect Content में Add to Cursor, Add to VS Code और Other agents हैं।"
+    - title: "स्पेक को अप-टू-डेट रखें"
+      body: "जब बिल्ड से कोई खुला सवाल तय हो जाए, तो अपने कोडिंग एजेंट से पेज पर बदलाव सुझाने को कहें। हर सुझाव के साथ एजेंट की वजह दिखती है। मंज़ूर करने के लिए चेक पर क्लिक करें, या नामंज़ूर करने के लिए X पर।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: "स्पेक के Open questions सेक्शन का क्लोज़-अप, जिसमें कोडिंग एजेंट का सुझाया एडिट Agent मार्क किया हुआ है, उसकी वजह और Accept (चेक) और Reject (X) बटन के साथ।"
+features:
+  heading: "अपने कोडिंग एजेंट के लिए स्पेक लिखने को आपको जो कुछ चाहिए"
+  items:
+    - title: "कमेंट्स के रूप में फ़ीडबैक"
+      body: "एजेंट से अपना स्पेक रिव्यू करने को कहें, और वह आपका टेक्स्ट दोबारा लिखने के बजाय कमज़ोर जगहों पर कमेंट छोड़ता है।"
+    - title: "हर फ़ीचर का एक पेज"
+      body: "हर स्पेक के नीचे रिसर्च, API नोट्स और पुराने फ़ैसले रखें, और टाइटल और टेक्स्ट खोजकर इनमें से कोई भी ढूँढें।"
+    - title: "स्पेक्स का बोर्ड"
+      body: "स्पेक्स को ओनर और स्टेटस फ़ील्ड वाले कलेक्शन में टेबल या बोर्ड की तरह रखें, हर रो के पीछे पूरा पेज।"
+    - title: "आपके एजेंट के लिए नोट्स"
+      body: "पेज के विवरण में लिखें कि कौन-से सेक्शन तय हो चुके हैं, और स्पेक पढ़ने वाला हर एजेंट वह भी पढ़ता है।"
+    - title: "बिना सेव किए एडिट भी पढ़ता है"
+      body: "आपका कोडिंग एजेंट आपके एडिटर में अभी खुले एडिट भी देखता है, इसलिए वह हमेशा पेज की इसी पल की हालत से काम करता है।"
+    - title: "अपनी टीम के साथ रिव्यू करें"
+      body: "किसी भी हिस्से पर कमेंट करें, किसी टीममेट को @mention करें और थ्रेड में जवाब दें। वर्ज़न हिस्ट्री पुराना स्पेक वापस ला सकती है।"
+integrations:
+  heading: "Content को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "आपके कोडिंग एजेंट के साथ काम करता है"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "साझा करें से कोई पेज Claude Code या Codex में खोलें, या एक क्लिक में Content को Cursor या VS Code के GitHub Copilot में जोड़ें।"
+    - title: "पहले से मौजूद स्पेक लाएँ"
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: "किसी पेज को Notion के साथ दोनों तरफ़ सिंक करें, या Markdown स्पेक्स वाले GitHub फ़ोल्डर को कलेक्शन में बदलें।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Content फ़्री है?"
+      a: "हाँ, Agent-Native Content फ़्री और ओपन सोर्स है। आपका कोडिंग एजेंट स्पेक को अपने मॉडल पर पढ़ता और एडिट करता है, इसलिए यह आपके एजेंट के इस्तेमाल में गिना जाता है। Content का बिल्ट-इन एजेंट Builder.io क्रेडिट्स या आपकी अपनी मॉडल key पर चलता है। Content अभी alpha में है, इसलिए बदलाव होते रहेंगे।"
+    - q: "कौन-से कोडिंग एजेंट मेरा स्पेक पढ़ सकते हैं?"
+      a: "Claude Code और Codex पेज को **साझा करें** से खोलते हैं और एक बार कनेक्ट करने को कहते हैं। Cursor और VS Code का GitHub Copilot वहाँ एक क्लिक में Content जोड़ते हैं। Claude Cowork, Goose और OpenCode आपके टर्मिनल से कनेक्ट होते हैं, और साइन-इन वाला कोई भी MCP क्लाइंट [Content से उसके URL के ज़रिए जुड़](https://www.agent-native.com/docs/external-agents/#private-content-links) सकता है। हर एजेंट को सिर्फ़ वही दिखता है जो आपके अकाउंट को दिखता है।"
+    - q: "यह मेरी repo की स्पेक फ़ाइल से कैसे अलग है?"
+      a: "आपकी repo की स्पेक फ़ाइल एक कॉपी है, जिसे आम तौर पर सिर्फ़ कोड पर काम करने वाले लोग एडिट करते हैं। Content में आपकी टीम उसी पेज पर लिखती और कमेंट करती है जिसे आपका कोडिंग एजेंट पढ़ता है, और एजेंट के बदलाव सुझावों के रूप में आते हैं। अगर आपको repo में भी Markdown चाहिए, तो Content [लोकल फ़ोल्डर के साथ सिंक](https://www.agent-native.com/docs/template-content-sync/) होता है।"
+    - q: "क्या मेरा कोडिंग एजेंट स्पेक बदल सकता है?"
+      a: "हाँ, उसी एक्सेस के साथ जो आपके अकाउंट के पास है। उससे एडिट सुझाने को कहें, और जब तक आप हर एक को मंज़ूर नहीं करते, पेज वैसा ही रहता है। वह पेज को सीधे एडिट भी कर सकता है, लेकिन अगर एजेंट के पढ़ने के बाद पेज बदल गया हो, तो Content वह एडिट नहीं होने देता। [वर्ज़न हिस्ट्री](https://www.agent-native.com/docs/template-content-editing/) पुराने वर्ज़न रखती है।"
+    - q: "क्या मैं अपने स्पेक्स अपनी repo में रख सकता हूँ?"
+      a: "हाँ। Content में [लोकल Markdown या MDX फ़ोल्डर](https://www.agent-native.com/docs/template-content-local-files/) कनेक्ट करें और बदलाव pull, check या push करें, या एक कमांड से अपनी repo से Content शुरू करें। कॉन्फ़्लिक्ट आपके रिव्यू के लिए दिखाए जाते हैं। ब्राउज़र खुद लोकल फ़ाइलें नहीं पढ़ सकता, इसलिए इसके लिए लोकल Content ऐप या Agent-Native Desktop चाहिए।"

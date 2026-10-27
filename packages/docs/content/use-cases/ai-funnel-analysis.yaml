@@ -1,0 +1,111 @@
+slug: ai-funnel-analysis
+app: analytics
+roles:
+  - product
+  - founders
+  - engineering
+title: Find where new users drop off
+seo_title: AI funnel analysis with session replays
+meta_description: Ask Agent-Native Analytics in plain English which signup step loses new users, get the funnel from your own events, then watch replays of the people who left.
+updated: 2026-10-27
+hero:
+  body: Ask Agent-Native Analytics which signup step loses the most people, and the agent builds the funnel from your own events. Then watch replays of the people who left and ask the agent why.
+  button:
+    label: Find your drop-off
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: "The Analytics window on an \"Activation funnel\" dashboard. Its funnel has four steps: Signed up, Created a project, Connected a data source and Invited a teammate. Each step shows its count, its share of signups and the drop from the step before, and the biggest drop is at Created a project. The agent chat beside it explains where last week's signups stopped."
+how_to:
+  heading: How to do funnel analysis with AI
+  steps:
+    - title: Ask where new users stop
+      body: "Get your signup events into Analytics. Ask on **Ask**, and the agent writes SQL and adds a [funnel panel](https://www.agent-native.com/docs/template-analytics-dashboards/) with each step's count and drop. Try: \"Add a funnel to my Activation funnel dashboard: where did last week's signups stop?\""
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: The agent chat with that request and the agent's reply, next to the funnel it added. The steps read Signed up 1,240, Created a project 612, Connected a data source 418 and Invited a teammate 302, each with its drop.
+    - title: Find the people who stopped
+      body: Turn on Sessions triage in Analytics Settings. On **Sessions**, open **Events**. Choose **Did** for the step before the drop, like "signed_up", and **Didn't** for the step they never reached, like "project_created".
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: Close-up of the Sessions page with the Events filter open, signed_up set to Did and project_created set to Didn't. Below it is the filtered list of new users' sessions, each with its length, page and rage clicks.
+    - title: Ask what happened in a session
+      body: Open a replay to watch the page, the clicks and the network requests. Click **Ask agent** and ask "What happened in this session?" The agent sums up the errors, the repeated clicks and the pages that person saw.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: A replay of a new user on the create-project page, with the agent's answer beside it. The person typed a project name and clicked Create project three times. The request to the projects API failed each time, and they left.
+features:
+  heading: Everything you need to find and fix drop-off
+  items:
+    - title: Skips aren't drop-offs
+      body: Tell the agent which steps people can skip, and the funnel shows who skipped them apart from who left the app there.
+    - title: Your own event names
+      body: Admins describe your events and metrics on the **Semantic Layer** page, and the agent uses those exact names in every query.
+    - title: See the failed request
+      body: Open **Dev Tools** on a replay to read its console and network requests, and jump to the moment a request failed.
+    - title: Redacted replays for agents
+      body: An outside agent gets the replay's console and network entries, errors first, never the recording itself. Its link expires in two hours.
+    - title: Private by default
+      body: Typing is masked in every replay, and you choose which other parts of the page stay hidden.
+    - title: The funnel every day
+      body: Ask the agent to send your funnel dashboard daily, at a time you pick, by email to up to five people or to Slack.
+integrations:
+  heading: Connect Analytics to the tools you already use
+  cards:
+    - title: Ask about the events you track
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: The agent queries the product data you already collect in these tools, or the events your app sends to Analytics.
+    - title: Paste a replay into your coding agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: Click **Copy for agent** on a replay and paste the link into your coding agent, so it debugs from that session's logs.
+    - title: Connect anything through MCP
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Analytics
+  cards:
+    - title: Build a KPI dashboard for your startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Describe the KPIs you track, and the agent builds one dashboard from Stripe, HubSpot and product data.
+    - title: Ask your data questions in plain English
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Ask questions of your BigQuery data, and the agent writes read-only SQL you can check.
+    - title: Make your weekly marketing report without spreadsheets
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Ask how your marketing week went, and the agent answers from Google Analytics and HubSpot in a dashboard.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Analytics free?
+      a: "Yes, Agent-Native Analytics is free and open source. Use the hosted app, or [run your own copy](https://www.agent-native.com/docs/template-analytics/). You bring the data: your own events, or the tools you connect. Analytics is in alpha, so expect changes."
+    - q: Do I need to know SQL?
+      a: No. Ask in plain English, and the agent writes and runs the SQL, then answers with a chart, a table or a number. Ask to see the query when you want to check it. Someone who knows your data may need to [connect your sources](https://www.agent-native.com/docs/template-analytics-connectors/) first.
+    - q: Where do the session replays come from?
+      a: "From your own web app. Create a public key on **Data Sources**, then add the short tracking snippet from the **Sessions** page to your app, with session replay turned on. Connect storage for the recordings: Builder.io or your own S3 bucket. By default, [replays](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/) record only signed-in users."
+    - q: What does a session replay record?
+      a: A replay plays back the page, clicks and scrolling, console output and network requests. Typing is masked by default, and fields named as passwords or card details are never captured. To hide anything else, add a class to that part of the page.
+    - q: Can I use my PostHog, Amplitude or Mixpanel data?
+      a: Yes. Connect them on **Data Sources** and ask about the events you track there. The agent queries each tool for you. Session replays come only from Analytics' own tracking, so add it to your app to watch the people who stopped.
+    - q: How is Analytics different from the AI in my analytics tool?
+      a: "The AI in an analytics tool works on that tool's data. The Analytics agent works across every source you connect, finds the replays of the exact people who stopped, and explains any of them or hands it to your coding agent. It's also open source. That's an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
