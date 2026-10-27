@@ -67,6 +67,10 @@ export function getBrowserTabId(): string {
 
   const cached = browserTabIdState.ids.get(key);
   if (cached) {
+    const pending = browserTabIdState.pendingId;
+    if (pending && pending !== cached) {
+      browserTabIdAliases.set(pending, { storageKey: key, id: cached });
+    }
     browserTabIdState.pendingId = null;
     return cached;
   }

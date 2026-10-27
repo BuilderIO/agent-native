@@ -175,8 +175,11 @@ describe("browser tab id", () => {
     window.history.replaceState({}, "", "/mail/inbox");
     stubNavigationType("navigate");
 
-    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
-      await loadTabId();
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
     const mailId = getBrowserTabId();
 
     window.history.replaceState({}, "", "/opening");
@@ -186,8 +189,14 @@ describe("browser tab id", () => {
 
     window.history.replaceState({}, "", "/mail/inbox");
     expect(getBrowserTabId()).toBe(mailId);
-    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(mailId);
+
+    window.history.replaceState({}, "", "/calendar");
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
   });
 
   it("reuses a stored mount id after a reload starts on an unresolved route", async () => {

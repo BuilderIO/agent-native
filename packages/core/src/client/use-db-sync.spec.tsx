@@ -419,6 +419,8 @@ describe("useDbSync", () => {
       "agent-native:browser-tab-id:/mail",
       "stored-mail-id",
     );
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe("stored-mail-id");
     window.history.replaceState({}, "", "/opening");
     const pendingId = getBrowserTabId();
 
