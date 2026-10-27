@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  EVENT_WENT_TO_ZERO_MIN_N,
+  RADAR_CHECKS,
   classifyEventChange,
   evaluateThreshold,
   radarExitCode,
@@ -24,6 +26,22 @@ function result(status: RadarCheckResult["status"]): RadarCheckResult {
 }
 
 describe("radar check evaluation", () => {
+  it("detects the historical environment-key incident at its observed sample size", () => {
+    const definition = RADAR_CHECKS.find(
+      (check) => check.id === "env-key-share",
+    );
+    expect(definition?.minN).toBe(5);
+    expect(
+      evaluateThreshold({
+        n: 7,
+        minN: definition?.minN ?? 0,
+        value: 3 / 7,
+        operator: "gt",
+        threshold: 0.05,
+      }),
+    ).toBe("fired");
+  });
+
   it("filters low-volume event changes and checks first-seen against the full prior month", () => {
     expect(
       classifyEventChange({
@@ -36,9 +54,10 @@ describe("radar check evaluation", () => {
     expect(
       classifyEventChange({
         currentCount: 0,
-        previousSevenDayCount: 9,
+        previousSevenDayCount: EVENT_WENT_TO_ZERO_MIN_N - 1,
         previousThirtyDayCount: 9,
         minN: 10,
+        minWentToZeroN: EVENT_WENT_TO_ZERO_MIN_N,
       }),
     ).toBeNull();
     expect(
@@ -63,6 +82,16 @@ describe("radar check evaluation", () => {
         previousSevenDayCount: 10,
         previousThirtyDayCount: 40,
         minN: 10,
+        minWentToZeroN: 10,
+      }),
+    ).toBe("went_to_zero");
+    expect(
+      classifyEventChange({
+        currentCount: 0,
+        previousSevenDayCount: EVENT_WENT_TO_ZERO_MIN_N,
+        previousThirtyDayCount: EVENT_WENT_TO_ZERO_MIN_N,
+        minN: 10,
+        minWentToZeroN: EVENT_WENT_TO_ZERO_MIN_N,
       }),
     ).toBe("went_to_zero");
   });

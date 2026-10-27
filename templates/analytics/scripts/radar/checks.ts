@@ -9,17 +9,22 @@ export type RadarSeverity = "critical" | "warning" | "info";
 export type RadarWindow = "hourly" | "daily" | "weekly";
 export type ThresholdOperator = "lt" | "gt" | "drop_points";
 export type EventChange = "first_seen" | "went_to_zero";
+export const EVENT_WENT_TO_ZERO_MIN_N = 50;
 
 export function classifyEventChange(input: {
   currentCount: number;
   previousSevenDayCount: number;
   previousThirtyDayCount: number;
   minN: number;
+  minWentToZeroN?: number;
 }): EventChange | null {
   if (input.currentCount >= input.minN && input.previousThirtyDayCount === 0) {
     return "first_seen";
   }
-  if (input.currentCount === 0 && input.previousSevenDayCount >= input.minN) {
+  if (
+    input.currentCount === 0 &&
+    input.previousSevenDayCount >= (input.minWentToZeroN ?? input.minN)
+  ) {
     return "went_to_zero";
   }
   return null;
@@ -85,7 +90,7 @@ export const RADAR_CHECKS: RadarCheckDefinition[] = [
     app: "*",
     window: "daily",
     baselineDays: 7,
-    minN: 10,
+    minN: 5,
     threshold: 0.05,
     operator: "gt",
     severity: "critical",

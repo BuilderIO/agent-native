@@ -20,6 +20,8 @@ scope: dev
   value without a backtest.
 - Read signup campaign tags beside signup drops. Paid search changes are context,
   not proof that product behavior changed.
+- Event first-seen checks require 10 events that day; went-to-zero checks require
+  at least 50 events across the preceding seven days.
 - Read `campaign-followup` as identified recipient counts after send versus the
   same recipients' prior seven days, split by recipient and activity app.
   Anonymous landings cannot be attributed to recipients.

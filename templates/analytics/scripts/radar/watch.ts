@@ -9,6 +9,7 @@ import {
   type CampaignFollowupResult,
 } from "./campaign.ts";
 import {
+  EVENT_WENT_TO_ZERO_MIN_N,
   RADAR_CHECKS,
   classifyEventChange,
   evaluateThreshold,
@@ -893,6 +894,7 @@ function createEventChecks(
         previousSevenDayCount: previous,
         previousThirtyDayCount: previousThirtyDays,
         minN: eventDef.minN,
+        minWentToZeroN: EVENT_WENT_TO_ZERO_MIN_N,
       });
       if (change === "first_seen") {
         checks.push(
