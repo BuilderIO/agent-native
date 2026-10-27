@@ -2456,8 +2456,13 @@ describe("public campaign frontend", () => {
       "wireframe-before-agent-builds",
     ];
     expect(data.item.next_jobs).toEqual(expected);
+    // landing-page-prototypes is now a new-style page, so only the jobs still on the old template show.
+    const shown = expected.filter((slug) =>
+      content.useCases.some((item) => item.slug === slug),
+    );
+    expect(shown).toEqual(["wireframe-before-agent-builds"]);
     expect(data.useCases.map((item) => item.slug).sort()).toEqual(
-      [...expected].sort(),
+      [...shown].sort(),
     );
     const document = dom(markup(<UseCasePage {...data} />));
     expectRecipeAccordion(document, data.item.recipes!);
@@ -2466,10 +2471,10 @@ describe("public campaign frontend", () => {
     )!;
     const cards = [...section.querySelectorAll("a")];
     expect(cards.map((card) => card.getAttribute("href"))).toEqual(
-      expected.map((slug) => sitePathForLocale(`${USE_CASES_BASE}/${slug}`)),
+      shown.map((slug) => sitePathForLocale(`${USE_CASES_BASE}/${slug}`)),
     );
     expect(cards.map((card) => card.querySelector("h3")?.textContent)).toEqual(
-      expected.map(
+      shown.map(
         (slug) => content.useCases.find((item) => item.slug === slug)!.title,
       ),
     );
@@ -2480,7 +2485,7 @@ describe("public campaign frontend", () => {
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(14);
+    expect(useCases).toHaveLength(12);
     for (const item of useCases) {
       const document = dom(markup(<UseCasePage item={item} articles={[]} />));
       expect(document.querySelector("table, th, td"), item.slug).toBeNull();
@@ -2516,7 +2521,7 @@ describe("public campaign frontend", () => {
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const { useCases } = actual.loadCampaignContent();
-    expect(useCases).toHaveLength(14);
+    expect(useCases).toHaveLength(12);
     const document = dom(
       markup(
         <UseCasesIndex items={useCases} />,
@@ -2524,7 +2529,7 @@ describe("public campaign frontend", () => {
       ),
     );
     const wrappers = [...document.querySelectorAll(".grid.gap-px > div")];
-    expect(wrappers).toHaveLength(14);
+    expect(wrappers).toHaveLength(12);
     expect(document.querySelectorAll("[hidden]")).toHaveLength(0);
     const cards = wrappers.map(
       (wrapper) => wrapper.querySelector(":scope > a")!,

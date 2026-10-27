@@ -81,11 +81,6 @@ const replacementItems: Record<string, string[]> = {
     "**A separate session replay tool** shows what people did, in a different place from your numbers.",
     "**Sharing findings as screenshots** means they're stale by the next standup.",
   ],
-  "landing-page-prototypes": [
-    "**Starting from last launch's page** means inheriting its structure, even when the offer is different.",
-    "**Describing the page in words** to whoever builds it means finding out what they pictured only when it's done.",
-    "**Reviewing screenshots in chat** turns feedback into a list of comments about spacing.",
-  ],
   "see-what-your-coding-agent-plans": [
     "**Skimming a long text plan** makes it easy to approve something you didn't read closely.",
     "**A separate design doc** captures the approach, but it isn't the plan your agent follows.",
@@ -111,11 +106,6 @@ const replacementItems: Record<string, string[]> = {
     "**A pull request description** says what changed, but rarely how the change behaves.",
     "**A call with whoever made the change** answers questions, but nothing is written down afterward.",
   ],
-  "weekly-marketing-report": [
-    "**Pulling numbers from Google Analytics and your CRM** into a spreadsheet every Monday.",
-    "**Rebuilding the same report** every week.",
-    "**Sharing screenshots** that are out of date by Wednesday.",
-  ],
   "wireframe-before-agent-builds": [
     "**Describing layout in a prompt** leaves your agent guessing at what you meant.",
     "**A sketch on paper or a whiteboard** shows the layout, but your agent can't see it.",
@@ -135,8 +125,6 @@ const replacementConclusions: Record<string, string> = {
     "Your words still go into the apps you already use, like your coding agent's prompt box. In Clips, dictations, screen recordings, and meetings share one searchable library.",
   "find-where-users-drop-off":
     "Analytics connects to the product data you already collect, like PostHog, Amplitude, Mixpanel, or GA4. Plain-English questions, dashboards, and session replays are in one app.",
-  "landing-page-prototypes":
-    "Design doesn't publish pages, so you still deploy with the tools you use today. Design covers the part before that: comparing versions side by side, pinning comments to elements, and exporting the HTML.",
   "see-what-your-coding-agent-plans":
     "Plans works inside your coding agent, like Claude Code or Codex, and your agent still writes the code. Plans adds diagrams, wireframes, and annotated code to its plan, and your agent can read your comments and revise it.",
   "spec-your-coding-agent-builds-from":
@@ -147,8 +135,6 @@ const replacementConclusions: Record<string, string> = {
     "You still bring the story and the numbers. In Slides, the deck is drafted from your brief in your brand, and you edit it slide by slide or with the agent. Check every number before you send it.",
   "understand-what-your-coding-agent-changed":
     "A recap guides your review. It doesn't replace it: you still read the actual code and check the tests.",
-  "weekly-marketing-report":
-    "Google Analytics and HubSpot stay where they are. Analytics connects to them, answers plain-English questions about the week, and keeps the report in a dashboard instead of a screenshot.",
   "wireframe-before-agent-builds":
     "Your coding agent still builds the screen. In Plans, the wireframes are part of its plan, so your comments go straight back to the agent that will build it.",
 };
@@ -704,7 +690,7 @@ describe("campaign content", () => {
     const disk = loadCampaignContentFromDisk(
       fileURLToPath(new URL("..", import.meta.url)),
     );
-    expect(bundled.useCases).toHaveLength(14);
+    expect(bundled.useCases).toHaveLength(12);
     expect(bundled.articles).toHaveLength(11);
     expect(
       bundled.articles.map(({ slug, topic, apps }) => ({ slug, topic, apps })),
@@ -798,7 +784,6 @@ describe("campaign content", () => {
       ["design-brief-to-prototype", "What a prototype replaces", 3],
       ["dictate-instead-of-typing", "What dictation replaces", 3],
       ["find-where-users-drop-off", "What changes for a drop-off question", 3],
-      ["landing-page-prototypes", "What changes before launch", 3],
       ["see-what-your-coding-agent-plans", "What a visual plan replaces", 3],
       ["spec-your-coding-agent-builds-from", "What changes for your specs", 3],
       ["startup-kpi-dashboard", "What changes for your numbers", 4],
@@ -808,7 +793,6 @@ describe("campaign content", () => {
         "What a recap adds to your review",
         3,
       ],
-      ["weekly-marketing-report", "What changes for the weekly report", 3],
       ["wireframe-before-agent-builds", "What a wireframe replaces", 3],
     ]);
     const slugs = bundled.useCases.map((item) => item.slug);
