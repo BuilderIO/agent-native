@@ -9,6 +9,7 @@ import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { firstRow } from "../server/lib/first-row.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import {
@@ -115,6 +116,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
     });
   }
   if (current.content === args.content) return false;
+  assertNoNewlySharedVideoIds(current.content, args.content);
   if (args.expectedRevision !== undefined) {
     const { revision } = await readBlocksFieldIdentity({
       documentId: args.documentId,
@@ -410,6 +412,7 @@ export default defineAction({
             throw new Error(`Document "${documentId}" not found`);
           }
           previousContent = currentDocument.content;
+          assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .update(schema.documents)
             .set({
@@ -429,6 +432,7 @@ export default defineAction({
               ),
             );
           previousContent = currentField?.content ?? "";
+          assertNoNewlySharedVideoIds(previousContent, content);
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({

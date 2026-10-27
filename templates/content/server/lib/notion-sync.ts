@@ -13,6 +13,7 @@ import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
+import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
 import {
   canonicalizeNotionNfm,
   nfmToDoc,
@@ -1072,7 +1073,10 @@ async function pullDocumentFromNotionInner(
   }
 
   const newTitle = pageContent.title || freshDocument.title;
-  const newContent = pageContent.content ?? freshDocument.content;
+  const newContent = keepVideoBlockIds(
+    freshDocument.content,
+    pageContent.content,
+  );
   const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
@@ -1309,7 +1313,7 @@ async function pushDocumentToNotionInner(
   });
 
   const freshDocument = await getDocument(documentId, owner);
-  const newContent = remote.content ?? document.content;
+  const newContent = keepVideoBlockIds(document.content, remote.content);
   const newTitle = remote.title || document.title;
   const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =

@@ -103,6 +103,8 @@ const DATABASE_RESULT_MUTATIONS = new Set([
 ]);
 
 const DATABASE_PRESENTATION_MUTATIONS = new Set([
+  // Deleting a property drops it from saved personal sorts and filters.
+  "delete-document-property",
   "update-content-database-personal-view",
 ]);
 

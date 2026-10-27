@@ -997,6 +997,21 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(await fieldRevision(row)).toBeGreaterThan(revision);
   });
 
+  it("refuses a value that gives two videos one id, as the legacy path does", async () => {
+    const row = await switchedFilesRow();
+    const before = await page(row.id);
+    const copied = `Copied a video.\n<video src="https://example.com/a.mp4" id="video-copied01"></video>\n<video src="https://example.com/b.mp4" id="video-copied01"></video>`;
+
+    await expect(setPrimary(row, copied)).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+    });
+
+    const after = await page(row.id);
+    expect(after.content).toBe(before.content);
+    expect(after.bodyRevision).toBe(before.bodyRevision);
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
   it("answers with the body it stored, in the live copy's form, and that body's hash and blocks", async () => {
     const row = await switchedFilesRow();
     const input = "First line.\n\n\n\nSecond line.";

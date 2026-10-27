@@ -6,11 +6,13 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { renderMachineTrace } from "../state-machine/index.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
+import { a2aTaskMachine } from "./task-lifecycle.js";
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
@@ -1516,6 +1518,15 @@ describe("handleJsonRpc", () => {
       ownerEvent,
       customHandler,
     );
+    expect({
+      trace: renderMachineTrace(a2aTaskMachine, ["cancel"], "completed"),
+      errorCode: canceled.error?.code,
+    }).toMatchInlineSnapshot(`
+      {
+        "errorCode": -32002,
+        "trace": "cancel -> completed (rejected) [guard: 'submitted', 'working', 'processing', 'input-required']",
+      }
+    `);
     expect(canceled.error).toMatchObject({
       code: -32002,
       message: 'Task cannot be canceled from state "completed"',

@@ -5731,7 +5731,7 @@ function nearestSnapAdjustment(
     for (const position of targetPositions) {
       const adjustment = position - proposedPosition;
       const distance = Math.abs(adjustment);
-      // Google Slides snaps at 3 screen px and not at 4, so the radius is open.
+      // The snap radius is open: 3 screen px is inside it, but 4 is not.
       if (distance >= tolerance) continue;
       if (!closest || distance < closest.distance) {
         closest = { distance, delta: proposedDelta + adjustment, position };

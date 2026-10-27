@@ -284,6 +284,13 @@ export const documentComments = table(
      */
     fieldId: text("field_id"),
     fieldName: text("field_name"),
+    /**
+     * The block a thread is about as a whole, such as a video, on its root
+     * comment; such a thread quotes no text. The type names the block after
+     * it is deleted.
+     */
+    blockId: text("block_id"),
+    blockType: text("block_type"),
     mentionsJson: text("mentions_json"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
