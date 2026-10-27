@@ -125,9 +125,10 @@ the invocation gives), plus 14 days for open items.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Treat it as the workflow's only when
-  the thread already has a reply from Steve's account whose last line is
-  "This was sent from a bot", ignoring case, `*`, punctuation, and
-  whitespace (older replies end in `this was sent from a bot.`), or when the root is listed under "Claimed, not
+  the thread already has a reply from Steve's account that ends with "This
+  was sent from a bot", ignoring case, `*`, punctuation, and whitespace. The
+  phrase may be on its own line or, in older replies, at the end of the
+  sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
   has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
   with a human reply newer than our last reply, comes first in this run. A
