@@ -220,6 +220,35 @@ describe("embed auth client", () => {
     expect(sessionStorage.getItem(embedTokenStorageKey("", true))).toBeNull();
   });
 
+  it("uses projected explicit-root metadata for a transplanted workspace token", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      explicitRootPath: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    (
+      window as Window & {
+        __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+      }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/reports/detail",
+      token: "root-mount-token",
+    };
+    window.history.replaceState(null, "", "/reports/detail");
+
+    const auth = await loadEmbedAuth();
+
+    expect(auth.getEmbedAuthToken()).toBe("root-mount-token");
+    expect(sessionStorage.getItem(embedTokenStorageKey("", true))).toBe(
+      "root-mount-token",
+    );
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/reports", true)),
+    ).toBeNull();
+  });
+
   it("forwards requests when the current workspace route has no mount", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }

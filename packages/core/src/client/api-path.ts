@@ -152,10 +152,14 @@ function workspaceAppConfiguredPath(): string {
 function hasExplicitWorkspaceRootPath(): boolean {
   if (typeof window === "undefined") return false;
   const config = window as Window & {
-    __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
+    __AGENT_NATIVE_CONFIG__?: {
+      explicitRootPath?: unknown;
+      workspaceAppPath?: unknown;
+    };
   };
   const env = clientEnv();
   return (
+    config.__AGENT_NATIVE_CONFIG__?.explicitRootPath === true ||
     isDeclaredRootPath(config.__AGENT_NATIVE_CONFIG__?.workspaceAppPath) ||
     isDeclaredRootPath(env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH)
   );

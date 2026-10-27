@@ -436,6 +436,146 @@ describe("embedApp", () => {
     expect([...stored.entries()]).toEqual(storedBeforeUnresolvedTarget);
   });
 
+  it("forwards transplanted workspace credentials only within the target mount", async () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const installRuntimeSource = html.match(
+      /    function installExternalEmbedRuntime\(config\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(installRuntimeSource).toBeTruthy();
+    const runtimeSource = installRuntimeSource as string;
+
+    const locationObject = {
+      href: "https://host.example/deck/reports",
+      origin: "https://host.example",
+      pathname: "/deck/reports",
+      search: "",
+    };
+    const windowObject: Record<string, unknown> = {
+      location: locationObject,
+      history: {
+        state: null,
+        replaceState: (_state: unknown, _title: string, path: string) => {
+          const next = new URL(path, locationObject.href);
+          locationObject.href = next.href;
+          locationObject.origin = next.origin;
+          locationObject.pathname = next.pathname;
+          locationObject.search = next.search;
+        },
+      },
+    };
+    const forwarded: Array<{ input: unknown; init?: RequestInit }> = [];
+    const fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      forwarded.push({ input, init });
+      return new Response("ok");
+    });
+    const eventSourceUrls: string[] = [];
+    function MockEventSource(this: { url: string }, url: string) {
+      this.url = url;
+      eventSourceUrls.push(url);
+    }
+    class MockXMLHttpRequest {
+      headers = new Map<string, string>();
+      url = "";
+
+      open(_method: string, url: string) {
+        this.url = url;
+      }
+
+      send() {}
+
+      setRequestHeader(name: string, value: string) {
+        this.headers.set(name.toLowerCase(), value);
+      }
+    }
+    const sessionStorageObject = { setItem: vi.fn() };
+    const installRuntime = new Function(
+      "window",
+      "location",
+      "sessionStorage",
+      "installReactRefreshPreambleFallback",
+      "fetch",
+      "XMLHttpRequest",
+      "EventSource",
+      `${runtimeSource}; return installExternalEmbedRuntime;`,
+    )(
+      windowObject,
+      locationObject,
+      sessionStorageObject,
+      () => {},
+      fetch,
+      MockXMLHttpRequest,
+      MockEventSource,
+    ) as (config: Record<string, unknown>) => void;
+
+    installRuntime({
+      origin: "https://app.example",
+      target: "/deck/reports",
+      token: "deck-token",
+      embedTokenParam: "__an_embed_token",
+      embedTargetHeader: "X-Agent-Native-Embed-Target",
+      appConfig: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/deck", "/mail"],
+      },
+    });
+
+    const installedFetch = windowObject.fetch as (
+      input: string,
+    ) => Promise<Response>;
+    await installedFetch("/api/action");
+    const sameMountHeaders = new Headers(forwarded[0]?.init?.headers);
+    expect(sameMountHeaders.get("Authorization")).toBe("Bearer deck-token");
+    expect(sameMountHeaders.get("X-Agent-Native-Embed-Target")).toBe(
+      "/deck/reports",
+    );
+
+    const sameMountXhr = new MockXMLHttpRequest();
+    sameMountXhr.open("GET", "/api/action");
+    sameMountXhr.send();
+    expect(sameMountXhr.headers.get("authorization")).toBe("Bearer deck-token");
+    expect(sameMountXhr.headers.get("x-agent-native-embed-target")).toBe(
+      "/deck/reports",
+    );
+
+    const installedEventSource = windowObject.EventSource as (
+      url: string,
+    ) => unknown;
+    installedEventSource("/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[0] as string).searchParams.get(
+        "__an_embed_token",
+      ),
+    ).toBe("deck-token");
+
+    locationObject.pathname = "/mail/settings";
+    locationObject.href = "https://host.example/mail/settings";
+    locationObject.search = "";
+
+    await installedFetch("/api/action");
+    const siblingMountHeaders = new Headers(forwarded[1]?.init?.headers);
+    expect(siblingMountHeaders.has("Authorization")).toBe(false);
+    expect(siblingMountHeaders.has("X-Agent-Native-Embed-Target")).toBe(false);
+
+    const siblingMountXhr = new MockXMLHttpRequest();
+    siblingMountXhr.open("GET", "/api/action");
+    siblingMountXhr.send();
+    expect(siblingMountXhr.headers.has("authorization")).toBe(false);
+    expect(siblingMountXhr.headers.has("x-agent-native-embed-target")).toBe(
+      false,
+    );
+
+    installedEventSource("/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[1] as string).searchParams.has(
+        "__an_embed_token",
+      ),
+    ).toBe(false);
+  });
+
   it("prefers canonical metadata when legacy open-link fields conflict", () => {
     const resource = embedApp({ title: "Dashboard" });
     const html =
