@@ -62,7 +62,11 @@ export default defineAction({
     tabId,
     stopReason,
   }) => {
-    await assertAccess("recording", recordingId, "viewer");
+    await assertAccess(
+      "recording",
+      recordingId,
+      operation === "stop" ? "editor" : "viewer",
+    );
 
     const requestKey = `clips-ai-request-${recordingId}`;
     if (operation === "mark-delivered" || operation === "consume") {

@@ -56,6 +56,11 @@ describe("reconcile-workflow-generation", () => {
         tabId,
       }),
     ).resolves.toEqual({ reconciled: false, tracked: true });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "viewer",
+    );
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "clips-workflow-rec_123",
       expect.objectContaining({ requestedAt }),
@@ -316,7 +321,7 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "recording",
       "rec_123",
-      "viewer",
+      "editor",
     );
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "clips-workflow-rec_123",
@@ -328,6 +333,29 @@ describe("reconcile-workflow-generation", () => {
         tabId,
       }),
     );
+  });
+
+  it("requires editor access before stopping a shared generation", async () => {
+    const denied = new Error("Forbidden");
+    mocks.assertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+        stopReason: "cancelled",
+      }),
+    ).rejects.toBe(denied);
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "editor",
+    );
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("stops a matching generation before an agent tab claims it", async () => {

@@ -53,6 +53,7 @@ import { isDefaultTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isRecentWorkflowGeneration,
+  matchesWorkflowRequest,
   type WorkflowKind,
   workflowGenerationProgressAt,
   workflowGenerationStaleAt,
@@ -1389,6 +1390,12 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
   const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
+  const [workflowStopAttempt, setWorkflowStopAttempt] = useState<{
+    recordingId: string;
+    requestedAt: string;
+    requestId?: string;
+    reason: "cancelled" | "timed_out";
+  } | null>(null);
   const stopWorkflowGeneration = useCallback(
     async (
       workflow: GeneratedWorkflowState,
@@ -1401,6 +1408,15 @@ export default function RecordingPage() {
         workflow.requestedAt,
         workflow.requestId,
       );
+      await cancelBackgroundAgentSession({
+        threadId: tabId,
+        turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
+        reason: stopReason,
+      }).catch((error) => {
+        const status = (error as Error & { status?: unknown }).status;
+        // A terminal turn is safe to reconcile; 404 also hides access failures.
+        if (status !== 409) throw error;
+      });
       const result = (await callAction(
         "reconcile-workflow-generation" as any,
         {
@@ -1412,72 +1428,121 @@ export default function RecordingPage() {
           stopReason,
         } as any,
       )) as { reconciled?: boolean };
-      if (result.reconciled) {
-        void cancelBackgroundAgentSession({
-          threadId: tabId,
-          turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
-          reason: stopReason,
-        }).catch((error) => {
-          const status = (error as Error & { status?: unknown }).status;
-          if (status !== 404) {
-            console.warn("[clips] failed to stop workflow generation", {
-              recordingId,
-              requestedAt: workflow.requestedAt,
-              error,
-            });
-          }
-        });
+      const refreshed = await generatedWorkflowQ.refetch();
+      if (
+        refreshed.data?.status === "generating" &&
+        matchesWorkflowRequest(refreshed.data, {
+          requestedAt: workflow.requestedAt,
+          requestId: workflow.requestId,
+        })
+      ) {
+        throw new Error(t("recordingPage.tryAgainMoment"));
       }
-      await generatedWorkflowQ.refetch();
+      return result;
     },
-    [generatedWorkflowQ.refetch, recording?.id],
+    [generatedWorkflowQ.refetch, recording?.id, t],
   );
   const cancelWorkflowGeneration = useCallback(
     (workflow: GeneratedWorkflowState) => {
-      void stopWorkflowGeneration(workflow, "cancelled").catch((error) => {
-        workflowLifecycleActiveRef.current = false;
-        cancelCompletionCue();
-        failWorkflowToast(t("recordingPage.workflowFailed"), {
-          description:
-            actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
-        });
+      const recordingId = workflow.recordingId ?? recording?.id;
+      if (!canEdit || !recordingId || !workflow.requestedAt) return;
+      setWorkflowStopAttempt({
+        recordingId,
+        requestedAt: workflow.requestedAt,
+        ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+        reason: "cancelled",
       });
+      startWorkflowToast(t("recordingPage.workflowStillGenerating"));
     },
-    [cancelCompletionCue, failWorkflowToast, stopWorkflowGeneration, t],
+    [canEdit, recording?.id, startWorkflowToast, t],
   );
   useEffect(() => {
+    const recordingId = generatedWorkflow?.recordingId;
+    const requestedAt = generatedWorkflow?.requestedAt;
     if (
+      !canEdit ||
       generatedWorkflow?.status !== "generating" ||
-      !generatedWorkflow.requestedAt
+      !requestedAt ||
+      !recordingId
+    ) {
+      return;
+    }
+    if (
+      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
     ) {
       return;
     }
     const timer = window.setTimeout(
       () => {
-        void stopWorkflowGeneration(generatedWorkflow, "timed_out").catch(
-          (error) => {
-            workflowLifecycleActiveRef.current = false;
-            cancelCompletionCue();
-            failWorkflowToast(t("recordingPage.workflowTimedOut"), {
-              description:
-                actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
-            });
-          },
-        );
+        setWorkflowStopAttempt({
+          recordingId,
+          requestedAt,
+          ...(generatedWorkflow.requestId
+            ? { requestId: generatedWorkflow.requestId }
+            : {}),
+          reason: "timed_out",
+        });
+        startWorkflowToast(t("recordingPage.workflowStillGenerating"));
       },
       Math.max(0, (workflowGenerationExpiry ?? Date.now()) - Date.now()),
     );
     return () => window.clearTimeout(timer);
   }, [
+    canEdit,
+    recordingId,
+    generatedWorkflow?.requestId,
+    requestedAt,
+    generatedWorkflow?.status,
+    startWorkflowToast,
+    t,
+    workflowStopAttempt,
+    workflowGenerationExpiry,
+  ]);
+  useEffect(() => {
+    const workflow = generatedWorkflow;
+    if (!workflowStopAttempt) return;
+    if (
+      !canEdit ||
+      workflow?.status !== "generating" ||
+      workflowStopAttempt.recordingId !== workflow.recordingId ||
+      !matchesWorkflowRequest(workflow, workflowStopAttempt)
+    ) {
+      setWorkflowStopAttempt(null);
+      return;
+    }
+
+    let active = true;
+    let retryTimer: number | undefined;
+    const attemptStop = async () => {
+      try {
+        await stopWorkflowGeneration(workflow, workflowStopAttempt.reason);
+        if (active) setWorkflowStopAttempt(null);
+      } catch (error) {
+        if (!active) return;
+        startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
+          description:
+            actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+        });
+        retryTimer = window.setTimeout(() => void attemptStop(), 30_000);
+      }
+    };
+    void attemptStop();
+
+    return () => {
+      active = false;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
+  }, [
+    canEdit,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
-    cancelCompletionCue,
-    failWorkflowToast,
+    startWorkflowToast,
     stopWorkflowGeneration,
     t,
-    workflowGenerationExpiry,
+    workflowStopAttempt,
   ]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
@@ -1508,12 +1573,17 @@ export default function RecordingPage() {
         return;
       }
       workflowLifecycleActiveRef.current = true;
-      startWorkflowToast(t("recordingPage.workflowQueued"), {
-        action: {
-          label: t("common.cancel"),
-          onClick: () => cancelWorkflowGeneration(generatedWorkflow),
-        },
-      });
+      startWorkflowToast(
+        t("recordingPage.workflowQueued"),
+        canEdit
+          ? {
+              action: {
+                label: t("common.cancel"),
+                onClick: () => cancelWorkflowGeneration(generatedWorkflow),
+              },
+            }
+          : undefined,
+      );
       return;
     }
     if (!workflowLifecycleActiveRef.current) return;
@@ -1543,6 +1613,7 @@ export default function RecordingPage() {
   }, [
     cancelCompletionCue,
     cancelWorkflowGeneration,
+    canEdit,
     completeWorkflowToast,
     failWorkflowToast,
     generatedWorkflow?.error,
@@ -1561,19 +1632,27 @@ export default function RecordingPage() {
     ) {
       return;
     }
+    if (
+      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
+    ) {
+      return;
+    }
     const requestedAt = Date.parse(generatedWorkflow.requestedAt);
     if (!Number.isFinite(requestedAt)) return;
 
-    const action = {
-      label: t("common.cancel"),
-      onClick: () =>
-        cancelWorkflowGeneration({
-          recordingId: generatedWorkflow.recordingId,
-          requestId: generatedWorkflow.requestId,
-          requestedAt: generatedWorkflow.requestedAt,
-          status: generatedWorkflow.status,
-        }),
-    };
+    const action = canEdit
+      ? {
+          label: t("common.cancel"),
+          onClick: () =>
+            cancelWorkflowGeneration({
+              recordingId: generatedWorkflow.recordingId,
+              requestId: generatedWorkflow.requestId,
+              requestedAt: generatedWorkflow.requestedAt,
+              status: generatedWorkflow.status,
+            }),
+        }
+      : undefined;
     const progressUpdates = [
       {
         stage: "still_generating" as const,
@@ -1597,7 +1676,7 @@ export default function RecordingPage() {
           ) {
             return;
           }
-          startWorkflowToast(message, { action });
+          startWorkflowToast(message, action ? { action } : undefined);
         },
         Math.max(0, requestedAt + afterMs - Date.now()),
       ),
@@ -1606,12 +1685,14 @@ export default function RecordingPage() {
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [
     cancelWorkflowGeneration,
+    canEdit,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     startWorkflowToast,
     t,
+    workflowStopAttempt,
   ]);
 
   useEffect(() => {
