@@ -32,6 +32,7 @@ import {
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
   suggestionTextPresentationForSource,
@@ -165,6 +166,7 @@ import {
   acceptedSuggestionAtRange,
   editorDocumentSource,
   setSuggestionHighlights,
+  suggestionDecisionHoldsHistory,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
 import { VideoBlockIds } from "./extensions/VideoBlockIds";
@@ -195,6 +197,7 @@ import {
 } from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
+import { suggestionPlacements } from "./suggestion-placement";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -1267,6 +1270,8 @@ export interface VisualEditorSuggestion {
   anchor: { from: number; prefix: string; suffix: string };
   settlementReadbackContent?: string | null;
   presentation: "draft" | "canonical" | "settling";
+  /** Accepted but not saved yet: its words can't be edited until it is. */
+  frozen?: boolean;
 }
 
 export function acceptedSuggestionRendered(
@@ -1655,6 +1660,7 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
 
@@ -1800,7 +1806,15 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /** Receives a reader for where the editor shows suggestions' words. */
+  onSuggestionPlacementsChange?: (
+    read: VisualEditorSuggestionPlacements | null,
+  ) => void;
 }
+
+export type VisualEditorSuggestionPlacements = (
+  suggestionIds: readonly string[],
+) => Record<string, SuggestionPlacement>;
 
 export interface VisualEditorHistoryState {
   canUndo: boolean;
@@ -2130,6 +2144,7 @@ export function runPersistableHistoryCommand(
   editor: CoreEditor,
   command: "undo" | "redo",
 ): boolean {
+  if (suggestionDecisionHoldsHistory(editor.state)) return false;
   let applied = false;
   for (let index = 0; index < 20; index += 1) {
     const changed = editor
@@ -3258,6 +3273,7 @@ export function VisualEditor({
   onHistoryStateChange,
   onSelectionControllerChange,
   onPersistenceControllerChange,
+  onSuggestionPlacementsChange,
 }: VisualEditorProps) {
   const t = useT();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -3866,12 +3882,30 @@ export function VisualEditor({
         });
       },
       handleDOMEvents: {
-        beforeinput(view) {
+        beforeinput(view, event) {
+          if (
+            (event.inputType === "historyUndo" ||
+              event.inputType === "historyRedo") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (view.editable) markUserEditIntent();
           return false;
         },
         keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            (event.key.toLowerCase() === "z" ||
+              event.key.toLowerCase() === "y") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (
             view.editable &&
             (event.metaKey || event.ctrlKey) &&
@@ -4163,6 +4197,16 @@ export function VisualEditor({
   ]);
 
   useEffect(() => {
+    if (!onSuggestionPlacementsChange) return;
+    onSuggestionPlacementsChange((suggestionIds) =>
+      editor.isDestroyed
+        ? {}
+        : suggestionPlacements(editor.state, suggestionIds),
+    );
+    return () => onSuggestionPlacementsChange(null);
+  }, [editor, onSuggestionPlacementsChange]);
+
+  useEffect(() => {
     if (!editor) {
       onSelectionControllerChange?.(null);
       return;
@@ -4419,6 +4463,33 @@ export function VisualEditor({
     },
     [documentId],
   );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        adoptedBody: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
+    },
+    [documentId],
+  );
   const onInitialSeedError = useCallback(
     (error: unknown) => {
       if (initialSeedErrorShownRef.current) return;
@@ -4501,6 +4572,8 @@ export function VisualEditor({
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
     onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
@@ -4871,9 +4944,10 @@ export function VisualEditor({
         onSuggestionAnchorsChange?.(
           Array.from(new Set(specs.map((spec) => spec.suggestionId))),
         );
+      // A decision that's saving keeps its words drawn and held either way.
       const visibleSpecs = showCommentIndicators
         ? specs
-        : specs.filter((spec) => spec.settling);
+        : specs.filter((spec) => spec.settling || spec.frozen);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,

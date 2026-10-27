@@ -7,6 +7,7 @@ import {
   setThreadPinned,
   setThreadHidden,
 } from "../../chat-threads/store.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
@@ -19,9 +20,16 @@ import {
   getRequestUserEmail,
 } from "../request-context.js";
 
+type CliMain = (args: string[]) => Promise<void>;
+
+/** A script whose module loads on its first call. */
+interface LazyCliMain {
+  load: () => Promise<CliMain>;
+}
+
 function wrapCliScript(
   tool: ActionTool,
-  cliDefault: (args: string[]) => Promise<void>,
+  cliDefault: CliMain | LazyCliMain,
   opts?: {
     allowedArgs?: readonly string[];
     readOnly?: boolean;
@@ -44,8 +52,33 @@ function wrapCliScript(
           throw new Error(`Unknown argument: ${k}`);
         }
       }
-      return captureCliOutput(() => cliDefault(serializeCliArgs(args)));
+      // Loaded before output capture, which turns a thrown error into the
+      // call's output: a module that fails to load fails the call.
+      const main =
+        typeof cliDefault === "function" ? cliDefault : await cliDefault.load();
+      return captureCliOutput(() => main(serializeCliArgs(args)));
     },
+  };
+}
+
+// Importing the scripts while the entries are built is mount-time work every
+// cold instance pays on its first framework request, whether or not it ever
+// queries the database. A failed load isn't kept, so the next call tries again.
+// That recovers a module Node couldn't find or read, not one whose evaluation
+// threw: Node keeps that error for the life of the process.
+function lazyCliDefault(
+  load: () => Promise<{ default: CliMain }>,
+): LazyCliMain {
+  let loaded: Promise<CliMain> | undefined;
+  return {
+    load: () =>
+      (loaded ??= load().then(
+        (mod) => mod.default,
+        (error: unknown) => {
+          loaded = undefined;
+          throw error;
+        },
+      )),
   };
 }
 
@@ -54,22 +87,11 @@ export async function createDbScriptEntries(
   options: { extensionTools?: boolean } = {},
 ): Promise<Record<string, ActionEntry>> {
   try {
-    if (mode === "off") return {};
+    if (mode === "off") return frameworkMcpTools({});
     const extensionQueryGuidance =
       options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
         : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
-    const [schemaMod, queryMod] = await Promise.all([
-      import("../../scripts/db/schema.js"),
-      import("../../scripts/db/query.js"),
-    ]);
-    const [execMod, patchMod] =
-      mode === "write"
-        ? await Promise.all([
-            import("../../scripts/db/exec.js"),
-            import("../../scripts/db/patch.js"),
-          ])
-        : [null, null];
 
     const entries: Record<string, ActionEntry> = {
       "db-schema": wrapCliScript(
@@ -87,7 +109,7 @@ export async function createDbScriptEntries(
             },
           },
         },
-        schemaMod.default,
+        lazyCliDefault(() => import("../../scripts/db/schema.js")),
         {
           allowedArgs: ["format"],
           readOnly: true,
@@ -123,7 +145,7 @@ export async function createDbScriptEntries(
             required: ["sql"],
           },
         },
-        queryMod.default,
+        lazyCliDefault(() => import("../../scripts/db/query.js")),
         {
           allowedArgs: ["sql", "args", "format", "limit"],
           readOnly: true,
@@ -131,14 +153,14 @@ export async function createDbScriptEntries(
       ),
     };
 
-    if (execMod && patchMod) {
+    if (mode === "write") {
       entries["db-exec"] = wrapCliScript(
         {
           description:
             "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
           parameters: dbExecToolParameters(),
         },
-        execMod.default,
+        lazyCliDefault(() => import("../../scripts/db/exec.js")),
       );
       entries["db-patch"] = wrapCliScript(
         {
@@ -190,13 +212,13 @@ export async function createDbScriptEntries(
             required: ["table", "column", "where"],
           },
         },
-        patchMod.default,
+        lazyCliDefault(() => import("../../scripts/db/patch.js")),
       );
     }
 
-    return entries;
+    return frameworkMcpTools(entries);
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -327,7 +349,7 @@ export async function createDocsScriptEntries(): Promise<
     // Older package installs may not have the corpus/search script yet.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
@@ -415,7 +437,7 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return {
+    return frameworkMcpTools({
       resources: {
         tool: {
           description:
@@ -633,10 +655,10 @@ export async function createResourceScriptEntries(): Promise<
         },
         delMem.default,
       ),
-    };
+    });
   } catch {
     // Resources not available — skip silently
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -702,7 +724,7 @@ export async function createChatScriptEntries(): Promise<
       openMod.default,
     );
 
-    return {
+    return frameworkMcpTools({
       "chat-history": {
         tool: {
           description:
@@ -828,9 +850,9 @@ export async function createChatScriptEntries(): Promise<
           return searchEntry.run(args);
         },
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -841,7 +863,7 @@ export async function createAgentEngineScriptEntries(
     const mod =
       await import("../../scripts/agent-engines/manage-agent-engine.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
@@ -868,9 +890,9 @@ export async function createAgentEngineScriptEntries(
             context,
           ),
       },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -880,11 +902,11 @@ export async function createAgentLoopSettingsScriptEntries(): Promise<
   try {
     const mod = await import("../../scripts/manage-agent-loop-settings.js");
 
-    return {
+    return frameworkMcpTools({
       "manage-agent-loop-settings": { tool: mod.tool, run: mod.run },
-    };
+    });
   } catch {
-    return {};
+    return frameworkMcpTools({});
   }
 }
 
@@ -943,5 +965,5 @@ export async function createCallAgentScriptEntry(
     // A missing built-in leaves the rest of the toolset usable.
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }

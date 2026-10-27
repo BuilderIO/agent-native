@@ -2,10 +2,15 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import type { ShareButtonVisibility } from "@agent-native/core/client/sharing/useShareButtonController";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import { IconCheck, IconLink } from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconLink } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export type Visibility = ShareButtonVisibility;
@@ -57,6 +62,45 @@ export function nestedLayerDismissGuards(): {
       }
     },
   };
+}
+
+/** The Advanced link under General access, with a summary of what it holds. */
+export function ShareAdvancedPopover({
+  summary,
+  disabled,
+  children,
+}: {
+  summary: ReactNode;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  const t = useT();
+  return (
+    <>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className="-ms-1 inline-flex items-center gap-1 rounded-sm px-1 py-0.5 font-medium transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("shareDialog.advanced")}
+            <IconChevronDown className="size-3" aria-hidden="true" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          className="w-72 space-y-3 p-3"
+        >
+          {children}
+        </PopoverContent>
+      </Popover>
+      <span aria-hidden="true">·</span>
+      <span className="min-w-0 truncate">{summary}</span>
+    </>
+  );
 }
 
 export function ShareSectionLabel({
