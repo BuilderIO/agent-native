@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
 seo_title: "ملاحظات الاجتماعات بالذكاء الاصطناعي دون بوت"
 meta_description: "احصل على نص وملخص وعناصر عمل من كل مكالمة. يسجّل Agent-Native Clips على جهازك، فتبحث في أي اجتماع أو تسأل عنه لاحقًا."

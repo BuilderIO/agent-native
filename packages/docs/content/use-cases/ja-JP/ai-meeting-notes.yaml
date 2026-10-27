@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: ボットなしで通話の議事録を作成
 seo_title: 通話にボットを入れないAI議事録作成
 meta_description: すべての通話から文字起こし、要約、アクションアイテムを作成します。Agent-Native Clipsはご自身のパソコンで録音するので、どの会議も後から検索したり質問したりできます。

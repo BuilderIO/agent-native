@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: 不讓機器人加入通話，也能做會議筆記
 seo_title: 不需要機器人加入通話的 AI 會議筆記
 meta_description: 每場通話都能取得逐字稿、摘要和行動項目。Agent-Native Clips 在你自己的電腦上錄製，任何一場會議日後都能搜尋或提問。

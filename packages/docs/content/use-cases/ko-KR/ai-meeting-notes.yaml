@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: 통화에 봇 없이 회의 노트를 받아 보세요
 seo_title: 통화에 봇이 들어오지 않는 AI 회의 노트
 meta_description: "모든 통화의 전사, 요약, 작업 항목을 받아 보세요. Agent-Native Clips는 내 컴퓨터에서 녹음하니 나중에 어떤 회의든 검색하거나 질문할 수 있어요."

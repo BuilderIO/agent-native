@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: Meeting-Notizen ohne Bot im Anruf erstellen
 seo_title: KI-Meeting-Notizen ohne Bot in Ihrem Anruf
 meta_description: Erhalten Sie Transkript, Zusammenfassung und Aufgaben aus jedem Anruf. Agent-Native Clips nimmt auf Ihrem eigenen Computer auf, sodass Sie jedes Meeting später durchsuchen oder dazu befragen können.

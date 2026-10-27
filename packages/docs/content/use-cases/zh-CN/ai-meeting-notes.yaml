@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: 无需机器人入会，也能拿到会议笔记
 seo_title: 无需机器人入会的 AI 会议笔记
 meta_description: 每场通话都能得到转录、摘要和行动项。Agent-Native Clips 在你自己的电脑上录制，之后任何一场会议你都可以搜索或提问。

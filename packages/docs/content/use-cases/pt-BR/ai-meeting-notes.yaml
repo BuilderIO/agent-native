@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: Tenha notas de reunião sem bot na chamada
 seo_title: Notas de reunião com IA, sem bot na sua chamada
 meta_description: Receba transcrição, resumo e itens de ação de cada chamada. O Agent-Native Clips grava no seu próprio computador, e você pode pesquisar ou perguntar sobre qualquer reunião depois.
