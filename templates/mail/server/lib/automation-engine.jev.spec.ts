@@ -696,7 +696,7 @@ describe("Mail decision automation routing", () => {
     });
   });
 
-  it("splits Priority requests by serialized bytes and keeps guidance out of questions", async () => {
+  it("splits Priority requests by serialized bytes and pins the first fallback provider", async () => {
     const emails = Array.from({ length: 50 }, (_, index) => ({
       ...email,
       id: `large-${index}`,
@@ -704,15 +704,20 @@ describe("Mail decision automation routing", () => {
       snippet: "\u0000".repeat(2_000),
     }));
     const requestBytes: number[] = [];
+    const decisionProviders: Array<readonly ("jev" | "openai")[] | undefined> =
+      [];
     const guidance = "Prioritize the user's guidance. ".repeat(200);
     mocks.decide.mockImplementation(
       async ({
         input,
         questions,
+        options,
       }: {
         input: Array<{ value: { guidance: string } }>;
         questions: Array<{ name: string; type: string; instructions: string }>;
+        options?: { providers?: readonly ("jev" | "openai")[] };
       }) => {
+        decisionProviders.push(options?.providers);
         requestBytes.push(
           new TextEncoder().encode(JSON.stringify({ input, questions }))
             .byteLength,
@@ -721,7 +726,7 @@ describe("Mail decision automation routing", () => {
         expect(
           questions.every((question) => question.instructions.length < 4_000),
         ).toBe(true);
-        return decisionResult(questions);
+        return decisionResult(questions, { provider: "openai" });
       },
     );
 
@@ -729,11 +734,25 @@ describe("Mail decision automation routing", () => {
       emails,
       "owner@example.com",
       guidance,
+      undefined,
+      ["jev", "openai"],
     );
 
     expect(requestBytes.length).toBeGreaterThan(1);
     expect(
       requestBytes.every((size) => size <= MAX_DECISION_PAYLOAD_BYTES),
+    ).toBe(true);
+    expect(decisionProviders[0]).toEqual(["jev", "openai"]);
+    expect(decisionProviders.slice(1).length).toBeGreaterThan(0);
+    expect(
+      decisionProviders
+        .slice(1)
+        .every(
+          (providers) => providers?.length === 1 && providers[0] === "openai",
+        ),
+    ).toBe(true);
+    expect(
+      [...result.scores.values()].every((score) => score.provider === "openai"),
     ).toBe(true);
     expect(result).toMatchObject({ evaluatedCount: 50, failedCount: 0 });
   });

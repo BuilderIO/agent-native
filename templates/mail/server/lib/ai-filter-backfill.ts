@@ -1824,22 +1824,27 @@ async function ensureEvaluations(
         aiPriorityEmailKey(failure.accountEmail, failure.emailId),
       ),
   );
+  const retryableFailureKeys = new Set<string>();
   for (const failure of state.decisionFailures ?? []) {
     if (failure.retryable) {
-      terminalFailureKeys.delete(
-        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
-      );
+      const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+      terminalFailureKeys.delete(key);
+      retryableFailureKeys.add(key);
     }
   }
   const batch = state.candidates
     .slice(state.candidateIndex, state.candidateIndex + THREADS_PER_TICK)
-    .filter(
-      (candidate) =>
-        matchedForCandidate(candidate, state) === undefined &&
-        !terminalFailureKeys.has(
-          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
-        ),
-    );
+    .filter((candidate) => {
+      const key = aiPriorityEmailKey(
+        candidate.accountEmail,
+        candidate.email.id,
+      );
+      return (
+        !terminalFailureKeys.has(key) &&
+        (matchedForCandidate(candidate, state) === undefined ||
+          retryableFailureKeys.has(key))
+      );
+    });
   if (batch.length === 0) return true;
   const evaluation = await evaluateAiFilterBackfillRules(
     batch.map((candidate) => candidate.email),
@@ -1851,78 +1856,57 @@ async function ensureEvaluations(
   if (matchMap.size !== batch.length) {
     throw new Error("Mail AI-filter evaluation did not classify every thread.");
   }
-  const failedEmailKeys = new Set(
-    evaluation.failures.map((failure) =>
-      aiPriorityEmailKey(failure.accountEmail, failure.emailId),
-    ),
-  );
+  const previousFailures = state.decisionFailures ?? [];
   const evaluatedEmailKeys = new Set(
     batch.map((candidate) =>
       aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
     ),
   );
-  const evaluations = batch
-    .filter(
-      (candidate) =>
-        !failedEmailKeys.has(
-          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
-        ),
-    )
-    .map((candidate) => {
-      const matches = matchMap.get(
-        aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+  const evaluations = batch.map((candidate) => {
+    const matches = matchMap.get(
+      aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+    );
+    if (matches === undefined) {
+      throw new Error(
+        "Mail AI-filter evaluation did not classify every thread.",
       );
-      if (matches === undefined) {
-        throw new Error(
-          "Mail AI-filter evaluation did not classify every thread.",
-        );
-      }
-      return [
-        candidate.key,
-        matches.map(({ ruleId, confidence, reason, provider, model }) => ({
-          ruleId,
-          confidence,
-          ...(provider ? { provider } : {}),
-          ...(model ? { model } : {}),
-          ...(reason ? { reason } : {}),
-        })),
-      ] as const;
-    });
-  for (const candidate of batch) {
-    if (
-      failedEmailKeys.has(
-        aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
-      )
-    ) {
-      delete state.evaluations[candidate.key];
     }
+    return [
+      candidate.key,
+      matches.map(({ ruleId, confidence, reason, provider, model }) => ({
+        ruleId,
+        confidence,
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
+        ...(reason ? { reason } : {}),
+      })),
+    ] as const;
+  });
+  const previousFailureCounts = new Map<string, number>();
+  for (const failure of previousFailures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    if (!evaluatedEmailKeys.has(key)) continue;
+    previousFailureCounts.set(key, (previousFailureCounts.get(key) ?? 0) + 1);
   }
+  const replacedEvaluationCount = batch.reduce((count, candidate) => {
+    if (!Object.prototype.hasOwnProperty.call(state.evaluations, candidate.key))
+      return count;
+    const key = aiPriorityEmailKey(candidate.accountEmail, candidate.email.id);
+    return (
+      count +
+      Math.max(0, state.rules.length - (previousFailureCounts.get(key) ?? 0))
+    );
+  }, 0);
   for (const [key, matches] of evaluations) {
     state.evaluations[key] = matches;
   }
-  const partialSuccessCount = [...failedEmailKeys].reduce(
-    (count, emailKey) =>
-      count +
-      Math.max(
-        0,
-        state.rules.length -
-          evaluation.failures.filter(
-            (failure) =>
-              aiPriorityEmailKey(failure.accountEmail, failure.emailId) ===
-              emailKey,
-          ).length,
-      ),
-    0,
-  );
   state.evaluatedCount =
-    (state.evaluatedCount ?? 0) +
-    evaluation.evaluatedCount -
-    partialSuccessCount;
-  const replacedFailureCount = (state.decisionFailures ?? []).filter(
-    (failure) =>
-      evaluatedEmailKeys.has(
-        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
-      ),
+    Math.max(0, (state.evaluatedCount ?? 0) - replacedEvaluationCount) +
+    evaluation.evaluatedCount;
+  const replacedFailureCount = previousFailures.filter((failure) =>
+    evaluatedEmailKeys.has(
+      aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+    ),
   ).length;
   state.failedCount =
     Math.max(0, (state.failedCount ?? 0) - replacedFailureCount) +
@@ -1936,6 +1920,10 @@ async function ensureEvaluations(
     ),
     ...evaluation.failures,
   ];
+  if (!evaluation.failures.some((failure) => failure.retryable)) {
+    state.retryCount = 0;
+    delete state.retryAfterAt;
+  }
   if (state.decisionFailures.length > 0) {
     state.incompleteCoverage = true;
   } else if (
@@ -2028,17 +2016,6 @@ async function processRunningBatch(
   );
   const labelCaches = new Map<string, Map<string, string>>();
   for (const candidate of batch) {
-    if (
-      (state.decisionFailures ?? []).some(
-        (failure) =>
-          aiPriorityEmailKey(failure.accountEmail, failure.emailId) ===
-          aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
-      )
-    ) {
-      state.processedThreads += 1;
-      state.candidateIndex += 1;
-      continue;
-    }
     const matches = matchedForCandidate(candidate, state) ?? [];
     const candidateMatched = matches.length > 0;
     if (candidateMatched && !state.matchedThreadKeys.includes(candidate.key)) {

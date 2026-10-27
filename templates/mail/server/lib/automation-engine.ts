@@ -1647,12 +1647,18 @@ export async function previewAutomationPriority(
       result.failedCount += batch.length;
     }
   };
-  for (let index = 0; index < decisionBatches.batches.length; index += 3) {
-    const wave = decisionBatches.batches.slice(index, index + 3);
+  let batchIndex = 0;
+  let batchProviders = providers;
+  let providerPinned = providers?.length === 1;
+  while (batchIndex < decisionBatches.batches.length) {
     if (signal?.aborted) {
-      addTimedOutFailures(decisionBatches.batches.slice(index));
+      addTimedOutFailures(decisionBatches.batches.slice(batchIndex));
       break;
     }
+    const wave = decisionBatches.batches.slice(
+      batchIndex,
+      batchIndex + (providerPinned ? 3 : 1),
+    );
     const outcomes = await Promise.all(
       wave.map(async (batch) => {
         try {
@@ -1663,7 +1669,7 @@ export async function previewAutomationPriority(
               instruction,
               ownerEmail,
               signal,
-              providers,
+              batchProviders,
             ),
           };
         } catch (error) {
@@ -1680,6 +1686,10 @@ export async function previewAutomationPriority(
         continue;
       }
       const batchResult = outcome.result;
+      if (!providerPinned && batchResult.model) {
+        providerPinned = true;
+        batchProviders = [batchResult.model.provider];
+      }
       for (const [key, score] of batchResult.scores) {
         result.scores.set(key, score);
       }
@@ -1689,9 +1699,12 @@ export async function previewAutomationPriority(
       result.model ??= batchResult.model;
     }
     if (signal?.aborted) {
-      addTimedOutFailures(decisionBatches.batches.slice(index + wave.length));
+      addTimedOutFailures(
+        decisionBatches.batches.slice(batchIndex + wave.length),
+      );
       break;
     }
+    batchIndex += wave.length;
   }
   return result;
 }

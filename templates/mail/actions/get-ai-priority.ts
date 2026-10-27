@@ -238,7 +238,7 @@ export default defineAction({
         ownerEmail,
         instruction,
         AbortSignal.timeout(25_000),
-        cachedScores.size ? [rankingProvider] : undefined,
+        cachedScores.size ? [rankingProvider] : readyProviders,
       );
       const resultProviders = new Set(
         [...result.scores.values()].map((score) => score.provider),

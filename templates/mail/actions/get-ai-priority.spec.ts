@@ -183,7 +183,7 @@ describe("get-ai-priority action", () => {
       "owner@example.com",
       expect.any(String),
       expect.any(AbortSignal),
-      undefined,
+      ["openai"],
     );
     expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
       "owner@example.com",
@@ -300,6 +300,10 @@ describe("get-ai-priority action", () => {
       { provider: "openai", model: "gpt-6-luna" },
     ]);
     expect(mocks.previewAutomationPriority).toHaveBeenCalledOnce();
+    expect(mocks.previewAutomationPriority.mock.calls[0]?.[4]).toEqual([
+      "jev",
+      "openai",
+    ]);
   });
 
   it("keeps a Priority ranking on one provider when cache entries are split", async () => {
