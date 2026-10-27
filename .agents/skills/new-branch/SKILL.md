@@ -75,8 +75,8 @@ git log --oneline <ship_merge_head_oid>..HEAD
 - `git cat-file -e "<ship_merge_head_oid>^{commit}"` must succeed first. If
   the saved OID is missing or invalid, an empty `git log` proves nothing, so
   keep the branch.
-- If anything is dirty or unpushed, keep the branch and list the paths or
-  commits.
+- If any of these commands fails, or anything is dirty or unpushed, keep the
+  branch and list what you found.
 
 When it's all clear, compute `$branch` as above and run
 `git switch -c "$branch" origin/main`. Always use `origin/main` here, never the
