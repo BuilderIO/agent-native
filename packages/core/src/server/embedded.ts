@@ -54,9 +54,10 @@ export type AgentNativeEmbeddedGetSession = (
 
 export interface AgentNativeEmbeddedAuthOptions extends Omit<
   AuthOptions,
-  "getSession"
+  "getSession" | "getBrowserSession"
 > {
   getSession: AgentNativeEmbeddedGetSession;
+  getBrowserSession?: AgentNativeEmbeddedGetSession;
 }
 
 export interface AgentNativeEmbeddedPluginOptions {
@@ -136,16 +137,21 @@ export function createAgentNativeEmbeddedAuthOptions(
 ): AuthOptions | undefined {
   if (!auth) return undefined;
 
-  const authOptions =
-    typeof auth === "function"
-      ? ({ getSession: auth } satisfies AgentNativeEmbeddedAuthOptions)
-      : auth;
+  const authOptions: AgentNativeEmbeddedAuthOptions =
+    typeof auth === "function" ? { getSession: auth } : auth;
+  const { getSession, getBrowserSession, ...options } = authOptions;
 
   return {
     mountGoogleOAuthRoutes: false,
-    ...authOptions,
+    ...options,
     getSession: async (event) =>
-      normalizeAgentNativeEmbeddedSession(await authOptions.getSession(event)),
+      normalizeAgentNativeEmbeddedSession(await getSession(event)),
+    ...(getBrowserSession
+      ? {
+          getBrowserSession: async (event: H3Event) =>
+            normalizeAgentNativeEmbeddedSession(await getBrowserSession(event)),
+        }
+      : {}),
   };
 }
 

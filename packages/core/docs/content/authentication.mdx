@@ -395,6 +395,8 @@ export default createAuthPlugin({
 });
 ```
 
+Custom authentication must also configure the optional `AuthOptions.getBrowserSession` callback for UI capabilities and browser approvals. It accepts an `H3Event` and returns `AuthSession | null`, like `getSession`, but must read browser cookies only, never bearer tokens, query tokens, or other headers. Without this explicit hook, those browser-only operations return `401`.
+
 ## Public Workspace Apps {#public-workspace-apps}
 
 Workspace apps are internal by default. To let anonymous visitors load a public

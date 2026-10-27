@@ -338,6 +338,8 @@ export default createAuthPlugin({
 });
 ```
 
+自訂驗證也必須設定選用回呼 `AuthOptions.getBrowserSession`，供 UI 功能和瀏覽器核准使用。它接受 `H3Event` 並傳回 `AuthSession | null`，與 `getSession` 相同，但只能讀取瀏覽器 Cookie，絕不可讀取 bearer token、查詢 token 或其他標頭。沒有這個明確的 hook 時，這些僅限瀏覽器的操作會傳回 `401`。
+
 ## 公開工作區應用 {#public-workspace-apps}
 
 工作區應用程式預設為內部應用程式。讓匿名訪客載入公開

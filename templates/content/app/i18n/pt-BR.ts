@@ -346,6 +346,8 @@ const database = {
   failedToCreateRow: "Falha ao criar linha",
   pageCreatedCollectionRefreshFailed:
     "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
+  builderPushResultNotLoaded:
+    "A atualização chegou ao Builder, mas esta revisão não conseguiu carregar o resultado. Recarregue para vê-lo.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:
