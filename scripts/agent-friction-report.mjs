@@ -4520,13 +4520,17 @@ if (scanned === 0)
 report();
 
 async function scan(file, read) {
-  let stream;
   try {
-    stream = createReadStream(file, { encoding: "utf8" });
-  } catch {
-    process.stderr.write(`[friction] unreadable: ${file}\n`);
-    return;
+    await scanLines(file, read);
+  } catch (error) {
+    // Codex archives rollouts while the report runs; the open error surfaces
+    // asynchronously from the stream, not from createReadStream.
+    process.stderr.write(`[friction] unreadable: ${file} (${error.code})\n`);
   }
+}
+
+async function scanLines(file, read) {
+  const stream = createReadStream(file, { encoding: "utf8" });
   for await (const line of createInterface({
     input: stream,
     crlfDelay: Infinity,

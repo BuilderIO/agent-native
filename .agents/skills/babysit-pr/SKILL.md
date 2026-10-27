@@ -284,10 +284,10 @@ can change within minutes, so re-check before every actionable push.
 
 ## Latest-feedback handoff
 
-If this PR came from `/review-latest-feedback`, its fixed reports get closed
-out after the merge (✅ plus a one-line reply, per that skill's step 5). While
-babysitting, a new reply on one of those Slack threads that says the fix
-didn't work is a review item: fix it in this PR before merging.
+If the PR body has a `Reports` section (from `/review-latest-feedback`),
+`/ship` closes out those Slack threads after the merge. While babysitting, a
+new reply on one of those threads saying the fix didn't work is a review item:
+fix it in this PR before merging.
 
 **Then proceed with PR checks:**
 

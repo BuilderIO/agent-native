@@ -39,8 +39,8 @@ after the fast merge; it does not imply that other production sites were
 promoted. If a critical fix needs another production site, explicitly run the
 manual promotion and monitor that result separately.
 
-After the merge, close the loop on any `/review-latest-feedback` reports the
-PR fixed (✅ plus a one-line "fixed (PR linked), will be on beta shortly" reply).
+After the merge, close out the threads in the PR body's `Reports` section, if
+it has one, exactly as `/ship` step 6 does.
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it

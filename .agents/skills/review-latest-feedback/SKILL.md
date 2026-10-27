@@ -39,8 +39,9 @@ Steve (`U0GCV21HC`) steers the sweep with his own reactions on a root:
 | 👀 by hand   | He's working on it himself; leave it (see "Open items first" for how to tell his 👀 from ours) |
 
 Reactions can't be removed through the Slack connector, so never add one you
-might need to take back. Every 👀 you add ends the run with ✅ or 🎫 and a
-reply. A 👀 with no follow-up is the most common complaint about this workflow.
+might need to take back. Every 👀 you add ends the run with a reply, plus
+either ✅ or 🎫, or a fix PR that is still open and lists the report (its
+merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
 
 Every claimed report gets **one** reply in its thread per outcome:
 
@@ -175,8 +176,15 @@ apart from Steve's own 👀.
 
 ## 4. Ship
 
-Put every fix in one PR and run `/ship` through the merge. Don't open one PR
-per item.
+Put every fix in one PR. Don't open one PR per item. In the PR body, add a
+`Reports` section listing the Slack link of every report the PR fixes. That
+list is the only set of threads a later `/ship` may close out as fixed.
+
+Merge it the way this repo merges PRs. In a Factory workspace, that means
+the workflow's merge step after its merge gate, never a direct merge.
+<!-- framework-repo-only:start -->
+In the framework repo, run `/ship` through the merge.
+<!-- framework-repo-only:end -->
 
 A sweep's PR contains product fixes only. Don't edit this skill, add checker
 scripts, or add bookkeeping files in it. If the run taught something, propose
@@ -206,8 +214,8 @@ open GitHub issues for them.
 
 Before ending, re-read each thread you touched and check:
 
-- every 👀 from this run has ✅ or 🎫 and a reply after the latest human
-  message;
+- every 👀 from this run has a reply after the latest human message, plus
+  ✅, 🎫, or an open fix PR that lists it under `Reports`;
 - every ✅ corresponds to a merged fix;
 - no reply is technical or duplicated.
 
