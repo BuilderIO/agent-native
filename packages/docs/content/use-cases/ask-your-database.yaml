@@ -1,6 +1,10 @@
 template: v2
 slug: ask-your-database
 app: analytics
+roles:
+  - engineering
+  - product
+  - founders
 title: Ask your data questions in plain English
 seo_title: Ask your database questions without SQL
 meta_description: Type a question about your BigQuery data and Agent-Native Analytics answers it with read-only SQL you can check, then keeps repeat questions on a dashboard.
