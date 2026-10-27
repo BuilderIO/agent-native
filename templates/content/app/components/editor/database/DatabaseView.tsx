@@ -2852,8 +2852,18 @@ function DatabaseTable({
       );
       setPreparedBuilderReviewConfirmation(null);
       if (!nextReview) {
-        setBuilderReviewError(dbText("builderPushResultNotLoaded"));
-        toast.error(dbText("builderPushResultNotLoaded"));
+        const message = dbText("builderPushResultNotLoaded");
+        const confirmedReview = databaseBuilderReviewAfterPartialExecution(
+          preparedReview,
+          executions,
+          message,
+        );
+        if (confirmedReview) {
+          setBuilderReviewResult(confirmedReview);
+          setBuilderReviewCheckedAt(new Date().toISOString());
+        }
+        setBuilderReviewError(message);
+        toast.error(message);
         return;
       }
       setBuilderReviewResult(nextReview);
@@ -4617,11 +4627,12 @@ export type DatabaseBuilderRowExecution = {
 };
 
 /**
- * The review after a push that stopped on an error. Rows pushed before the
- * error show the result their own response carried; a row whose response
- * came back without its change set keeps its prepared state. The review's
- * result is the error, never a success. Null when no pushed row confirmed
- * and the error leaves no state to show.
+ * The review after a push that ended on an error: a thrown error, or a
+ * response that came back without its change set. Pushed rows show the
+ * result their own response carried; a row whose response lacked its change
+ * set keeps its prepared state. The review's result is the error, never a
+ * success. Null when no pushed row confirmed and the error leaves no state
+ * to show.
  */
 export function databaseBuilderReviewAfterPartialExecution(
   review: ContentDatabaseSourceReviewPayload,
