@@ -137,6 +137,33 @@ describe("weekly prefetched SLO rows", () => {
   });
 });
 
+describe("fresh BigQuery fallback reads", () => {
+  it("bypasses both caches for event, funnel, and SLO reads", async () => {
+    queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
+    queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "bigquery",
+      table: null,
+    });
+    queryMocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+      "`project_id.analytics.events_raw_query_range`",
+    );
+    queryMocks.runBigQuery.mockResolvedValue({ rows: [] });
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    await runWatch({
+      window: "daily",
+      date: "2026-10-26",
+      includeCampaign: false,
+      freshBigQuery: true,
+    });
+
+    const queries = queryMocks.runBigQuery.mock.calls;
+    expect(queries).toHaveLength(4);
+    for (const [, options] of queries)
+      expect(options).toMatchObject({ fresh: true, cache: false });
+  });
+});
+
 describe("radar event labels", () => {
   it("redacts unreviewed event names before report output", () => {
     expect(safeRadarEventLabel("signup")).toBe("signup");

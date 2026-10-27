@@ -415,6 +415,7 @@ async function buildWeeklyReportWithinBudget(
         date,
         window: "daily",
         includeCampaign: offset === 6,
+        freshBigQuery: options.freshBigQuery ?? false,
         cutoff,
         ...(prefetched ? { prefetched } : {}),
       });

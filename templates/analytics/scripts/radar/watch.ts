@@ -68,6 +68,7 @@ export interface RadarWatchOptions {
   hour?: number;
   includeCampaign?: boolean;
   prefetched?: RadarWatchPrefetchedQueries;
+  freshBigQuery?: boolean;
   cutoff?: Date;
 }
 
@@ -147,6 +148,10 @@ function addDays(date: string, amount: number): string {
   const result = new Date(`${date}T00:00:00.000Z`);
   result.setUTCDate(result.getUTCDate() + amount);
   return result.toISOString().slice(0, 10);
+}
+
+function bigQueryFreshOptions(fresh: boolean | undefined) {
+  return fresh ? { fresh: true, cache: false } : {};
 }
 
 export function matureFunnelCohortDate(
@@ -1252,6 +1257,7 @@ export async function runWatch(
               { name: "end_date", type: "DATE", value: date },
               { name: "org_id", type: "STRING", value: orgId },
             ],
+            ...bigQueryFreshOptions(options.freshBigQuery),
           })
         : await runPostgresQuery(eventQuerySql, [
             eventStart,
@@ -1290,6 +1296,7 @@ export async function runWatch(
                   { name: "org_id", type: "STRING", value: orgId },
                   { name: "cutoff", type: "TIMESTAMP", value: funnelCutoff },
                 ],
+                ...bigQueryFreshOptions(options.freshBigQuery),
               },
             )
           : runPostgresQuery(buildFunnelDailySql(), [
@@ -1327,6 +1334,7 @@ export async function runWatch(
                   { name: "end_date", type: "DATE", value: date },
                   { name: "org_id", type: "STRING", value: orgId },
                 ],
+                ...bigQueryFreshOptions(options.freshBigQuery),
               },
             )
           : runPostgresQuery(buildPromptOutputSloSql(), [
