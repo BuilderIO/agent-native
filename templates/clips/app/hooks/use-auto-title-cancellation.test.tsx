@@ -372,6 +372,32 @@ describe("workflow generation background sessions", () => {
     );
   });
 
+  it("retries terminal reconciliation after a transient action failure", async () => {
+    let attempts = 0;
+    mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
+      operationId: workflowTabId,
+      threadId: workflowTabId,
+      turnId: "turn-123",
+      runId: "run-1",
+      status: "errored",
+    });
+    configureActions(
+      { requests: [], activeSessions: [workflowSession] },
+      {
+        settle: () => {
+          if (attempts++ === 0) throw new Error("connection dropped");
+          return { reconciled: true };
+        },
+      },
+    );
+    await renderBridge();
+
+    await vi.waitFor(
+      () => expect(workflowOperations("settle")).toHaveLength(2),
+      { timeout: 5000 },
+    );
+  });
+
   it("leaves a still-running workflow session alone", async () => {
     mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
       operationId: workflowTabId,
