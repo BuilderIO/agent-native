@@ -717,7 +717,7 @@ describe("agent frame store", () => {
       first.claim.release();
     });
 
-    it("gives a cold burst one claim, and the next waiter takes it over on release", async () => {
+    it("gives a cold burst one claim, and the waiter serves on demand if the fill left its frame out", async () => {
       mockRows.value = [];
       const [first, second] = [
         loadStoredAgentFrame(clip, 25_000),
@@ -736,9 +736,24 @@ describe("agent frame store", () => {
       expect(secondSettled).toBe(false);
 
       firstResult.claim.release();
-      const secondResult = await second;
-      expect(secondResult).toHaveProperty("claim");
-      if ("claim" in secondResult) secondResult.claim?.release();
+      expect(await second).toEqual({ claim: null });
+    });
+
+    it("does not take over the fill after waiting for one", async () => {
+      mockRows.value = [];
+      const first = await loadStoredAgentFrame(clip, 25_000);
+      if (!("claim" in first) || !first.claim)
+        throw new Error("expected a claim");
+
+      const waiter = loadStoredAgentFrame(clip, 25_000);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      first.claim.release();
+
+      expect(await waiter).toEqual({ claim: null });
+      // The next request, with nothing held, claims as usual.
+      const next = await loadStoredAgentFrame(clip, 25_000);
+      expect(next).toHaveProperty("claim");
+      releaseIfClaim(next);
     });
   });
 });

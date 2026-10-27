@@ -205,11 +205,13 @@ export type StoredAgentFrameLookup =
 /**
  * The stored frame for `atMs`, or the claim to fill the clip's frames. A miss
  * for a recommended timestamp while another request holds the claim waits for
- * it and reads again, so a burst of cold requests shares one video download.
- * No claim means the store cannot help: the timestamp is not one a fill
- * stores, so waiting would only queue the request behind a download that
- * cannot answer it, or the store could not be read, which is logged and must
- * not turn into a queue of video downloads.
+ * it once and reads again, so a burst of cold requests shares one video
+ * download. No claim means the store cannot help and the request is served on
+ * demand: the timestamp is not one a fill stores, so waiting would only queue
+ * it behind a download that cannot answer it; the fill it waited for did not
+ * store its frame, so taking over would repeat that whole fill once per
+ * waiter; or the store could not be read, which is logged and must not turn
+ * into a queue of video downloads.
  */
 export async function loadStoredAgentFrame(
   recording: PublicAgentRecording,
@@ -218,16 +220,16 @@ export async function loadStoredAgentFrame(
   const mediaKey = agentFrameMediaKey(recording);
   const key = fillKey(recording.id, mediaKey);
   try {
-    for (;;) {
-      const frame = await readStoredFrame(recording, atMs, mediaKey);
-      if (frame) return { frame };
-      const held = fillsInFlight.get(key);
-      if (!held) return { claim: claimFill(recording, key, mediaKey) };
-      if (!(await recommendedAgentFrameTimes(recording)).includes(atMs)) {
-        return { claim: null };
-      }
-      await held;
+    const frame = await readStoredFrame(recording, atMs, mediaKey);
+    if (frame) return { frame };
+    const held = fillsInFlight.get(key);
+    if (!held) return { claim: claimFill(recording, key, mediaKey) };
+    if (!(await recommendedAgentFrameTimes(recording)).includes(atMs)) {
+      return { claim: null };
     }
+    await held;
+    const filled = await readStoredFrame(recording, atMs, mediaKey);
+    return filled ? { frame: filled } : { claim: null };
   } catch (error) {
     console.error("[agent-frame-store] stored frames unavailable", {
       recordingId: recording.id,
