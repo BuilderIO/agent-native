@@ -2830,6 +2830,29 @@ export function findRawSqlInterpolationViolationsInSources(
   for (const analysis of analyses.values()) {
     analysis.relatedAnalyses = analyses;
   }
+  const hasExecuteSink = [...sourceFiles.values()].some((sourceFile) => {
+    const analysis = analyses.get(sourceFile);
+    if (!analysis) return false;
+    let found = false;
+    const visit = (node: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isCallExpression(node) &&
+        isExecuteCall(
+          node.expression,
+          analysis.checker,
+          sourceFile,
+          analysis.executeAliases,
+        )
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
+  });
 
   const findings: RawSqlInterpolationFinding[] = [];
   const reportedLines = new Set<string>();
@@ -2944,6 +2967,7 @@ export function findRawSqlInterpolationViolationsInSources(
         if (argument) reportUnsafeSqlValue(analysis, node, argument);
       }
       if (
+        hasExecuteSink &&
         ts.isCallExpression(node) &&
         !isExecuteCall(
           node.expression,
