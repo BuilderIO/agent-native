@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: 把上市企劃變成到達頁原型
 seo_title: 為產品上市打造的 AI 到達頁原型
 meta_description: 把上市企劃交給 Agent-Native Design，就能得到幾個符合品牌的到達頁版本，可以點擊操作、互相比較，並匯出為 HTML。免費且開源。

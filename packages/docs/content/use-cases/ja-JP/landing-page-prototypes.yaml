@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: ローンチブリーフからランディングページを試作
 seo_title: ローンチ向けAIランディングページプロトタイプ
 meta_description: Agent-Native Designにローンチブリーフを渡すと、自社ブランドのランディングページ案が複数でき、クリックして比べ、HTMLで書き出せます。無料のオープンソースです。

@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: "حوّل موجز الإطلاق إلى نموذج أولي لصفحة هبوط"
 seo_title: "نماذج صفحات هبوط أولية بالذكاء الاصطناعي لإطلاقك"
 meta_description: "أعطِ Agent-Native Design موجز الإطلاق، واحصل على عدة نسخ من صفحة الهبوط بهوية علامتك لتتنقل فيها وتقارن بينها وتصدّرها HTML. مجاني ومفتوح المصدر."

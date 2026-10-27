@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: Convierte un briefing en un prototipo de landing
 seo_title: Prototipos de landing con IA para tu lanzamiento
 meta_description: Pasa a Agent-Native Design tu briefing de lanzamiento y obtén varias landings con tu marca para probar, comparar y exportar en HTML. Gratis y de código abierto.

@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: "लॉन्च ब्रीफ़ को लैंडिंग पेज प्रोटोटाइप में बदलें"
 seo_title: "आपके लॉन्च के लिए AI लैंडिंग पेज प्रोटोटाइप"
 meta_description: "Agent-Native Design को लॉन्च ब्रीफ़ दें और अपने ब्रांड में लैंडिंग पेज के कुछ वर्ज़न पाएँ, जिन्हें क्लिक करके देखें, तुलना करें और HTML में एक्सपोर्ट करें। फ़्री और ओपन सोर्स।"

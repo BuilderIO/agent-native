@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: Prototipe a landing page do seu lançamento
 seo_title: Protótipos de landing page com IA
 meta_description: Dê ao Agent-Native Design o briefing do lançamento e receba versões de landing page com sua marca para clicar, comparar e exportar em HTML. Gratuito e open source.

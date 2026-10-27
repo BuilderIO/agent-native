@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: Prototypen für Landingpages erstellen
 seo_title: KI-Landingpage-Prototypen für Ihren Launch
 meta_description: Agent-Native Design macht aus Ihrem Launch-Briefing Landingpage-Versionen in Ihrer Marke zum Klicken, Vergleichen und HTML-Export. Kostenlos und Open Source.

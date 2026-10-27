@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: 출시 브리프를 랜딩 페이지 프로토타입으로 만들어 보세요
 seo_title: 출시를 위한 AI 랜딩 페이지 프로토타입
 meta_description: "Agent-Native Design에 출시 브리프를 주면, 우리 브랜드로 만든 랜딩 페이지 몇 가지 버전을 클릭해 보고 비교하고 HTML로 내보낼 수 있어요. 무료 오픈 소스예요."

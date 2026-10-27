@@ -1,6 +1,10 @@
 template: v2
 slug: landing-page-prototypes
 app: design
+roles:
+  - marketing
+  - design
+  - founders
 title: 把发布简报变成落地页原型
 seo_title: 为你的发布打造 AI 落地页原型
 meta_description: 把发布简报交给 Agent-Native Design，就能得到几版符合品牌的落地页，可以点击试用、比较，并导出为 HTML。免费且开源。
