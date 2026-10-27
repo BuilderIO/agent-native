@@ -19,7 +19,6 @@ import type { AgentExecutionStepIntent } from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 const START_MS = Date.UTC(2026, 0, 1);
-let databaseClockMs = START_MS;
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let activeTrace: TraceRecorder | undefined;
 let networkCalls = 0;
@@ -36,7 +35,7 @@ function postgresSql(sql: string): string {
 function virtualizeDatabaseClock(sql: string): string {
   return sql.replaceAll(
     "clock_timestamp()",
-    `to_timestamp(${databaseClockMs} / 1000.0)`,
+    `to_timestamp(${Date.now()} / 1000.0)`,
   );
 }
 
@@ -114,6 +113,7 @@ const {
   insertRun,
   lockTaskExecutionLease,
   markAgentExecutionStepDispatched,
+  markAgentExecutionStepUnknown,
   resetAgentExecutionStepBeforeInvocation,
   revokeTaskExecutionLease,
   TurnExecutionLeaseBusyError,
@@ -376,7 +376,6 @@ class AdvanceVirtualTimeCommand implements fc.AsyncCommand<
 
   async run(model: DeliveryModel, real: DeliveryReal): Promise<void> {
     await vi.advanceTimersByTimeAsync(15_001);
-    databaseClockMs += 15_001;
     model.clockAdvances += 1;
     real.trace.add("virtual clock advanced 15001ms");
     await assertSingleTurnOwner(real);
@@ -392,7 +391,7 @@ async function assertSingleTurnOwner(real: DeliveryReal): Promise<void> {
     `SELECT owner_run_id FROM agent_execution_leases
      WHERE thread_id = $1 AND turn_id = $2
        AND lease_expires_at > to_timestamp($3 / 1000.0)`,
-    [real.threadId, real.turnId, databaseClockMs],
+    [real.threadId, real.turnId, Date.now()],
   );
   expect(result.rows.length).toBeLessThanOrEqual(1);
 }
@@ -418,15 +417,7 @@ function simulationRunCount(): number {
   return parsed;
 }
 
-beforeAll(async () => {
-  pglite = await createTestPglite();
-  await ensureRunTables();
-}, 30_000);
-
-beforeEach(() => {
-  vi.useFakeTimers({ now: START_MS });
-  databaseClockMs = START_MS;
-  networkCalls = 0;
+function blockSimulationNetwork(): void {
   vi.stubGlobal(
     "fetch",
     async (input: RequestInfo | URL): Promise<Response> => {
@@ -435,6 +426,17 @@ beforeEach(() => {
       throw new Error("Unexpected network request in deterministic simulation");
     },
   );
+}
+
+beforeAll(async () => {
+  pglite = await createTestPglite();
+  await ensureRunTables();
+}, 30_000);
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: START_MS });
+  networkCalls = 0;
+  blockSimulationNetwork();
 });
 
 afterEach(() => {
@@ -494,7 +496,7 @@ describe("deterministic agent run simulation", () => {
       `SELECT owner_run_id FROM agent_execution_leases
        WHERE thread_id = $1 AND turn_id = $2
          AND lease_expires_at > to_timestamp($3 / 1000.0)`,
-      [threadId, turnId, databaseClockMs],
+      [threadId, turnId, Date.now()],
     );
     expect(owner.rows).toHaveLength(1);
     expect(
@@ -528,7 +530,6 @@ describe("deterministic agent run simulation", () => {
             fc.commands(commandArbitraries, { maxCommands: 5 }),
             async (commands) => {
               vi.setSystemTime(START_MS);
-              databaseClockMs = START_MS;
               const prefix = `sim-property-${sample}`;
               sample += 1;
               const trace = new TraceRecorder(START_MS, (record) => {
@@ -632,12 +633,47 @@ describe("deterministic agent run simulation", () => {
           });
 
           await vi.advanceTimersByTimeAsync(1);
-          databaseClockMs += 1;
+          const pruneCutoffMs = Date.now();
+          await pglite.db.query(
+            `UPDATE agent_execution_steps
+             SET updated_at = to_timestamp($1 / 1000.0)
+             WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+            [pruneCutoffMs - 1, threadId, turnId, stepId],
+          );
+          const eligibleStep = await pglite.db.query(
+            `SELECT updated_at < to_timestamp($1 / 1000.0) AS eligible
+             FROM agent_execution_steps
+             WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+            [pruneCutoffMs, threadId, turnId, stepId],
+          );
+          expect(
+            isRecord(eligibleStep.rows[0])
+              ? eligibleStep.rows[0].eligible
+              : undefined,
+          ).toBe(true);
           await cleanupOldRuns(0, 0);
-          trace.add("retention prune completed");
+          const prunedRun = await pglite.db.query(
+            "SELECT id FROM agent_runs WHERE id = $1",
+            [firstRunId],
+          );
+          const retainedStep = await pglite.db.query(
+            `SELECT status FROM agent_execution_steps
+             WHERE thread_id = $1 AND turn_id = $2 AND step_id = $3`,
+            [threadId, turnId, stepId],
+          );
+          const retainedLease = await pglite.db.query(
+            `SELECT owner_run_id FROM agent_execution_leases
+             WHERE thread_id = $1 AND turn_id = $2`,
+            [threadId, turnId],
+          );
+          expect(prunedRun.rows).toHaveLength(0);
+          expect(retainedStep.rows).toHaveLength(1);
+          expect(retainedLease.rows).toHaveLength(1);
+          trace.add(
+            "retention prune removed run; retained journal and live lease",
+          );
 
           await vi.advanceTimersByTimeAsync(15_001);
-          databaseClockMs += 15_001;
           trace.add("lease expired; recovery may claim the turn");
           await insertRun(secondRunId, threadId, turnId);
           const secondFence = await claimTurnExecutionLease(
@@ -668,7 +704,7 @@ describe("deterministic agent run simulation", () => {
             t=0ms journal dispatched step=sim-f2-step
             t=0ms tool sideEffect step=sim-f2-step count=1
             t=0ms process stopped run=sim-f2-run-1
-            t=1ms retention prune completed
+            t=1ms retention prune removed run; retained journal and live lease
             t=15002ms lease expired; recovery may claim the turn
             t=15002ms lease acquired run=sim-f2-run-2 holder=B gen=2
             t=15002ms journal admission status=unknown"
@@ -680,6 +716,154 @@ describe("deterministic agent run simulation", () => {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`${message}\nSimulation trace:\n${finalTrace || trace}`);
     }
+  });
+
+  it("F2 prunes an aged prepared intent with no dispatch history", async () => {
+    const trace = new TraceRecorder(START_MS);
+    const threadId = "sim-f2-prepared-thread";
+    const turnId = "sim-f2-prepared-turn";
+    const runId = "sim-f2-prepared-run";
+    const stepId = "sim-f2-prepared-step";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    trace.add(`lease acquired run=${runId} gen=1`);
+    const intent = {
+      ...fence,
+      stepId,
+      operationId: stepId,
+      toolName: "write",
+      inputJson: JSON.stringify({ argumentsHash: "no-effect" }),
+      replayPolicy: "never" as const,
+    };
+    await withExecutionFence(fence, async () => {
+      const admission = await beginAgentExecutionStep(intent);
+      expect(admission.status).toBe("execute");
+      trace.add(`journal prepared step=${stepId}`);
+      await updateRunStatusIfRunning(runId, "aborted", {
+        terminalReason: "stopped-before-dispatch",
+      });
+    });
+    trace.add("process stopped before dispatch; no effect can exist");
+
+    await vi.advanceTimersByTimeAsync(15_001);
+    const pruneCutoffMs = Date.now();
+    await pglite.db.query(
+      `UPDATE agent_execution_steps
+       SET updated_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+      [pruneCutoffMs - 1, threadId, turnId, stepId],
+    );
+    await cleanupOldRuns(0, 0);
+
+    const remainingRows = await pglite.db.query(
+      `SELECT 'run' AS kind FROM agent_runs WHERE id = $1
+       UNION ALL
+       SELECT 'step' AS kind FROM agent_execution_steps
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4
+       UNION ALL
+       SELECT 'lease' AS kind FROM agent_execution_leases
+       WHERE thread_id = $2 AND turn_id = $3`,
+      [runId, threadId, turnId, stepId],
+    );
+    expect(remainingRows.rows).toHaveLength(0);
+    trace.add("retention prune removed run, undispatched journal, and lease");
+    expect(trace.toString()).toMatchInlineSnapshot(`
+      "t=0ms lease acquired run=sim-f2-prepared-run gen=1
+      t=0ms journal prepared step=sim-f2-prepared-step
+      t=0ms process stopped before dispatch; no effect can exist
+      t=15001ms retention prune removed run, undispatched journal, and lease"
+    `);
+  });
+
+  it("F2 prunes an unknown step after its recovery window expires", async () => {
+    const trace = new TraceRecorder(START_MS);
+    const threadId = "sim-f2-unknown-thread";
+    const turnId = "sim-f2-unknown-turn";
+    const runId = "sim-f2-unknown-run";
+    const stepId = "sim-f2-unknown-step";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    trace.add(`lease acquired run=${runId} gen=1`);
+    const intent = {
+      ...fence,
+      stepId,
+      operationId: stepId,
+      toolName: "write",
+      inputJson: JSON.stringify({ argumentsHash: "unknown-result" }),
+      replayPolicy: "never" as const,
+    };
+    await withExecutionFence(fence, async () => {
+      const admission = await beginAgentExecutionStep(intent);
+      expect(admission.status).toBe("execute");
+      await markAgentExecutionStepDispatched(intent);
+      await markAgentExecutionStepUnknown(intent);
+      trace.add(`journal result lost; step=${stepId} status=unknown`);
+      await updateRunStatusIfRunning(runId, "aborted", {
+        terminalReason: "simulated-result-loss",
+      });
+    });
+    trace.add("run ended with no live worker");
+
+    await pglite.db.query(
+      "UPDATE agent_runs SET completed_at = $1 WHERE id = $2",
+      [START_MS - 30_000, runId],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_steps SET updated_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+      [START_MS + 10_000, threadId, turnId, stepId],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_leases SET updated_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3`,
+      [START_MS - 30_000, threadId, turnId],
+    );
+
+    await vi.advanceTimersByTimeAsync(15_001);
+    await cleanupOldRuns(30_000, 30_000);
+    const beforeWindowExpiry = await pglite.db.query(
+      `SELECT s.status, l.lease_expires_at <= to_timestamp($1 / 1000.0) AS expired
+       FROM agent_execution_steps s
+       JOIN agent_execution_leases l USING (thread_id, turn_id)
+       WHERE s.thread_id = $2 AND s.turn_id = $3 AND s.step_id = $4`,
+      [Date.now(), threadId, turnId, stepId],
+    );
+    expect(
+      isRecord(beforeWindowExpiry.rows[0])
+        ? beforeWindowExpiry.rows[0]
+        : undefined,
+    ).toEqual({
+      status: "unknown",
+      expired: true,
+    });
+    const remainingRun = await pglite.db.query(
+      "SELECT id FROM agent_runs WHERE id = $1",
+      [runId],
+    );
+    expect(remainingRun.rows).toHaveLength(0);
+    trace.add(
+      "lease expired; recovery window still retains unknown step and lease",
+    );
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    await cleanupOldRuns(30_000, 30_000);
+    const expiredArtifacts = await pglite.db.query(
+      `SELECT 'step' AS kind FROM agent_execution_steps
+       WHERE thread_id = $1 AND turn_id = $2
+       UNION ALL
+       SELECT 'lease' AS kind FROM agent_execution_leases
+       WHERE thread_id = $1 AND turn_id = $2`,
+      [threadId, turnId],
+    );
+    expect(expiredArtifacts.rows).toHaveLength(0);
+    trace.add("recovery window expired; unknown step and lease were pruned");
+    expect(trace.toString()).toMatchInlineSnapshot(`
+      "t=0ms lease acquired run=sim-f2-unknown-run gen=1
+      t=0ms journal result lost; step=sim-f2-unknown-step status=unknown
+      t=0ms run ended with no live worker
+      t=15001ms lease expired; recovery window still retains unknown step and lease
+      t=45002ms recovery window expired; unknown step and lease were pruned"
+    `);
   });
 
   it("F3 remembers dispatch across retry-safe adoption and a policy flip", async () => {
@@ -973,7 +1157,6 @@ describe("deterministic agent run simulation", () => {
     injectedFaults.afterDispatch = undefined;
 
     await vi.advanceTimersByTimeAsync(15_001);
-    databaseClockMs += 15_001;
     trace.add("process restart after lease expiry");
     const secondFence = await createAttempt({
       threadId,
@@ -1011,48 +1194,70 @@ describe("deterministic agent run simulation", () => {
     `);
   });
 
-  // oracle finding: integration retries receive distinct logical turns and repeat the simulated effect.
-  // oracle-change: Integration task retries need a product contract for logical-turn identity.
-  it.fails("F5 reports the current fresh-turn behavior for task retries", async () => {
-    const trace = new TraceRecorder(START_MS);
-    const effects: string[] = [];
-    const first = await startManagedLoop({
-      runId: "sim-f5-run-1",
-      threadId: "sim-f5-thread",
-      trace,
-      action: () => {
-        effects.push("sim:step-1");
-        trace.add(`task sideEffect attempt=1 count=${effects.length}`);
-        return "saved";
-      },
-    });
-    await first.finalized;
-    trace.add(`attempt=1 turn=${first.turnId}`);
-    const second = await startManagedLoop({
-      runId: "sim-f5-run-2",
-      threadId: "sim-f5-thread",
-      trace,
-      action: () => {
-        effects.push("sim:step-1");
-        trace.add(`task sideEffect attempt=2 count=${effects.length}`);
-        return "saved";
-      },
-    });
-    await second.finalized;
-    trace.add(`attempt=2 turn=${second.turnId}`);
+  describe("F5 task retry turn identity", () => {
+    let result:
+      | { effects: string[]; turnIds: string[]; trace: string }
+      | undefined;
 
-    expect(first.turnId).not.toBe(second.turnId);
-    expect(trace.toString()).toMatchInlineSnapshot(`
-      "t=0ms model request=1
-      t=0ms task sideEffect attempt=1 count=1
-      t=0ms model request=2
-      t=0ms attempt=1 turn=sim-f5-run-1
-      t=0ms model request=1
-      t=0ms task sideEffect attempt=2 count=2
-      t=0ms model request=2
-      t=0ms attempt=2 turn=sim-f5-run-2"
-    `);
-    expect(effects).toHaveLength(1);
+    beforeAll(async () => {
+      vi.useFakeTimers({ now: START_MS });
+      networkCalls = 0;
+      blockSimulationNetwork();
+      const trace = new TraceRecorder(START_MS);
+      const effects: string[] = [];
+      const first = await startManagedLoop({
+        runId: "sim-f5-run-1",
+        threadId: "sim-f5-thread",
+        trace,
+        action: () => {
+          effects.push("sim:step-1");
+          trace.add(`task sideEffect attempt=1 count=${effects.length}`);
+          return "saved";
+        },
+      });
+      await first.finalized;
+      trace.add(`attempt=1 turn=${first.turnId}`);
+      const second = await startManagedLoop({
+        runId: "sim-f5-run-2",
+        threadId: "sim-f5-thread",
+        trace,
+        action: () => {
+          effects.push("sim:step-1");
+          trace.add(`task sideEffect attempt=2 count=${effects.length}`);
+          return "saved";
+        },
+      });
+      await second.finalized;
+      trace.add(`attempt=2 turn=${second.turnId}`);
+      result = {
+        effects,
+        turnIds: [first.turnId, second.turnId],
+        trace: trace.toString(),
+      };
+    }, 30_000);
+
+    it("records current task retry behavior", () => {
+      const scenario = result;
+      if (!scenario) throw new Error("F5 scenario did not run");
+      expect(scenario.turnIds[0]).not.toBe(scenario.turnIds[1]);
+      expect(scenario.trace).toMatchInlineSnapshot(`
+        "t=0ms model request=1
+        t=0ms task sideEffect attempt=1 count=1
+        t=0ms model request=2
+        t=0ms attempt=1 turn=sim-f5-run-1
+        t=0ms model request=1
+        t=0ms task sideEffect attempt=2 count=2
+        t=0ms model request=2
+        t=0ms attempt=2 turn=sim-f5-run-2"
+      `);
+    });
+
+    // oracle finding: integration retries receive distinct logical turns and repeat the simulated effect.
+    // oracle-change: Integration task retries need a product contract for logical-turn identity.
+    it.fails("task retries should share one logical turn", () => {
+      if (!result) return;
+      expect(result.effects).toHaveLength(1);
+    });
   });
 
   it("F6 persists tool_start before a write action begins", async () => {

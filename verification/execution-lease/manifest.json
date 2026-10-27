@@ -55,6 +55,11 @@
       "config": "mutations/g-reset-without-successor-fence.cfg",
       "invariant": "P1",
       "breaks": "reset fallback writing to a successor without checking its current lease"
+    },
+    {
+      "config": "mutations/h-prune-incomplete-step.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning a dispatched step while its old handler can still complete"
     }
   ],
   "findings": [],

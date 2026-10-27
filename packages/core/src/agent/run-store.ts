@@ -5594,8 +5594,8 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Same-turn recovery can outlive the run row. Preserve live leases and
-    // steps that have not reached a terminal outcome.
+    // Same-turn recovery can outlive the run row, but unresolved steps only
+    // extend retention through their updated_at recovery window.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
@@ -5615,8 +5615,10 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 WHERE active.thread_id = s.thread_id
                   AND active.turn_id = s.turn_id
                   AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_execution_leases AS l
@@ -5632,8 +5634,10 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 WHERE active.thread_id = l.thread_id
                   AND active.turn_id = l.turn_id
                   AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i

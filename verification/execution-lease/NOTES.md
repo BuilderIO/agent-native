@@ -36,11 +36,16 @@ Helper invariants, checked in the same runs:
 - A read-only cache hit may complete a dispatched step without entering the
   handler because it has no external effect.
 - `PruneWhileTurnActive = FALSE` in the main checks. The F2 regression check
-  sets it to TRUE so pruning can race recovery; `PruneStep` and `PruneLease`
-  preserve a live lease or any step that has not completed.
+  sets it to TRUE so pruning can race recovery. `PruneStep` preserves a live
+  lease and recent unresolved receipts; once the recovery window has passed,
+  it can remove an unresolved step after no external effect remains pending.
+  An aged `prepared` row with no dispatch history can also be removed because
+  invocation only follows the committed dispatch marker.
 - This is a one-step turn model: after that step is completed, the modeled turn
-  is over. A later re-submission using the same turn id after all run and step
-  rows have aged out is outside the active-turn retention guarantee.
+  is over when no worker or effect remains in flight. The F2 check permits a
+  same-turn continuation after an incorrect prune while the prior effect is
+  still in flight. A later re-submission after all workers and effects
+  stop and all rows age out is outside the active-turn retention guarantee.
 - Transactions are the Postgres ones the code opens, with `FOR UPDATE` and the
   turn advisory lock. Driver differences are not modelled.
 - At the coverage sync revision, terminal projection retry-order bookkeeping
@@ -101,18 +106,19 @@ do not weaken step fencing or move an effect ahead of durable dispatch.
 
 | Config                                                           | Result                          | Distinct states | Time   |
 | ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
-| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 45,848          | 1.6 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,403,308       | 43.8 s |
-| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 45,848          | 2.6 s  |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 71,556          | 2.7 s  |
-| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 152             | 1.0 s  |
-| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 22,656          | 1.6 s  |
-| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,199           | 1.0 s  |
-| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 0.8 s  |
-| `mutations/e` fence check commits before the write               | P1 violated                     | 154             | 0.9 s  |
-| `mutations/g` reset fallback without successor fence             | P1 violated                     | 322             | 0.9 s  |
-| `checks/F2` prune reaches a turn that still sees work            | pass                            | 68,440          | 2.3 s  |
-| `checks/F3` policy flip after a retry-safe dispatch              | pass                            | 2,403,308       | 58.1 s |
+| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 43,211          | 1.7 s  |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,274,034       | 39.8 s |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 43,211          | 1.4 s  |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 68,110          | 1.7 s  |
+| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 153             | 0.7 s  |
+| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 19,662          | 1.0 s  |
+| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,564           | 0.8 s  |
+| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 0.9 s  |
+| `mutations/e` fence check commits before the write               | P1 violated                     | 138             | 0.8 s  |
+| `mutations/g` reset fallback without successor fence             | P1 violated                     | 321             | 1.1 s  |
+| `mutations/h` prune a live dispatched step before a late effect  | P8 violated                     | 67,127          | 2.5 s  |
+| `checks/F2` prune reaches a turn that still sees work            | pass                            | 72,909          | 2.3 s  |
+| `checks/F3` policy flip after a retry-safe dispatch              | pass                            | 2,274,034       | 36.8 s |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass
@@ -120,7 +126,9 @@ as regression checks with the fixed protocol.
 
 Mutation g removes the successor Current(q) condition from the reset
 fallback. The resulting stale journal write violates P1, confirming that the
-fallback's successor lease lock is required.
+fallback's successor lease lock is required. Mutation h removes both active
+retention guards; the F2 regression check must keep P8, while that mutation
+lets a recovery attempt repeat an effect and violates P8.
 
 Observations:
 
@@ -144,11 +152,16 @@ The heartbeat and finalization use the shared
 loss scenario verifies the abort reason against that constant.
 
 **F2, retention can erase a live turn's step journal — reproduced and fixed.**
-Seed `20261026` reproduces the duplicate effect when a dispatched step is
-pruned while its lease is live. The prune now keeps execution steps for turns
-with a live lease or any non-completed step; lease cleanup also requires an
-expired lease and no non-completed step. After the lease expires, recovery
-reads the preserved `dispatched` record and refuses the `never` replay.
+Seed `20261026` prunes the terminal run while its lease is still live. The test
+proves the dispatched step is eligible by age, yet the prune removes neither
+its journal nor lease; after lease expiry, recovery reads the preserved
+`dispatched` record and refuses the `never` replay. Unresolved steps also pin
+their lease only through the longest configured recovery window. The F2
+unknown-step scenario observes that window, then advances past it and confirms
+both journal and lease rows are pruned. Mutation h removes the live and
+in-window guards; its late-continuation path finds two effects for the same
+`never` step. A separate scenario confirms aged `prepared` rows with no
+dispatch history are removed with their expired lease.
 
 **F3, retry-safe adoption forgets dispatch — reproduced and fixed.** Seed
 `20261027` dispatches a retry-safe step, adopts and redispatches it in a second
@@ -175,8 +188,10 @@ which the execution-lease model does not cover.
 - **F5, product contract unresolved: an integration task retry defaults to a
   new turn.** The targeted run-manager scenario reproduces this: two attempts
   with no explicit `turnId` receive their `runId` as the turn id, so their step
-  journals do not deduplicate. Whether task retries should share a logical turn
-  needs a product contract; the snapshot remains an expected failure.
+  journals do not deduplicate. Its trace snapshot runs as a normal test; a
+  separate assertion-only expected failure checks whether retry effects should
+  deduplicate. Whether task retries should share a logical turn needs a product
+  contract.
 - **F6, not reproduced on current code.** `run-manager.ts` `send` returns the
   publication promise from `emitRunEvent`, which settles after the SQL event
   write; `runAgentLoop` awaits `send(tool_start)` before invoking a write
