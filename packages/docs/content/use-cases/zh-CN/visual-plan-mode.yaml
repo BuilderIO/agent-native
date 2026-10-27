@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: 在编码 agent 写代码前审阅它的计划
 seo_title: Claude Code、Codex 和 Cursor 的可视化计划模式
 meta_description: Agent-Native Plan 把编码 agent 的计划变成一个可审阅的页面，包含图表、文件树和带注释的代码，让你在它写任何代码之前先过目。

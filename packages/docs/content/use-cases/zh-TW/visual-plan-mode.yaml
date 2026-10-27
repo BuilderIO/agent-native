@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: 在程式開發 agent 寫程式前，先審查計畫
 seo_title: Claude Code、Codex 和 Cursor 的視覺化計畫模式
 meta_description: Agent-Native Plan 把程式開發 agent 的計畫變成一個可以審查的頁面，附上圖表、檔案樹和加註解的程式碼，讓你在它寫任何程式之前先看過。

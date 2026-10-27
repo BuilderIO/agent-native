@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: "कोड लिखने से पहले अपने कोडिंग एजेंट का प्लान रिव्यू करें"
 seo_title: "Claude Code, Codex और Cursor में विज़ुअल प्लान मोड"
 meta_description: "Agent-Native Plan आपके कोडिंग एजेंट के प्लान को डायग्राम, फ़ाइल ट्री और एनोटेटेड कोड वाले पेज में बदलता है, ताकि कोड लिखने से पहले आप उसे रिव्यू कर सकें।"

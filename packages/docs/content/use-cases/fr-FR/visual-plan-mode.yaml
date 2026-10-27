@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: Relisez le plan de votre agent de code avant qu'il ne code
 seo_title: Mode plan visuel pour Claude Code, Codex et Cursor
 meta_description: Agent-Native Plan transforme le plan de votre agent de code en une page à relire, avec diagrammes, arborescences et code annoté, avant toute ligne de code.

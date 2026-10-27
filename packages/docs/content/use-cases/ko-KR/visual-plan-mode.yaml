@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: 코드를 쓰기 전에 코딩 에이전트의 계획을 검토하세요
 seo_title: Claude Code, Codex, Cursor용 시각적 플랜 모드
 meta_description: "Agent-Native Plan은 코딩 에이전트의 계획을 다이어그램, 파일 트리, 주석 달린 코드가 담긴 페이지로 만들어, 코드를 쓰기 전에 검토할 수 있게 해 줘요."

@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: "راجع خطة وكيل البرمجة قبل أن يكتب الكود"
 seo_title: "وضع التخطيط المرئي لـ Claude Code وCodex وCursor"
 meta_description: "يحوّل Agent-Native Plan خطة وكيل البرمجة إلى صفحة تراجعها، فيها مخططات وشجرة ملفات وكود مشروح، قبل أن يكتب الوكيل أي سطر من الكود."

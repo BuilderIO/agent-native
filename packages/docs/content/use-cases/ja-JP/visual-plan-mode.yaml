@@ -1,6 +1,8 @@
 template: v2
 slug: visual-plan-mode
 app: plans
+roles:
+  - engineering
 title: コード作成前にコーディングエージェントの計画を確認
 seo_title: Claude Code・Codex・Cursor向けビジュアルプランモード
 meta_description: Agent-Native Planは、コーディングエージェントの計画を、図やファイルツリー、注釈付きコードで確認できるページにします。確認はコードが書かれる前に行えます。
