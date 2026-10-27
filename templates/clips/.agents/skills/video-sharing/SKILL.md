@@ -54,6 +54,7 @@ Read this skill before:
 - **`recording_viewers`** + **`recording_events`** — view counting.
 - **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
 - **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
+- **`recording_content_bindings`** — the Agent-Native Content documents a Clip is placed in. See "Clips in Content documents" below.
 
 ## Dropping in the share UI
 
@@ -131,6 +132,17 @@ async function canAccess(
 ```
 
 Framework first, Clips additions second. Don't invert this — the framework owns the "is this row visible at all" question.
+
+## Clips in Content documents
+
+A Clip placed in a Content document has one `recording_content_bindings` row per (recording, Content app, document). `origin` is `upload` (made in the document) or `link` (pasted); `state` is `active` or `trashed`. A duplicated document adds its own row.
+
+- Only an active `upload` binding grants access: a Content reader with no access of their own becomes a viewer of that one recording (`server/lib/content-doc-grant.ts`, a host access resolver registered with `includeSignedOut: true` so it is asked about signed-out readers of a public document too). A reader's own Clips sharing, in their active workspace, still applies and is never lowered. A `link` binding, or none, leaves the Clip's own sharing in charge. When every binding is trashed, document readers lose access; the owner never does.
+- The Clip's own rules still apply on top: Trash, takedown and expiry refuse document readers, a password-protected Clip does not play through a document, and with comments off document readers see no comments and cannot write.
+- Content calls `/api/content-clips/:recordingId/playback` and `/comments` (GET to list, POST to add, reply, edit, delete, resolve or react) server to server with a one-minute A2A token. `shared/content-clip-contract.ts` is the contract: audience `<Clips URL>/content-clips`, one scope, and `document_id` + `recording_id` claims. A signed-out reader of a public document gets the `content-clip:public-read` scope: playback and the comment list, never a write.
+- The token is signed with `CONTENT_CLIPS_PEER_SECRET` (`clips.contentPeerSecret`, read with `resolveContentClipsPeerSecret`), a secret only the Content and Clips deployments hold, and Clips verifies it with that secret alone. That is what makes the token's issuer trustworthy as the Content app: a token signed with the deployment `A2A_SECRET` or a workspace secret is refused, because other apps hold those. While the secret is unset, shorter than 32 characters, or equal to `A2A_SECRET`, every route answers 503 with code `content_clips_not_configured`; set it on both deployments.
+- Playback returns Clips media URLs with a five-minute `content_grant` that names the reader, not a role. The grant is signed with a key derived from `CONTENT_CLIPS_PEER_SECRET`, never the app's own server secret (which a workspace derives from `A2A_SECRET`), and a media request carrying a grant while the secret is unusable gets the same 503. `/api/video` and `/api/thumbnail` re-run every gate on each request, so trashing the binding stops a URL already handed out. An expired grant is a 403 with code `content_grant_expired`; Content's player then asks Content for playback again, which re-checks document access.
+- Create and change binding rows only through Content's upload and lifecycle flows.
 
 ## Embed URLs
 

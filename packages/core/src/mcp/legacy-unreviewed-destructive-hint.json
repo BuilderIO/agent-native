@@ -15,7 +15,6 @@
     "create-vault-secret",
     "create-workspace-resource",
     "create-workspace-resource-grant",
-    "create_embed_session",
     "creative-context-a2a",
     "delete-destination",
     "delete-staged-dataset",

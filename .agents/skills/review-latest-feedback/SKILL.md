@@ -43,36 +43,82 @@ might need to take back. Every 👀 you add ends the run with a reply, plus
 either ✅ or 🎫, or a fix PR that is still open and lists the report (its
 merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
 
-Every claimed report gets **one** reply in its thread per outcome:
+Every claimed report gets **one** reply in its thread per outcome. People
+have pushed back on replies that were long, technical, condescending, vague
+about who does what next, or that handed them work. Each reply must be:
 
-- One sentence, plain words, warm but not gushing, written for a
-  non-engineer.
-- Say what happened and, for 🎫, what's needed and from whom (a plain name,
-  never an @-mention).
-- For a fix, link the PR as a Slack link on the word "fix" (`<url|fix>`), so
-  anyone curious can click through. Beyond that link: no PR numbers, commits,
-  branches, file or function names, CI, "verified locally", "scope", or any
-  mention of this workflow.
+- **An answer first:** if they asked something ("is this expected?"),
+  answer it in the first words ("no, that's a bug"), not with a status.
+- **Short:** one sentence, about 25 words at most, for someone who doesn't
+  read code.
+- **About what they'll notice:** say what changes for them ("recordings no
+  longer get stuck on Saving"), not how it works ("cleanup now waits for the
+  transcript"). Leave out file, function, and service names, PR numbers,
+  ticket IDs, CI, logs, runs, "repro", "verified", "scope", "sweep", status
+  labels ("In progress:", "Skipped:", "Resolved elsewhere:", "Blocked on
+  human owner:", "Open - no question:"), and any mention of this workflow.
+  Never report your own progress ("unreproduced", "not traced yet",
+  "remains open"); say what happens next instead.
+- **Clear on who does what next:** "I'll ..." or a named person ("Sid will
+  decide ..."). Never "the team", "product", "the framework team", "the
+  owner", or "someone". If no one else clearly owns it, say Steve will take
+  a look (or decide). Replies post from Steve's account, so never "I've passed
+  it to Steve". Never @-mention anyone.
+- **Not a to-do list for them:** look things up yourself first (the
+  message's time and author, their account and recent activity, logs, the
+  linked page or screenshot). Ask only when nothing else can unblock it, and
+  then ask one small thing, in this one reply. Never send a list of
+  questions, never ask them to test, retry, re-record, pull, reinstall, or
+  gather logs, and never come back later asking for something you could have
+  asked the first time. If it needs access you don't have (credentials, admin
+  rights, account changes), say Steve will handle it; never hand it to the
+  reporter.
+- **Plain, not preachy:** don't explain how the product works unless they
+  asked, don't tell them what they should do, and skip apologies, hedging,
+  "actually", "just", "simply", and "Great catch!!".
+- **True:** "fixed" only for a merged fix, and "on beta shortly" only after
+  the merge. Before that, the fix is "in review". Never "fixed and verified"
+  on the strength of a local check.
+- **Once:** never post the same reply twice, and never follow up with one
+  that adds nothing new.
+- Link the PR on the word "fix" (`<url|fix>`), never by number.
 - End with the bold line `**This was sent from a bot**` on its own line,
   once.
 
+Don't reply at all to jokes, venting, banter, a message meant for Steve
+himself, or a thread a person is already handling. Once a person says they
+have it, or asks the bot to stop, post nothing more in that thread. Before posting, reread the reply as the reporter: would they get it
+in five seconds, know who does what next, and feel we did the legwork?
+
 Good (each is the first line; the footer goes on the line below it):
 
-- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
-- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly.`
-- `thanks - moving that button is a product call, so I've left it for Sid to decide.`
-- `thanks - I couldn't reproduce this; could you share the link to the deck where it happened?`
+- `thanks - the <https://github.com/BuilderIO/agent-native/pull/1234|fix> so the export keeps your column order is merged and will be on beta shortly.`
+- `thanks - once this <https://github.com/BuilderIO/agent-native/pull/1234|fix> merges, the export will keep your column order; it's in review now.`
+- `thanks - Steve will decide where that button should go.`
+- `thanks - I couldn't find which deck this was; could you paste its link?`
 
 So a full reply looks like:
 
 ```text
-thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
+thanks - the <https://github.com/BuilderIO/agent-native/pull/1234|fix> so the export keeps your column order is merged and will be on beta shortly.
 **This was sent from a bot**
 ```
 
-Bad: anything that spells out a PR number or SHA, lists "verified scopes", explains
-reactions, says "Great catch!!", repeats the bug back, or posts a second reply
-that adds nothing new.
+Real replies that missed, and what to send instead:
+
+| Sent | Instead |
+| --- | --- |
+| "Could you send the recording link, approximate time, and browser so we can trace whether the clip produced media before it tried to save?" | Find the recording from the reporter and message time first. If you still can't: "thanks - I couldn't find which recording this was; could you paste its link?" |
+| "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge) | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now." |
+| "I've left moving it somewhere easier to find for product to decide." | "thanks - Steve will decide where the editor should live." |
+| "The framework team needs to decide whether multi-step work should be gathered into one request or handled through the agent's usual back-and-forth." | "thanks - Steve will decide how this should work." |
+| "Partially fixed - PR #7512 merged the project-instructions/context carryover fix", after she'd asked whether FullStory could be added for the whole org | Answer that question first: "yes - I'll add it for everyone" or "not yet - Steve will decide". |
+| "All fixed and verified. Please try again!" plus instructions to pull main and reinstall | "thanks - this <url\|fix> is merged and will be on beta shortly." No homework. |
+| "One-click clip duplication is a feature request; no change was made in this sweep." | "thanks - Steve will decide whether to build this." |
+| "I have not reproduced it or separated model/project time from framework workflow time." | "thanks - I'll look into why that run took so long." Or, if you can't: "Steve will take a look." |
+| More replies after Shawn wrote "bot please stop! I've got this all fixed and in flight" | Nothing. A person has it. |
+| "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix." | Nothing: the thread was a joke. |
+| Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone. | One reply, one question, only for what you can't look up. The message's own timestamp already says when. |
 
 ## Boundaries
 
@@ -130,8 +176,15 @@ the invocation gives), plus 14 days for open items.
   phrase may be on its own line or, in older replies, at the end of the
   sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
-  has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
-  with a human reply newer than our last reply, comes first in this run. A
+  has it: leave it alone. A root listed in the `Reports` section of a sweep
+  PR that is still open and that this run didn't open belongs to the run
+  working on that PR: don't react
+  or reply there, and leave it out of your self-check; just list it under
+  "Still open from earlier runs". If that PR has had no push in 24 hours,
+  its run has stopped: its reports are yours again. Of the remaining
+  workflow roots, any
+  without ✅ or 🎫, or with a human reply newer than our last reply, comes
+  first in this run. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
@@ -236,11 +289,14 @@ next sweep. Otherwise:
 - **Merged fix:** add ✅ and reply that it's fixed, with the PR linked, and
   will be on beta shortly.
 - **Fix ready but not merged yet** (for example CI is still running when the
-  run must end): reply that a fix (PR linked) is ready and will be on beta
-  soon. The next run adds ✅ once it's merged, with no second reply.
-- **Needs a person:** add 🎫 and reply with what's needed and from whom.
-- **Couldn't reproduce:** add 🎫 and ask one specific question that would
-  unblock it. Don't ask for anything already in the thread.
+  run must end): reply that a fix (PR linked) is in review. Don't mention
+  beta yet. The next run adds ✅ once it's merged, with no second reply.
+- **Needs a person:** add 🎫 and say in plain words what's needed and who has
+  it now, by name ("Steve will take a look" if no one else clearly owns it).
+- **Couldn't reproduce:** add 🎫. If one small answer from the reporter would
+  unblock it and you couldn't find it yourself, ask for just that. Otherwise
+  say you couldn't reproduce it and that Steve will take a look. Never ask
+  for anything already in the thread.
 
 GitHub issues fixed by the merged PR get a one-line thank-you comment linking
 the PR, and then get closed.

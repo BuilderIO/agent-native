@@ -31,6 +31,10 @@ export default createToolkitAuthPlugin({
     // Chunk POSTs from an outside agent carry no session cookie; the route
     // refuses anything without a ticket for its own recording.
     "/api/uploads/:recordingId/agent-chunk",
+    // Content calls these server to server; each refuses anything without a
+    // Content token naming that recording.
+    "/api/content-clips/:recordingId/playback",
+    "/api/content-clips/:recordingId/comments",
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",

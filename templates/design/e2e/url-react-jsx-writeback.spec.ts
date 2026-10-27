@@ -12,7 +12,7 @@ import { type APIRequestContext } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath } from "./helpers";
+import { appPath, grantLocalhostWriteConsent } from "./helpers";
 import { expect, test } from "./rails";
 
 const baseURL = e2eBaseURL();
@@ -194,7 +194,7 @@ test.describe("URL-backed React JSX writeback", () => {
     expect(fs.readFileSync(filePath, "utf8")).toBe(cardSource("red"));
     await expect(card()).toHaveCSS("color", "rgb(255, 0, 0)");
 
-    await postAction(request, "grant-localhost-write-consent", {
+    await grantLocalhostWriteConsent(page, {
       designId,
       connectionId,
     });

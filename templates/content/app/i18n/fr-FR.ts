@@ -351,6 +351,8 @@ const database = {
   failedToCreateRow: "Échec de la création de la ligne",
   pageCreatedCollectionRefreshFailed:
     "La page a été créée, mais cette collection n'a pas pu être actualisée. Rechargez pour la voir.",
+  builderPushResultNotLoaded:
+    "La mise à jour est arrivée dans Builder, mais cette révision n'a pas pu charger le résultat. Rechargez pour le voir.",
   failedToDeleteRow: "Échec de la suppression de la ligne",
   failedToDeleteSelectedRows:
     "Échec de la suppression des lignes sélectionnées",

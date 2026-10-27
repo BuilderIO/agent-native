@@ -9,6 +9,7 @@ import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { deleteAppActivityBlob } from "../server/lib/app-activity.js";
 import { countPendingRedactions } from "../server/lib/pending-redactions.js";
 import {
@@ -314,6 +315,34 @@ export default defineAction({
       return { deleted: locked, protectedUrls };
     });
 
+    // After the rows: a fill locks the recording before it records a frame, so
+    // once the recording is gone no frame can be added behind this. A frame
+    // whose object stays keeps its row, and the result says so, as for the
+    // app activity blob below.
+    let framesLeft = 0;
+    let agentFrameCleanup:
+      | { deleted: true }
+      | { deleted: false; error: string };
+    try {
+      framesLeft = await deleteStoredAgentFrames(deleted);
+      agentFrameCleanup =
+        framesLeft === 0
+          ? { deleted: true }
+          : {
+              deleted: false,
+              error: `${framesLeft} stored agent frame(s) could not be deleted from storage.`,
+            };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      agentFrameCleanup = { deleted: false, error };
+    }
+    if (!agentFrameCleanup.deleted) {
+      console.error(
+        `[delete-recording-permanent] deleted ${args.id}, but its stored agent frames could not all be removed from storage.`,
+        agentFrameCleanup.error,
+      );
+    }
+
     // Media goes only once its rows are gone, so a failed delete above leaves
     // the Clip whole. A file that fails here stays in storage and nothing
     // sweeps it later. A finished upload's bytes then stay counted, because
@@ -328,7 +357,9 @@ export default defineAction({
           (url) => !cleanupProtectedUrls.has(url),
         ).length -
         mediaCleanup.deleted -
-        mediaCleanup.external
+        mediaCleanup.external +
+        // A cleanup that threw has no count: assume a frame is still stored.
+        (agentFrameCleanup.deleted ? 0 : Math.max(framesLeft, 1))
       : 0;
     if (hostedFilesLeft > 0) {
       console.error(
@@ -383,6 +414,12 @@ export default defineAction({
     console.log(
       `Permanently deleted recording "${existing.title}" (${args.id})`,
     );
-    return { success: true, id: args.id, mediaCleanup, appActivityCleanup };
+    return {
+      success: true,
+      id: args.id,
+      mediaCleanup,
+      appActivityCleanup,
+      agentFrameCleanup,
+    };
   },
 });

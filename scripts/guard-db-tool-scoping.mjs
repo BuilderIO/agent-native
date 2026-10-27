@@ -84,6 +84,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_comments": "child rows scoped through recordings",
   "clips:recording_context_items":
     "child rows scoped through recordings; every action checks access on the parent recording",
+  "clips:recording_content_bindings":
+    "access-granting child rows scoped through recordings; only Content's upload and lifecycle flows write them",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":
@@ -91,6 +93,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_reactions": "child rows scoped through recordings",
   "clips:recording_agent_views":
     "agent telemetry is scoped through authorized parent recordings",
+  "clips:recording_agent_frames":
+    "stored agent frames are scoped through authorized parent recordings",
   "clips:recording_tags": "child rows scoped through recordings",
   "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
