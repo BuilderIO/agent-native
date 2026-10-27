@@ -79,7 +79,9 @@ git log --oneline <ship_merge_head_oid>..HEAD
   `gh pr view <number> --json headRefOid --jq .headRefOid` must print
   `ship_merge_head_oid`. This works even when the source branch was deleted
   or lives on a fork. If the command fails, keep the branch.
-- `git cat-file -e "<ship_merge_head_oid>^{commit}"` must succeed first. If
+- `git cat-file -e "<ship_merge_head_oid>^{commit}"` and
+  `git merge-base --is-ancestor <ship_merge_head_oid> HEAD` must both succeed
+  first, which proves this checkout holds the merged head. If
   the saved OID is missing or invalid, an empty `git log` proves nothing, so
   keep the branch.
 - If any of these commands fails, or anything is dirty or unpushed, keep the
