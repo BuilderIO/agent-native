@@ -1,6 +1,8 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
+roles:
+  - everyone
 title: Get meeting notes without a bot in the call
 seo_title: AI meeting notes without a bot in your call
 meta_description: Get a transcript, a summary and action items from every call. Agent-Native Clips records on your own computer, so you can search or ask about any meeting later.
