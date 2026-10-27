@@ -2386,6 +2386,56 @@ describe("chunk-boundary recovery", () => {
       message: "Agent run was aborted.",
     });
   });
+
+  it("throws a typed failure for an unfinished zero-timeout run with chunk control", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const outcomes: AgentLoopOutcome[] = [];
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      opts.onModelDispatchStarted?.();
+      opts.send({ type: "auto_continue", reason: "stream_ended" });
+      return {
+        inputTokens: 2,
+        outputTokens: 3,
+        cacheReadTokens: 4,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          control.chunkSignal,
+          undefined,
+          "thread-controlled-zero-timeout",
+          outcomes,
+        ),
+        0,
+        undefined,
+        control,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      usage: {
+        inputTokens: 2,
+        outputTokens: 3,
+        cacheReadTokens: 4,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      },
+    });
+
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        retryable: false,
+        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      },
+    ]);
+  });
 });
 
 describe("clientAbortReason", () => {

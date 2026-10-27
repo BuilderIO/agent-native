@@ -466,12 +466,20 @@ export async function runAgentLoopDirectWithSoftTimeout(
         if (turnSignal.aborted) {
           reportFinalOutcome(turnAbortOutcome());
         } else if (unfinishedReason) {
+          const failure = incompleteAgentRunFailure({
+            dispatchedModelCalls,
+            hasVisibleText: turnHasVisibleText(localTurnEvents),
+            hasSuccessfulToolOutput: localTurnEvents.some(
+              (event) => event.type === "tool_done" && event.isError !== true,
+            ),
+          });
           reportFinalOutcome({
             state: "failed",
-            code: unfinishedReason,
+            code: failure.code,
             retryable: false,
-            message: `Agent stopped before finishing (${unfinishedReason}).`,
+            message: failure.message,
           });
+          throw new IncompleteAgentRunError(failure, usage);
         } else {
           reportFinalOutcome(attemptOutcome ?? { state: "completed" });
         }
