@@ -992,14 +992,14 @@ describe("executeMcpActionCall sanitizing", () => {
     };
 
     it("learns nothing from image bytes, but reads the rest of an image", () => {
-      // Base64 that contains the normalized route, which the loose route match
-      // reads as naming the route, so reading it would put the call in embed
-      // context.
+      // These opaque base64 bytes contain route-shaped text, but no URL or
+      // credential. Neither an ordinary note nor image bytes establish embed
+      // context; the label and URL below still do.
       const bytes = `${"QUJD".repeat(500_000)}/agentnative/embed/start`;
       const image = (fields: Record<string, unknown>) => ({
         _agentImages: [{ mediaType: "image/png", ...fields }],
       });
-      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(true);
+      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(false);
       expect(embedCredentialGuard(image({ data: bytes })).embedContext).toBe(
         false,
       );

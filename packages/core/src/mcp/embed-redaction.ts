@@ -9,7 +9,7 @@ import { decodeHTML } from "entities/decode";
  */
 
 /**
- * Replaces a string that mentions the embed start route, so a reader sees
+ * Replaces a string carrying an embed start reference, so a reader sees
  * that a value was hidden rather than finding its key missing.
  */
 export const HIDDEN_EMBED_URL = "[hidden embed URL]";
@@ -48,8 +48,12 @@ export function isEmbedStartUrl(value: string): boolean {
   }
 }
 
-/** The embed start route's last two segments, retaining their separator. */
-const EMBED_START_PATH = "embed/start";
+const REFERENCE_BASE = "http://agent-native.invalid/_agent-native/";
+const ORIGIN_BASE = "http://agent-native.invalid/";
+// h3 mounts this handler at a path-segment boundary, including child paths.
+const EMBED_START_PATH = /^\/_agent-native\/embed\/start(?:\/|$)/;
+// Link formatting can turn a short relative reference into this absolute path.
+const SHORT_EMBED_START_PATH = /^\/embed\/start(?:\/|$)/;
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -101,40 +105,84 @@ function decodeOnce(text: string): string {
 // backslash escape that no decoder above reads.
 const UNREAD_ESCAPE =
   /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
-const NOT_ROUTE_CHARACTER = /[^\p{L}\p{N}/]+/gu;
-const DOT_SEGMENT = /^(?:\.|%2e)$/i;
-const DOUBLE_DOT_SEGMENT = /^(?:\.|%2e){2}$/i;
 
-/** The path a browser resolves from each run of `text` up to a `?` or `#`. */
-function resolvedPaths(text: string): string {
-  return text
-    .split(/[?#]/)
-    .map((run) => {
-      const resolved: string[] = [];
-      for (const segment of run.replace(/\\/g, "/").split("/")) {
-        if (DOUBLE_DOT_SEGMENT.test(segment)) resolved.pop();
-        else if (!DOT_SEGMENT.test(segment)) resolved.push(segment);
-      }
-      return resolved.join("/");
-    })
-    .join("?");
+/**
+ * Whole references in prose, JSON or HTML, including nested query/fragment
+ * values. A separator starts another reference; it never joins two parts of
+ * a path or restarts midway through a filename. Keep each reference's query
+ * attached so a relative route can prove it actually carries a ticket.
+ */
+function* references(text: string): Iterable<string> {
+  for (const [token] of text.matchAll(/[^\s<>"'`()[\]{}]+/gu)) {
+    yield token;
+    for (const separator of token.matchAll(/[?&#=;,]/g)) {
+      yield token.slice(separator.index + 1);
+    }
+    // A schema diagnostic can put an absolute URL inside a JSON Pointer's
+    // path segment. Its scheme starts a reference; a bare path suffix does not.
+    for (const scheme of token.matchAll(/(?<![a-z0-9+.-])https?:/g)) {
+      if (scheme.index > 0) yield token.slice(scheme.index);
+    }
+  }
+}
+
+function isEmbedReference(reference: string): boolean {
+  // Only parse path/URL candidates, not the ordinary words between them.
+  if (!reference.includes("/") && !/^https?:/.test(reference)) return false;
+  const url = URL.parse(reference, REFERENCE_BASE);
+  if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
+    return false;
+  }
+  const relative = !reference.startsWith("/") && !/^https?:/.test(reference);
+  const ticket = url.searchParams
+    .getAll("ticket")
+    .some((value) => value.length > 0);
+  // Bare embed/start is also ordinary route discussion. Its short relative
+  // spelling is sensitive only when this reference has a nonempty ticket.
+  if (relative && !ticket) return false;
+  if (EMBED_START_PATH.test(url.pathname)) return true;
+  if (ticket && SHORT_EMBED_START_PATH.test(url.pathname)) return true;
+  if (relative) {
+    const fromOrigin = URL.parse(reference, ORIGIN_BASE);
+    if (fromOrigin && EMBED_START_PATH.test(fromOrigin.pathname)) return true;
+  }
+  // Preserve the conservative protection for a ticket-bearing raw start URL
+  // followed by /../, even though a browser resolves it away from the route.
+  // This check still respects authority, path, query and filename boundaries.
+  if (!ticket) return false;
+  const path = (reference.split(/[?#]/)[0] ?? "").replace(
+    /^(?:https?:)?\/\/[^/]*/,
+    "",
+  );
+  if (EMBED_START_PATH.test(path) || SHORT_EMBED_START_PATH.test(path))
+    return true;
+  const relativePath = path.replace(/^(?:\.\/)+/, "");
+  return (
+    relative &&
+    (EMBED_START_PATH.test(`/_agent-native/${relativePath}`) ||
+      EMBED_START_PATH.test(`/${relativePath}`))
+  );
 }
 
 /**
- * The letters, digits and path separators of `text`, as written and with its
- * paths resolved, each read two ways. The exact reading only folds case, so
- * its paths resolve as a browser's do. The loose reading also folds compatibility forms such as
- * full-width letters and drops every escape still in the text, so an escape
- * nothing here decodes cannot keep the letters on either side of it apart.
+ * Inspect each decoded layer before advancing it: decoding %2F too soon can
+ * change which segment a following encoded parent removes. The extra reading
+ * retains the existing conservative protection for compatibility forms,
+ * invisible format characters and unknown escapes, inside references only.
  */
-function readings(text: string): string[] {
+function mentionsEmbedReference(text: string): boolean {
   const exact = text.toLowerCase();
-  const loose = text.normalize("NFKC").toLowerCase().replace(UNREAD_ESCAPE, "");
-  return (loose === exact ? [exact] : [exact, loose])
-    .flatMap((variant) => [variant, resolvedPaths(variant)])
-    .map((reading) =>
-      reading.replace(/\\/g, "/").replace(NOT_ROUTE_CHARACTER, ""),
-    );
+  const loose = text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(UNREAD_ESCAPE, "")
+    .replace(/\p{Cf}/gu, "");
+  for (const reading of exact === loose ? [exact] : [exact, loose]) {
+    for (const reference of references(reading.replace(/\\/g, "/"))) {
+      if (isEmbedReference(reference)) return true;
+    }
+  }
+  return false;
 }
 
 /** One string as every check below reads it. */
@@ -153,9 +201,8 @@ export interface StringReading {
    */
   complete: boolean;
   /**
-   * Whether the `embed/start` path segments can be read in any layer. Their
-   * separator distinguishes a sign-in URL, including a relative one, from
-   * ordinary prose about starting an embed, which must survive document reads.
+   * Whether any layer carries a canonical embed URL/path or a ticket-bearing
+   * relative embed reference. Ordinary route discussion and filenames survive.
    */
   mentionsRoute: boolean;
 }
@@ -178,9 +225,7 @@ export function readString(text: string): StringReading {
   return {
     layers,
     complete,
-    mentionsRoute: layers.some((layer) =>
-      readings(layer).some((reading) => reading.includes(EMBED_START_PATH)),
-    ),
+    mentionsRoute: layers.some(mentionsEmbedReference),
   };
 }
 
