@@ -2,7 +2,6 @@
 
 import { createError, defineEventHandler, getRouterParam } from "h3";
 
-import { refuseContentUploadChunk } from "../../../../lib/content-uploads.js";
 import { requireRecordingUploadTicketOwner } from "../../../../lib/recording-upload-ticket.js";
 import { handleRecordingChunk } from "./chunk.post.js";
 
@@ -12,6 +11,5 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
   }
   const owner = await requireRecordingUploadTicketOwner(event, recordingId);
-  await refuseContentUploadChunk(recordingId);
   return handleRecordingChunk(event, owner);
 });

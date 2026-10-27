@@ -58,8 +58,9 @@ export function uploadFromTrashedPage() {
 /**
  * Refuses a chunk for an upload from a Content page on any route but
  * Content's own chunk route, which alone checks the page's binding and
- * claims the final chunk. Its ticket is an ordinary upload ticket, so the
- * agent chunk route would otherwise take it.
+ * claims the final chunk. The agent route would otherwise take the upload's
+ * ticket, an ordinary upload ticket, and the editor's own Clips session
+ * would reach it as the recording's owner.
  */
 export async function refuseContentUploadChunk(
   recordingId: string,

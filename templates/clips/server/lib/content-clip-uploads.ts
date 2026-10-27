@@ -727,7 +727,10 @@ export async function handleContentClipChunk(event: H3Event): Promise<unknown> {
       return json({ error: "This upload's page is in Trash" }, 409, cors);
     }
     if (final) return await takeFinalChunk(event, owner, cors);
-    return await handleRecordingChunk(event, owner);
+    return await handleRecordingChunk(event, {
+      ...owner,
+      fromContentPage: true,
+    });
   } catch (error) {
     if (!HTTPError.isError(error)) throw error;
     // The ticket's own refusal of an upload Clips is making the Clip of.
@@ -817,7 +820,10 @@ async function takeFinalChunk(
   }
   const { claim } = taken;
   try {
-    const answer = (await handleRecordingChunk(event, owner)) as {
+    const answer = (await handleRecordingChunk(event, {
+      ...owner,
+      fromContentPage: true,
+    })) as {
       ok?: unknown;
       waitingForStorage?: unknown;
     } | null;

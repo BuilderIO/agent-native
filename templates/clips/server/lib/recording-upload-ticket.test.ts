@@ -345,8 +345,16 @@ describe("recording upload tickets", () => {
       "rec-2",
     );
 
-    await releaseRecordingUploadTicket("owner@example.com", "rec-2");
-    await releaseRecordingUploadTicket("owner@example.com", "rec-2");
+    await releaseRecordingUploadTicket(
+      "owner@example.com",
+      "rec-2",
+      released.tokenHash,
+    );
+    await releaseRecordingUploadTicket(
+      "owner@example.com",
+      "rec-2",
+      released.tokenHash,
+    );
 
     expect(Object.keys(JSON.parse(settings.get(storageKey)!).tickets)).toEqual([
       "rec-1",
@@ -356,6 +364,32 @@ describe("recording upload tickets", () => {
     ).rejects.toMatchObject({ statusCode: 401 });
     await expect(
       requireRecordingUploadTicketOwner(ticketEvent(kept.token), "rec-1"),
+    ).resolves.toMatchObject({ recordingId: "rec-1" });
+  });
+
+  it("leaves a recording's ticket alone once a later start replaced the one being released", async () => {
+    const {
+      createRecordingUploadTicket,
+      releaseRecordingUploadTicket,
+      requireRecordingUploadTicketOwner,
+    } = await import("./recording-upload-ticket.js");
+    const stale = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+    );
+    const later = await createRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+    );
+
+    await releaseRecordingUploadTicket(
+      "owner@example.com",
+      "rec-1",
+      stale.tokenHash,
+    );
+
+    await expect(
+      requireRecordingUploadTicketOwner(ticketEvent(later.token), "rec-1"),
     ).resolves.toMatchObject({ recordingId: "rec-1" });
   });
 

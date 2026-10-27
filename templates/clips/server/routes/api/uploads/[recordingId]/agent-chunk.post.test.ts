@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRouterParam: vi.fn(),
   handleRecordingChunk: vi.fn(),
-  refuseContentUploadChunk: vi.fn(),
   requireRecordingUploadTicketOwner: vi.fn(),
 }));
 
@@ -12,10 +11,6 @@ vi.mock("h3", () => ({
     Object.assign(new Error(message), { statusCode }),
   defineEventHandler: (handler: unknown) => handler,
   getRouterParam: mocks.getRouterParam,
-}));
-
-vi.mock("../../../../lib/content-uploads.js", () => ({
-  refuseContentUploadChunk: mocks.refuseContentUploadChunk,
 }));
 
 vi.mock("../../../../lib/recording-upload-ticket.js", () => ({
@@ -33,7 +28,6 @@ const event = { path: "/api/uploads/rec-1/agent-chunk" } as any;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getRouterParam.mockReturnValue("rec-1");
-  mocks.refuseContentUploadChunk.mockResolvedValue(undefined);
   mocks.handleRecordingChunk.mockResolvedValue({
     ok: true,
     finalized: false,
@@ -74,24 +68,6 @@ describe("/api/uploads/:recordingId/agent-chunk route", () => {
     await expect((handler as any)(event)).rejects.toMatchObject({
       statusCode: 401,
     });
-    expect(mocks.handleRecordingChunk).not.toHaveBeenCalled();
-  });
-
-  it("does not reach the chunk handler for an upload from a Content page", async () => {
-    mocks.requireRecordingUploadTicketOwner.mockResolvedValue({
-      recordingId: "rec-1",
-      ownerEmail: "owner@example.com",
-    });
-    mocks.refuseContentUploadChunk.mockRejectedValue(
-      Object.assign(new Error("This upload came from a Content page."), {
-        statusCode: 409,
-      }),
-    );
-
-    await expect((handler as any)(event)).rejects.toMatchObject({
-      statusCode: 409,
-    });
-    expect(mocks.refuseContentUploadChunk).toHaveBeenCalledWith("rec-1");
     expect(mocks.handleRecordingChunk).not.toHaveBeenCalled();
   });
 
