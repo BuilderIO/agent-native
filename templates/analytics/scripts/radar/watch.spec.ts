@@ -8,6 +8,7 @@ import {
   safeCampaignLabel,
   createEventChecks,
   filterPrefetchedEventRowsForWatch,
+  formatWatchMarkdown,
   matureFunnelCohortDate,
   runWatch,
   uploadRejectionCheck,
@@ -762,6 +763,65 @@ describe("upload rejection evidence routing", () => {
       numerator: 2,
       denominator: null,
     });
+  });
+
+  it("evaluates aggregate distinct rejected recorders across failure reasons", () => {
+    expect(
+      uploadRejectionCheck({
+        app: "clips",
+        reasons: "quota / 429, storage / 503",
+        rejected_recorders: 6,
+        unidentified_rejections: 0,
+        recorders: 100,
+      }),
+    ).toMatchObject({
+      id: "replay-upload-rejection",
+      app: "clips",
+      status: "fired",
+      numerator: 6,
+      denominator: 100,
+      value: 0.06,
+      detail: "6/100 recorders rejected (quota / 429, storage / 503).",
+    });
+  });
+
+  it("surfaces insufficient checks in the watch Markdown summary and findings", () => {
+    const markdown = formatWatchMarkdown({
+      generatedAt: "2026-10-27T00:00:00.000Z",
+      window: "daily",
+      date: "2026-10-26",
+      exitCode: 1,
+      checks: [
+        {
+          id: "sample-check",
+          app: "clips",
+          window: "daily",
+          baselineDays: 7,
+          minN: 10,
+          threshold: null,
+          operator: "signal",
+          severity: "warning",
+          message: "Sample check",
+          query: "events",
+          status: "insufficient",
+          numerator: 3,
+          denominator: 3,
+          detail: "Only three observations were available.",
+        },
+      ],
+      journeyRows: [],
+      campaignAnnotations: [],
+      issues: [],
+      coverage: { eventSourceCoverage: {} },
+      queryCount: 2,
+    });
+
+    expect(markdown).toContain(
+      "Exit 1. 0 fired, 0 unavailable, 1 insufficient, 2 queries.",
+    );
+    expect(markdown).toContain(
+      "| insufficient | sample-check | clips | n/a | n/a | Only three observations were available. |",
+    );
   });
 
   it("reports sessionless rejection events as unavailable", () => {

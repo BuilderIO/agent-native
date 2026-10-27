@@ -174,11 +174,16 @@ describe("first-touch SQL helpers", () => {
     expect(recorderCounts).toContain(
       "(group_data.value ->> 'event_date')::date AS event_date",
     );
+    expect(recorderCounts).toContain("GROUP BY event_date, app");
     expect(recorderCounts).toContain(
-      "GROUP BY event_date, app, reason, status",
+      "count(DISTINCT session_id)::int AS rejected_recorders",
     );
     expect(recorderCounts).toContain(
-      "SELECT k.event_date, k.app, k.reason, k.status",
+      "string_agg(DISTINCT reason || ' / ' || status",
+    );
+    expect(recorderCounts).toContain("SELECT k.event_date, k.app,");
+    expect(recorderCounts).not.toContain(
+      "GROUP BY event_date, app, reason, status",
     );
     expect(recorderCounts).toContain(
       "jsonb_array_elements_text(g.session_ids)",

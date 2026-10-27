@@ -609,24 +609,23 @@ export function buildUploadRejectionAttributionSql(): string {
   FROM rejected_sessions s
   LEFT JOIN rejected_app_map m USING (session_id)
 ), rejected_counts AS (
-  SELECT event_date, app, reason, status,
-    count(DISTINCT session_id)::int AS rejected_recorders
+  SELECT event_date, app,
+    count(DISTINCT session_id)::int AS rejected_recorders,
+    string_agg(DISTINCT reason || ' / ' || status, ', ' ORDER BY reason || ' / ' || status) AS reasons
   FROM mapped_rejections
-  GROUP BY event_date, app, reason, status
+  GROUP BY event_date, app
 ), unidentified_counts AS (
   SELECT
     event_date,
     CASE WHEN reported_app IN ('design', 'slides', 'clips') THEN reported_app ELSE 'unknown' END AS app,
-    reason,
-    status,
     sum(unidentified_rejections)::int AS unidentified_rejections
   FROM rejection_groups
   WHERE unidentified_rejections > 0
-  GROUP BY event_date, app, reason, status
+  GROUP BY event_date, app
 ), rejection_keys AS (
-  SELECT event_date, app, reason, status FROM rejected_counts
+  SELECT event_date, app FROM rejected_counts
   UNION
-  SELECT event_date, app, reason, status FROM unidentified_counts
+  SELECT event_date, app FROM unidentified_counts
 ), population AS (
   SELECT event_date, app, session_id FROM recorded
   UNION
@@ -636,13 +635,14 @@ export function buildUploadRejectionAttributionSql(): string {
   SELECT event_date, app, count(DISTINCT session_id)::int AS recorders
   FROM population GROUP BY event_date, app
 )
-SELECT k.event_date, k.app, k.reason, k.status,
+SELECT k.event_date, k.app,
   coalesce(r.rejected_recorders, 0)::int AS rejected_recorders,
   coalesce(u.unidentified_rejections, 0)::int AS unidentified_rejections,
+  coalesce(r.reasons, 'unknown') AS reasons,
   d.recorders
 FROM rejection_keys k
-LEFT JOIN rejected_counts r USING (event_date, app, reason, status)
-LEFT JOIN unidentified_counts u USING (event_date, app, reason, status)
+LEFT JOIN rejected_counts r USING (event_date, app)
+LEFT JOIN unidentified_counts u USING (event_date, app)
 LEFT JOIN denominator d USING (event_date, app)
 ORDER BY k.event_date, k.app, rejected_recorders DESC`;
 }

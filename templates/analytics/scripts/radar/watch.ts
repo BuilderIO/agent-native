@@ -330,6 +330,9 @@ export function uploadRejectionCheck(
   const unidentifiedValue = row.unidentified_rejections;
   const rejected = Number(rejectedValue);
   const unidentified = Number(unidentifiedValue);
+  const reasons = String(
+    row.reasons ?? `${row.reason ?? "unknown"} / ${row.status ?? "unknown"}`,
+  );
   if (
     rejectedValue == null ||
     unidentifiedValue == null ||
@@ -358,7 +361,7 @@ export function uploadRejectionCheck(
     return baseResult(definition, app, "unavailable", {
       numerator: rejected,
       denominator: null,
-      detail: `${rejected} replay upload rejections (${String(row.reason)} / ${String(row.status)}); recorder denominator is unavailable.`,
+      detail: `${rejected} replay upload rejections (${reasons}); recorder denominator is unavailable.`,
     });
   }
   return thresholdResult(definition, {
@@ -367,7 +370,7 @@ export function uploadRejectionCheck(
     value: rejected / denominator,
     numerator: rejected,
     denominator,
-    detail: `${rejected}/${denominator} recorders rejected (${String(row.reason)} / ${String(row.status)}).`,
+    detail: `${rejected}/${denominator} recorders rejected (${reasons}).`,
   });
 }
 
@@ -1499,11 +1502,11 @@ function writePrivateFile(file: string, content: string): void {
   fs.renameSync(temporary, file);
 }
 
-function formatWatchMarkdown(run: RadarWatchRun): string {
+export function formatWatchMarkdown(run: RadarWatchRun): string {
   const lines = [
     `# First-touch radar: ${run.date}${run.window === "hourly" ? ` ${String(run.hour).padStart(2, "0")}:00 UTC` : ""}`,
     "",
-    `Exit ${run.exitCode}. ${run.checks.filter((check) => check.status === "fired").length} fired, ${run.checks.filter((check) => check.status === "unavailable").length} unavailable, ${run.queryCount} queries.`,
+    `Exit ${run.exitCode}. ${run.checks.filter((check) => check.status === "fired").length} fired, ${run.checks.filter((check) => check.status === "unavailable").length} unavailable, ${run.checks.filter((check) => check.status === "insufficient").length} insufficient, ${run.queryCount} queries.`,
     ...(run.coverage.funnelCohortDate
       ? [`Funnel signup cohort date: ${run.coverage.funnelCohortDate} UTC.`]
       : []),
@@ -1512,12 +1515,7 @@ function formatWatchMarkdown(run: RadarWatchRun): string {
     "| --- | --- | --- | ---: | ---: | --- |",
   ];
   for (const check of run.checks) {
-    if (
-      check.status === "clear" ||
-      check.status === "insufficient" ||
-      check.status === "observed"
-    )
-      continue;
+    if (check.status === "clear" || check.status === "observed") continue;
     lines.push(
       `| ${check.status} | ${check.id} | ${check.app} | ${check.value == null ? "n/a" : Number(check.value).toFixed(3)} | ${check.baseline == null ? "n/a" : Number(check.baseline).toFixed(3)} | ${check.detail ?? check.message} |`,
     );

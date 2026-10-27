@@ -201,7 +201,7 @@ describe("weekly funnel cohort reporting", () => {
             window: "daily",
             date: "2026-10-26",
             exitCode: 1,
-            checks: [],
+            checks: [check("insufficient")],
             journeyRows: [],
             campaignAnnotations: [],
             issues: [],
@@ -243,7 +243,9 @@ describe("weekly funnel cohort reporting", () => {
     } satisfies RadarWeeklyReport;
 
     const formatted = formatWeeklyMarkdown(report);
-    expect(formatted).toContain("| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | - |");
+    expect(formatted).toContain(
+      "| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | 1 | - |",
+    );
     expect(formatted).toContain(
       "BigQuery uses keyed HMAC-SHA256 matching; the PostgreSQL path uses bound recipient email values.",
     );

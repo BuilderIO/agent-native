@@ -11,8 +11,9 @@ scope: dev
 - Run `pnpm --filter analytics radar:watch --window daily`; use `--window
   hourly` for provisioning and environment-key checks.
 - Read the check status, numerator, denominator, seven-day comparison, and
-  coverage. `insufficient` is not a pass. `unavailable` remains explicit and
-  makes a completed watch exit 1; exit 2 means the run could not complete.
+  coverage. `insufficient` is not a pass. `unavailable` and `insufficient`
+  remain explicit and make a completed watch exit 1; exit 2 means the run could
+  not complete.
 - Compare daily thresholds with the incident window and an ordinary week before
   changing them. Record both windows and the observed counts in the PR or report.
 - Use `pnpm --filter analytics radar:backtest` to compare the Oct 9–23 incident
