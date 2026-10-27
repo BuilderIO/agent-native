@@ -2774,6 +2774,7 @@ export async function _downloadToFile(
     ...(httpProxy ? { httpProxy } : {}),
     ...(httpsProxy ? { httpsProxy } : {}),
     ...(noProxy !== undefined ? { noProxy } : {}),
+    proxyTunnel: false,
   });
   const controller = new AbortController();
   const connectTimeout = setTimeout(() => controller.abort(), 10_000);
