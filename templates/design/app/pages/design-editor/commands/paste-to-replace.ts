@@ -24,6 +24,7 @@ import {
   preferredCodeLayerSelector,
 } from "@/pages/design-editor/code-layer-state";
 import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-types";
+import type { ApplyLocalContentUpdateResult } from "@/pages/design-editor/commands/apply-local-content-update";
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -42,6 +43,10 @@ export interface PasteToReplaceArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
+  ) => ApplyLocalContentUpdateResult | void;
+  cancelPendingPastedMediaAbsentFromContent?: (
+    screenId: string,
+    content: string,
   ) => void;
   canEditDesign: boolean;
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
@@ -101,6 +106,7 @@ export function runPasteToReplace(
   {
     activeFile,
     applyLocalContentUpdate,
+    cancelPendingPastedMediaAbsentFromContent,
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
@@ -313,6 +319,14 @@ export function runPasteToReplace(
     );
     return;
   }
-  applyLocalContentUpdate(removal.content, { forcePreviewFullDocument: true });
+  const publication = applyLocalContentUpdate(removal.content, {
+    forcePreviewFullDocument: true,
+  });
+  if (publication?.status === "accepted") {
+    cancelPendingPastedMediaAbsentFromContent?.(
+      activeFile.id,
+      publication.content,
+    );
+  }
   selectInsertedLayers(activeFile.id, removal.content, inserted.rootNodeIds);
 }

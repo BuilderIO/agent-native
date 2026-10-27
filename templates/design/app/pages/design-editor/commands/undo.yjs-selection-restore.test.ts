@@ -10,7 +10,7 @@ import {
 import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import { runRedo } from "@/pages/design-editor/commands/redo";
 import { runUndo } from "@/pages/design-editor/commands/undo";
-import { cancelPendingPastedMediaRemovedByReplay } from "@/pages/design-editor/domains/pending-pasted-media";
+import { cancelPendingPastedMediaAbsentFromContent } from "@/pages/design-editor/domains/pending-pasted-media";
 import { LOCAL_EDIT_ORIGIN } from "@/pages/design-editor/editor-session";
 import {
   YJS_UNDO_SELECTION_META_KEY,
@@ -123,7 +123,7 @@ function fakeStackItem(meta?: Record<string, unknown>) {
 }
 
 describe("runUndo — single-screen Yjs undo restores the stamped selection", () => {
-  it("preserves preview-only pending media during an unrelated Yjs undo", () => {
+  it("cancels preview-only pending media absent from the Yjs undo result", () => {
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("content");
     ytext.insert(0, "<!doctype html><html><body></body></html>");
@@ -141,11 +141,10 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
       ["file-1", new Map([["preview-only-image", false]])],
     ]);
     const cancelPendingPastedMediaForHistoryReplay = vi.fn(
-      (screenId: string, previousContent: string, replayedContent: string) =>
-        cancelPendingPastedMediaRemovedByReplay(
+      (screenId: string, _previousContent: string, replayedContent: string) =>
+        cancelPendingPastedMediaAbsentFromContent(
           pendingByScreen,
           screenId,
-          previousContent,
           replayedContent,
         ),
     );
@@ -169,7 +168,7 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
 
     expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledOnce();
     expect(pendingByScreen.get("file-1")).toEqual(
-      new Map([["preview-only-image", false]]),
+      new Map([["preview-only-image", true]]),
     );
     um.destroy();
     ydoc.destroy();
@@ -190,11 +189,10 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
       ["file-1", new Map([["pending-image", false]])],
     ]);
     const cancelPendingPastedMediaForHistoryReplay = vi.fn(
-      (screenId: string, previousContent: string, replayedContent: string) =>
-        cancelPendingPastedMediaRemovedByReplay(
+      (screenId: string, _previousContent: string, replayedContent: string) =>
+        cancelPendingPastedMediaAbsentFromContent(
           pendingByScreen,
           screenId,
-          previousContent,
           replayedContent,
         ),
     );
