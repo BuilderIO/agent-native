@@ -253,6 +253,8 @@ const databaseMessages = {
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
     "The page was created, but this collection could not refresh. Reload to see it.",
+  builderPushResultNotLoaded:
+    "The update reached Builder, but this review could not load the result. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",

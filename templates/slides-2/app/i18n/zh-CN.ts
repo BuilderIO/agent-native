@@ -103,7 +103,7 @@ const messages = {
     retry: "重试",
     reload: "重新加载",
     mcpAbout:
-      "将 Slides 2 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。该应用随后可以代表你在 Slides 2 中工作：创建演示文稿、添加幻灯片并导出到 PowerPoint。它只能看到你能看到的内容。",
+      "将此工作区连接到 Claude、ChatGPT、Cursor 或其他支持 MCP 的应用。它可以创建演示文稿、添加幻灯片并导出为 PowerPoint，访问范围仅限于你能查看的内容。",
     workspaceTitle: "工作区",
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
@@ -291,7 +291,7 @@ const messages = {
     deleteError: "删除设计系统失败",
     emptyTitle: "设置你的品牌标识",
     emptyDescription:
-      "使用你的品牌颜色、字体和徽标创建设计系统。每个新演示文稿都会遵循你的视觉标识。",
+      "一次选好颜色、字体和标志。新演示文稿的每张幻灯片都会沿用这一风格，让你专注于内容。",
     tierLimitTitle: "已达到设计系统数量上限",
     tierLimitDescription:
       "您已达到当前 Builder 套餐的设计系统数量上限。升级 Builder 套餐以创建更多。",
@@ -769,7 +769,7 @@ const messages = {
   },
   generateSlides: {
     title: "用 AI 生成幻灯片",
-    description: "描述你的演示主题，AI 会为你生成幻灯片。",
+    description: "告诉我们主题，智能代理会和你一起整理成幻灯片。",
     topic: "主题",
     topicPlaceholder: "例如：React Hooks 入门、Q4 销售报告、2025 产品路线图...",
     slides: "幻灯片",
@@ -1367,7 +1367,7 @@ const messages = {
     newDeckPromptTitle: "新建演示文稿",
     newDeckPlaceholder: "描述你想生成的演示文稿...",
     skipPrompt: "跳过提示",
-    firstDeckPromptTitle: "一起创建你的第一份演示文稿",
+    firstDeckPromptTitle: "一起制作你的第一份演示文稿。",
     firstDeckSkip: "跳过",
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
@@ -1428,7 +1428,7 @@ const messages = {
     signIn: "登录",
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
-    emptyDescription: "使用 AI 生成精美演示文稿。",
+    emptyDescription: "从一个主题开始，和智能代理一起打磨你的演示文稿。",
   },
   agentChat: {
     setup: {

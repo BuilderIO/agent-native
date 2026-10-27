@@ -21,10 +21,12 @@ import {
   buildDeepLink,
   buildEmbedStartPath,
   createEmbedSessionTicket,
+  getAppProductionUrl,
   getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  resolveAppRuntimeUrl,
 } from "@agent-native/core/server";
 import {
   discoverAgents,
@@ -484,7 +486,9 @@ function withConfiguredBasePath(baseUrl: string): string {
 
 function dispatchSelfBaseUrl(): string {
   const requestOrigin = normalizeBaseUrl(getRequestContext()?.requestOrigin);
-  if (requestOrigin) return withConfiguredBasePath(requestOrigin);
+  if (requestOrigin && isTrustedRequestOrigin(requestOrigin)) {
+    return withConfiguredBasePath(requestOrigin);
+  }
 
   const configured =
     normalizeBaseUrl(process.env.WORKSPACE_GATEWAY_URL) ??
@@ -497,6 +501,24 @@ function dispatchSelfBaseUrl(): string {
   return process.env.NODE_ENV === "production"
     ? "https://dispatch.agent-native.com"
     : "http://localhost:8092";
+}
+
+function isTrustedRequestOrigin(value: string): boolean {
+  // An embed ticket is fetched from this origin and becomes a bearer token.
+  const origin = new URL(value).origin;
+  const candidates = [
+    { source: "production", value: getAppProductionUrl() },
+    { source: "runtime", value: resolveAppRuntimeUrl() },
+  ];
+  return candidates.some(({ source, value }) => {
+    if (!value) return false;
+    const url = normalizeBaseUrl(value);
+    if (!url) {
+      console.warn("[dispatch] invalid configured request origin", { source });
+      return false;
+    }
+    return new URL(url).origin === origin;
+  });
 }
 
 function dispatchSelfApp(
@@ -645,6 +667,14 @@ function appMcpBaseUrl(app: DispatchMcpAccessibleApp): string {
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "");
+}
+
+function appChatBaseUrl(app: DispatchMcpAccessibleApp): string {
+  const homeUrl = new URL(appHomeBaseUrl(app));
+  if (homeUrl.pathname !== "/") {
+    return homeUrl.toString().replace(/\/+$/, "");
+  }
+  return appMcpBaseUrl(app);
 }
 
 function resolveGrantedAppEmbedStartUrl(
@@ -1469,17 +1499,34 @@ async function createDispatchSelfEmbedSession(input: {
   };
 }
 
-export async function createGrantedDispatchMcpEmbedSession(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
-}): Promise<{
+type InternalEmbedSession = {
   startUrl: string;
   targetPath?: string;
   expiresAt?: number;
   app: string;
-}> {
+  appBaseUrl: string;
+};
+
+function publicEmbedSession({
+  startUrl,
+  targetPath,
+  expiresAt,
+  app,
+}: InternalEmbedSession) {
+  return {
+    startUrl,
+    ...(targetPath ? { targetPath } : {}),
+    ...(typeof expiresAt === "number" ? { expiresAt } : {}),
+    app,
+  };
+}
+
+async function createGrantedDispatchMcpEmbedSessionResult(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+  chrome?: "full" | "minimal";
+}): Promise<InternalEmbedSession> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
@@ -1492,6 +1539,33 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   });
 }
 
+export async function createGrantedDispatchMcpEmbedSession(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  return publicEmbedSession(
+    await createGrantedDispatchMcpEmbedSessionResult(input),
+  );
+}
+
+export async function createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+  appId: string,
+): Promise<{ startUrl: string; appBaseUrl: string }> {
+  const session = await createGrantedDispatchMcpEmbedSessionResult({
+    app: appId,
+    path: "/",
+    chrome: "minimal",
+  });
+  return { startUrl: session.startUrl, appBaseUrl: session.appBaseUrl };
+}
+
 async function createEmbedSessionForResolvedApp(input: {
   ownerEmail: string;
   orgId?: string;
@@ -1502,17 +1576,21 @@ async function createEmbedSessionForResolvedApp(input: {
   targetPath?: string;
   expiresAt?: number;
   app: string;
+  appBaseUrl: string;
 }> {
   const { ownerEmail, orgId, target, chrome } = input;
 
   if (target.app.id === DISPATCH_APP_ID) {
-    return createDispatchSelfEmbedSession({
-      ownerEmail,
-      orgId,
-      path: target.path,
-      baseUrl: appBaseUrl(target.app),
-      chrome,
-    });
+    return {
+      ...(await createDispatchSelfEmbedSession({
+        ownerEmail,
+        ...(orgId !== undefined ? { orgId } : {}),
+        path: target.path,
+        baseUrl: appBaseUrl(target.app),
+        ...(chrome !== undefined ? { chrome } : {}),
+      })),
+      appBaseUrl: appBaseUrl(target.app),
+    };
   }
 
   const targetMcpUrl = appMcpUrl(target.app);
@@ -1600,26 +1678,23 @@ async function createEmbedSessionForResolvedApp(input: {
     targetPath?: string;
     expiresAt?: number;
     app: string;
+    appBaseUrl: string;
   } = {
     startUrl,
     app: target.app.id,
+    appBaseUrl: appChatBaseUrl(target.app),
   };
   if (parsed.targetPath) output.targetPath = parsed.targetPath;
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
   return output;
 }
 
-export async function createWorkspaceSsoEmbedSession(input: {
+async function createWorkspaceSsoEmbedSessionResult(input: {
   app?: string;
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-}> {
+}): Promise<InternalEmbedSession> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) {
     console.warn("[dispatch] workspace embed mint rejected", {
@@ -1659,4 +1734,29 @@ export async function createWorkspaceSsoEmbedSession(input: {
     target,
     chrome: input.chrome,
   });
+}
+
+export async function createWorkspaceSsoEmbedSession(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  return publicEmbedSession(await createWorkspaceSsoEmbedSessionResult(input));
+}
+
+export async function createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+  appId: string,
+): Promise<{ startUrl: string; appBaseUrl: string }> {
+  const session = await createWorkspaceSsoEmbedSessionResult({
+    app: appId,
+    path: "/",
+    chrome: "minimal",
+  });
+  return { startUrl: session.startUrl, appBaseUrl: session.appBaseUrl };
 }
