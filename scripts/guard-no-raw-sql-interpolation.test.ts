@@ -205,6 +205,52 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("recognizes callbacks typed with DbExec through local transaction wrappers", () => {
+    const text = source([
+      "async function withDbTransaction<T>(client: ReturnType<typeof getDbExec>, fn: (tx: ReturnType<typeof getDbExec>) => Promise<T>): Promise<T> {",
+      "  return fn(client);",
+      "}",
+      "withDbTransaction(database, async (tx) =>",
+      "  tx.execute(`SELECT * FROM records WHERE id = ${recordId}`),",
+      ");",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([5])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes DbExec factories from trusted dynamic imports", () => {
+    const immediate = source([
+      '(await import("./db/index.js")).getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);',
+    ]);
+    const namespace = source([
+      'const coreDb = await import("./db/index.js");',
+      "coreDb.getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+    const destructured = source([
+      'const { getDbExec: createDbExec } = await import("./db/index.js");',
+      "createDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+    const unrelated = source([
+      'const { getDbExec: createDbExec } = await import("./other.js");',
+      "createDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, immediate, new Set([1])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, namespace, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, destructured, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, unrelated, new Set([2])),
+    ).toEqual([]);
+  });
+
   it("finds interpolated templates assigned to a variable before execute", () => {
     const text = source([
       "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
