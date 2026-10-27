@@ -1232,15 +1232,13 @@ describe("Builder source settings helpers", () => {
           ...builderSource().capabilities,
           liveWritesEnabled: true,
         },
-        rows: [
-          {
-            ...builderSource().rows[0],
-            id: `row-source-${id}`,
-            databaseItemId: `item-${id}`,
-            documentId: id,
-            sourceDisplayKey: `Builder ${id}`,
-          },
-        ],
+        rows: builderSource().rows.map((row) => ({
+          ...row,
+          id: `row-source-${id}`,
+          databaseItemId: `item-${id}`,
+          documentId: id,
+          sourceDisplayKey: `Builder ${id}`,
+        })),
         changeSets: [
           builderChangeSet({
             id: `change-${id}`,
@@ -1251,9 +1249,10 @@ describe("Builder source settings helpers", () => {
           }),
         ],
       });
-    const prepared = [rowSource("first"), rowSource("second")];
+    const preparedSecond = rowSource("second");
+    const prepared = [rowSource("first"), preparedSecond];
     const preparedReview = buildClientBuilderReviewPayload(
-      { ...prepared[1], rows: prepared.flatMap((source) => source.rows) },
+      { ...preparedSecond, rows: prepared.flatMap((source) => source.rows) },
       prepared.flatMap((source) => source.changeSets),
     );
     const pushedRow = (id: string) => ({

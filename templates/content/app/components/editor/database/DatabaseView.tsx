@@ -2817,15 +2817,13 @@ function DatabaseTable({
         ) {
           return;
         }
-        const transition = selection.transitions[row.changeSetId];
         const executedResponse = await executeBuilderExecution.mutateAsync({
           documentId: document.id,
           sourceId: session.sourceId,
           changeSetId: row.changeSetId,
           idempotencyKey: row.execution.idempotencyKey,
           pushModeConfirmation: preparedReview.pushMode,
-          publicationTransition: transition?.publicationTransition,
-          confirmUnpublish: transition?.confirmUnpublish,
+          ...selection.transitions[row.changeSetId],
         });
         if (
           !databaseBuilderReviewSessionIsCurrent(
