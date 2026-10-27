@@ -2988,6 +2988,54 @@ describe("FirstRunOnboarding", () => {
       return start;
     };
 
+    it("retries the Clips credits v2 exposure after a transient mutation failure", async () => {
+      mocks.recordCreditsV2Exposure
+        .mockRejectedValueOnce(new Error("temporary failure"))
+        .mockResolvedValueOnce({
+          assignment: {
+            experiment_id: "first_run_builder_credits_v2",
+            experiment_variant: "credits",
+          },
+        });
+
+      openClipsChoice();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+
+      mocks.useBuilderConnectFlow.mockReturnValue(flow({ configured: true }));
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+      });
+      mocks.useBuilderConnectFlow.mockReturnValue(flow());
+      await act(async () => {
+        root.render(
+          <TooltipProvider>
+            <FirstRunOnboarding />
+          </TooltipProvider>,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+        "onboarding_experiment_exposed",
+        {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "credits",
+        },
+      );
+    });
+
     it("shows one activate action instead of the two setup cards", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();

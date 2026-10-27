@@ -663,6 +663,7 @@ export function FirstRunOnboarding({
         });
       })
       .catch((error) => {
+        creditsV2ExposureStartedRef.current = false;
         const errorType = error instanceof Error ? error.name : "unknown_error";
         console.warn(
           `[onboarding] Could not record Clips credits v2 exposure (${errorType}).`,

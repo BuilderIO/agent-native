@@ -286,6 +286,55 @@ describe("add-slide", () => {
     });
   });
 
+  it("does not report a browser generation again for later edits to the same deck", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [],
+      generationContext: { generationAttemptId: "browser-attempt" },
+    };
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+      { caller: "tool", runId: "run-first", turnId: "turn-first" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-first", turnId: "turn-first", status: "completed" },
+      finished,
+      async () => 1,
+    );
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed"),
+    ).toHaveLength(1);
+    expect(
+      (JSON.parse(String(updatedFields?.data)) as typeof deckData)
+        .generationContext,
+    ).toMatchObject({ firstOutputAttemptId: "browser-attempt" });
+
+    deckData = JSON.parse(String(updatedFields?.data)) as typeof deckData;
+    mockTrack.mockClear();
+    await action.run(
+      { deckId: "deck-1", slideId: "s-2", content: "<div>Two</div>" },
+      {
+        caller: "tool",
+        runId: "run-follow-up",
+        turnId: "turn-follow-up",
+      } as never,
+    );
+    await trackGenerationCompletedForRun(
+      {
+        runId: "run-follow-up",
+        turnId: "turn-follow-up",
+        status: "completed",
+      },
+      finished,
+      async () => 2,
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
   it("records the first real slide when the deck starts with only a blank placeholder", async () => {
     deckData = {
       title: "Untitled",

@@ -506,6 +506,22 @@ export default defineAction({
       if (layout) newSlide.layout = layout;
       if (notes !== undefined) newSlide.notes = notes;
 
+      const shouldTrackNonActionFirstOutput = Boolean(
+        generationAttemptId &&
+        generationContext &&
+        generationContext.generationMode !== "action" &&
+        generationContext.firstOutputAttemptId !== generationAttemptId &&
+        isRealSlide(newSlide),
+      );
+      if (shouldTrackNonActionFirstOutput && generationAttemptId) {
+        deck.generationContext = {
+          ...((deck.generationContext as Record<string, unknown> | undefined) ??
+            generationContext ??
+            {}),
+          firstOutputAttemptId: generationAttemptId,
+        };
+      }
+
       const insertIndex =
         typeof position === "number"
           ? Math.max(0, Math.min(position, slides.length))
@@ -601,11 +617,7 @@ export default defineAction({
           ? generationContext.generationStartedAt
           : undefined;
       const browserSessionId = getRequestContext()?.browserSessionId;
-      if (
-        generationAttemptId &&
-        generationContext?.generationMode !== "action" &&
-        isRealSlide(newSlide)
-      ) {
+      if (generationAttemptId && shouldTrackNonActionFirstOutput) {
         noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
           deckId,
           generationAttemptId,
