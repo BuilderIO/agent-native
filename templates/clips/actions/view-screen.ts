@@ -102,8 +102,8 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  if (rows.length === 0) return null;
-  const [row] = rows;
+  const row = rows[0];
+  if (!row) return null;
   const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
   if (
     isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||
