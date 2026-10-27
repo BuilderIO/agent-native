@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -144,6 +145,12 @@ export default defineAction({
       const slides = Array.isArray(deck.slides)
         ? ([...deck.slides] as Array<Record<string, unknown>>)
         : [];
+      if (slideId && slides.some((slide) => slide.id === slideId)) {
+        fail(
+          `Slide ${slideId} already exists in deck ${deckId}; omit slideId or choose a new one.`,
+          { errorCode: "slide_id_taken", statusCode: 409 },
+        );
+      }
       const newSlideId = slideId ?? `slide-${nanoid(10)}`;
       const reuseLabel = {
         itemId,
