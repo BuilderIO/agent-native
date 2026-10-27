@@ -5112,7 +5112,11 @@ function AgentRunDetails({
     if (billing.incomplete) {
       return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
     }
-    if (billing.builderCredits !== null) {
+    // Zero credits give way to a provider charge, which is the real cost.
+    if (
+      billing.builderCredits !== null &&
+      (billing.builderCredits !== 0 || !billing.providerCostUsd)
+    ) {
       return {
         key: labels.runCreditsUsed,
         value: formatRunUsageAmount(

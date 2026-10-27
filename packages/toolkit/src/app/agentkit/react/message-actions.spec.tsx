@@ -618,6 +618,29 @@ describe("Worked for run details", () => {
       ).toBe("1");
     }
 
+    const charged = await renderChat({
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [...toolWork], latestAnswer),
+    });
+    await press(
+      charged.container.querySelector(".agentkit-activities-summary"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const charge = charged.container.querySelector('[data-detail="credits"]');
+    expect(charge?.querySelector("dt")?.textContent).toBe("Cost");
+    expect(charge?.querySelector("dd")?.textContent).toBe("$0.02");
+
     // Auto names no model, so with no steps the zero is the only detail left
     // and still shows.
     const alone = await renderChat({
