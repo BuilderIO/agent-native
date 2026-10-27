@@ -113,6 +113,7 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import {
   buildDocText,
@@ -120,6 +121,12 @@ import {
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import {
+  commentAnchorBlockAt,
+  commentThreadAt,
+  threadCommentBlock,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
 import {
   isEditorDraftSaveAccepted,
@@ -156,6 +163,7 @@ import {
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
+  createContentBlockId,
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
@@ -169,7 +177,9 @@ import {
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
-import { VideoNode } from "./extensions/VideoNode";
+import { TablePresentation } from "./extensions/TablePresentation";
+import { VideoBlockIds } from "./extensions/VideoBlockIds";
+import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -884,8 +894,8 @@ const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
-  // Header cells render as <td>, so copying or pasting a table reads them back
-  // from their class. The higher priority puts this rule before tableCell's.
+  // Header cells rendered as <td> before they were <th>, and clipboards may
+  // still hold those. The higher priority puts this rule before tableCell's.
   parseHTML() {
     return [
       { tag: "td.content-table-header-cell", priority: 60 },
@@ -894,7 +904,7 @@ const NotionTableHeader = TableHeader.extend({
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "td",
+      "th",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: "content-table-header-cell",
       }),
@@ -1757,10 +1767,12 @@ interface VisualEditorProps {
     range?: { from: number; to: number },
     suggestionId?: string,
   ) => void;
+  /** Starts a comment on a whole block, such as a video. */
+  onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
-  pendingHighlight?: { from: number; to: number } | null;
+  pendingHighlight?: { from: number; to: number; blockId?: string } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
   acceptedDecisionReadback?: { id: string; content: string } | null;
@@ -2139,6 +2151,8 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onVideoComment?: ContentVideoOptions["onVideoComment"];
+  canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
@@ -2196,6 +2210,7 @@ function threadAnchor(thread: CommentThread) {
     prefix: thread.prefix ?? undefined,
     suffix: thread.suffix ?? undefined,
     startOffset: thread.startOffset ?? undefined,
+    blockId: thread.block?.blockId,
   };
 }
 
@@ -2751,6 +2766,8 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onVideoComment,
+  canCommentOnVideo,
   onImageFilePickerRequest,
   canMutateMedia,
   isSuggesting,
@@ -2815,8 +2832,13 @@ export function createVisualEditorExtensions({
       VideoNode.configure({
         HTMLAttributes: { class: "content-video" },
         documentId,
-        onVideoComment: onImageComment,
+        onVideoComment,
+        canCommentOnVideo,
         canMutateMedia,
+      }),
+      VideoBlockIds.configure({
+        isEdit: isLocalEditorEdit,
+        canAssign: canMutateMedia,
       }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
@@ -2835,6 +2857,7 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      TablePresentation,
       ...(isSuggesting
         ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
         : []),
@@ -3201,6 +3224,7 @@ export function VisualEditor({
   localFilePath,
   referenceDepth,
   onComment,
+  onBlockComment,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3302,6 +3326,8 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
   const onHoverSuggestionRef = useRef(onHoverSuggestion);
@@ -3372,6 +3398,56 @@ export function VisualEditor({
   );
   const threadsRef = useRef(commentThreads);
   threadsRef.current = commentThreads;
+  const onBlockCommentRef = useRef(onBlockComment);
+  onBlockCommentRef.current = onBlockComment;
+  const canCommentOnBlocks = !!onBlockComment;
+  const savesVideoIds = useCallback(
+    (view: EditorView) => view.editable && !suggestingRef.current,
+    [],
+  );
+  // A tab that can't save an id comments on a video only by the id it already
+  // goes by, so a video that goes by none shows no Comment button there.
+  const canCommentOnVideo = useCallback(
+    (view: EditorView, pos: number) =>
+      savesVideoIds(view) || !!commentAnchorBlockAt(view.state.doc, pos),
+    [savesVideoIds],
+  );
+  const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const { doc } = view.state;
+            const node = doc.nodeAt(pos);
+            if (!node) return;
+            const canWrite = savesVideoIds(view);
+            // A video whose id another video shares goes by none, so it gets
+            // an id of its own before a thread can point at it.
+            const blockId =
+              commentAnchorBlockAt(doc, pos)?.blockId ??
+              (canWrite ? createContentBlockId("video") : null);
+            if (!blockId) return;
+            // A thread names a video saved without an id by its derived id.
+            // Writing that down saves the id with the page, so an agent that
+            // reads the page finds it instead of minting one that strands it.
+            if (node.attrs.blockId !== blockId && canWrite)
+              view.dispatch(
+                view.state.tr
+                  .setNodeAttribute(pos, "blockId", blockId)
+                  .setMeta("addToHistory", false),
+              );
+            onBlockCommentRef.current?.(
+              {
+                blockId,
+                blockType: "video",
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks, savesVideoIds],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3477,6 +3553,8 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onVideoComment,
+        canCommentOnVideo,
         onImageFilePickerRequest,
         canMutateMedia,
         isSuggesting,
@@ -3523,6 +3601,8 @@ export function VisualEditor({
       localAwareness,
       user,
       onComment,
+      onVideoComment,
+      canCommentOnVideo,
       onImageFilePickerRequest,
       canMutateMedia,
       isSuggesting,
@@ -4696,7 +4776,7 @@ export function VisualEditor({
     [commentThreads],
   );
   const pendingKey = pendingHighlight
-    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    ? `${pendingHighlight.from}-${pendingHighlight.to}-${pendingHighlight.blockId ?? ""}`
     : "";
   const resolvedQuotesRef = useRef(new Map<string, string>());
 
@@ -4732,14 +4812,19 @@ export function VisualEditor({
         specs.push(existing);
         continue;
       }
-      const range = resolveAnchor(view.state.doc, anchor);
+      const block = threadCommentBlock(view.state.doc, thread);
+      const range = block
+        ? {
+            from: block.pos,
+            to: block.pos + block.nodeSize,
+            blockId: block.blockId,
+          }
+        : thread.block
+          ? null
+          : resolveAnchor(view.state.doc, anchor);
       if (range) {
         resolvedQuotesRef.current.set(thread.threadId, quote);
-        specs.push({
-          threadId: thread.threadId,
-          from: range.from,
-          to: range.to,
-        });
+        specs.push({ threadId: thread.threadId, ...range });
       } else if (existing) {
         // An edit to the quoted text, such as an accepted suggestion, can
         // reach the editor before the thread's re-anchored quote does.
@@ -5085,10 +5170,8 @@ export function VisualEditor({
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
         return;
       }
-      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
-      if (comment?.dataset.commentThread) {
-        onActivateThreadRef.current?.(comment.dataset.commentThread);
-      }
+      const threadId = commentThreadAt(target, activeThreadIdRef.current);
+      if (threadId) onActivateThreadRef.current?.(threadId);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key !== " ") return;
@@ -5194,6 +5277,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable ? (
+        <BlockActionsMenu editor={editor} tableOptions={!suggesting} />
+      ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">

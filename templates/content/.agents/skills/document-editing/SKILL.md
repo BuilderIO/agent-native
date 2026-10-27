@@ -156,14 +156,18 @@ Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
 Some pages take body writes through their live copy, the copy open tabs edit.
-A page linked to a local file never does. `edit-document` writes those bodies.
-Other writers, such as `update-document --content`, a property or collection
-block stored in the body, row migrations, and Notion or Builder syncs, refuse
-with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in Content.
-Retrying that writer won't help: make the body change with `edit-document`
-where it can, or tell the user which action refused and on which page. When the
-refusal's `details` name a Notion page (`remotePageId`) or a local file
-(`sourcePath`), that copy already changed; say so. A local-folder sync that
+Only pages Content owns outright take it: a page linked to a local file,
+Notion, GitHub or Builder, a shared copy of a local file, and a row of a
+collection someone made stay on the legacy writer. Every page is also a row of
+its space's Files collection, which doesn't count. `edit-document` writes those
+bodies, and so does `set-document-property` for a primary Blocks field, which
+is the page's body. Other writers, such as `update-document --content`, a
+collection block stored in the body, row migrations, and Notion or Builder
+syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in
+Content. Retrying that writer won't help: make the body change with
+`edit-document` where it can, or tell the user which action refused and on which
+page. When the refusal's `details` name a Notion page (`remotePageId`) or a local
+file (`sourcePath`), that copy already changed; say so. A local-folder sync that
 would link such a page to a file, or a folder disconnect or accepted file
 deletion that would relink it to another folder's file, refuses with
 `LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.
@@ -289,9 +293,13 @@ executing it; if Trash changes after review, create and inspect a new plan.
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.
 
+Pass `quotedText` exactly as the page reads: text from one block, without Markdown syntax such as `**`, backslash escapes, or a link's URL (quote `docs`, not `[docs](https://…)`). `add-comment` refuses a quote the saved page or tab doesn't have (`comment_quote_not_found`), since its thread would have no highlight; drop the Markdown, or quote a shorter run from one block, and retry.
+
 Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass `mentions` in text order: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. One entry covers every `@Name` of one person; when two people share a name, the k-th `@Name` is the k-th entry with that name. `add-comment` and `update-comment` reject a malformed list, or an entry no `@Name` in `content` reaches, with a 400. The app draws each matched name as a pill when it stands alone, followed by a space or punctuation (`@Sam,` matches, `@Samantha` does not); an `@Name` in inline code, a Markdown link, or a URL is not a mention. A name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
 On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
+
+A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to pass: give it a new unique `video-` id with `edit-document`, then comment with that id. `add-comment` refuses the id such a video goes by until then (`comment_block_id_unsaved`), because that id passes to another video when videos with its source are added or reordered. Each video's `id` is its own: when you copy a `<video>` line, give the copy a new unique `video-` id or none. An edit that gives a second video an id the page already uses is refused (`DOCUMENT_VIDEO_ID_SHARED`); a new page isn't checked, since no thread is on it yet. Videos that already share an id show none of its threads, and `add-comment` refuses that id (`comment_block_id_shared`); give the video you mean a new id with `edit-document` first. Never give it a `block_id` from `list-comments`; one no video carries may be a deleted video's, and reusing it moves that thread onto this video. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
 
 ```bash
 # List threads (returns anchor fields + parsed mentions)
@@ -307,6 +315,9 @@ pnpm action add-comment --documentId abc123 --content "@Sam check this" \
 
 # Comment on text in another Blocks field's tab
 pnpm action add-comment --documentId abc123 --fieldId prop456 --content "Tighten this" --quotedText "the opening line"
+
+# Comment on a whole video, by its id attribute in get-document's content
+pnpm action add-comment --documentId abc123 --blockId video-a1b2c3d4 --content "Trim the intro"
 
 # Reply to a thread (threadId is the thread's root comment ID)
 pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --content "Agreed"

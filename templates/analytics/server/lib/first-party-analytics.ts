@@ -1994,7 +1994,8 @@ export async function queryFirstPartyAnalyticsWithBackend(
         throw failure;
       }
     };
-    if (!options.cache) return { ...(await compute()), backend: "postgres" };
+    if (!options.cache)
+      return { ...(await compute()), backend: "postgres", bytesProcessed: 0 };
     await withVerifiedPostgresQuery(
       statement,
       remainingTime(),
@@ -2010,7 +2011,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
       }),
       signal,
     );
-    return { ...result, backend: "postgres" };
+    return { ...result, backend: "postgres", bytesProcessed: 0 };
   } catch (error) {
     throw normalizeFailure(error);
   } finally {

@@ -20,6 +20,9 @@ export const documents = table("documents", {
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
   liveBodySwitchedAt: text("live_body_switched_at"),
+  // Set when someone sent the page back to its legacy writer, so the backfill
+  // leaves it there; a switch to the live copy clears it.
+  liveBodyOptedOutAt: text("live_body_opted_out_at"),
   // `_collab_docs.version` the stored body was last derived from.
   liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
@@ -281,6 +284,13 @@ export const documentComments = table(
      */
     fieldId: text("field_id"),
     fieldName: text("field_name"),
+    /**
+     * The block a thread is about as a whole, such as a video, on its root
+     * comment; such a thread quotes no text. The type names the block after
+     * it is deleted.
+     */
+    blockId: text("block_id"),
+    blockType: text("block_type"),
     mentionsJson: text("mentions_json"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),

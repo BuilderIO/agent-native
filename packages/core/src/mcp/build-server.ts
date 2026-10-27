@@ -1,6 +1,7 @@
 import "../authorization/check-action.js";
 import type {
   CallToolResult,
+  ClientCapabilities,
   InputRequiredResult,
   RequestStateCodec,
   ServerContext,
@@ -89,6 +90,12 @@ import {
   trackMcpToolCall,
   trackMcpToolsList,
 } from "./analytics.js";
+import {
+  mcpApprovalPrompt,
+  mcpApprovalRelativeLinkNote,
+  mcpApprovalReviewUrl,
+} from "./approval-route.js";
+import { mcpApprovalAppId } from "./approval-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
@@ -109,6 +116,7 @@ import {
   type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpApprovalReview,
   canonicalJson,
   isActionVisibleForOAuthScope,
   redactEmbedCredentials,
@@ -298,15 +306,24 @@ export function hasVerifiedMcpUserIdentity(
 }
 
 export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+
+/**
+ * The approval prompt a client that offers both kinds gets. A form answers in
+ * the chat; a URL opens the review page. Both show the summary built from the
+ * stored arguments, and a decline or cancel of either returns the review link.
+ */
+const MCP_APPROVAL_PROMPT_PREFERENCE: "form" | "url" = "form";
 const MCP_DIRECTORY_WIDGET_ARGUMENT = /^[A-Za-z0-9_.-]{1,128}$/;
 
 function mcpApprovalPrincipal(
+  appId: string,
   identity: MCPCallerIdentity | undefined,
   orgId: string | undefined,
   requestMeta: MCPRequestMeta | undefined,
 ): string {
   return canonicalJson({
     caller: "mcp",
+    appId,
     userEmail: identity?.userEmail?.trim().toLowerCase() ?? "",
     orgId: orgId ?? identity?.orgId ?? "",
     orgDomain: identity?.orgDomain?.trim().toLowerCase() ?? "",
@@ -323,9 +340,68 @@ export function actionApprovalError(message: string): CallToolResult {
   };
 }
 
+/** Where a call's approval stands when the review page has to decide it. */
+export type McpApprovalReviewReason = "unprompted" | "declined" | "opened";
+
+function priorRunNote(review: McpApprovalReview): string {
+  if (!review.priorRun) return "";
+  const at = new Date(review.priorRun.at).toISOString();
+  return review.priorRun.status === "completed"
+    ? ` This exact call already ran at ${at}, and approving it runs it again.`
+    : ` This exact call started at ${at} and may have finished; check before running it again.`;
+}
+
+/**
+ * The tool result for a call the review page has to approve: what happened,
+ * the page's link, and how to finish. An error result, so a host neither
+ * renders an empty widget for it nor holds it to the tool's output schema.
+ * Every word is the server's, and none of it approves anything.
+ */
+export async function actionApprovalReviewResult(
+  review: McpApprovalReview,
+  reason: McpApprovalReviewReason,
+  requestMeta: MCPRequestMeta | undefined,
+  ownerEmail: string | undefined,
+): Promise<CallToolResult> {
+  const { actionName: name } = review;
+  const url = mcpApprovalReviewUrl(review.nonce, requestMeta);
+  const relativeLinkNote = URL.canParse(url)
+    ? ""
+    : `\n\n${await mcpApprovalRelativeLinkNote(ownerEmail)}`;
+  const status =
+    reason === "unprompted"
+      ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
+      : reason === "declined"
+        ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
+        : `${name} is waiting for the user's decision on its review page: ${url}`;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          `${status}
+
+After they approve, call ${name} again with exactly the same arguments before ${new Date(review.expiresAt).toISOString()}. It runs once; different arguments need a new approval.` +
+          priorRunNote(review) +
+          relativeLinkNote,
+      },
+    ],
+    isError: true,
+    _meta: {
+      "agent-native/approvalReview": {
+        url,
+        actionName: name,
+        expiresAt: review.expiresAt,
+      },
+    },
+  };
+}
+
 export interface MCPRequestMeta {
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
+  /** Where this mount serves the approval review page; `mcpApprovalRoute()` by default. */
+  approvalRoute?: string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";
   clientName?: string;
@@ -2830,11 +2906,13 @@ export async function createMCPServerForRequest(
   requestMeta?: MCPRequestMeta,
 ) {
   const {
+    CLIENT_CAPABILITIES_META_KEY,
     ResourceNotFoundError,
     Server,
     acceptedContent,
     createRequestStateCodec,
     inputRequired,
+    inputResponse,
   } = await import("@modelcontextprotocol/server");
 
   const ownerFromEnv = getConfiguredMcpOwnerEmail();
@@ -3012,8 +3090,14 @@ export async function createMCPServerForRequest(
     (entry) => entry.needsApproval !== undefined,
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const approvalAppId = mcpApprovalAppId(config);
   const approvalPrincipal = hasApprovalActions
-    ? mcpApprovalPrincipal(effectiveIdentity, approvalOrgId, requestMeta)
+    ? mcpApprovalPrincipal(
+        approvalAppId,
+        effectiveIdentity,
+        approvalOrgId,
+        requestMeta,
+      )
     : undefined;
   const approvalCallerKey = approvalPrincipal
     ? await sha256Base64Url(approvalPrincipal)
@@ -3026,7 +3110,9 @@ export async function createMCPServerForRequest(
         await import("../server/better-auth-instance.js");
       approvalCodec = createRequestStateCodec<McpActionApprovalState>({
         key: getAuthSecret(),
-        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS,
+        // A page decision can grant another full use window near the review
+        // deadline. The store still enforces expiry and one-use consumption.
+        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS * 2,
         bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
       });
     } catch {
@@ -3129,32 +3215,94 @@ export async function createMCPServerForRequest(
 
   const actionCallContext: McpActionCallContext = {
     appId: config.appId,
+    approvalAppId,
     identity: effectiveIdentity,
     approvalCallerKey,
     canRequestApproval:
       !approvalConfigurationError && approvalCodec !== undefined,
   };
 
+  /**
+   * Asks for approval of a new grant in the strongest way the client can
+   * show: a URL prompt opens the review page, a form prompt asks in the
+   * client, and a client with neither gets the page's link to pass on. The
+   * capabilities are the request's own on the 2026 protocol and the
+   * connection's otherwise, as the SDK reads them to allow the prompt.
+   */
   async function requestMcpActionApproval(
     approvalState: McpActionApprovalState,
-    name: string,
+    review: McpApprovalReview,
     ctx: ServerContext,
-  ): Promise<InputRequiredResult> {
-    const requestState = await approvalCodec!.mint(approvalState, ctx);
+  ): Promise<InputRequiredResult | CallToolResult> {
+    const name = approvalState.actionName;
+    // Calls reach approval only when `canRequestApproval` saw a codec.
+    const codec = approvalCodec;
+    if (!codec) {
+      throw new Error(`${name} requires approval, but it is not configured.`);
+    }
+    const envelope = ctx.mcpReq.envelope as
+      | Record<string, ClientCapabilities | undefined>
+      | undefined;
+    const elicitation = (
+      envelope
+        ? envelope[CLIENT_CAPABILITIES_META_KEY]
+        : server.getClientCapabilities()
+    )?.elicitation;
+    // A bare `elicitation: {}` declares form mode.
+    const offersForm =
+      elicitation !== undefined &&
+      (elicitation.form !== undefined || elicitation.url === undefined);
+    const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
+    // The SDK requires an absolute URL for URL elicitation.
+    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
+    const mode =
+      offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
+        ? "url"
+        : offersForm
+          ? "form"
+          : undefined;
+    if (mode === undefined) {
+      return actionApprovalReviewResult(
+        review,
+        "unprompted",
+        requestMeta,
+        effectiveIdentity?.userEmail,
+      );
+    }
+    const prompt = await mcpApprovalPrompt({
+      entry: actions[name],
+      review,
+      ownerEmail: effectiveIdentity?.userEmail,
+      mode,
+      reviewUrl,
+    });
+    if (mode === "url") {
+      const requestState = await codec.mint(
+        { ...approvalState, mode: "url" },
+        ctx,
+      );
+      return inputRequired({
+        inputRequests: {
+          [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicitUrl({
+            message: prompt.message,
+            url: reviewUrl,
+          }),
+        },
+        requestState,
+      });
+    }
+    const requestState = await codec.mint(approvalState, ctx);
     return inputRequired({
       inputRequests: {
         [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({
-          message:
-            `Action "${name}" requires your approval before it can run. ` +
-            "Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+          message: prompt.message,
           requestedSchema: {
             type: "object",
             properties: {
               decision: {
                 type: "string",
-                title: `Run ${name}?`,
-                description:
-                  "Approve runs this exact call once. Deny leaves it unexecuted.",
+                title: prompt.decisionTitle,
+                description: prompt.decisionHelp,
                 enum: ["approve", "deny"],
               },
             },
@@ -3280,6 +3428,14 @@ export async function createMCPServerForRequest(
               Boolean(inputSchema.properties?.app);
             const toolMeta = {
               ...rawToolMeta,
+              ...(Array.isArray(entry.mcpApp?.visibility)
+                ? {
+                    ui: {
+                      ...metadataObject(rawToolMeta.ui),
+                      visibility: entry.mcpApp.visibility,
+                    },
+                  }
+                : {}),
               ...(mcpAppResource && requestMeta?.inlineMcpApps
                 ? {
                     ...openAiToolDescriptorMeta(
@@ -3416,6 +3572,7 @@ export async function createMCPServerForRequest(
     effectiveIdentity,
     actionCallContext,
     acceptedContent,
+    inputResponse,
     requestMcpActionApproval,
   });
 
