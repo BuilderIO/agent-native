@@ -2517,7 +2517,7 @@ async function processBuilderBodyHydrationJob(
         await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
           row.documentId,
         ]);
-        const [document] = await tx
+        const [document = null] = await tx
           .select({ content: schema.documents.content })
           .from(schema.documents)
           .where(eq(schema.documents.id, row.documentId));
@@ -2712,7 +2712,7 @@ async function processBuilderBodyHydrationJob(
     await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
       row.documentId,
     ]);
-    const [document] = await tx
+    const [document = null] = await tx
       .select({ content: schema.documents.content })
       .from(schema.documents)
       .where(eq(schema.documents.id, row.documentId));
@@ -2899,7 +2899,10 @@ function withBodyReadEditConflict(args: {
  * field take them, so the field mappings read afterwards stay current until
  * commit. Take it before the rows' membership locks.
  */
-async function lockSourceCollections(tx: any, sourceIds: string[]) {
+async function lockSourceCollections(
+  tx: ReturnType<typeof getDb>,
+  sourceIds: string[],
+) {
   const sources = await tx
     .select({ databaseId: schema.contentDatabaseSources.databaseId })
     .from(schema.contentDatabaseSources)
@@ -2920,7 +2923,7 @@ async function lockSourceCollections(tx: any, sourceIds: string[]) {
  * rows are written.
  */
 async function materializeBodyReadFieldValues(
-  tx: any,
+  tx: ReturnType<typeof getDb>,
   args: {
     sourceId: string;
     ownerEmail: string;
@@ -6716,7 +6719,7 @@ export async function replaceMockSourceRows(args: {
  * too, as a refresh does for a field.
  */
 async function refreshBuilderPageTitles(
-  tx: any,
+  tx: ReturnType<typeof getDb>,
   args: {
     rows: ReturnType<typeof mockSourceRowsForSeed>;
     previousRows: Map<string, ExistingBuilderSourceRowIdentity>;

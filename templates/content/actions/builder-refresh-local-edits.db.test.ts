@@ -68,60 +68,62 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         { name: "author", type: "string", required: false },
       ];
     }),
-    readBuilderCmsContentEntries: vi.fn(async (args?: any) => {
-      const entries = [...builder.entries].map(([id, entry]) => {
-        if (!args?.includeBodies) return toEntry(id, entry);
-        const { updatedAt, ...withoutUpdateTime } = toEntry(id, entry);
-        const { lastUpdated, ...valuesWithoutUpdateTime } =
-          withoutUpdateTime.sourceValues;
-        const timed = !builder.bodyReadOmitsUpdateTime;
-        return {
-          ...withoutUpdateTime,
-          ...(timed ? { updatedAt } : {}),
-          sourceValues: timed
-            ? withoutUpdateTime.sourceValues
-            : valuesWithoutUpdateTime,
-          rawEntry: {
-            id,
-            model: MODEL,
-            name: entry.title,
-            ...(timed ? { lastUpdated } : {}),
-            data: {
-              title: entry.title,
-              url: `/blog/${id}`,
-              author: entry.author,
-              blocks: [
-                {
-                  "@type": "@builder.io/sdk:Element",
-                  "@version": 2,
-                  id: `text-${id}`,
-                  component: {
-                    name: "Text",
-                    options: { text: `<p>Body ${id}</p>` },
+    readBuilderCmsContentEntries: vi.fn(
+      async (args?: { includeBodies?: boolean }) => {
+        const entries = [...builder.entries].map(([id, entry]) => {
+          if (!args?.includeBodies) return toEntry(id, entry);
+          const { updatedAt, ...withoutUpdateTime } = toEntry(id, entry);
+          const { lastUpdated, ...valuesWithoutUpdateTime } =
+            withoutUpdateTime.sourceValues;
+          const timed = !builder.bodyReadOmitsUpdateTime;
+          return {
+            ...withoutUpdateTime,
+            ...(timed ? { updatedAt } : {}),
+            sourceValues: timed
+              ? withoutUpdateTime.sourceValues
+              : valuesWithoutUpdateTime,
+            rawEntry: {
+              id,
+              model: MODEL,
+              name: entry.title,
+              ...(timed ? { lastUpdated } : {}),
+              data: {
+                title: entry.title,
+                url: `/blog/${id}`,
+                author: entry.author,
+                blocks: [
+                  {
+                    "@type": "@builder.io/sdk:Element",
+                    "@version": 2,
+                    id: `text-${id}`,
+                    component: {
+                      name: "Text",
+                      options: { text: `<p>Body ${id}</p>` },
+                    },
                   },
-                },
-              ],
+                ],
+              },
             },
+          };
+        });
+        return {
+          state: "live",
+          entries,
+          fetchedAt: "2026-10-24T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: entries.length,
+            fetchedEntryCount: entries.length,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
           },
         };
-      });
-      return {
-        state: "live",
-        entries,
-        fetchedAt: "2026-10-24T00:00:00.000Z",
-        message: null,
-        progress: {
-          requestedLimit: 500,
-          pageSize: 100,
-          startOffset: 0,
-          nextOffset: entries.length,
-          fetchedEntryCount: entries.length,
-          hasMore: false,
-          partial: false,
-          readMode: "builder-api",
-        },
-      };
-    }),
+      },
+    ),
     readBuilderCmsContentEntry: vi.fn(async () => null),
     // A live read of an entry whose body Builder emptied.
     readBuilderCmsContentEntryResult: vi.fn(
@@ -262,7 +264,7 @@ async function documentIdFor(entryId: string) {
 }
 
 async function localAuthor(entryId: string) {
-  const [value] = await getDb()
+  const [value = null] = await getDb()
     .select({ valueJson: schema.documentPropertyValues.valueJson })
     .from(schema.documentPropertyValues)
     .where(
