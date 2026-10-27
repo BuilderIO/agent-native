@@ -506,9 +506,19 @@ function dispatchSelfBaseUrl(): string {
 function isTrustedRequestOrigin(value: string): boolean {
   // An embed ticket is fetched from this origin and becomes a bearer token.
   const origin = new URL(value).origin;
-  return [getAppProductionUrl(), resolveAppRuntimeUrl()]
-    .map(normalizeBaseUrl)
-    .some((url) => url !== null && new URL(url).origin === origin);
+  const candidates = [
+    { source: "production", value: getAppProductionUrl() },
+    { source: "runtime", value: resolveAppRuntimeUrl() },
+  ];
+  return candidates.some(({ source, value }) => {
+    if (!value) return false;
+    const url = normalizeBaseUrl(value);
+    if (!url) {
+      console.warn("[dispatch] invalid configured request origin", { source });
+      return false;
+    }
+    return new URL(url).origin === origin;
+  });
 }
 
 function dispatchSelfApp(
@@ -657,6 +667,14 @@ function appMcpBaseUrl(app: DispatchMcpAccessibleApp): string {
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "");
+}
+
+function appChatBaseUrl(app: DispatchMcpAccessibleApp): string {
+  const homeUrl = new URL(appHomeBaseUrl(app));
+  if (homeUrl.pathname !== "/") {
+    return homeUrl.toString().replace(/\/+$/, "");
+  }
+  return appMcpBaseUrl(app);
 }
 
 function resolveGrantedAppEmbedStartUrl(
@@ -1664,7 +1682,7 @@ async function createEmbedSessionForResolvedApp(input: {
   } = {
     startUrl,
     app: target.app.id,
-    appBaseUrl: appHomeBaseUrl(target.app),
+    appBaseUrl: appChatBaseUrl(target.app),
   };
   if (parsed.targetPath) output.targetPath = parsed.targetPath;
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;

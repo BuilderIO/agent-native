@@ -231,7 +231,6 @@ export async function exchangeEmbedStartUrl(
 }
 
 function appPathSegments(pathname: string): string[] | null {
-  if (pathname.includes("%")) return null;
   return pathname.split("/").filter(Boolean);
 }
 

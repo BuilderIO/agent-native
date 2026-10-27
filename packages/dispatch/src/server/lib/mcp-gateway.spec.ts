@@ -1492,6 +1492,34 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
+  it("logs an invalid production origin while accepting a trusted runtime origin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubEnv("APP_URL", "not-a-url");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://runtime.example/dispatch");
+    vi.stubEnv("APP_BASE_PATH", "");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://runtime.example",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "dispatch",
+          path: "/extensions/ext-1/github-stars-over-time",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://runtime.example/_agent-native/embed/start?ticket=ticket-123",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[dispatch] invalid configured request origin",
+      { source: "production" },
+    );
+  });
+
   it("keeps workspace sign-in behind the rollout flag", async () => {
     mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
@@ -1871,6 +1899,69 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
                 }),
         ),
       ).rejects.toThrow(/invalid embed start URL/);
+    },
+  );
+
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "retains the Workspace gateway path for discovered-only app chats through %s",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io/dispatch",
+      );
+      vi.stubEnv("APP_BASE_PATH", "");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      mocks.listWorkspaceApps.mockResolvedValue([]);
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: "customer-ticket-triage",
+          name: "Customer Ticket Triage",
+          description: "Triage customer tickets",
+          url: "https://beta.agent-workspace.builder.io",
+          color: "#14B8A6",
+        },
+      ]);
+      mocks.managerCallTool.mockResolvedValue({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+                "customer-ticket-triage",
+              )
+            : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+                "customer-ticket-triage",
+              ),
+      );
+
+      expect(result).toEqual({
+        startUrl:
+          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        appBaseUrl: "https://beta.agent-workspace.builder.io/dispatch",
+      });
     },
   );
 

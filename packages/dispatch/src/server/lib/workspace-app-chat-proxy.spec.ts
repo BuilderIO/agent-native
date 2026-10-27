@@ -275,6 +275,30 @@ describe("workspace app chat proxy", () => {
     );
   });
 
+  it("allows an encoded app mount when the redirect preserves that mount", async () => {
+    const appId = "customer-ticket-triage";
+    const appBaseUrl = `${WORKSPACE_ORIGIN}/dispatch/apps/customer%20ticket-triage`;
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
+      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      appBaseUrl,
+    });
+    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
+      redirectLocation: (token) =>
+        `/dispatch/apps/customer%20ticket-triage/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
+    });
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const chatCall = fetchImpl.mock.calls[1];
+    expect(chatCall[0]).toBe(`${appBaseUrl}/_agent-native/agent-chat`);
+  });
+
   it("does not send an embed token to a cross-origin exchange redirect", async () => {
     const fetchImpl = stubFetch(
       () => new Response("unexpected", { status: 200 }),
