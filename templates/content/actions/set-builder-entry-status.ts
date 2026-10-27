@@ -52,6 +52,11 @@ export default defineAction({
         "Builder source ID; required only when the page belongs to more than one Builder source",
       ),
   }),
+  outputSchema: z.object({
+    documentId: z.string(),
+    sourceId: z.string(),
+    stagedPublicationTransition: z.enum(["publish", "unpublish"]).nullable(),
+  }),
   // Staging never calls Builder; execute-builder-source-execution sends the
   // push. It replaces or clears a staged publish or unpublish, so destructive.
   mcpAnnotations: {
