@@ -26,6 +26,12 @@ export const GITHUB_SOURCE_STALE_MS = 60_000;
 const READ_SYNC_BUDGET_MS = 3_000;
 /** One link's share of a background sync, which has 90 seconds in all. */
 const SWEEP_SYNC_BUDGET_MS = 20_000;
+/**
+ * The share of a link partway through a push, like a big folder's first fill.
+ * It stops before the next background sync starts a minute later, so that one
+ * finds the link free and carries the push on.
+ */
+const SWEEP_PUSH_BUDGET_MS = 50_000;
 /** Links the background sync checks at once. */
 const SWEEP_CONCURRENCY = 4;
 /** The background sync skips links a read or another sync checked this recently. */
@@ -65,19 +71,58 @@ function checkedWithin(lastRefreshedAt: string | null, ms: number) {
   return Number.isFinite(at) && Date.now() - at < ms;
 }
 
-function linkState(link: GitHubLink) {
+function linkState(metadataJson: string | undefined) {
   let metadata: unknown;
   try {
-    metadata = JSON.parse(link.metadataJson);
+    metadata = JSON.parse(metadataJson ?? "");
   } catch {
-    // coercion-ok: a link whose metadata can't be read has no one to read GitHub as, so the sweep passes it by.
+    // coercion-ok: a link whose metadata can't be read has no state; the sweep passes it by.
     return null;
   }
   return readGitHubSourceState(metadata);
 }
 
 function linkedBy(link: GitHubLink): string | null {
-  return linkState(link)?.linkedBy || null;
+  return linkState(link.metadataJson)?.linkedBy || null;
+}
+
+/** What the collection's status line shows about a link, as one comparable string. */
+function statusShown(metadataJson: string | undefined) {
+  const state = linkState(metadataJson);
+  return JSON.stringify([
+    state?.syncedCommitSha ?? null,
+    state?.pendingCommitSha ?? null,
+    state?.progress?.done ?? null,
+    state?.progress?.total ?? null,
+    state?.problem?.code ?? null,
+    state?.skippedCount ?? 0,
+    state?.skipped.map((file) => `${file.reason}:${file.path}`) ?? [],
+    state?.imagesWaiting ?? 0,
+    state?.imagesFailed ?? false,
+    state?.storageReady ?? false,
+  ]);
+}
+
+/**
+ * Reads what a link's status line shows now. Compare a reading from before a
+ * sync with one from after to learn whether the sync changed it, like a new
+ * problem or a few more files done.
+ */
+export async function readGitHubStatusShown(sourceId: string) {
+  const [source] = await getDb()
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId))
+    .limit(1);
+  return statusShown(source?.metadataJson);
+}
+
+/** Whether a sync changed what the status line shows, like a new problem. */
+async function statusChanged(link: GitHubLink) {
+  return (
+    statusShown(link.metadataJson) !==
+    (await readGitHubStatusShown(link.sourceId))
+  );
 }
 
 export function githubSyncChangedRows(result: GitHubSyncResult) {
@@ -85,30 +130,40 @@ export function githubSyncChangedRows(result: GitHubSyncResult) {
 }
 
 /**
- * Tells everyone who can read the collection that a sync nobody asked for
- * changed its rows. It is the event the sync action sends, so open pages,
- * tables, page lists and Trash update in place.
+ * Tells everyone who can read the collection that its rows or status changed.
+ * It is the event the sync action sends, so open pages, tables, page lists,
+ * Trash and the status line update in place. An action whose sync failed
+ * sends it too, since a failed action sends no change event of its own.
  */
-function announceSync(
-  link: GitHubLink,
+export function announceGitHubSyncChange(
+  databaseDocumentId: string,
   owner: string | null,
-  result: GitHubSyncResult,
 ) {
-  if (!githubSyncChangedRows(result)) return;
   recordChange({
     source: "action",
     type: "change",
     key: "sync-github-folder",
     ...(owner ? { owner } : {}),
-    ...documentChangeResource(link.databaseDocumentId),
+    ...documentChangeResource(databaseDocumentId),
   });
+}
+
+/** For a sync nobody asked for that changed rows or the status line. */
+async function announceSync(
+  link: GitHubLink,
+  owner: string | null,
+  result: GitHubSyncResult,
+) {
+  if (result.state === "busy") return;
+  if (!githubSyncChangedRows(result) && !(await statusChanged(link))) return;
+  announceGitHubSyncChange(link.databaseDocumentId, owner);
 }
 
 async function syncBeforeRead(link: GitHubLink | undefined) {
   if (!link || checkedWithin(link.lastRefreshedAt, GITHUB_SOURCE_STALE_MS)) {
     return false;
   }
-  const state = linkState(link);
+  const state = linkState(link.metadataJson);
   if (
     state?.pendingCommitSha &&
     checkedWithin(state.checkedAt, PUSH_LEFT_TO_SWEEP_MS)
@@ -116,8 +171,9 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
     return false;
   }
   const until = Date.now() + READ_SYNC_BUDGET_MS;
+  let result: GitHubSyncResult;
   try {
-    const result = await syncGitHubSource({
+    result = await syncGitHubSource({
       sourceId: link.sourceId,
       budgetMs: READ_SYNC_BUDGET_MS,
     });
@@ -129,8 +185,6 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
       if (!result.commitSha) await waitForGitHubSync(link.sourceId, until);
       return true;
     }
-    announceSync(link, linkedBy(link), result);
-    return githubSyncChangedRows(result);
   } catch (error) {
     // coercion-ok: the read goes on with the rows Content has; the next read or background sync tries GitHub again.
     console.warn(
@@ -139,6 +193,15 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
     );
     return false;
   }
+  // The rows changed either way, so the read rereads them even when telling
+  // open pages fails.
+  await announceSync(link, linkedBy(link), result).catch((error: unknown) => {
+    console.warn(
+      "[github-source] change event failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  return githubSyncChangedRows(result);
 }
 
 /**
@@ -219,10 +282,25 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
       asc(sql`coalesce(${schema.contentDatabaseSources.lastRefreshedAt}, '')`),
     )
     .limit(SWEEP_MAX_LINKS);
+  // A link partway through a push goes after the rest, so a big folder's
+  // first fill doesn't hold up a push to a small one. Those links take turns
+  // by when a run last moved their push, oldest first. The query's order
+  // can't do that: a run partway through isn't a check, so it leaves
+  // lastRefreshedAt as it was, and the same link would go first every time.
+  const carrying = new Set(
+    due
+      .map((link) => ({ link, state: linkState(link.metadataJson) }))
+      .filter(({ state }) => state?.pendingCommitSha)
+      .sort((a, b) =>
+        (a.state?.checkedAt ?? "").localeCompare(b.state?.checkedAt ?? ""),
+      )
+      .map(({ link }) => link),
+  );
+  const order = [...due.filter((link) => !carrying.has(link)), ...carrying];
   let next = 0;
   const worker = async () => {
-    while (next < due.length) {
-      const link = due[next++]!;
+    while (next < order.length) {
+      const link = order[next++]!;
       const remaining = context.deadlineAt - Date.now();
       if (context.signal?.aborted || remaining < 2_000) return;
       const owner = linkedBy(link);
@@ -233,11 +311,16 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
           () =>
             syncGitHubSource({
               sourceId: link.sourceId,
-              budgetMs: Math.min(SWEEP_SYNC_BUDGET_MS, remaining - 1_000),
+              budgetMs: Math.min(
+                carrying.has(link)
+                  ? SWEEP_PUSH_BUDGET_MS
+                  : SWEEP_SYNC_BUDGET_MS,
+                remaining - 1_000,
+              ),
               signal: context.signal,
             }),
         );
-        announceSync(link, owner, result);
+        await announceSync(link, owner, result);
       } catch (error) {
         // coercion-ok: one link's failure is recorded on that link by the sync; the rest still run.
         console.warn(
@@ -248,6 +331,6 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
     }
   };
   await Promise.all(
-    Array.from({ length: Math.min(SWEEP_CONCURRENCY, due.length) }, worker),
+    Array.from({ length: Math.min(SWEEP_CONCURRENCY, order.length) }, worker),
   );
 }

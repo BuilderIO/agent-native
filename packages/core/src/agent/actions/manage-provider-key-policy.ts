@@ -93,6 +93,11 @@ export default defineAction({
   },
   // Only real changes (and refused ones) are recorded, below.
   audit: { enabled: false },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx): Promise<ProviderKeyPolicyStatus> => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     const orgId = ctx?.orgId?.trim();
@@ -138,7 +143,7 @@ export default defineAction({
       return {
         ...policy,
         canManage,
-        affectedMembers: await listPersonalProviderKeyHolders(orgId),
+        affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
         changed,
       };
     }
@@ -148,7 +153,9 @@ export default defineAction({
       ...policy,
       canManage,
       ...(canManage
-        ? { affectedMembers: await listPersonalProviderKeyHolders(orgId) }
+        ? {
+            affectedMembers: await listPersonalProviderKeyHolders(orgId, email),
+          }
         : {}),
     };
   },

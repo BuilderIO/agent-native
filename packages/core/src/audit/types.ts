@@ -7,8 +7,23 @@ export type AuditActorKind = "agent" | "human" | "service" | "system";
  * person's approval in agent chat. `a2a-review` records the owner's approval
  * of a paused A2A call on its review page. `mcp-client-accepted` records an
  * accepted MCP elicitation response; the server cannot verify who responded.
+ * `mcp-review` records the owner's approval of an MCP call on its review page,
+ * signed in as the user the call ran for.
+ * `cli-prompt` records a yes at the `pnpm action` terminal prompt, as the CLI
+ * reports it; the server never sees the prompt. `cli-flag` records a
+ * `pnpm action` call rerun with `--approved`, which whoever ran the command
+ * added. Nothing checks that a person approved either one.
  */
-export type AuditApproval = "agent-chat" | "a2a-review" | "mcp-client-accepted";
+export type AuditApproval =
+  | "agent-chat"
+  | "a2a-review"
+  | "mcp-client-accepted"
+  | "mcp-review"
+  | "cli-prompt"
+  | "cli-flag";
+
+/** Verified identity provenance for a request authenticated through A2A. */
+export type AuditIdentityAssurance = "user" | "organization" | "org-member";
 
 /**
  * Who can read an event besides its owner.
@@ -91,6 +106,8 @@ export interface AuditEvent {
    * not verify who responded. Rows written before the column existed are null.
    */
   approval?: AuditApproval | null;
+  /** Verified identity provenance; null on older rows or non-A2A calls. */
+  identityAssurance?: AuditIdentityAssurance | null;
 }
 
 export interface AuditQueryFilters {

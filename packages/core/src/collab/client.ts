@@ -12,10 +12,15 @@ import {
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
+import { registerBeforeSignOutCleanup } from "../client/use-session.js";
 import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import {
+  forgetAwarenessClientSequence,
+  postAwarenessState,
+} from "./awareness-post.js";
 import { dedupeCollabUsersByEmail, type CollabUser } from "./types.js";
 export {
   dedupeCollabUsersByEmail,
@@ -212,14 +217,7 @@ function scheduleAwarenessPush(
   const timer = setTimeout(() => {
     _awarenessThrottleTimers.delete(key);
     const state = getState();
-    fetch(`${baseUrl}/${docId}/awareness`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId,
-        state: state ? JSON.stringify(state) : null,
-      }),
-    }).catch(() => {});
+    void postAwarenessState(baseUrl, docId, clientId, state).catch(() => {});
   }, 150);
 
   _awarenessThrottleTimers.set(key, timer);
@@ -307,6 +305,7 @@ class CollabDocConnection {
   constructor(
     readonly docId: string,
     private readonly baseUrl: string,
+    private actorIdentity: string,
     readonly detached = false,
   ) {
     this.ydoc = new Y.Doc();
@@ -326,7 +325,7 @@ class CollabDocConnection {
   }
 
   private get registryKey(): string {
-    return collabRegistryKey(this.docId, this.baseUrl);
+    return collabRegistryKey(this.docId, this.baseUrl, this.actorIdentity);
   }
 
   private get retiredUpdatesKey(): string | null {
@@ -334,6 +333,30 @@ class CollabDocConnection {
     return email
       ? `${this.registryKey}\0${email}\0${this.requestSource ?? ""}`
       : null;
+  }
+
+  bindActorIdentity(actorIdentity: string): boolean {
+    const identity = actorIdentity.trim().toLowerCase();
+    if (!identity || identity === this.actorIdentity) return Boolean(identity);
+    const currentUserIdentity = this.lastSetUser?.email.trim().toLowerCase();
+    if (
+      this.actorIdentity ||
+      (currentUserIdentity && currentUserIdentity !== identity)
+    ) {
+      return false;
+    }
+    const nextKey = collabRegistryKey(this.docId, this.baseUrl, identity);
+    const existing = collabConnectionRegistry.get(nextKey);
+    if (existing && existing !== this && !existing.disposed) return false;
+    if (
+      !this.detached &&
+      collabConnectionRegistry.get(this.registryKey) === this
+    ) {
+      collabConnectionRegistry.delete(this.registryKey);
+    }
+    this.actorIdentity = identity;
+    if (!this.detached) collabConnectionRegistry.set(nextKey, this);
+    return true;
   }
 
   add(id: symbol, sub: CollabDocSubscription): void {
@@ -413,10 +436,59 @@ class CollabDocConnection {
     }
     this.awareness.off("change", this.handleAwarenessChange);
     cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (this.awareness.getLocalState()) {
+      void postAwarenessState(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        null,
+        true,
+      )
+        .catch(() => {})
+        .finally(() => {
+          forgetAwarenessClientSequence(
+            this.baseUrl,
+            this.docId,
+            this.ydoc.clientID,
+          );
+        });
+    } else {
+      forgetAwarenessClientSequence(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+      );
+    }
     this.awareness.destroy();
     this.ydoc.destroy();
     if (collabConnectionRegistry.get(this.registryKey) === this) {
       collabConnectionRegistry.delete(this.registryKey);
+    }
+  }
+
+  async clearPresenceBeforeSignOut(): Promise<void> {
+    if (this.disposed) return;
+    this.stopSync();
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+    if (!this.awareness.getLocalState()) return;
+    this.awareness.setLocalState(null);
+    try {
+      const response = await postAwarenessState(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+        null,
+        true,
+      );
+      if (!response.ok) {
+        throw new Error(`Awareness clear returned HTTP ${response.status}`);
+      }
+    } finally {
+      forgetAwarenessClientSequence(
+        this.baseUrl,
+        this.docId,
+        this.ydoc.clientID,
+      );
     }
   }
 
@@ -461,6 +533,7 @@ class CollabDocConnection {
 
   setUser(user: CollabUser): void {
     if (this.disposed) return;
+    if (!this.bindActorIdentity(user.email)) return;
     const prev = this.lastSetUser;
     if (prev && prev.email !== user.email) {
       if (this.pendingUpdates.length && this.retiredUpdatesKey) {
@@ -1181,16 +1254,11 @@ class CollabDocConnection {
       const localState = this.awareness.getLocalState();
       if (localState && this.isPollCurrent(generation)) {
         try {
-          const awarenessRes = await fetch(
-            `${this.baseUrl}/${this.docId}/awareness`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                clientId: this.ydoc.clientID,
-                state: JSON.stringify(localState),
-              }),
-            },
+          const awarenessRes = await postAwarenessState(
+            this.baseUrl,
+            this.docId,
+            this.ydoc.clientID,
+            localState,
           );
           if (!this.isPollCurrent(generation)) return;
           if (awarenessRes.ok) {
@@ -1253,15 +1321,13 @@ class CollabDocConnection {
     this.awareness.setLocalStateField("visible", visible);
     const localState = this.awareness.getLocalState();
     if (!localState) return;
-    fetch(`${this.baseUrl}/${this.docId}/awareness`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clientId: this.ydoc.clientID,
-        state: JSON.stringify(localState),
-      }),
-      keepalive: true,
-    }).catch(() => {});
+    void postAwarenessState(
+      this.baseUrl,
+      this.docId,
+      this.ydoc.clientID,
+      localState,
+      true,
+    ).catch(() => {});
   }
 
   private handleVisibilityChange = (): void => {
@@ -1322,18 +1388,48 @@ const collabConnectionRegistry = new Map<string, CollabDocConnection>();
 // outbox if offline reload recovery becomes supported. No retired retry loop.
 const retiredCollabUpdates = new Map<string, Uint8Array[]>();
 
-function collabRegistryKey(docId: string, baseUrl: string): string {
-  return `${baseUrl}\0${docId}`;
+registerBeforeSignOutCleanup(async () => {
+  const results = await Promise.allSettled(
+    Array.from(new Set(collabConnectionRegistry.values()), (connection) =>
+      connection.clearPresenceBeforeSignOut(),
+    ),
+  );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length) {
+    throw new AggregateError(
+      failures,
+      "Some collaboration presence could not be cleared before sign-out",
+    );
+  }
+});
+
+function collabRegistryKey(
+  docId: string,
+  baseUrl: string,
+  actorIdentity: string,
+): string {
+  return `${baseUrl}\0${docId}\0${actorIdentity}`;
 }
 
 function getOrCreateCollabConnection(
   docId: string,
   baseUrl: string,
+  actorIdentity: string,
 ): CollabDocConnection {
-  const key = collabRegistryKey(docId, baseUrl);
+  const key = collabRegistryKey(docId, baseUrl, actorIdentity);
   let conn = collabConnectionRegistry.get(key);
+  if (!conn && actorIdentity) {
+    const anonymousKey = collabRegistryKey(docId, baseUrl, "");
+    const anonymous = collabConnectionRegistry.get(anonymousKey);
+    if (anonymous && !anonymous.disposed) {
+      anonymous.bindActorIdentity(actorIdentity);
+      conn = collabConnectionRegistry.get(key);
+    }
+  }
   if (!conn || conn.disposed) {
-    conn = new CollabDocConnection(docId, baseUrl);
+    conn = new CollabDocConnection(docId, baseUrl, actorIdentity);
     collabConnectionRegistry.set(key, conn);
   }
   return conn;
@@ -1383,17 +1479,27 @@ export function useCollaborativeDoc(
     }
     return { ...user, avatarUrl: storedAvatarUrl };
   }, [storedAvatarUrl, user]);
+  const actorIdentity = resolvedUser?.email.trim().toLowerCase() ?? "";
+  const [hasSeenAuthenticatedActor, setHasSeenAuthenticatedActor] = useState(
+    () => Boolean(actorIdentity),
+  );
+  if (actorIdentity && !hasSeenAuthenticatedActor) {
+    setHasSeenAuthenticatedActor(true);
+  }
+  const signedOutAfterAuthentication =
+    !actorIdentity && hasSeenAuthenticatedActor;
 
   const [generation, setGeneration] = useState(0);
 
   const conn = useMemo(() => {
     void generation;
-    if (!docId) return null;
+    if (!docId || signedOutAfterAuthentication) return null;
     if (typeof window === "undefined") {
-      return new CollabDocConnection(docId, baseUrl, true);
+      return new CollabDocConnection(docId, baseUrl, actorIdentity, true);
     }
-    return getOrCreateCollabConnection(docId, baseUrl);
-  }, [docId, baseUrl, generation]);
+    return getOrCreateCollabConnection(docId, baseUrl, actorIdentity);
+  }, [docId, baseUrl, actorIdentity, generation, signedOutAfterAuthentication]);
+  const previousActorConnection = useRef({ actorIdentity, conn });
 
   const [snapshot, setSnapshot] = useState<CollabDocSnapshot>(() =>
     conn ? conn.snapshot : EMPTY_SNAPSHOT,
@@ -1430,6 +1536,19 @@ export function useCollaborativeDoc(
     if (!conn || conn.detached || !resolvedUser) return;
     conn.setUser(resolvedUser);
   }, [conn, resolvedUser]);
+
+  useEffect(() => {
+    const previous = previousActorConnection.current;
+    if (previous.actorIdentity && !actorIdentity) {
+      void previous.conn?.clearPresenceBeforeSignOut().catch((error) => {
+        console.error(
+          "Unable to clear collaboration presence on sign-out",
+          error,
+        );
+      });
+    }
+    previousActorConnection.current = { actorIdentity, conn };
+  }, [actorIdentity, conn]);
 
   return {
     ydoc: conn && snapshot.initialization.status === "ready" ? conn.ydoc : null,

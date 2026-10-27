@@ -196,6 +196,7 @@ export function ThreadSuggestionBody({
   const pending = suggestions.filter(
     (suggestion) => suggestion.status === "pending",
   );
+  const undecided = pending.length === suggestions.length;
   // Edits that all ended the same way say so once, under the last of them.
   const sharedStatus =
     suggestions.length > 1 &&
@@ -237,7 +238,7 @@ export function ThreadSuggestionBody({
             }}
             data-suggestion-proposal-decision="accepted"
           >
-            {t("comments.acceptRemaining")}
+            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
           </Button>
           <Button
             type="button"
@@ -251,7 +252,7 @@ export function ThreadSuggestionBody({
             }}
             data-suggestion-proposal-decision="rejected"
           >
-            {t("comments.rejectRemaining")}
+            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
           </Button>
         </div>
       ) : null}

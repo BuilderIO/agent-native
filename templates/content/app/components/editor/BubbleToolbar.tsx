@@ -16,6 +16,7 @@ import {
   PluginKey,
   type EditorState,
 } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -38,7 +39,6 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
@@ -211,10 +211,7 @@ function BubbleActionButton({ item }: { item: ToolbarAction }) {
 
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
-  return editor.chain().command(({ tr }) => {
-    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-    return true;
-  });
+  return editor.chain();
 }
 
 export function setSelectionNotionSpanAttribute(
@@ -253,7 +250,6 @@ export function setSelectionNotionSpanAttribute(
   });
 
   if (!transaction.docChanged) return false;
-  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return true;
@@ -275,6 +271,9 @@ function selectionIncludesBubbleToolbarExcludedNode(
   from: number,
   to: number,
 ) {
+  // Selected cells are a rectangle, not the text between from and to: that
+  // range also crosses the cells beside them.
+  if (state.selection instanceof CellSelection) return true;
   if (
     state.selection instanceof NodeSelection &&
     BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
@@ -324,9 +323,10 @@ function useCommentFromSelection(
       editor.state.selection.from,
       editor.state.selection.to,
     );
-    const text = editor.state.doc.textBetween(from, to, " ");
-    if (!text.trim()) return false;
+    // The quote is the anchor's text, which runs blocks together: a selection
+    // across a paragraph break is highlighted and found again in that form.
     const anchor = captureAnchor(editor.state.doc, from, to);
+    if (!anchor.quotedText.trim()) return false;
     const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
@@ -338,7 +338,7 @@ function useCommentFromSelection(
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
+    onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 }
@@ -712,15 +712,35 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       );
     };
 
+    // A click into the unfocused editor focuses it before placing its caret.
+    // Drawing the old selection's fill then redraws the editor, which writes
+    // that selection back over the click; the click's own selection update
+    // draws the fill instead.
+    let pressing = false;
+    const startPress = () => {
+      pressing = true;
+    };
+    const endPress = () => {
+      pressing = false;
+    };
+    const syncAfterFocus = () => {
+      if (!pressing) syncSelectionFill();
+    };
+    const editorDom = editor.view.dom;
+
     editor.on("selectionUpdate", syncSelectionFill);
-    editor.on("focus", syncSelectionFill);
+    editor.on("focus", syncAfterFocus);
     editor.on("blur", syncSelectionFill);
+    editorDom.addEventListener("mousedown", startPress, true);
+    window.addEventListener("mouseup", endPress, true);
     syncSelectionFill();
 
     return () => {
       editor.off("selectionUpdate", syncSelectionFill);
-      editor.off("focus", syncSelectionFill);
+      editor.off("focus", syncAfterFocus);
       editor.off("blur", syncSelectionFill);
+      editorDom.removeEventListener("mousedown", startPress, true);
+      window.removeEventListener("mouseup", endPress, true);
       editor.unregisterPlugin(selectionFillPluginKey);
     };
   }, [editor, openLinkInput]);

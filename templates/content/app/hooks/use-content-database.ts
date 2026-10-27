@@ -13,6 +13,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseRowMutationResult,
   ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
@@ -58,6 +59,8 @@ import type {
   ValidateBuilderSourceExecutionRequest,
   DocumentPropertyRelationTarget,
 } from "@shared/api";
+import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
+import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -255,6 +258,29 @@ export function contentDatabaseItemsContainingDocumentFilter(
   };
 }
 
+/**
+ * Collection reads whose row for a page shows its page text. The server skips
+ * a first paragraph that repeats the title, so a rename can change that text.
+ */
+export function contentDatabaseExcerptContainingDocumentFilter(
+  documentId: string,
+) {
+  return {
+    queryKey: ["action", "get-content-database"],
+    predicate: (query: Query) => {
+      const data = query.state.data as
+        | Partial<ContentDatabaseResponse>
+        | undefined;
+      return (
+        data?.items?.some(
+          (item) =>
+            item.document.id === documentId && item.excerpt !== undefined,
+        ) === true
+      );
+    },
+  };
+}
+
 export function invalidateContentDatabaseNavigationQueries(
   queryClient: Pick<QueryClient, "invalidateQueries">,
   scope: { databaseId?: string; parentId?: string | null } = {},
@@ -290,8 +316,9 @@ export function contentDatabaseNavigationQueryFilter(
 export function writeContentDatabaseResponseToCache(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
-  data: ContentDatabaseResponse,
+  response: ContentDatabaseResponse | ContentDatabaseResponsePayload,
 ) {
+  const data = hydrateContentDatabaseResponse(response);
   if (!data.pagination) {
     queryClient.setQueryData<ContentDatabaseResponse>(
       contentDatabaseQueryKey(documentId),
@@ -504,6 +531,20 @@ export function isContentDatabaseUnavailable(
   );
 }
 
+/**
+ * Unpaged reads (row menus, pickers) leave out page text, so one can't stand
+ * in for the List's read of a collection whose List view shows it.
+ */
+function canSeedContentDatabaseRead(
+  data: ContentDatabaseResponse | undefined,
+): data is ContentDatabaseResponse {
+  if (!data || isContentDatabaseUnavailable(data)) return false;
+  return (
+    !contentDatabaseViewsShowPageText(data.database?.viewConfig?.views ?? []) ||
+    data.items.every((item) => item.excerpt !== undefined)
+  );
+}
+
 export function readCachedContentDatabaseResponse(
   queryClient: Pick<QueryClient, "getQueryData" | "getQueriesData">,
   documentId: string,
@@ -511,13 +552,13 @@ export function readCachedContentDatabaseResponse(
   const exact = queryClient.getQueryData<ContentDatabaseResponse>(
     contentDatabaseQueryKey(documentId),
   );
-  if (exact && !isContentDatabaseUnavailable(exact)) return exact;
+  if (canSeedContentDatabaseRead(exact)) return exact;
 
   const cached = queryClient
     .getQueriesData<ContentDatabaseResponse>(
       contentDatabaseQueryFilter(documentId),
     )
-    .find(([, data]) => data && !isContentDatabaseUnavailable(data));
+    .find(([, data]) => canSeedContentDatabaseRead(data));
   return cached?.[1];
 }
 
@@ -881,39 +922,39 @@ export function useCreateContentDatabase(
   options?: { skipListDocumentsInvalidation?: boolean },
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, CreateDatabaseRequest>(
-    "create-content-database",
-    {
-      skipActionQueryInvalidation: true,
-      onSuccess: (data, variables) => {
-        if (documentId) {
-          void queryClient.invalidateQueries(documentQueryFilter(documentId));
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseQueryKey(documentId),
-          });
-        }
-        void queryClient.invalidateQueries(
-          documentQueryFilter(data.database.documentId),
-        );
-        if (!options?.skipListDocumentsInvalidation) {
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "list-documents"],
-          });
-        }
-        const parentId = variables.parentId ?? null;
-        invalidateContentQueries(queryClient, [
-          ...contentPlacementTargets(queryClient, {
-            documentIds: [data.database.documentId],
-            parentIds: [parentId],
-            databaseId: parentId
-              ? undefined
-              : contentSpaceFilesDatabaseId(queryClient, variables.spaceId),
-          }),
-          ["action", "list-content-databases"],
-        ]);
-      },
+  return useActionMutation<
+    ContentDatabaseResponsePayload,
+    CreateDatabaseRequest
+  >("create-content-database", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data, variables) => {
+      if (documentId) {
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
+          queryKey: contentDatabaseQueryKey(documentId),
+        });
+      }
+      void queryClient.invalidateQueries(
+        documentQueryFilter(data.database.documentId),
+      );
+      if (!options?.skipListDocumentsInvalidation) {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+      }
+      const parentId = variables.parentId ?? null;
+      invalidateContentQueries(queryClient, [
+        ...contentPlacementTargets(queryClient, {
+          documentIds: [data.database.documentId],
+          parentIds: [parentId],
+          databaseId: parentId
+            ? undefined
+            : contentSpaceFilesDatabaseId(queryClient, variables.spaceId),
+        }),
+        ["action", "list-content-databases"],
+      ]);
     },
-  );
+  });
 }
 
 export function contentDatabaseCreationRequest(args: {
@@ -1113,7 +1154,7 @@ export function useSubmitContentDatabaseForm(documentId: string) {
 
 export function useDuplicateDatabaseItem(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     DuplicateDatabaseItemRequest
   >("duplicate-database-item", {
     invalidates: (data) =>
@@ -1123,7 +1164,7 @@ export function useDuplicateDatabaseItem(documentId: string) {
 
 export function useDuplicateDatabaseItems(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     DatabaseItemsBatchRequest
   >("duplicate-database-items", {
     invalidates: (data) =>
@@ -1133,7 +1174,7 @@ export function useDuplicateDatabaseItems(documentId: string) {
 
 export function useRemoveDatabaseItems(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     DatabaseItemsBatchRequest
   >("remove-database-items", {
     invalidates: (data, variables) => {
@@ -1157,78 +1198,78 @@ export function useRemoveDatabaseItems(documentId: string) {
 
 export function useMoveDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
-    "move-database-item",
-    {
-      skipActionQueryInvalidation: true,
-      onMutate: async (variables) => {
-        await queryClient.cancelQueries({
-          queryKey: ["action", "get-content-database"],
-        });
-        const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
-          queryKey: ["action", "get-content-database"],
-        });
-        if (variables.itemId) {
-          queryClient.setQueriesData<ContentDatabaseResponse>(
-            { queryKey: ["action", "get-content-database"] },
-            (current) => {
-              if (
-                variables.databaseId &&
-                current?.database.id !== variables.databaseId
-              ) {
-                return current;
-              }
-              return moveOptimisticContentDatabaseItem(
-                current,
-                variables.itemId!,
-                variables.position,
-              );
-            },
-          );
-        }
-        return { previous };
-      },
-      onError: (_error, _variables, context) => {
-        const rollback = context as
-          | {
-              previous?: Array<
-                [readonly unknown[], ContentDatabaseResponse | undefined]
-              >;
+  return useActionMutation<
+    ContentDatabaseResponsePayload,
+    MoveDatabaseItemRequest
+  >("move-database-item", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
+        queryKey: ["action", "get-content-database"],
+      });
+      if (variables.itemId) {
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          { queryKey: ["action", "get-content-database"] },
+          (current) => {
+            if (
+              variables.databaseId &&
+              current?.database.id !== variables.databaseId
+            ) {
+              return current;
             }
-          | undefined;
-        for (const [queryKey, data] of rollback?.previous ?? []) {
-          queryClient.setQueryData(queryKey, data);
-        }
-      },
-      onSuccess: (data) => {
-        writeContentDatabaseResponseToCache(queryClient, documentId, data);
-        queryClient.setQueryData(
-          contentDatabaseByIdQueryKey(data.database.id),
-          data,
+            return moveOptimisticContentDatabaseItem(
+              current,
+              variables.itemId!,
+              variables.position,
+            );
+          },
         );
-      },
-      onSettled: (_data, _error, variables) => {
-        void queryClient.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(documentId),
-        });
-        if (variables.databaseId) {
-          void queryClient.invalidateQueries({
-            queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
-          });
-        }
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        invalidateContentDatabaseNavigationQueries(queryClient, {
-          databaseId: variables.databaseId,
-        });
-      },
+      }
+      return { previous };
     },
-  );
+    onError: (_error, _variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<
+              [readonly unknown[], ContentDatabaseResponse | undefined]
+            >;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      queryClient.setQueryData(
+        contentDatabaseByIdQueryKey(data.database.id),
+        data,
+      );
+    },
+    onSettled: (_data, _error, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      if (variables.databaseId) {
+        void queryClient.invalidateQueries({
+          queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
+        });
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: variables.databaseId,
+      });
+    },
+  });
 }
 
 export type ContentDatabaseViewSaveResponse =
-  | ContentDatabaseResponse
+  | ContentDatabaseResponsePayload
   | {
       receipt: {
         revisions: {
@@ -1572,7 +1613,8 @@ export function writeBuilderAttachPreviewToCache(
   queryClient.setQueriesData<ContentDatabaseResponse>(
     contentDatabaseQueryFilter(documentId),
     (current) => {
-      const base = current ?? fallbackData ?? preview.base;
+      const base =
+        current ?? fallbackData ?? hydrateContentDatabaseResponse(preview.base);
       return base
         ? {
             ...base,
@@ -1596,7 +1638,7 @@ export function writeBuilderAttachPreviewToCache(
 
 export function useChangeContentDatabaseSourceRole(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     ChangeContentDatabaseSourceRoleRequest
   >("change-content-database-source-role", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1671,7 +1713,7 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
 export function useMaterializeBuilderRequiredFields(documentId: string) {
   const queryClient = useQueryClient();
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     { documentId: string; sourceId: string }
   >("materialize-builder-required-fields", {
     onSuccess: (data) =>
@@ -1837,7 +1879,9 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    // A GitHub refresh that fails stores the problem on the source first, so
+    // the status line rereads after a failure too.
+    onSettled: () => {
       invalidateContentDatabaseSourceRefreshQueries(queryClient, documentId);
     },
   });
@@ -1918,7 +1962,7 @@ export function invalidateBuilderBodyHydrationQueries(
 
 export function useDisconnectContentDatabaseSource(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     DisconnectContentDatabaseSourceRequest
   >("disconnect-content-database-source", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1927,7 +1971,7 @@ export function useDisconnectContentDatabaseSource(documentId: string) {
 
 export function useStageBuilderRevision(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     StageBuilderRevisionRequest
   >("stage-builder-revision", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1936,7 +1980,7 @@ export function useStageBuilderRevision(documentId: string) {
 
 export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     ReviewContentDatabaseSourceChangeSetRequest
   >("review-content-database-source-change-set", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1945,7 +1989,7 @@ export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
 
 export function usePrepareBuilderSourceExecution(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     PrepareBuilderSourceExecutionRequest
   >("prepare-builder-source-execution", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1963,7 +2007,7 @@ export function useCancelPreparedBuilderSourceUpdate(documentId: string) {
 
 export function useValidateBuilderSourceExecution(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     ValidateBuilderSourceExecutionRequest
   >("validate-builder-source-execution", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1972,7 +2016,7 @@ export function useValidateBuilderSourceExecution(documentId: string) {
 
 export function useExecuteBuilderSourceExecution(documentId: string) {
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
     invalidates: contentDatabaseSourceTargets(documentId),
@@ -1991,7 +2035,7 @@ export function useExecuteBuilderSourceBatch(documentId: string) {
 export function useSetContentDatabaseSourceWriteMode(documentId: string) {
   const queryClient = useQueryClient();
   return useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
     onSuccess: (data) =>

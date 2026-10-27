@@ -46,7 +46,11 @@ import {
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
-import { startIntervalJob } from "../server/interval-job.js";
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
@@ -155,6 +159,10 @@ let _inflightEventAutomationScan: {
   scan: Promise<Resource[]>;
 } | null = null;
 let _triggerQueueWorkerStarted = false;
+let _triggerQueueWorker: IntervalJobHandle | null = null;
+// When true, in-process drains finish their current claim then stop taking
+// more work so stopTriggerQueueWorker cannot hang on a large backlog.
+let _triggerQueueStopping = false;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
 let _triggerQueueResumeAt = 0;
@@ -330,6 +338,7 @@ export async function initTriggerDispatcher(
 ): Promise<void> {
   _deps = deps;
   resetTriggerQueueWorkerBackoff();
+  _triggerQueueStopping = false;
   // Init runs in an un-awaited Nitro plugin, so on a serverless request
   // function any query here outlives the response and the frozen instance
   // thaws into a timeout. Automations load on the first emitted event instead.
@@ -351,7 +360,7 @@ function startTriggerQueueWorker(): void {
     return;
   }
   _triggerQueueWorkerStarted = true;
-  startIntervalJob(
+  _triggerQueueWorker = startIntervalJob(
     async (signal) => {
       const deps = _deps;
       if (!deps || signal.aborted) return;
@@ -365,11 +374,25 @@ function startTriggerQueueWorker(): void {
         console.error("[triggers] Event queue recovery scan failed:", error),
     },
   );
+  registerBackgroundJobStop(stopTriggerQueueWorker);
+}
+
+export async function stopTriggerQueueWorker(): Promise<void> {
+  // Stays set until initTriggerDispatcher runs again: other jobs may still be
+  // stopping, and an event that lands meanwhile must not start a new drain.
+  _triggerQueueStopping = true;
+  const worker = _triggerQueueWorker;
+  _triggerQueueWorker = null;
+  _triggerQueueWorkerStarted = false;
+  if (worker) await worker.stop();
+  const drains = [..._drainingTriggers.values()];
+  if (drains.length > 0) await Promise.allSettled(drains);
 }
 
 async function drainReadyTriggerQueue(
   context?: RecurringSweepContext,
 ): Promise<void> {
+  if (_triggerQueueStopping) return;
   if (_triggerQueueResumeAt > Date.now()) return;
   const deps = _deps;
   if (!deps) return;
@@ -975,6 +998,7 @@ function startTriggerDrain(
   const existing = _drainingTriggers.get(triggerId);
   if (existing)
     return options?.skipExisting ? Promise.resolve(false) : existing;
+  if (_triggerQueueStopping) return Promise.resolve(false);
   let localStaleExpiredCount = 0;
   const onStaleEventExpired =
     options?.onStaleEventExpired ?? (() => (localStaleExpiredCount += 1));
@@ -1026,6 +1050,7 @@ async function drainTriggerQueue(
     (queueQueryTimeoutMs !== undefined &&
       Date.now() + queueQueryTimeoutMs < deadline);
   while (processedEvents < maxEvents) {
+    if (_triggerQueueStopping) return processedEvents > 0;
     if (
       deadline !== undefined &&
       Date.now() +
@@ -1552,6 +1577,23 @@ async function dispatchAgentic(
   if (!jobBelongsToApp(latestTrigger.meta, _deps.appId)) {
     console.log(
       `[triggers] "${resource.path}" belongs to a different app; dropping the event.`,
+    );
+    return true;
+  }
+  // Only schedule and manual ticks reach a runner; an event would hand its
+  // placeholder body to the agent loop as a prompt.
+  if (latestTrigger.meta.runner) {
+    await recordTriggerExecutionOutcome(
+      latest,
+      { lastCheck: now.toISOString() },
+      {
+        failure: {
+          code: CONFIG_INVALID_ERROR_CODE,
+          message: `Job runner "${latestTrigger.meta.runner}" runs on a schedule or manually, not from events or webhooks.`,
+          precondition: true,
+        },
+        pauseImmediately: true,
+      },
     );
     return true;
   }

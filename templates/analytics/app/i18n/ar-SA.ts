@@ -1352,13 +1352,23 @@ export default {
     drilldownHideSql: "إخفاء SQL",
     drilldownDownloadCsv: "تنزيل CSV",
     drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownShowingLoaded:
+      "عرض {{shown}} من {{loaded}} سجل تم تحميلها؛ العدد الإجمالي غير معروف.",
+    drilldownCsvTruncatedUnknownTotal:
+      "اكتمال التصدير غير معروف؛ يتضمن هذا الملف {{exported}} من أصل {{loaded}} سجلًا محمّلًا بعد التصفية.",
     drilldownCsvTruncated:
       "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
     drilldownAggregateOnly:
       "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
     drilldownNoRecords: "لا توجد سجلات مطابقة",
+    drilldownNoRecordsIncomplete:
+      "لم يتم تحميل أي سجلات. النتيجة غير مكتملة، لذا قد تكون هناك سجلات مطابقة.",
+    drilldownNoLoadedMatches:
+      "لا توجد سجلات محمّلة مطابقة، لكن قد تتضمن النتيجة الكاملة سجلات لم يتم تحميلها.",
     drilldownLoadFailed: "تعذّر تحميل السجلات",
+    drilldownOverByteCap:
+      "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
@@ -1425,12 +1435,26 @@ export default {
     columnFormatCurrency: "عملة",
     columnFormatPercent: "نسبة مئوية",
     columnFormatDate: "تاريخ",
+    columnFormatDuration: "المدة (بالثواني)",
     columnRename: "إعادة تسمية العمود",
     columnHide: "إخفاء العمود",
     columnShow: 'إظهار "{{name}}"',
     columnShowHidden: "إظهار الأعمدة المخفية",
     columnName: "اسم العمود",
     columnResize: "تغيير حجم العمود",
+    metricComparisonVs: "مقارنةً مع {{period}}",
+    metricComparisonPreviousPeriod: "الفترة السابقة",
+    metricComparisonNoChange: "بلا تغيير",
+    metricComparisonPoints: "{{value}} نقطة",
+    metricComparisonUp: "ارتفاع بمقدار {{change}} عن {{previous}}، {{period}}",
+    metricComparisonDown:
+      "انخفاض بمقدار {{change}} عن {{previous}}، {{period}}",
+    metricComparisonFlat: "بلا تغيير عن {{previous}}، {{period}}",
+    metricComparisonBetter: "{{comparison}} (أفضل)",
+    metricComparisonWorse: "{{comparison}} (أسوأ)",
+    calloutSeverityCritical: "حرج",
+    calloutSeverityWarning: "تحذير",
+    calloutSeverityInfo: "معلومات",
     rowBreakdownBy: "التقسيم حسب",
     rowBreakdownAll: "الكل",
     rowBreakdownOther: "أخرى",
@@ -1690,6 +1714,10 @@ export default {
     catalogOpenSessions: "عرض الجلسات التي تتضمن {{event}}",
     catalogAutomatic: "تلقائي",
     catalogStoppedFiring: "توقّف الإرسال",
+    catalogMadeIt: "إنشاء",
+    catalogUsedIt: "استخدام",
+    catalogNoUsedIt:
+      "لا يمكن لـ «أنشأه ولم يستخدمه» فحص مخرجات {{apps}} لعدم تعريف حدث «استخدام».",
     catalogPropertyKeys: "مفاتيح الخصائص",
     catalogMoreKeys: "+{{count}} أخرى",
     catalogTruncated: "يتم عرض أحدث {{count}} حدث ظهورًا فقط.",
@@ -1703,6 +1731,29 @@ export default {
     speedCoverageStarting: "تُقاس السرعة لمشاهدات الصفحات من الآن فصاعدًا.",
     speedFilterNeedsLab:
       "يحتوي هذا الرابط على عامل تصفية للسرعة. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    unusedOutputs: "أنشأه ولم يستخدمه",
+    anyOutcome: "أي جلسة",
+    unusedSlidesDecks: "عروض Slides غير المستخدمة",
+    unusedSlidesRule:
+      "العروض التي أُنشئت قبل {{days}} أيام على الأقل ولم تُقدَّم بعد الشريحة الأولى لمدة {{seconds}} ث أو أكثر، ولم تُصدَّر، خلال {{days}} أيام. فتح العرض لا يُحتسب.",
+    unusedFilterNeedsLab:
+      "يحتوي هذا الرابط على عامل تصفية «أنشأه ولم يستخدمه». فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    outputCoverageSince:
+      "تُتتبّع المخرجات منذ {{date}}؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    outputCoverageStarting:
+      "تُتتبّع المخرجات من الآن فصاعدًا؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    openDeck: "فتح العرض",
+    moreOutputs: "+{{count}} أخرى",
+    deckCount: "{{count}} عروض",
+    deckCountSingular: "{{count}} عرض",
+    deckMadeOn: "أُنشئ العرض في {{date}}",
+    outputPresentedOn: "قُدِّم في {{date}}",
+    outputExportedOn: "صُدِّر في {{date}}",
+    outputUsedOn: "استُخدم في {{date}}",
+    outputUnused: "لم يُستخدم خلال {{days}} أيام",
+    outputOpen: "لم يُستخدم بعد؛ يُحتسب غير مستخدم بعد {{date}}",
+    outputUnmeasured: "غير مقيس: تعذّر حفظ بعض الأحداث",
+    outputsUnavailable: "تعذّر تحميل المخرجات.",
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
     speedIncomplete: "بيانات السرعة غير مكتملة",

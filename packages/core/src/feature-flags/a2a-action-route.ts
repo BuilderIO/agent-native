@@ -55,6 +55,7 @@ export function createFeatureFlagA2AActionRouteAuth(
         owner: claims.email,
         orgId,
         anonymous: false,
+        identityAssurance: claims.identityAssurance,
         delegationJti: claims.jti,
         delegationIssuer: claims.issuer,
       };

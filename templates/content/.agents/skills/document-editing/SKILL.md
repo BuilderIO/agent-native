@@ -155,6 +155,47 @@ literally empty, pass non-whitespace `initializeContent` instead of `find` or `e
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
 
+Some pages take body writes through their live copy, the copy open tabs edit.
+Only pages Content owns outright take it: a page linked to a local file,
+Notion, GitHub or Builder, a shared copy of a local file, and a row of a
+collection someone made stay on the legacy writer. Every page is also a row of
+its space's Files collection, which doesn't count. `edit-document` writes those
+bodies, and so does `set-document-property` for a primary Blocks field, which
+is the page's body. Other writers, such as `update-document --content`, a
+collection block stored in the body, row migrations, and Notion or Builder
+syncs, refuse with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in
+Content. Retrying that writer won't help: make the body change with
+`edit-document` where it can, or tell the user which action refused and on which
+page. When the refusal's `details` name a Notion page (`remotePageId`) or a local
+file (`sourcePath`), that copy already changed; say so. A local-folder sync that
+would link such a page to a file, or a folder disconnect or accepted file
+deletion that would relink it to another folder's file, refuses with
+`LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.
+`import-content-source` lists that file in its `errors` and imports the rest.
+You can't switch the page back, so tell the user which page and file it was.
+`LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
+flight; read the page again and retry.
+Before a version restore, a move to another space, or a `pull-document`, the
+open editors of such a page that can save a title alone are asked to save it;
+its body is already in the live copy. `OPEN_EDITOR_TITLE_NOT_SAVED` (409,
+`retryable: true`) means one of them didn't confirm that save or couldn't make
+it. The restore, move or pull didn't go ahead, and titles the editors saved
+stay saved: retry, and if it refuses again, tell the user the open
+editor of page `details.documentId` didn't save its title. A move to another
+space refuses with `PAGE_TITLE_CHANGED` (409, `retryable: true`) when a page's
+title changed after its editors saved it; nothing moved, so retry. A page
+deleted while its editors saved the title refuses with `DOCUMENT_NOT_FOUND`.
+When editors were asked, a restore or move result's `titleFlush`, or a pull
+result's `editorFlush.titleFlush`, lists each page's editors. One with
+`flush: "unconfirmed"` couldn't be asked, so a title it hadn't saved yet may be
+missing; tell the user.
+
+A page in Trash refuses edits with `DOCUMENT_NOT_FOUND`, the same way
+`get-document` refuses to read it, including a page moved to Trash while the
+edit commits. Restore it before editing. A local-folder sync
+(`import-content-source`) leaves a page in Trash unchanged and lists it in
+`skipped`.
+
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
@@ -166,6 +207,10 @@ pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text
 pnpm action update-document --id abc123 --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
+
+A page in Trash refuses `update-document` (except a favorite toggle),
+`restore-document-version` and a Blocks value set with `set-document-property`,
+with `DOCUMENT_NOT_FOUND`, like `edit-document`.
 
 ### Suggested edits
 
@@ -248,9 +293,13 @@ executing it; if Trash changes after review, create and inspect a new plan.
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.
 
+Pass `quotedText` exactly as the page reads: text from one block, without Markdown syntax such as `**`, backslash escapes, or a link's URL (quote `docs`, not `[docs](https://…)`). `add-comment` refuses a quote the saved page or tab doesn't have (`comment_quote_not_found`), since its thread would have no highlight; drop the Markdown, or quote a shorter run from one block, and retry.
+
 Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass `mentions` in text order: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. One entry covers every `@Name` of one person; when two people share a name, the k-th `@Name` is the k-th entry with that name. `add-comment` and `update-comment` reject a malformed list, or an entry no `@Name` in `content` reaches, with a 400. The app draws each matched name as a pill when it stands alone, followed by a space or punctuation (`@Sam,` matches, `@Samantha` does not); an `@Name` in inline code, a Markdown link, or a URL is not a mention. A name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
 On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
+
+A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to pass: give it a new unique `video-` id with `edit-document`, then comment with that id. `add-comment` refuses the id such a video goes by until then (`comment_block_id_unsaved`), because that id passes to another video when videos with its source are added or reordered. Each video's `id` is its own: when you copy a `<video>` line, give the copy a new unique `video-` id or none. An edit that gives a second video an id the page already uses is refused (`DOCUMENT_VIDEO_ID_SHARED`); a new page isn't checked, since no thread is on it yet. Videos that already share an id show none of its threads, and `add-comment` refuses that id (`comment_block_id_shared`); give the video you mean a new id with `edit-document` first. Never give it a `block_id` from `list-comments`; one no video carries may be a deleted video's, and reusing it moves that thread onto this video. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
 
 ```bash
 # List threads (returns anchor fields + parsed mentions)
@@ -267,6 +316,9 @@ pnpm action add-comment --documentId abc123 --content "@Sam check this" \
 # Comment on text in another Blocks field's tab
 pnpm action add-comment --documentId abc123 --fieldId prop456 --content "Tighten this" --quotedText "the opening line"
 
+# Comment on a whole video, by its id attribute in get-document's content
+pnpm action add-comment --documentId abc123 --blockId video-a1b2c3d4 --content "Trim the intro"
+
 # Reply to a thread (threadId is the thread's root comment ID)
 pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --content "Agreed"
 
@@ -278,6 +330,27 @@ pnpm action update-comment --id c123 --resolved false
 `--authorName` sets the comment's display name; it defaults to a name derived from the author's email.
 
 A new comment emails the document owner, earlier authors in the thread, and anyone mentioned, unless they turned those emails off. An edit that mentions someone new emails only that person. The current user's own switch is `get-content-notification-prefs` and `update-content-notification-prefs --emailNotifications=false`, the same one Settings shows on Notifications. Share invites always send.
+
+### Webhooks
+
+A webhook sends a signed POST to a public HTTPS URL, with no username or password in it, when something changes on a collection's rows (`--databaseId`) or on one page (`--documentId`). Events are `property.changed` (one per changed property, with old and new value; select options also carry `oldLabel`/`newLabel`), `comment.created`, and `comment.resolved`. `--propertyIds` limits `property.changed` to those properties. Managing webhooks takes admin access to the collection or page, and a person approves each registration, every time.
+
+```bash
+pnpm action create-content-webhook --databaseId db123 --url https://example.com/hook \
+  --events '["property.changed","comment.created"]' --propertyIds '["prop456"]'
+pnpm action list-content-webhooks --databaseId db123   # recent deliveries, never the secret
+pnpm action delete-content-webhook --id wh_abc
+```
+
+`create-content-webhook` returns the signing secret once. Requests follow Standard Webhooks: `webhook-id` is the event ID, `webhook-timestamp` is Unix seconds, and `webhook-signature` is `v1,` + base64 HMAC-SHA256 of `{id}.{timestamp}.{body}`, keyed with the base64-decoded secret after `whsec_`. The body is `{ id, type, occurredAt, webhookId, sequence, documentId, databaseId, actor: { kind: "human" | "agent", email }, data }`. Any 2xx acknowledges. Text values over 16,000 characters and comments over 2,000 are cut short, with `data.truncated: true`; read the page for the rest. Delivery is at least once: a failure is retried for about 28 hours with the same `webhook-id` and body, so receivers dedupe on it; for one property on one page, a larger `sequence` is the later change. Events can arrive out of order, for example when one is retried, so compare `sequence` rather than trusting arrival order. A URL whose host is or resolves to a private, internal, or Tailnet (100.64.0.0/10) address is refused, at registration and again before each send, and events stop if the webhook's creator loses admin access. While the page or collection a webhook watches, or the row an event came from, is in Trash, its events wait, and they go out if it's restored; its webhooks can still be listed and removed meanwhile, but a new one needs it out of Trash. Permanently deleting the page or collection a webhook watches removes the webhook and its secret within about a minute. After a webhook is removed, a request that was already on its way can still arrive. A collection's webhook sends nothing from a row whose page its creator can't open. `property.changed` comes from edits to a value, including clearing it. Changes that remove values without editing them send nothing: deleting a property, a type change that clears its values, and deleting rows or pages. Imports, source syncs, row creation, duplication, row migrations, Blocks fields, Notion comment sync, and reopening a thread don't send events yet either. A receiver that mirrors a collection should re-read it from time to time rather than rely on events alone.
+
+### Property generations
+
+Every property on a page has a generation that goes up each time its value changes, including a change that returns to an earlier value (A → B → A). `get-document` and each `get-content-database` item return `propertyGenerations: { [propertyId]: number }`, empty properties included. Blocks fields, computed fields and the Files view's Parent and Source fields aren't stored values, so they have no generation or change ID. `set-document-property` returns the generation its write produced as `generation`, and `property.changed` events carry it in `data.generation`. Its `properties` are read just after the write, with their own `propertyGenerations` and `propertyChangeIds` from the same read, so a write that landed in between shows there. Row receipts from `update-database-item` and `patch-database-items` carry `readback.propertyGenerations` and `readback.propertyChangeIds` for every property on the row after the write, cleared ones included; a patch receipt's `propertyValues` still lists only the properties it patched. Compare generations for equality only, since they come from one shared counter. Deleting a value outright, for example by a type change that clears a field, moves that property's generation too; the page's other properties keep theirs.
+
+To act on a value only while it is still the one you read, pass it back: `set-document-property --expectedGeneration`, or `expectedPropertyGenerations: { [propertyId]: number }` on `update-database-item` and on each `patch-database-items` row. If any named value has changed since, nothing is written and the call fails with `PROPERTY_GENERATION_CONFLICT` (409), listing `{ propertyId, expected, current }`. Reread and decide again. `expectedRowRevision` can't catch this case, because it hashes values. Blocks fields use their own revision instead. Name only properties listed in `propertyGenerations`: a row write that names any other property, one the collection doesn't have or a field with no generation, writes nothing and fails with `PROPERTY_NOT_GUARDABLE` (400), listing its `propertyIds`.
+
+To act once per change, key on the change ID, not the generation. `get-document` and each `get-content-database` item return `propertyChangeIds: { [propertyId]: number | null }`, read from the same row as each value. `set-document-property` returns its write's `changeId`, row receipts carry `readback.propertyChangeIds`, and `property.changed` events carry `data.changeId`, so a poller and a webhook receiver see the same ID for the same change. It changes only when that property's value is written anew, and it's `null` when the property has no stored value. While a value is stored, its change ID equals its generation; an empty property has no change ID but still has a generation, so guard writes with `propertyGenerations`.
 
 ### refresh-list
 
@@ -391,26 +464,26 @@ missing page or list documents to find the right id. Never retry the same id
 or invent a similar-looking one — fabricated ids cannot resolve, and repeated
 failures stop the run.
 
-| User request              | What to do                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
-| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| User request              | What to do                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)                                               |
+| "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`                         |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"`                                   |
 | "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
-| User says                    | What to do                                                                          |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
-| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
-| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
-| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| User says                    | What to do                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen`   |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                                |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                                    |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"`           |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`                        |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
-| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
-| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
-| "Show me the document tree"  | `list-documents`                                                                    |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.
 

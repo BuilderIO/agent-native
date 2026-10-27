@@ -3,13 +3,34 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- The agent keeps going after a slide edit that would change nothing, instead of stopping the run with an error.
+- The agent retries a slide edit whose text it could not find instead of stopping the run with an error.
+
+## 2026-10-21
+
+### Fixed
+
+- Deleting a deck through an agent requires approval for each deletion.
+
 ## 2026-10-20
+
+### Improved
+
+- Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
 
 ### Fixed
 
 - Slides handles chat attachments more reliably, including documents with unclear filenames and image links.
 
 ## 2026-10-19
+
+### Added
+
+- Speaker notes panel under the slide canvas, with Generate notes and agent quick picks from the toolbar
 
 ### Improved
 
@@ -33,6 +54,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Deck lists use the shared ownership filter, and visibility badges use localized labels.
 - Contextual toolbar: the second row now changes with what is selected (text, shape, image, video, multi-select), and every state ends with an Edit with Agent button with quick picks.
 - The top bar shows a deck's privacy next to its name, Share has People and Agents tabs, and Present opens a menu to start in this tab, full screen, or Presenter View.
 

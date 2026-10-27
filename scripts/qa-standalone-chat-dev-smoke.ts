@@ -1179,7 +1179,8 @@ async function waitForChatPage(
         timeoutMs: 60_000,
       });
       const chat = page.locator("section.agentkit-chat");
-      const modelButton = page.locator(
+      const composerFooter = chat.locator(".agentkit-chat-footer");
+      const modelButton = composerFooter.locator(
         '[data-agent-composer-slot="model-button"]',
       );
       await chat.waitFor({ state: "visible", timeout: 15_000 });
@@ -1321,16 +1322,18 @@ async function waitForStableChatSurface(
 
 async function waitForComposerControls(page: Page): Promise<void> {
   const timeout = isCi ? 120_000 : 30_000;
+  const composerFooter = page.locator(
+    "section.agentkit-chat .agentkit-chat-footer",
+  );
   for (const slot of [
     "editor-input",
     "toolbar",
     "plus-button",
     "model-button",
-    "mode-button",
     "voice-button",
     "send-button",
   ]) {
-    await page
+    await composerFooter
       .locator(`[data-agent-composer-slot="${slot}"]`)
       .waitFor({ state: "visible", timeout });
   }
@@ -1353,7 +1356,7 @@ async function waitForAuthenticatedShell(
     timeout: shellTimeoutMs,
   });
   const newChatButton = page.getByRole("button", {
-    name: "New Chat",
+    name: "New chat",
     exact: true,
   });
   await newChatButton.waitFor({ state: "visible", timeout: shellTimeoutMs });
@@ -1377,7 +1380,7 @@ const helloPrompt =
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
 const approvedContinuationPrompt =
-  "Approved. Go ahead and run the requested action.";
+  "The approved action has run. Do not repeat it; use its result in your reply.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1392,6 +1395,8 @@ const suggestionPrompt =
   "Summarize the accepted AgentKit release in one sentence.";
 const incompleteRetryPrompt =
   "Fail this stream once, then recover cleanly when I retry.";
+const frameworkContinuationPromptPrefix =
+  "Continue from where you left off and finish the user's original request.";
 const helloToolCallId = "call_agentkit_hello";
 const followUpCompletionPromptPrefix =
   "The final reply above has already been delivered.";
@@ -1616,7 +1621,13 @@ async function handleLoopbackCompletion(
   const tools = Array.isArray(body.tools)
     ? body.tools.map((item) => jsonRecord(item))
     : [];
-  const userMessages = messages.filter((item) => item.role === "user");
+  // A run that fails after streaming text resumes with framework continuation
+  // messages; route those to the user prompt that started the run.
+  const userMessages = messages.filter(
+    (item) =>
+      item.role === "user" &&
+      !contentText(item.content).startsWith(frameworkContinuationPromptPrefix),
+  );
   const prompt = originalUserPrompt(
     contentText(userMessages.at(-1)?.content),
     approvalPrompt,
@@ -2271,7 +2282,6 @@ async function assertViewportContract(
         controlGeometry: [
           "plus-button",
           "model-button",
-          "mode-button",
           "voice-button",
           "send-button",
           "stop-button",
@@ -2330,22 +2340,20 @@ async function assertViewportContract(
     metrics.footerBottom <= metrics.viewportHeight + 1,
     `${label}: composer footer must remain inside the viewport`,
   );
-  // While a run is active and the composer is empty, Stop takes Send's place.
-  const visibleControls = metrics.controlGeometry
-    .filter((control) => control.visible)
-    .map((control) =>
-      control.slot === "stop-button" ? "send-button" : control.slot,
-    )
-    .sort();
+  // While a run is active and the composer is empty, Stop takes Send's place;
+  // a draft brings Send back beside it.
+  const visibleControls = [
+    ...new Set(
+      metrics.controlGeometry
+        .filter((control) => control.visible)
+        .map((control) =>
+          control.slot === "stop-button" ? "send-button" : control.slot,
+        ),
+    ),
+  ].sort();
   assert.deepEqual(
     visibleControls,
-    [
-      "mode-button",
-      "model-button",
-      "plus-button",
-      "send-button",
-      "voice-button",
-    ],
+    ["model-button", "plus-button", "send-button", "voice-button"],
     `${label}: every composer control must remain reachable (${JSON.stringify({ controls: metrics.controlGeometry, layout: metrics.layoutGeometry })})`,
   );
   if (options.dark) {
@@ -2429,7 +2437,7 @@ async function assertActivitiesCollapsed(
   if (count === 0) return;
   assert.equal(
     await activities.evaluateAll((items) =>
-      items.some((item) => (item as HTMLDetailsElement).open),
+      items.some((item) => item.getAttribute("data-open") === "true"),
     ),
     false,
     "completed activity rollups must stay collapsed while widgets are visible",
@@ -2576,26 +2584,20 @@ async function screenshotActionContext(
     "assistant",
     `${text} must remain attached to an assistant reply`,
   );
+  // A finished reply's work row sits on the reply's own footer line.
   const activity = await message.evaluate((element) => {
-    const transcript = element.closest(".agentkit-transcript");
-    if (!transcript) return null;
-    const preceding = Array.from(
-      transcript.querySelectorAll<HTMLElement>(".agentkit-activities"),
-    ).filter(
-      (candidate) =>
-        candidate.compareDocumentPosition(element) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+    const row = element.querySelector<HTMLElement>(
+      ".agentkit-message-work-host .agentkit-activities",
     );
-    const last = preceding.at(-1);
-    const summary = last?.querySelector("summary");
-    return summary
+    const summary = row?.querySelector(".agentkit-activities-summary");
+    return row && summary
       ? {
           text: summary.textContent ?? "",
-          open: (last as HTMLDetailsElement).open,
+          open: row.getAttribute("data-open") === "true",
         }
       : null;
   });
-  assert.ok(activity, `${text} must have a preceding activity row`);
+  assert.ok(activity, `${text} must have a work row on its reply's footer`);
   assert.match(activity.text, expectedSummary);
   assert.equal(activity.open, false, `${text} activity row must be collapsed`);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -2616,7 +2618,9 @@ async function assertAgentKitChatAcceptance(
 
   await chat.waitFor({ state: "visible" });
   assert.equal(await chat.getAttribute("data-empty"), "true");
-  assert.equal(await page.locator(".agentkit-chat-header").count(), 0);
+  // The header row is reserved from the empty state on, so the first send
+  // does not push the transcript down; it carries no title until then.
+  assert.equal(await page.locator(".agentkit-chat-title").count(), 0);
   await transcript.waitFor({ state: "visible" });
   await footer.waitFor({ state: "visible" });
   await composer.waitFor({ state: "visible" });
@@ -2724,7 +2728,9 @@ async function assertAgentKitChatAcceptance(
         activitySummaries: Array.from(
           document.querySelectorAll(".agentkit-activities"),
         ).map((activity) => ({
-          summary: activity.querySelector("summary")?.textContent ?? "",
+          summary:
+            activity.querySelector(".agentkit-activities-summary")
+              ?.textContent ?? "",
           running: activity.getAttribute("data-running"),
         })),
         transcriptTail:
@@ -2804,13 +2810,19 @@ async function assertAgentKitChatAcceptance(
     await waitForChatText(page, "Loopback complete");
     await waitForChatText(page, helloPrompt);
     await waitForChatText(page, "Hello, AgentKit Browser!");
+    // An unclosed bold run streams in already formatted rather than waiting
+    // for its closing delimiter; the rest of the reply is still held.
+    await page
+      .locator(".agentkit-message-content strong")
+      .filter({ hasText: "Hello, AgentKit Browser!" })
+      .waitFor({ state: "visible" });
     assert.equal(
       await page
-        .locator(".agentkit-message-content strong")
-        .filter({ hasText: "Hello, AgentKit Browser!" })
+        .locator(".agentkit-message-content")
+        .filter({ hasText: "streamed through AgentKit" })
         .count(),
       0,
-      "partial markdown must render without prematurely completing bold syntax",
+      "the partial markdown state must render before the held chunk arrives",
     );
   } finally {
     provider.releaseFinalResponse?.();
@@ -2837,14 +2849,23 @@ async function assertAgentKitChatAcceptance(
   });
   await suggestion.waitFor({ state: "visible" });
   await assertComposerFocused(page);
-  const helloActivity = page.locator(".agentkit-activities-summary").first();
+  // Once the reply finishes, its work row moves onto the reply's footer line.
+  const helloActivity = restoredHelloReplies
+    .first()
+    .locator(".agentkit-message-work-host .agentkit-activities-summary");
   await helloActivity.waitFor({ state: "visible" });
   assert.match(
     ((await helloActivity.textContent()) ?? "").trim(),
     /^Worked(?: for .+)?$/u,
     "completed activity must transition from Working to Worked",
   );
+  assert.equal(
+    await helloActivity.getAttribute("aria-expanded"),
+    "false",
+    "a finished work row must start collapsed",
+  );
   await helloActivity.click();
+  assert.equal(await helloActivity.getAttribute("aria-expanded"), "true");
   const helloLabel = page
     .locator(".agentkit-activity-label")
     .filter({ hasText: /^Hello$/u });
@@ -2875,6 +2896,7 @@ async function assertAgentKitChatAcceptance(
     path: path.join(repoRoot, ".tmp", "agentkit-activity-row-alignment.png"),
   });
   await helloActivity.click();
+  assert.equal(await helloActivity.getAttribute("aria-expanded"), "false");
   await waitForLoopbackState(
     "the real hello action result",
     () => provider.helloActionResults.length === 1,
@@ -2901,7 +2923,7 @@ async function assertAgentKitChatAcceptance(
   );
   await helloMessage.hover();
   await helloMessage
-    .getByRole("button", { name: "Helpful", exact: true })
+    .getByRole("button", { name: "Good response", exact: true })
     .click();
   await waitForLoopbackState(
     "persisted thumbs-up feedback",
@@ -2948,10 +2970,13 @@ async function assertAgentKitChatAcceptance(
   );
   await assertComposerFocused(page);
 
-  await helloMessage.getByRole("button", { name: "Message actions" }).click();
-  await page
-    .getByRole("menu")
-    .getByRole("menuitem", { name: "Fork conversation" })
+  // More actions swaps the footer's primary controls for Fork and the rest.
+  await helloMessage.hover();
+  await helloMessage
+    .getByRole("button", { name: "More actions", exact: true })
+    .click();
+  await helloMessage
+    .getByRole("button", { name: "Fork from here", exact: true })
     .click();
   await Promise.race([
     page.waitForURL(
@@ -2991,6 +3016,31 @@ async function assertAgentKitChatAcceptance(
     .locator(".agentkit-message-content strong")
     .filter({ hasText: "Hello, AgentKit Browser!" })
     .waitFor({ state: "visible" });
+  await page.waitForFunction(() =>
+    Array.from(
+      document.querySelectorAll('.agentkit-message[data-role="assistant"]'),
+    ).some(
+      (message) =>
+        message.textContent?.includes("Second response") &&
+        message.getAttribute("aria-busy") === "false",
+    ),
+  );
+  await page
+    .locator('[data-agent-composer-slot="stop-button"]')
+    .waitFor({ state: "hidden" });
+  await waitForLoopbackState(
+    "terminal thread snapshot refresh after the second markdown response",
+    () =>
+      !Array.from(network.inFlightRequests).some((request) => {
+        const url = new URL(request.url());
+        return (
+          request.method() === "GET" &&
+          url.origin === new URL(page.url()).origin &&
+          url.pathname ===
+            `/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}`
+        );
+      }),
+  );
 
   await setDarkMode(page, true);
   await assertViewportContract(page, "desktop dark conversation", {
@@ -3034,12 +3084,8 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   const pendingActivity = page.locator(".agentkit-activities").last();
-  if (
-    await pendingActivity.evaluate(
-      (element) => (element as HTMLDetailsElement).open,
-    )
-  ) {
-    await pendingActivity.locator("summary").click();
+  if ((await pendingActivity.getAttribute("data-open")) === "true") {
+    await pendingActivity.locator(".agentkit-activities-summary").click();
   }
   await approval.scrollIntoViewIfNeeded();
   await page.screenshot({
@@ -3073,7 +3119,15 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await approval.getByRole("button", { name: "Approve" }).click();
-  await approval.waitFor({ state: "detached" });
+  const approvalError = approval.locator(".agentkit-command-error");
+  await Promise.race([
+    approval.waitFor({ state: "detached" }),
+    approvalError.waitFor({ state: "visible" }).then(async () => {
+      throw new Error(
+        `Approval continuation failed: ${await approvalError.innerText()}`,
+      );
+    }),
+  ]);
   const releaseCardMatches = page.getByText("Release accepted", {
     exact: true,
   });
@@ -3091,7 +3145,7 @@ async function assertAgentKitChatAcceptance(
           visible: element.getClientRects().length > 0,
           inActivities: Boolean(activities),
           activitiesOpen: activities
-            ? (activities as HTMLDetailsElement).open
+            ? activities.getAttribute("data-open") === "true"
             : undefined,
           messageText: message?.innerText,
           messageHtml: message?.innerHTML.slice(0, 1200),
@@ -3122,7 +3176,7 @@ async function assertAgentKitChatAcceptance(
     await page
       .locator(".agentkit-activities")
       .evaluateAll((items) =>
-        items.some((item) => !(item as HTMLDetailsElement).open),
+        items.some((item) => item.getAttribute("data-open") !== "true"),
       ),
     "completed activity rollups must stay collapsed while the card is visible",
   );

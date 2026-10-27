@@ -7,6 +7,7 @@ import type { AuditEvent } from "./types.js";
 
 const insertAuditEvent = vi.fn<(e: AuditEvent) => Promise<void>>();
 const getIntegrationRequestContext = vi.hoisted(() => vi.fn());
+const getRequestContext = vi.hoisted(() => vi.fn());
 const captureError = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
@@ -14,6 +15,7 @@ vi.mock("./store.js", () => ({
 }));
 vi.mock("../server/request-context.js", () => ({
   getIntegrationRequestContext,
+  getRequestContext,
 }));
 vi.mock("../server/capture-error.js", () => ({ captureError }));
 
@@ -48,6 +50,7 @@ beforeEach(() => {
   insertAuditEvent.mockReset();
   insertAuditEvent.mockResolvedValue(undefined);
   getIntegrationRequestContext.mockReset();
+  getRequestContext.mockReset();
   captureError.mockReset();
   delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
 });
@@ -101,6 +104,22 @@ describe("recordActionAudit gating", () => {
 });
 
 describe("recordActionAudit attribution", () => {
+  it("records verified A2A identity assurance from request context", async () => {
+    getRequestContext.mockReturnValue({ a2aIdentityAssurance: "org-member" });
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "query-account-usage",
+        caller: "a2a",
+        userEmail: "alice@x.com",
+      },
+      status: "success",
+    });
+
+    expect(lastEvent().identityAssurance).toBe("org-member");
+  });
+
   it("marks agent calls and keeps the human actor email", async () => {
     await recordActionAudit({
       config: undefined,

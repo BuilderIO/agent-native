@@ -3,6 +3,26 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- Workspace app sharing is managed only by app owners and organization admins.
+
+## 2026-10-21
+
+### Added
+
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
+
+### Improved
+
+- Customer AI credit questions route to account health instead of workspace spend metrics.
+
+### Fixed
+
+- Workspace apps load reliably with organization sign-in, and failures identify the request and status
+
 ## 2026-10-19
 
 ### Changed

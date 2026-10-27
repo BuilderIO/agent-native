@@ -22,10 +22,9 @@ export {
   type BoundedTaskSource,
 } from "./bounded-tasks.js";
 
-export {
-  bundleBoundedTaskSource,
-  type BundleBoundedTaskSourceOptions,
-  type BundledBoundedTaskSource,
+export type {
+  BundleBoundedTaskSourceOptions,
+  BundledBoundedTaskSource,
 } from "./bounded-task-bundle.js";
 
 export {
@@ -48,6 +47,8 @@ export {
   withPreparedYDocMutation,
   applyUpdate,
   seedXmlFragmentIfEmpty,
+  adoptSnapshotOnce,
+  type SnapshotAdoptionStatus,
   applyText,
   getText,
   getState,
@@ -162,6 +163,7 @@ export {
 export {
   loadAwarenessRows,
   loadAwarenessRowsStrict,
+  loadAwarenessRowsWith,
 } from "./awareness-store.js";
 
 export {

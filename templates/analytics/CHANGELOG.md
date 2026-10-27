@@ -3,6 +3,44 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-24
+
+### Improved
+
+- Organization roster searches now find row-level dbt membership data more reliably.
+
+### Fixed
+
+- Analytics avoids showing partial warehouse results when a metric or plan request is ambiguous.
+- Analytics preserves verified results from successful time ranges when another requested range is unavailable.
+- Analytics uses a warehouse fallback for a failed metric only when requested and supported by a complete metric definition and result.
+- Analytics respects requested time periods without mistaking metric names for time breakdowns.
+
+## 2026-10-23
+
+### Fixed
+
+- Analytics figures require complete, scope-matched warehouse evidence
+- Analytics keeps malformed metric values out of verified summaries
+- Analytics keeps verified metrics available when another requested dbt metric is unavailable
+- Analytics now rejects partial or constant warehouse results as verified metric figures
+- Analytics only shows warehouse fallback figures when a complete matching query supports them
+- Analytics only shows warehouse figures when each value matches the named metric, scope, and result row.
+- Analytics withholds warehouse figures when an owner-defined dbt metric query fails.
+- Warehouse figures stay hidden when a failed dbt query cannot verify the calculation.
+
+## 2026-10-21
+
+### Improved
+
+- Analytics recognizes questions about connected data, product analytics, sessions, dashboards, and charts.
+- Onboarding journeys honor larger event row budgets with aggregate cost limits, a read deadline, and clear partial-coverage reporting.
+
+### Fixed
+
+- Session replay quotas count the compressed size Analytics stores, so recordings from other sites no longer use up the daily limit early
+- Preserve unknown replay availability in partial journeys
+
 ## 2026-10-20
 
 ### Fixed
@@ -62,6 +100,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
+- In Edit mode, rename or delete a multi-select filter's group from its dropdown while that group is selected.
 - The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
 - Click a table row to see its numbers broken down by app, or another column, in a side panel.
 - Connect a personal Sigma account to import its dashboards
@@ -69,6 +109,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Data notes under charts without a date axis now follow the dashboard's time range, so a 90-day view lists a note from two months ago and a 30-day view drops it.
 - Analytics preserves requested organization grain and guides supported ratio query retries
 - Charts that compute their window from today's date can now reuse BigQuery's cached results within the day instead of rerunning the full query on every load.
 - Dashboard callouts and descriptions support Markdown links
@@ -82,6 +123,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The activation funnel counts visitors who decline analytics cookies and then sign up in the same visit
+- A key-date marker opens its card on hover even where a chart's hovered point sits on top of it.
 - Alert polls enforce a query byte limit and report evaluations that exceed it as errors.
 - All-time dashboard panels keep their historical label when you edit a title or description
 - Analytics answers owner-defined dbt metrics through the Semantic Layer and say when dbt is not ready, instead of reading warehouse tables as the approved definition.
@@ -120,6 +163,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Sessions can find people who made a Slides deck but didn't present or export it within 7 days, and the event catalog flags apps with no "used it" event (Sessions triage Lab)
 - A Content dashboard lists every blog article with its author, pageviews, and search clicks, and says when a source failed or isn't set up instead of showing zero
 - Data sources has a Google Search Console card that shows the service account to grant and turns on daily collection
 - Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article

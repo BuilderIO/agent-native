@@ -111,6 +111,7 @@ describe("agent run local schema readiness", () => {
   it("upgrades a recorded local baseline before claiming a lease and storing a step", async () => {
     await initializedLocalDatabase();
     await ensureRunTables();
+    await exerciseExecution();
     expect(
       (
         await getDbExec().execute(
@@ -118,8 +119,17 @@ describe("agent run local schema readiness", () => {
         )
       ).rows,
     ).toEqual([
+      { name: "agent-run-admission-order", source: "step" },
+      {
+        name: "agent-run-harness-transcript-order-runtime-schema",
+        source: "step",
+      },
       { name: "baseline", source: "step" },
       { name: "execution-leases-and-steps", source: "step" },
+      {
+        name: "thread-projection-retry-quarantine-runtime-schema",
+        source: "step",
+      },
       { name: "widen-bigint", source: "step" },
     ]);
     expect(
@@ -135,7 +145,6 @@ describe("agent run local schema readiness", () => {
       WHERE schemaname = 'public' AND indexname = 'agent_execution_steps_pending_idx'`)
       ).rows,
     ).toHaveLength(1);
-    await exerciseExecution();
   });
 
   it("keeps existing lease and step data when release v8 and local readiness both run again", async () => {
@@ -209,11 +218,15 @@ function recordingExecutor(base: DbExec) {
   return { executor: wrap(base), statements };
 }
 
-const ddlStatements = (statements: string[]) =>
-  statements.filter((sql) => /^\s*(?:CREATE|ALTER|DROP|LOCK)\b/i.test(sql));
+const executionSchemaDdl = (statements: string[]) =>
+  statements.filter(
+    (sql) =>
+      /^\s*(?:CREATE|ALTER|DROP|LOCK)\b/i.test(sql) &&
+      /\bagent_execution_\w*\b|\bworker_generation\b/i.test(sql),
+  );
 
 describe("agent run hosted schema readiness", () => {
-  it("replays a provisioned store in each cold process without DDL or ledger access", async () => {
+  it("replays a provisioned store in each cold process without execution schema DDL or ledger access", async () => {
     await ensureRunTables();
     await exerciseExecution();
     const base = getDbExec();
@@ -227,7 +240,7 @@ describe("agent run hosted schema readiness", () => {
         statements.some((sql) => sql.includes("information_schema.columns")),
       ).toBe(true);
       expect(statements.some((sql) => sql.includes("pg_indexes"))).toBe(true);
-      expect(ddlStatements(statements)).toEqual([]);
+      expect(executionSchemaDdl(statements)).toEqual([]);
       expect(
         statements.some((sql) => sql.includes("_an_store_migration")),
       ).toBe(false);
@@ -238,7 +251,7 @@ describe("agent run hosted schema readiness", () => {
   });
 
   it.each([false, true])(
-    "repairs a missing column in hosted-replay with execution tables present=%s, then replays without DDL",
+    "repairs a missing column in hosted-replay with execution tables present=%s, then replays without execution schema DDL",
     async (tablesPresent) => {
       await initializedLocalDatabase();
       const base = getDbExec();
@@ -257,7 +270,7 @@ describe("agent run hosted schema readiness", () => {
       const first = recordingExecutor(base);
       await withDbExec(first.executor, () => ensureRunTables());
       expect(
-        ddlStatements(first.statements).map((sql) =>
+        executionSchemaDdl(first.statements).map((sql) =>
           sql.replace(/\s+/g, " ").trim(),
         ),
       ).toEqual(
@@ -292,7 +305,7 @@ describe("agent run hosted schema readiness", () => {
       hostedRuntime();
       const second = recordingExecutor(base);
       await withDbExec(second.executor, () => ensureRunTables());
-      expect(ddlStatements(second.statements)).toEqual([]);
+      expect(executionSchemaDdl(second.statements)).toEqual([]);
       expect(
         (
           await base.execute(
@@ -320,7 +333,7 @@ describe("agent run hosted schema readiness", () => {
       "agent_execution_steps_pending_idx",
     ],
   ])(
-    "rejects an unreadable %s probe without DDL",
+    "rejects an unreadable %s probe without execution schema DDL",
     async (label, source, name) => {
       await ensureRunTables();
       const base = getDbExec();
@@ -345,7 +358,7 @@ describe("agent run hosted schema readiness", () => {
       await expect(
         withDbExec(executor, () => ensureRunTables()),
       ).rejects.toThrow(`could not probe required schema "${label}"`);
-      expect(ddlStatements(statements)).toEqual([]);
+      expect(executionSchemaDdl(statements)).toEqual([]);
       expect(
         statements.some((sql) => sql.includes("_an_store_migration")),
       ).toBe(false);

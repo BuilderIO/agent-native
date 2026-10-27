@@ -13,8 +13,8 @@ const ctx = { caller: "frontend" } as never;
 describe("trackPptxImport", () => {
   beforeEach(() => mockTrack.mockClear());
 
-  it("counts a PPTX imported as a new deck as a creation", () => {
-    trackPptxImport(
+  it("counts a PPTX imported as a new deck as a creation", async () => {
+    await trackPptxImport(
       { id: "deck-new", slideCount: 4 },
       { purpose: "direct" },
       ctx,
@@ -31,8 +31,12 @@ describe("trackPptxImport", () => {
     });
   });
 
-  it("counts a PPTX imported into an existing deck as an edit, not a creation", () => {
-    trackPptxImport({ id: "deck-1", slideCount: 3 }, { deckId: "deck-1" }, ctx);
+  it("counts a PPTX imported into an existing deck as an edit, not a creation", async () => {
+    await trackPptxImport(
+      { id: "deck-1", slideCount: 3 },
+      { deckId: "deck-1" },
+      ctx,
+    );
 
     expect(mockTrack.mock.calls.map(([name]) => name)).toEqual(["deck_edited"]);
     expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({

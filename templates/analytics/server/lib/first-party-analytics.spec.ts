@@ -44,6 +44,10 @@ const performanceMocks = vi.hoisted(() => ({
   session: vi.fn(),
   route: vi.fn(),
 }));
+const outputOutcomeMocks = vi.hoisted(() => ({
+  record: vi.fn(),
+  lost: vi.fn(),
+}));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
   fallbackKey: (eventId: string) =>
@@ -121,6 +125,10 @@ vi.mock("./error-capture.js", () => ({
 vi.mock("./session-event-index.js", () => ({
   recordSessionEventIndex: sessionEventIndexMocks.record,
   recordEventCatalog: sessionEventIndexMocks.catalog,
+}));
+vi.mock("./output-outcomes.js", () => ({
+  recordOutputOutcomes: outputOutcomeMocks.record,
+  recordLostOutputBatch: outputOutcomeMocks.lost,
 }));
 vi.mock("./session-performance.js", () => ({
   recordSessionPerformance: performanceMocks.session,
@@ -205,6 +213,8 @@ beforeEach(() => {
   analyticsDbMocks.updateReturning.mockResolvedValue([
     { eventCount: 1, eventLimit: 1_000_000 },
   ]);
+  outputOutcomeMocks.record.mockReset();
+  outputOutcomeMocks.lost.mockReset();
   rollupMocks.upsert.mockReset();
   rollupMocks.upsert.mockResolvedValue({
     eventCount: 1,
@@ -433,6 +443,8 @@ describe("recordAnalyticsEvents", () => {
     expect(
       analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
     ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
+    expect(outputOutcomeMocks.record).toHaveBeenCalled();
+    expect(outputOutcomeMocks.lost).not.toHaveBeenCalled();
   });
 
   it("does not acquire the retired historical-backfill lock during ingest", async () => {
@@ -717,6 +729,28 @@ describe("recordAnalyticsEvents", () => {
     expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
     expect(performanceMocks.session).not.toHaveBeenCalled();
     expect(performanceMocks.route).not.toHaveBeenCalled();
+    // The tracker does not resend the batch, so a use it held is gone.
+    expect(outputOutcomeMocks.record).not.toHaveBeenCalled();
+    expect(outputOutcomeMocks.lost).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "pageview" })],
+      expect.any(String),
+    );
+  });
+
+  it("marks a batch lost when its event sink cannot be read", async () => {
+    backendMocks.get.mockRejectedValueOnce(new Error("settings unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("settings unavailable");
+
+    expect(outputOutcomeMocks.record).not.toHaveBeenCalled();
+    expect(outputOutcomeMocks.lost).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "pageview" })],
+      expect.any(String),
+    );
   });
 
   it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
@@ -755,6 +789,11 @@ describe("recordAnalyticsEvents", () => {
     );
     expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
+    expect(outputOutcomeMocks.lost).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "pageview" })],
+      expect.any(String),
+    );
   });
 
   it("keeps derived exception issues in SQL after the event cutover", async () => {
@@ -2150,6 +2189,7 @@ describe("queryFirstPartyAnalytics", () => {
         rows: [{ count: 1 }],
         schema: [{ name: "count", type: "number" }],
         backend: "postgres",
+        bytesProcessed: 0,
       });
       expect(backendMocks.query).not.toHaveBeenCalled();
     });
@@ -2531,8 +2571,8 @@ describe("queryFirstPartyAnalytics", () => {
       };
       const sql = "SELECT COUNT(*) AS events FROM analytics_events";
       const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
-      expect(first).toEqual({ ...saved, cached: true });
-      expect(first).not.toHaveProperty("bytesProcessed");
+      // oracle-change: Postgres results now report bytesProcessed 0 instead of omitting it; toEqual pins the value.
+      expect(first).toEqual({ ...saved, cached: true, bytesProcessed: 0 });
       const cached = await queryFirstPartyAnalytics(sql, scope, {
         cache: true,
       });
@@ -3059,6 +3099,7 @@ describe("queryFirstPartyAnalytics", () => {
       schema: [{ name: "count", type: "string" }],
       cached: false,
       fetchedAt: expect.any(String),
+      bytesProcessed: 0,
     });
   });
 });

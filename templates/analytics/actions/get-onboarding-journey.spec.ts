@@ -44,6 +44,7 @@ const args = {
   minNodeSessions: 1,
   examplesPerNode: 2,
   maxEventRows: 2_000,
+  maxTotalBytesBilled: 275_000_000_000,
   maxNodes: 60,
   settleMs: 300,
   recency: "newest",
@@ -62,6 +63,30 @@ describe("get-onboarding-journey read failures", () => {
     ).toThrow();
   });
 
+  it("bounds the aggregate BigQuery page reservation", () => {
+    expect(
+      action.schema.parse({
+        ...args,
+        maxTotalBytesBilled: 1_275_000_000_000,
+      }).maxTotalBytesBilled,
+    ).toBe(1_275_000_000_000);
+    expect(() =>
+      action.schema.parse({ ...args, maxTotalBytesBilled: 24_999_999_999 }),
+    ).toThrow();
+    expect(() =>
+      action.schema.parse({ ...args, maxTotalBytesBilled: 1_275_000_000_001 }),
+    ).toThrow();
+  });
+
+  it.each([
+    ["experiment arms", { experimentId: "first_run_builder_credits" }],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)("rejects person follow-up with %s", (_label, cohort) => {
+    expect(() =>
+      action.schema.parse({ ...args, ...cohort, followUpMode: "person" }),
+    ).toThrow(/Person follow-up is not available with cohort splits/);
+  });
+
   it("forwards the action cancellation signal to the journey read", async () => {
     mocks.getOnboardingJourney.mockResolvedValueOnce({ status: "complete" });
     const signal = new AbortController().signal;
@@ -73,6 +98,7 @@ describe("get-onboarding-journey read failures", () => {
       expect.objectContaining({
         dateFrom: args.dateFrom,
         dateTo: args.dateTo,
+        maxTotalBytesBilled: args.maxTotalBytesBilled,
       }),
       signal,
     );

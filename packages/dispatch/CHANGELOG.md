@@ -1,5 +1,136 @@
 # @agent-native/dispatch
 
+## 0.40.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ddd3bd1]
+- Updated dependencies [4ea7d64]
+- Updated dependencies
+- Updated dependencies [0c211bc]
+- Updated dependencies [b73b8ef]
+  - @agent-native/toolkit@0.220.0
+
+## 0.40.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [838e1ae]
+- Updated dependencies
+- Updated dependencies [86429da]
+- Updated dependencies [7b293b2]
+  - @agent-native/toolkit@0.219.0
+
+## 0.40.38
+
+### Patch Changes
+
+- de3f844: Sign Dispatch's own workspace apps gateway read as the signed-in member with the deployment secret, so the receiver keeps the member's identity. Signing it with the organization secret made the registry refuse it, and a Dispatch with no deployment manifest to fall back on showed "Couldn't load data" (`workspace_gateway_rejected`).
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Show owned and shared chats in separate Dispatch history sections with independent paging and owner and access details.
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [84e4b2e]
+- Updated dependencies [fc038a0]
+  - @agent-native/toolkit@0.218.0
+
+## 0.40.37
+
+### Patch Changes
+
+- b07c13b: `describe-workspace-apps` now shows each app's authored "when to use" guidance, so the agent sees the same text the ranking matched on. Workspace usage tools now say plainly that they have no customer data and point to the app's own customer or billing actions or the owning app, instead of leading with the owner/admin permission rule.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [4c43f86]
+- Updated dependencies
+- Updated dependencies [9e4119f]
+  - @agent-native/toolkit@0.217.0
+
+## 0.40.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [31a1f1e]
+  - @agent-native/toolkit@0.216.0
+
+## 0.40.35
+
+### Patch Changes
+
+- 32ecc17: Refresh the curated community QR file pin to match the tracked template.
+- Release all public npm packages with a patch version bump.
+- 985e9de: Refresh the curated QR template pin after the Core 0.214.0 release.
+- 7d32864: Refresh the QR community app file pins during release versioning so they match the current template.
+- 5f880cd: Keep the QR community app package pin aligned with its current manifest.
+- 7ba1d99: Keep the curated QR app installer pinned to the current reviewed template manifest.
+- 0aa618c: Fix workspace app embeds when the target returns its start URL through MCP metadata.
+- 4b0bb1e: Usage metrics tools now say they only cover this organization's members and return a typed error pointing to the owning app when asked about an external customer's usage.
+- Updated dependencies [f8f4b9e]
+- Updated dependencies [0b58010]
+- Updated dependencies
+- Updated dependencies [4fd6b35]
+- Updated dependencies [11a11d9]
+- Updated dependencies [aa79d54]
+  - @agent-native/toolkit@0.215.0
+
+## 0.40.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [05d1481]
+  - @agent-native/toolkit@0.214.0
+
+## 0.40.33
+
+### Patch Changes
+
+- e9efe95: Keep the curated QR catalog pinned to the current template files.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.213.1
+
+## 0.40.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b58658d: Allow organization owners to opt in to current-member A2A delegation with capped member permissions and durable audit provenance. Improve app discovery and Dispatch routing for connected analytics and customer credit questions.
+- Updated dependencies
+- Updated dependencies [b58658d]
+  - @agent-native/toolkit@0.213.0
+
+## 0.40.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- b697ec4: Use organization-scoped secrets for workspace app registry authentication and show which Dispatch query failed.
+- Updated dependencies
+  - @agent-native/toolkit@0.212.1
+
+## 0.40.30
+
+### Patch Changes
+
+- 96e2cf6: Discover and rank authorized workspace apps across the organization directory, and add Lab-gated installs from reviewed, pinned community app templates.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [71749d3]
+- Updated dependencies [9d61445]
+- Updated dependencies [96e2cf6]
+- Updated dependencies
+- Updated dependencies [ae5a212]
+- Updated dependencies [71749d3]
+- Updated dependencies [71749d3]
+- Updated dependencies [9fcbe67]
+- Updated dependencies [66ae94a]
+  - @agent-native/toolkit@0.212.0
+
 ## 0.40.29
 
 ### Patch Changes
@@ -1219,81 +1350,5 @@
 
 - Updated dependencies [fc85cb2]
   - @agent-native/toolkit@0.16.7
-
-## 0.30.3
-
-### Patch Changes
-
-- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
-
-## 0.30.2
-
-### Patch Changes
-
-- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
-
-## 0.30.1
-
-### Patch Changes
-
-- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
-- Updated dependencies [a2f21dc]
-  - @agent-native/toolkit@0.16.6
-
-## 0.30.0
-
-### Minor Changes
-
-- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
-
-## 0.29.5
-
-### Patch Changes
-
-- Updated dependencies [0b57293]
-  - @agent-native/toolkit@0.16.5
-
-## 0.29.4
-
-### Patch Changes
-
-- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
-
-## 0.29.3
-
-### Patch Changes
-
-- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
-
-## 0.29.2
-
-### Patch Changes
-
-- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
-
-## 0.29.1
-
-### Patch Changes
-
-- 96ecc13: Use compact app search and pin labels that stay on one line.
-
-## 0.29.0
-
-### Minor Changes
-
-- 772f59a: Point the chat beside an open workspace app at that app's own agent. Dispatch now proxies `/_agent-native/workspace-app-chat/<appId>/**` to the app's `/_agent-native/agent-chat`, authenticated with the app's own embed session, so the rail has the app's tools, AGENTS.md, skills, app-scoped resources, and dev-mode surface instead of Dispatch's. When the proxy cannot be established the rail shows a retryable error rather than silently answering from Dispatch's agent, and workspace-level chat with no app open is unchanged.
-
-### Patch Changes
-
-- 772f59a: Allow workspace members to update mounted app names and descriptions from Dispatch.
-- 772f59a: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
-- 772f59a: Share the canonical localized authentication copy with native sign-in surfaces
-  and allow authenticated packaged callers to mint workspace embed sessions.
-
-## 0.28.1
-
-### Patch Changes
-
-- 2107a36: Retry cross-app embed session authentication with the shared A2A secret when a workspace target rejects an unsynchronized organization secret.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

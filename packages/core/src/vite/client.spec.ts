@@ -11,7 +11,6 @@ import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
-import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -42,7 +41,7 @@ const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
 const mockHashDatabaseKey = vi.hoisted(() =>
   vi.fn((url: string) => `hash:${url}`),
 );
-const mockResolveEmbedSessionTokenForHost = vi.hoisted(() => vi.fn());
+const mockResolveEmbedSessionTokenForOrigin = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/dev-action-bridge.js", () => ({
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
@@ -56,8 +55,8 @@ vi.mock("../server/embed-session.js", async (importOriginal) => {
     await importOriginal<typeof import("../server/embed-session.js")>();
   return {
     ...actual,
-    resolveEmbedSessionTokenForHost: (...args: unknown[]) =>
-      mockResolveEmbedSessionTokenForHost(...args),
+    resolveEmbedSessionTokenForOrigin: (...args: unknown[]) =>
+      mockResolveEmbedSessionTokenForOrigin(...args),
   };
 });
 
@@ -831,7 +830,7 @@ describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
 
   beforeEach(() => {
-    mockResolveEmbedSessionTokenForHost.mockReset();
+    mockResolveEmbedSessionTokenForOrigin.mockReset();
   });
 
   afterEach(() => {
@@ -976,7 +975,7 @@ describe("dev server mounted path helpers", () => {
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1000,7 +999,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
@@ -1009,6 +1008,7 @@ describe("dev server mounted path helpers", () => {
         `/assets/@id/__x00__virtual:react-router/browser-manifest` +
         `?__an_embed_token=${token}&__an_mcp_chat_bridge=1`,
       headers: { host: "beta.calendar.agent-native.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = {
       headersSent: false,
@@ -1024,9 +1024,9 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "beta.calendar.agent-native.com",
+      "http://beta.calendar.agent-native.com",
     );
     expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
@@ -1115,7 +1115,7 @@ describe("dev server mounted path helpers", () => {
 
   it("keeps Vite module queries for mounted static files", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1134,7 +1134,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const res = {
@@ -1152,6 +1152,7 @@ describe("dev server mounted path helpers", () => {
         method: "GET",
         url: `/assets/app/global.css?url&__an_embed_token=${token}`,
         headers: { host: "beta.calendar.agent-native.com" },
+        socket: { remoteAddress: "203.0.113.20" },
       },
       res,
       next,
@@ -1167,7 +1168,7 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("does not serve a mounted module when its token audience does not match the host", async () => {
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue(null);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1183,13 +1184,14 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
       method: "GET",
       url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
       headers: { host: "other.example.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -1197,16 +1199,16 @@ describe("dev server mounted path helpers", () => {
     middleware!(req, res, next);
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
 
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "other.example.com",
+      "http://other.example.com",
     );
     expect(server.transformRequest).not.toHaveBeenCalled();
     expect(res.end).not.toHaveBeenCalled();
   });
 
   it("does not serve a mounted module for a revoked embed identity", async () => {
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue(null);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1222,7 +1224,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
@@ -1232,6 +1234,7 @@ describe("dev server mounted path helpers", () => {
         host: "beta.calendar.agent-native.com",
         cookie: `an_embed_session=${encodeURIComponent(token)}`,
       },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -1239,9 +1242,9 @@ describe("dev server mounted path helpers", () => {
     middleware!(req, res, next);
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
 
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "beta.calendar.agent-native.com",
+      "http://beta.calendar.agent-native.com",
     );
     expect(server.transformRequest).not.toHaveBeenCalled();
     expect(res.end).not.toHaveBeenCalled();
@@ -1249,7 +1252,7 @@ describe("dev server mounted path helpers", () => {
 
   it("passes embed validation failures to Vite's error handling", async () => {
     const failure = new Error("revocation lookup failed");
-    mockResolveEmbedSessionTokenForHost.mockRejectedValue(failure);
+    mockResolveEmbedSessionTokenForOrigin.mockRejectedValue(failure);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1265,13 +1268,14 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
       method: "GET",
       url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
       headers: { host: "beta.calendar.agent-native.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -2232,9 +2236,13 @@ describe("agent-native app config", () => {
     }
   });
 
-  it("skips build diagnostics only for React Router typegen", async () => {
+  // oracle-change: the AGENT_NATIVE_TYPEGEN skip is gone because typecheck's
+  // typegen no longer loads this plugin; the production warning still fires.
+  it("warns about production configuration errors during a production build", async () => {
     const previousCwd = process.cwd();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-production-config-"),
+    );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fs.writeFileSync(
       path.join(tmpDir, "agent-native.json"),
@@ -2248,11 +2256,6 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, "1");
-      await configPlugin.config({}, { command: "build", mode: "production" });
-      expect(warn).not.toHaveBeenCalled();
-
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, undefined);
       await configPlugin.config({}, { command: "build", mode: "production" });
       expect(warn).toHaveBeenCalledOnce();
       expect(warn.mock.calls[0][0]).toContain(
@@ -2260,7 +2263,6 @@ describe("agent-native app config", () => {
       );
     } finally {
       warn.mockRestore();
-      vi.unstubAllEnvs();
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -2811,6 +2813,119 @@ describe("app changelog raw imports", () => {
     }
   });
 
+  it("loads an empty changelog without watching a missing CHANGELOG.md", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const appDir = path.join(tmpDir, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const importer = path.join(appDir, "root.tsx");
+      const resolved = await plugin.resolveId("../CHANGELOG.md?raw", importer);
+      expect(resolved).toBe(`${path.join(tmpDir, "CHANGELOG.md")}?raw`);
+
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        resolved,
+      );
+
+      expect(code).toBe('export default "";');
+      expect(watched).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const routesDir = path.join(root, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(routesDir, "settings.ts"),
+      'import changelog from "../../CHANGELOG.md?raw";\nexport default changelog;\n',
+    );
+    // A real dev server, because Vite 8 never calls `handleHotUpdate` for a
+    // created file; its module graph has to invalidate the raw module itself.
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [findPlugin("agent-native-app-changelog-raw")],
+      server: {
+        middlewareMode: true,
+        ws: false,
+        watch: { usePolling: true, interval: 20 },
+      },
+      optimizeDeps: { noDiscovery: true, include: [] },
+    });
+    try {
+      const client = server.environments.client;
+      const route = await client.transformRequest("/app/routes/settings.ts");
+      const rawUrl = /from\s+"([^"]*CHANGELOG\.md\?[^"]*)"/.exec(
+        String(route?.code),
+      )?.[1];
+      expect(rawUrl).toBeTruthy();
+      // Main failed here: the watched missing file became an unresolvable import.
+      expect((await client.transformRequest(rawUrl!))?.code).toContain(
+        'export default ""',
+      );
+
+      await vi.waitFor(() => {
+        expect(server.watcher.getWatched()[root]).toContain("app");
+      });
+      fs.writeFileSync(
+        path.join(root, "CHANGELOG.md"),
+        "# Changelog\n\n## 2026-07-01\n\n### Added\n\n- Created later.\n",
+      );
+      await vi.waitFor(
+        async () => {
+          expect((await client.transformRequest(rawUrl!))?.code).toContain(
+            "Created later.",
+          );
+        },
+        { timeout: 5000, interval: 100 },
+      );
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("watches pending changelog entries when CHANGELOG.md is missing", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const pendingDir = path.join(tmpDir, "changelog");
+    fs.mkdirSync(pendingDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-07-01-first-entry.md"),
+      "---\ntype: added\n---\n\nFirst visible thing.\n",
+    );
+
+    try {
+      const plugin = findPlugin("agent-native-app-changelog-raw");
+      const watched: string[] = [];
+      const code = await plugin.load.call(
+        { addWatchFile: (file: string) => watched.push(file) },
+        `${path.join(tmpDir, "CHANGELOG.md")}?raw`,
+      );
+      const entries = parseChangelog(
+        JSON.parse(
+          String(code)
+            .replace(/^export default /, "")
+            .replace(/;$/, ""),
+        ),
+      );
+
+      expect(watched).toEqual([
+        path.join(pendingDir, "2026-07-01-first-entry.md"),
+      ]);
+      expect(entries.map((entry) => entry.title)).toEqual(["2026-07-01"]);
+      expect(entries[0].body).toContain("First visible thing.");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps changelog directories visible to the dev watcher", () => {
     const ignored =
       (
@@ -2836,6 +2951,17 @@ describe("app changelog raw imports", () => {
     expect(ignored(path.join(app, ".claude", "settings.json"))).toBe(true);
     expect(ignored(path.join(app, "node_modules", "x", "index.js"))).toBe(true);
     expect(ignored(path.join(app, ".data", "base", "1"))).toBe(true);
+    expect(ignored(path.join(app, ".generated"))).toBe(false);
+    expect(ignored(path.join(app, ".generated", "bridge"))).toBe(false);
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "runtime.generated.ts")),
+    ).toBe(false);
+    expect(
+      ignored(path.join(app, ".generated", "bridge", "node_modules", "x.ts")),
+    ).toBe(true);
+    expect(ignored(path.join(app, ".generated", "actions-registry.ts"))).toBe(
+      true,
+    );
   });
 });
 
@@ -2844,9 +2970,13 @@ describe("Vite runtime data watcher", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
     const database = path.join(root, ".data", "base", "5", "16453");
     const source = path.join(root, "app.ts");
+    const bridgeDir = path.join(root, ".generated", "bridge");
+    const bridge = path.join(bridgeDir, "runtime.generated.ts");
     fs.mkdirSync(path.dirname(database), { recursive: true });
+    fs.mkdirSync(bridgeDir, { recursive: true });
     fs.writeFileSync(database, "initial database page");
     fs.writeFileSync(source, "export const value = 1;");
+    fs.writeFileSync(bridge, "export const bridge = 1;");
     const server = await createServer({
       root,
       configFile: false,
@@ -2855,6 +2985,7 @@ describe("Vite runtime data watcher", () => {
         ws: false,
         watch: {
           ...defineConfig().server?.watch,
+          ignored: [defaultViteWatchIgnored(root)],
           usePolling: true,
           interval: 20,
         },
@@ -2866,11 +2997,16 @@ describe("Vite runtime data watcher", () => {
     try {
       await vi.waitFor(() => {
         expect(server.watcher.getWatched()[root]).toContain("app.ts");
+        expect(server.watcher.getWatched()[bridgeDir]).toContain(
+          "runtime.generated.ts",
+        );
       });
       fs.writeFileSync(database, "updated database page");
       fs.writeFileSync(path.join(path.dirname(database), "16454"), "new page");
       fs.writeFileSync(source, "export const value = 2;");
+      fs.writeFileSync(bridge, "export const bridge = 2;");
       await vi.waitFor(() => expect(changes).toContain(source));
+      await vi.waitFor(() => expect(changes).toContain(bridge));
       expect(
         changes.filter((file) => file.includes(`${path.sep}.data${path.sep}`)),
       ).toEqual([]);
@@ -4225,7 +4361,6 @@ describe("local-core dev aliases and router dedupe", () => {
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
           "@agent-native/toolkit": "workspace:*",
-          "@paper-design/shaders-react": "0.0.76",
           html2canvas: "^1.4.1",
           "react-dom": "^19.2.7",
           "react-router": "^8.0.1",
@@ -4276,10 +4411,6 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("@agent-native/toolkit > react-i18next");
     expect(deps).not.toContain("@agent-native/core > react-i18next");
     expect(deps).toContain("@agent-native/toolkit > shiki/core");
-    expect(deps).toContain("@paper-design/shaders-react");
-    expect(deps).not.toContain(
-      "@agent-native/core > @paper-design/shaders-react",
-    );
     expect(deps).toContain("html2canvas");
     expect(deps).not.toContain("@agent-native/core > html2canvas");
     expect(deps).toContain("react-dom/server");

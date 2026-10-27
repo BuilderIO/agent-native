@@ -1,6 +1,7 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { ContextStatus } from "../shared/context-status.js";
+import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
@@ -93,6 +94,19 @@ export interface RequestRunContext {
   };
   /** Whether the pre-model reference prefetch and screen grounding reached the model. */
   contextStatus?: { prefetch?: ContextStatus; screen?: ContextStatus };
+  /** Current user text used to rank reachable workspace apps for this turn. */
+  appDiscoveryQuery?: string;
+  /** Privacy-safe app discovery result diagnostics for the current run. */
+  appDiscoverySelection?: {
+    status: "selected" | "no-match" | "unavailable" | "failed" | "timed_out";
+    directoryStatus:
+      | "available"
+      | "unavailable"
+      | "forbidden"
+      | "setup-required";
+    selectedIds: string[];
+    latencyMs: number;
+  };
   toolCalls?: Array<{ name: string; input: unknown }>;
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   extensionContentReads?: Record<string, string>;
@@ -107,6 +121,8 @@ export interface RequestContext {
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;
+  /** Provenance for a cross-app identity; org-member grants only member-level org role. */
+  a2aIdentityAssurance?: "user" | "organization" | "org-member";
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
@@ -145,9 +161,16 @@ export interface RequestContext {
   signupAttribution?: SignupAttributionContext;
   signupOrigin?: import("./attribution.js").SignupOrigin;
   clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
+  /**
+   * Set only after the authenticated first-run route confirms the v2 flag is
+   * enabled; tracking uses it to tag the four durable experiment events.
+   */
+  firstRunBuilderCreditsV2Assignment?: FirstRunBuilderCreditsV2RequestAssignment;
   authContextAccessed?: boolean;
   requestOrigin?: string;
   federationMembershipValidated?: boolean;
+  /** Resolves embed authority independently of the origin used for MCP links. */
+  resolveEmbedRequestOrigin?: () => string;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below
@@ -420,6 +443,15 @@ export function runWithRequestContext<T>(
   ) {
     context = { ...context, trackingScope: inheritedContext.trackingScope };
   }
+  if (
+    context.a2aIdentityAssurance === undefined &&
+    inheritedContext?.a2aIdentityAssurance !== undefined
+  ) {
+    context = {
+      ...context,
+      a2aIdentityAssurance: inheritedContext.a2aIdentityAssurance,
+    };
+  }
   const contextUserEmail = context.userEmail?.trim().toLowerCase();
   if (contextUserEmail) {
     const inheritedUserEmail = inheritedContext?.userEmail
@@ -516,6 +548,10 @@ export function getRequestContext(): RequestContext | undefined {
   return store;
 }
 
+/**
+ * Call only after the Clips v2 feature flag evaluates on for this request.
+ * The arm is derived from the verified auth id already in the request context.
+ */
 export function hasRequestContext(): boolean {
   return als.getStore() !== undefined;
 }

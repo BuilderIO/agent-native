@@ -91,6 +91,10 @@ After `/new-branch`:
    post-merge feedback or a release/deploy failure appears, fix it on the fresh
    branch, run the smallest meaningful check, and invoke `/ship` for the
    follow-up.
+5. When beta verification is in scope, correct a beta update already posted in
+   an owned feedback thread if the matching publish fails or the affected site
+   is still not current 24 hours after the update. The task running that check
+   owns the correction.
 
 When deployed proof is in scope, keep configured, source-tested, built-runtime,
 beta-deployed, production-promoted, and observed-live claims separate. A merge
@@ -99,5 +103,5 @@ or green test alone is not live proof.
 ## Related skills
 
 - `/ship` for the normal guarded flow without post-merge monitoring.
-- `/ship-now` for the fast admin-merge path, which already includes monitoring.
+- `/ship-now` for the fast admin-merge path; it watches the merge commit's workflows itself.
 - `/new-branch` for the required branch rotation after merge.

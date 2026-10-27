@@ -51,6 +51,8 @@ const READ_METRIC_QUERY = `query AnalyticsMetricResult($environmentId: BigInt!, 
 
 const MAX_POLL_ATTEMPTS = 8;
 const POLL_INTERVAL_MS = 400;
+// dbt reports COMPILED while MetricFlow is still preparing the query.
+const IN_PROGRESS_QUERY_STATUSES = new Set(["COMPILED", "PENDING", "RUNNING"]);
 const MAX_METADATA_PAGES = 10;
 const MAX_METRIC_QUERY_ROWS = 1_000;
 const MAX_METRIC_QUERY_DAYS = 366;
@@ -228,6 +230,7 @@ const queryMetricOutputSchema = z.discriminatedUnion("status", [
   }),
   z.object({
     status: z.literal("success"),
+    metricName: z.string(),
     metric: metricDefinitionSchema.optional(),
     querySpec: metricQuerySpecSchema,
     rows: z.array(z.unknown()),
@@ -957,7 +960,7 @@ export default defineAction({
     "Choose a bounded inclusive date range up to 366 days for scalar queries or explicitly set allTime:true; grouped queries require a bounded range. " +
     "Daily-capable metrics accept exact dates; monthly-only metrics require complete calendar months. Unsupported filter grains return an explicit error. " +
     "The action returns the metric definition, querySpec, and live rows with explicit permission, deployment, or connection states. Grouped time columns are returned as metric_time__<GRAIN>. It cannot run dbt jobs or accept arbitrary GraphQL. " +
-    "On `not_found`, search `find-data` for the exact name once, then retry. On `ambiguous_metric`, list the matching names and ask which metric is meant; retrying the same name returns the same ambiguity. " +
+    "On `not_found`, search `find-data` for the exact name once; retry only with a different exact name it returns. On `ambiguous_metric`, list the matching names and ask which one is meant. " +
     "On `connection_selection_required`, pass a `connectionId` from its `connections` list. On a connection-required error, report the Settings step (Settings → Integrations) and do not answer with a different metric.",
   schema: z
     .object({
@@ -1099,7 +1102,7 @@ export default defineAction({
     groupBy,
     timeRange,
     allTime,
-  }) => {
+  }): Promise<z.input<typeof queryMetricOutputSchema>> => {
     const hasRequestedMetricQueryScope =
       (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
     const requestedMetadataQuerySpec = hasRequestedMetricQueryScope
@@ -1632,6 +1635,7 @@ export default defineAction({
                 : undefined;
           return {
             status: "success",
+            metricName,
             ...(activeMetricDefinition
               ? { metric: activeMetricDefinition }
               : {}),
@@ -1648,7 +1652,7 @@ export default defineAction({
             source: "dbt-semantic-layer",
           };
         }
-        if (status !== "PENDING" && status !== "RUNNING") {
+        if (!IN_PROGRESS_QUERY_STATUSES.has(status)) {
           throw new DbtSemanticLayerError(
             "provider_error",
             status

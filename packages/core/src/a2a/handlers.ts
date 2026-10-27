@@ -64,6 +64,7 @@ import {
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
   A2A_TASK_CLAIM_LOST_ERROR_CODE,
+  A2ATaskCanceledError,
   A2A_PERSONAL_OWNER_SCOPE,
   A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
@@ -390,6 +391,7 @@ export async function processA2ATaskFromQueue(
           config,
           workerAbort.signal,
           event,
+          fence.generation,
         );
       } finally {
         clearInterval(heartbeat);
@@ -412,6 +414,7 @@ async function processClaimedA2ATask(
   config: A2AConfig,
   signal: AbortSignal,
   event?: any,
+  processingAttemptId?: string,
 ): Promise<void> {
   const message = claimed.history?.[0];
   if (!message) {
@@ -431,9 +434,11 @@ async function processClaimedA2ATask(
   const identityAssurance =
     processorMeta.identityAssurance === "organization"
       ? "organization"
-      : processorMeta.identityAssurance === "user"
-        ? "user"
-        : undefined;
+      : processorMeta.identityAssurance === "org-member"
+        ? "org-member"
+        : processorMeta.identityAssurance === "user"
+          ? "user"
+          : undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
   const verifiedOrgId =
     typeof processorMeta.verifiedOrgId === "string"
@@ -505,6 +510,9 @@ async function processClaimedA2ATask(
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
+        ...(identityAssurance
+          ? { a2aIdentityAssurance: identityAssurance }
+          : {}),
         ...(resolvedOrgId
           ? { orgId: resolvedOrgId }
           : verifiedEmail
@@ -523,6 +531,7 @@ async function processClaimedA2ATask(
           sourceContext,
           verifiedEmail,
           signal,
+          processingAttemptId,
         ),
     );
   } catch (err: any) {
@@ -629,6 +638,31 @@ function getHandler(config: A2AConfig): A2AHandler {
   return config.handler ?? defaultHandler;
 }
 
+function isMessageStream(result: unknown): result is AsyncGenerator<Message> {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    Symbol.asyncIterator in result
+  );
+}
+
+type TaskUpdate = Parameters<typeof updateTask>[1];
+
+/**
+ * updateTask leaves an absent field unchanged, so an unset message or empty
+ * artifact list is omitted rather than passed as undefined.
+ */
+function completedTaskUpdate(
+  message: Message | undefined,
+  artifacts: Artifact[],
+): TaskUpdate {
+  return {
+    state: "completed",
+    ...(message === undefined ? {} : { message }),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  };
+}
+
 function jsonRpcError(
   id: string | number | null,
   code: number,
@@ -649,6 +683,7 @@ function makeHandlerContext(
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
   signal?: AbortSignal,
+  processingAttemptId?: string,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -663,6 +698,7 @@ function makeHandlerContext(
   }> = [];
   const context: A2AHandlerContext = {
     taskId,
+    processingAttemptId,
     contextId,
     metadata,
     event,
@@ -753,6 +789,13 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
   const verifiedOrgId =
     (event?.context?.__a2aVerifiedOrgId as string | undefined) ?? undefined;
+  const rawIdentityAssurance = event?.context?.__a2aIdentityAssurance;
+  const identityAssurance =
+    rawIdentityAssurance === "user" ||
+    rawIdentityAssurance === "organization" ||
+    rawIdentityAssurance === "org-member"
+      ? rawIdentityAssurance
+      : undefined;
   const requestOrigin = requestOriginForContext(metadata, event);
   if (event?.context && verifiedEmail && !verifiedOrgId) {
     markExplicitPersonalOrgScope(event);
@@ -761,6 +804,7 @@ async function withA2ARequestContext<T>(
   return runWithRequestContext(
     {
       userEmail: verifiedEmail,
+      ...(identityAssurance ? { a2aIdentityAssurance: identityAssurance } : {}),
       ...(verifiedOrgId
         ? { orgId: verifiedOrgId }
         : verifiedEmail
@@ -782,6 +826,7 @@ async function runHandlerAndPersist(
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
   signal?: AbortSignal,
+  processingAttemptId?: string,
 ): Promise<void> {
   const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
     taskId,
@@ -791,18 +836,15 @@ async function runHandlerAndPersist(
     sourceContext,
     ownerEmail,
     signal,
+    processingAttemptId,
   );
   try {
     signal?.throwIfAborted();
     const result = getHandler(config)(message, context);
 
-    if (
-      result &&
-      typeof result === "object" &&
-      Symbol.asyncIterator in result
-    ) {
+    if (isMessageStream(result)) {
       let lastMessage: Message | undefined;
-      for await (const msg of result as AsyncGenerator<Message>) {
+      for await (const msg of result) {
         signal?.throwIfAborted();
         lastMessage = msg;
       }
@@ -1075,68 +1117,76 @@ async function handleSend(
     );
 
     try {
-      const result = getHandler(config)(message, ctx.context);
+      try {
+        const result = getHandler(config)(message, ctx.context);
 
-      if (
-        result &&
-        typeof result === "object" &&
-        Symbol.asyncIterator in result
-      ) {
-        let lastMessage: Message | undefined;
-        for await (const msg of result as AsyncGenerator<Message>) {
-          lastMessage = msg;
+        if (isMessageStream(result)) {
+          let lastMessage: Message | undefined;
+          for await (const msg of result) {
+            lastMessage = msg;
+          }
+          if (
+            lastMessage?.metadata?.agentNativeTaskState === "input-required"
+          ) {
+            const updated = await updateTask(task.id, {
+              state: "input-required",
+              message: lastMessage,
+            });
+            return { ...jsonRpcResult(0, updated), _id: 0 };
+          }
+          await ctx.persistFileArtifacts();
+          const updated = await updateTask(
+            task.id,
+            completedTaskUpdate(lastMessage, ctx.artifacts),
+          );
+          return { ...jsonRpcResult(0, updated), _id: 0 };
         }
-        if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
+
+        const handlerResult = await (result as Promise<A2AHandlerResult>);
+        const allArtifacts = [
+          ...ctx.artifacts,
+          ...(handlerResult.artifacts ?? []),
+        ];
+        if (handlerResult.taskState === "input-required") {
           const updated = await updateTask(task.id, {
             state: "input-required",
-            message: lastMessage,
+            message: handlerResult.message,
           });
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
         await ctx.persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
-          message: lastMessage,
-          artifacts: ctx.artifacts.length > 0 ? ctx.artifacts : undefined,
-        });
-        return { ...jsonRpcResult(0, updated), _id: 0 };
-      }
-
-      const handlerResult = await (result as Promise<A2AHandlerResult>);
-      const allArtifacts = [
-        ...ctx.artifacts,
-        ...(handlerResult.artifacts ?? []),
-      ];
-      if (handlerResult.taskState === "input-required") {
-        const updated = await updateTask(task.id, {
-          state: "input-required",
           message: handlerResult.message,
+          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
+      } catch (err: unknown) {
+        const failureMessage = taskFailureMessage(err, "Handler failed");
+        await updateTask(task.id, {
+          state: "failed",
+          message: failureMessage,
+        });
+        return {
+          ...jsonRpcError(
+            0,
+            -32000,
+            failureMessage.parts[0]?.type === "text"
+              ? failureMessage.parts[0].text
+              : "Handler failed",
+          ),
+          _id: 0,
+        };
       }
-      await ctx.persistFileArtifacts();
-      const updated = await updateTask(task.id, {
-        state: "completed",
-        message: handlerResult.message,
-        artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-      });
-      return { ...jsonRpcResult(0, updated), _id: 0 };
-    } catch (err: any) {
-      const failureMessage = taskFailureMessage(err, "Handler failed");
-      await updateTask(task.id, {
-        state: "failed",
-        message: failureMessage,
-      });
-      return {
-        ...jsonRpcError(
-          0,
-          -32000,
-          failureMessage.parts[0]?.type === "text"
-            ? failureMessage.parts[0].text
-            : "Handler failed",
-        ),
-        _id: 0,
-      };
+    } catch (err: unknown) {
+      // A cancel that landed first is the answer; the handler's outcome is dropped.
+      if (err instanceof A2ATaskCanceledError) {
+        return {
+          ...jsonRpcResult(0, sanitizeTaskForResponse(err.task)),
+          _id: 0,
+        };
+      }
+      throw err;
     }
   });
 }
@@ -1216,56 +1266,61 @@ async function handleStream(
     );
 
     try {
-      const result = getHandler(config)(message, context);
+      try {
+        const result = getHandler(config)(message, context);
 
-      if (
-        result &&
-        typeof result === "object" &&
-        Symbol.asyncIterator in result
-      ) {
-        for await (const msg of result as AsyncGenerator<Message>) {
-          const intermediate = await updateTask(task.id, {
-            state: "working",
-            message: msg,
-          });
-          res.write(
-            `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
+        if (isMessageStream(result)) {
+          for await (const msg of result) {
+            const intermediate = await updateTask(task.id, {
+              state: "working",
+              message: msg,
+            });
+            res.write(
+              `data: ${JSON.stringify(jsonRpcResult(0, intermediate))}\n\n`,
+            );
+          }
+        } else {
+          const handlerResult = await result;
+          const allArtifacts = [
+            ...artifacts,
+            ...(handlerResult.artifacts ?? []),
+          ];
+          await persistFileArtifacts();
+          const updated = await updateTask(
+            task.id,
+            completedTaskUpdate(handlerResult.message, allArtifacts),
           );
+          res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
+          res.end();
+          return;
         }
-      } else {
-        const handlerResult = await (result as Promise<A2AHandlerResult>);
-        const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-        await persistFileArtifacts();
-        const updated = await updateTask(task.id, {
-          state: "completed",
-          message: handlerResult.message,
-          artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-        });
-        res.write(`data: ${JSON.stringify(jsonRpcResult(0, updated))}\n\n`);
-        res.end();
-        return;
-      }
 
-      const allArtifacts = [...artifacts];
-      await persistFileArtifacts();
-      const final = await updateTask(task.id, {
-        state: "completed",
-        artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
-      });
-      res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
-    } catch (err: any) {
-      const failureMessage = taskFailureMessage(err, "Handler failed");
-      await updateTask(task.id, { state: "failed", message: failureMessage });
+        const allArtifacts = [...artifacts];
+        await persistFileArtifacts();
+        const final = await updateTask(
+          task.id,
+          completedTaskUpdate(undefined, allArtifacts),
+        );
+        res.write(`data: ${JSON.stringify(jsonRpcResult(0, final))}\n\n`);
+      } catch (err: unknown) {
+        const failureMessage = taskFailureMessage(err, "Handler failed");
+        await updateTask(task.id, { state: "failed", message: failureMessage });
+        res.write(
+          `data: ${JSON.stringify(
+            jsonRpcError(
+              0,
+              -32000,
+              failureMessage.parts[0]?.type === "text"
+                ? failureMessage.parts[0].text
+                : "Handler failed",
+            ),
+          )}\n\n`,
+        );
+      }
+    } catch (err: unknown) {
+      if (!(err instanceof A2ATaskCanceledError)) throw err;
       res.write(
-        `data: ${JSON.stringify(
-          jsonRpcError(
-            0,
-            -32000,
-            failureMessage.parts[0]?.type === "text"
-              ? failureMessage.parts[0].text
-              : "Handler failed",
-          ),
-        )}\n\n`,
+        `data: ${JSON.stringify(jsonRpcResult(0, sanitizeTaskForResponse(err.task)))}\n\n`,
       );
     }
 
@@ -1535,11 +1590,20 @@ async function handleCancel(
   );
   if (denied) return denied;
 
-  const task = await cancelA2ATask(id, taskAccessScope(ownership, event));
-  if (!task) {
-    return jsonRpcError(0, -32001, "Task not found");
+  const outcome = await cancelA2ATask(id, taskAccessScope(ownership, event));
+  switch (outcome.status) {
+    case "not_found":
+      return jsonRpcError(0, -32001, "Task not found");
+    // A2A TaskNotCancelableError.
+    case "not_cancelable":
+      return jsonRpcError(
+        0,
+        -32002,
+        `Task cannot be canceled from state "${outcome.state}"`,
+      );
+    case "canceled":
+      return jsonRpcResult(0, sanitizeTaskForResponse(outcome.task));
   }
-  return jsonRpcResult(0, sanitizeTaskForResponse(task));
 }
 
 async function handleInvokeReadOnlyAction(

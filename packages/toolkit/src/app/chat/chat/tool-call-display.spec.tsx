@@ -352,6 +352,35 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Ada");
   });
 
+  it("passes the app chart layout to regular tool renderers", () => {
+    const layout = { maxWidth: 760, labelFontSize: 14 };
+    registerToolRenderer({
+      id: "app.chart-layout",
+      match: "app-chart-layout",
+      Component: ({ context }) => (
+        <div data-chart-layout-width={context.dataChartLayout?.maxWidth} />
+      ),
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="app-chart-layout"
+          args={{}}
+          result="ready"
+          isRunning={false}
+          dataChartLayout={layout}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("[data-chart-layout-width]")
+        ?.getAttribute("data-chart-layout-width"),
+    ).toBe("760");
+  });
+
   it("renders table-only data insight payloads without a chart", async () => {
     await act(async () => {
       root.render(
@@ -761,7 +790,7 @@ describe("ToolCallDisplay native renderers", () => {
     ).not.toBeNull();
     expect(
       container.querySelector("[data-agent-native-cube-loader]")?.className,
-    ).toContain("size-3.5");
+    ).toContain("size-4");
   });
 
   it("keeps a remote pending delegation out of the terminal state", () => {
@@ -1590,10 +1619,109 @@ describe("ToolCallDisplay native renderers", () => {
       );
     });
 
-    const row = container.querySelector("button")?.parentElement;
-    expect(row?.className).toContain("w-full");
-    expect(container.querySelector("button")?.className).toContain("w-full");
+    const cell = container.querySelector(".agentkit-disclosure-row")
+      ?.parentElement as HTMLElement | null;
+    expect(cell?.className).toContain("w-full");
+    expect(
+      container.querySelector(".agentkit-disclosure-row")?.className,
+    ).toContain("agentkit-activity-row");
     expect(container.textContent).toContain("recent deals");
+  });
+
+  it("renders generic tool rows as the shared disclosure: icon, label, then chevron", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="hubspot-deals"
+          args={{ query: "recent deals" }}
+          result='{"ok":true}'
+          isRunning={false}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      "button.agentkit-disclosure-summary",
+    );
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger?.children[0]?.className).toContain(
+      "agentkit-disclosure-icon-slot",
+    );
+    expect(trigger?.children[1]?.className).toContain(
+      "agentkit-disclosure-label",
+    );
+    expect(trigger?.children[2]?.getAttribute("class")).toContain(
+      "agentkit-disclosure-chevron",
+    );
+
+    act(() => trigger?.click());
+
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+    const controls = trigger?.getAttribute("aria-controls");
+    expect(controls && document.getElementById(controls)).toBeTruthy();
+  });
+
+  it("renders a tool row with nothing to expand as static text", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay toolName="refresh-list" args={{}} isRunning={false} />,
+      );
+    });
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(
+      container.querySelector("span.agentkit-disclosure-summary")?.textContent,
+    ).toContain("refresh list");
+  });
+
+  it("caps a finished delegation's work at eight rows behind Show more", () => {
+    const toolCalls = Array.from({ length: 11 }, (_, index) => ({
+      id: `tool-${index}`,
+      name: `step-${index}`,
+      status: "completed" as const,
+    }));
+    const renderCall = (running: boolean) => (
+      <ToolCallDisplay
+        toolName="agent:Analytics"
+        args={{}}
+        result={running ? undefined : "Done"}
+        isRunning={running}
+        structuredMeta={{
+          agentActivity: {
+            kind: "agent-native/agent-activity",
+            version: 1,
+            sequence: 2,
+            startedAt: 1,
+            updatedAt: 2,
+            durationMs: 1,
+            activePhase: running ? "tool" : "complete",
+            reasoning: [],
+            toolCalls,
+          },
+        }}
+      />
+    );
+    act(() => root.render(renderCall(true)));
+    expect(container.textContent).toContain("step 10");
+    expect(container.textContent).not.toContain("Show 3 more");
+
+    act(() => root.render(renderCall(false)));
+    const worked = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ).find((button) => button.textContent?.includes("Worked"));
+    act(() => worked?.click());
+
+    expect(container.textContent).toContain("step 7");
+    expect(container.textContent).not.toContain("step 8");
+    const more = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Show 3 more",
+    );
+    expect(more).toBeTruthy();
+
+    act(() => more?.click());
+
+    expect(container.textContent).toContain("step 10");
+    expect(container.textContent).not.toContain("Show 3 more");
   });
 
   it("shows the command itself in a generic command row", () => {
@@ -2698,9 +2826,17 @@ describe("WorkedForSummary", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    const render = root.render.bind(root);
+    root.render = (children: ReactNode) =>
+      render(
+        <AgentNativeI18nProvider persistPreference={false}>
+          {children}
+        </AgentNativeI18nProvider>,
+      );
   });
 
   afterEach(() => {
@@ -2740,6 +2876,17 @@ describe("WorkedForSummary", () => {
               response: ["The query returned a 12% increase."],
             },
           }}
+          workedForRowLayout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+          formatWorkedForDuration={(durationMs) =>
+            `${durationMs / 1000} seconds`
+          }
         />,
       );
     });
@@ -2748,6 +2895,8 @@ describe("WorkedForSummary", () => {
       container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
     ).find((button) => button.textContent?.includes("Worked for"));
     expect(workedFor).not.toBeNull();
+    expect(workedFor?.style.fontSize).toBe("14px");
+    expect(workedFor?.textContent).toContain("Worked for 5 seconds");
     act(() => workedFor?.click());
 
     expect(container.textContent).not.toContain("This private thought");
@@ -2793,6 +2942,68 @@ describe("WorkedForSummary", () => {
     });
 
     expect(container.textContent).toContain("Worked for 5m");
+  });
+
+  it("leads with the icon column and puts the chevron after the duration label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector("button[aria-expanded]");
+    expect(button?.classList).toContain("agentkit-disclosure-summary");
+    expect(button?.children[0]?.className).toContain(
+      "agentkit-disclosure-icon-slot",
+    );
+    expect(button?.children[1]?.textContent).toBe("Worked for 5s");
+    expect(button?.children[2]?.getAttribute("class")).toContain(
+      "agentkit-disclosure-chevron",
+    );
+    expect(button?.getAttribute("aria-controls")).toBeNull();
+
+    act(() => (button as HTMLButtonElement | null)?.click());
+
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    const controls = button?.getAttribute("aria-controls");
+    expect(controls && document.getElementById(controls)).toBeTruthy();
+  });
+
+  it("applies optional geometry to the completed-work disclosure row", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary
+          durationMs={5_000}
+          layout={{
+            chevronSize: 16,
+            iconGap: 4,
+            fontSize: 14,
+            lineHeight: 20,
+            paddingBlock: 12,
+            paddingInline: 12,
+          }}
+        >
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded]",
+    );
+    const icon = button?.querySelector<SVGElement>(
+      ".agentkit-disclosure-chevron",
+    );
+    expect(button?.style.gap).toBe("4px");
+    expect(button?.style.fontSize).toBe("14px");
+    expect(button?.style.lineHeight).toBe("20px");
+    expect(button?.style.paddingBlock).toBe("12px");
+    expect(button?.style.paddingInline).toBe("12px");
+    expect(button?.style.fontFamily).toBe("inherit");
+    expect(icon?.style.width).toBe("16px");
+    expect(icon?.style.height).toBe("16px");
   });
 
   it("applies the running shimmer while the work summary is live", () => {
@@ -3129,7 +3340,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash", "Deny"]);
+    ).toEqual(["Deny"]);
 
     const denyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Deny",
@@ -3157,22 +3368,26 @@ describe("ApprovalAffordance", () => {
 
     const approvalCard = container.querySelector(
       ".agent-approval-card",
-    ) as HTMLDivElement;
-    const approvalCopy = Array.from(approvalCard.querySelectorAll("div")).find(
-      (div) => div.textContent === "Approve to run send-email?",
-    ) as HTMLDivElement;
+    ) as HTMLElement;
+    const approvalCopy = Array.from(approvalCard.querySelectorAll("p")).find(
+      (p) => p.textContent === "Approve to run send-email?",
+    ) as HTMLParagraphElement;
     const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
 
-    expect(approvalCard.className).toContain("rounded-xl");
-    expect(approvalCopy.className).toContain("font-semibold");
+    expect(approvalCard.className).toContain("rounded-lg");
+    expect(approvalCopy.className).toContain("font-medium");
+    // The card lets the question wrap instead of truncating it.
+    expect(
+      approvalCard.querySelector("[data-action-card]")?.className,
+    ).toContain("[&_p]:whitespace-normal");
     expect(actionButtons.map((button) => button.textContent)).toEqual([
       "Approve",
       "",
       "Deny",
     ]);
-    for (const button of actionButtons) {
-      expect(button.className).toContain("shrink-0");
-    }
+    expect(actionButtons[0]!.parentElement?.parentElement?.className).toContain(
+      "flex-wrap",
+    );
   });
 
   it("keeps the default two-button layout when only onApprove is provided", () => {
@@ -3194,7 +3409,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash", "Approve", "Deny"]);
+    ).toEqual(["Approve", "Deny"]);
 
     const approveButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Approve",
@@ -3207,7 +3422,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash"]);
+    ).toEqual([]);
   });
 
   it("hides the persistent approval option for per-call-only actions", () => {
@@ -3233,7 +3448,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["send email", "Approve", "Deny"]);
+    ).toEqual(["Approve", "Deny"]);
   });
 
   it("keeps Approved visible when the chat refresh remounts the tool card", () => {
@@ -3279,7 +3494,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash"]);
+    ).toEqual([]);
   });
 
   it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
@@ -3335,7 +3550,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash", "Approve", "Deny"]);
+    ).toEqual(["Approve", "Deny"]);
   });
 
   it("calls onDeny in addition to the local denied state when provided", () => {
@@ -3383,7 +3598,7 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash", "Approve", "", "Deny"]);
+    ).toEqual(["Approve", "", "Deny"]);
 
     const menuButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.getAttribute("aria-label") === "More approval options",

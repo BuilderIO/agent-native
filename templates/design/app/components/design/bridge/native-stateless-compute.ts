@@ -29,12 +29,14 @@ export class NativeStatelessComputePipelines {
     private readonly resolve: GPURenderPipeline,
     private readonly computeLayout: GPUBindGroupLayout,
     private readonly resolveLayout: GPUBindGroupLayout,
+    private readonly uniformFloats: 128 | 256,
   ) {}
 
   static async create(
     device: GPUDevice,
     computeWgsl: string,
     resolveWgsl: string,
+    uniformFloats: 128 | 256 = 128,
   ): Promise<NativeStatelessComputePipelines> {
     const entries = (
       stage: number,
@@ -43,7 +45,7 @@ export class NativeStatelessComputePipelines {
       {
         binding: 0,
         visibility: stage,
-        buffer: { type: "uniform", minBindingSize: 544 },
+        buffer: { type: "uniform", minBindingSize: (8 + uniformFloats) * 4 },
       },
       { binding: 1, visibility: stage, sampler: { type: "filtering" } },
       {
@@ -105,6 +107,7 @@ export class NativeStatelessComputePipelines {
         resolve,
         computeLayout,
         resolveLayout,
+        uniformFloats,
       );
     } catch {
       throw new NativeStatelessComputeError("stateless-compute-shader-invalid");
@@ -131,7 +134,7 @@ export class NativeStatelessComputePipelines {
       source.width !== plan.sourceWidth ||
       source.height !== plan.sourceHeight ||
       target.format !== "rgba16float" ||
-      data.length !== 136 ||
+      data.length !== 8 + this.uniformFloats ||
       data[6] !== plan.encodedDensity ||
       !Number.isSafeInteger(plan.byteLength) ||
       plan.byteLength < 4 ||

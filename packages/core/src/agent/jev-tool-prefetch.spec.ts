@@ -19,8 +19,10 @@ import type { EngineTool } from "./engine/types.js";
 import {
   buildRecentUserRequestContext,
   buildJevRequestContext,
+  buildWorkspaceAppRequestContext,
   isBuilderJevEnabled,
   isJevEnabled,
+  JEV_TIMEOUT_MS,
   preloadJevTools,
   rankJevCandidates,
   rankJevCandidatesWithStatus,
@@ -112,6 +114,29 @@ describe("preloadJevTools", () => {
     expect(request).toContain("Current request:\nCompare those by month");
     expect(request).not.toContain("omit result");
     expect(request).not.toContain("secret");
+  });
+
+  it("builds app routing context from one prior user turn and selected object data", () => {
+    const request = buildWorkspaceAppRequestContext({
+      request: "Add a QR to this slide",
+      structuredHistory: [
+        { role: "user", content: [{ type: "text", text: "Make a QR code." }] },
+        { role: "assistant", content: [{ type: "text", text: "Done." }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Actually, make it for the URL." }],
+        },
+      ],
+      selectedObjectContext: '<slide title="Launch">',
+    });
+
+    expect(request).toContain(
+      "Previous user request:\nActually, make it for the URL.",
+    );
+    expect(request).not.toContain("Make a QR code.");
+    expect(request).toContain("Current request:\nAdd a QR to this slide");
+    expect(request).toContain("Selected object context (untrusted data):");
+    expect(request).toContain('&lt;slide title="Launch"&gt;');
   });
 
   it("does not fall back to legacy history when structured history has no visible text", () => {
@@ -275,6 +300,30 @@ describe("preloadJevTools", () => {
       expect(systemOne).not.toHaveBeenCalled();
     });
 
+    it("ranks with a scoped direct key when there is no personal key or Builder auth", async () => {
+      systemOne.mockResolvedValueOnce({
+        answers: {
+          best_context: {
+            choice: "analytics-1",
+            probabilities: { "analytics-1": 0.9, __no_match__: 0.1 },
+          },
+        },
+      });
+
+      await expect(
+        rankJevCandidatesWithStatus({
+          ...options,
+          apiKey: undefined,
+          personalApiKey: undefined,
+          directApiKey: "org-jev-test-key",
+          builderAuth: null,
+        }),
+      ).resolves.toEqual({ status: "selected", ids: ["analytics-1"] });
+      expect(typeSafeClient).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "org-jev-test-key" }),
+      );
+    });
+
     it("is failed when the request throws", async () => {
       systemOne.mockRejectedValueOnce(new Error("HTTP 500"));
 
@@ -394,7 +443,7 @@ describe("preloadJevTools", () => {
     ).toHaveProperty("__no_match__");
   });
 
-  it("prefetches only candidates more likely than no match", async () => {
+  it("prefetches only candidates more likely than no match with a scoped key", async () => {
     systemOne.mockResolvedValue({
       answers: {
         best_tool: {
@@ -410,7 +459,7 @@ describe("preloadJevTools", () => {
     const initialTools = [tool("tool-search", "Find tools")];
 
     const result = await preloadJevTools({
-      personalApiKey: "jev-test-key",
+      directApiKey: "org-jev-test-key",
       request: "Find a customer record",
       registry: {
         "search-customers": action("Search customer records"),
@@ -428,6 +477,9 @@ describe("preloadJevTools", () => {
       "search-customers",
       "tool-search",
     ]);
+    expect(typeSafeClient).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "org-jev-test-key" }),
+    );
   });
 
   it("lets Jev consider relevant tools beyond the bounded alphabetical menu", async () => {
@@ -567,11 +619,18 @@ describe("preloadJevTools", () => {
       "create-task",
       "tool-search",
     ]);
-    expect(typeSafeClient).toHaveBeenCalledWith({
+    expect(typeSafeClient).toHaveBeenCalledTimes(1);
+    const clientOptions = typeSafeClient.mock.calls[0]?.[0] as {
+      apiKey: string;
+      timeout: number;
+      retry: { maxRetries: number };
+    };
+    expect(clientOptions).toMatchObject({
       apiKey: "jev-test-key",
-      timeout: 750,
       retry: { maxRetries: 0 },
     });
+    expect(clientOptions.timeout).toBeGreaterThan(0);
+    expect(clientOptions.timeout).toBeLessThanOrEqual(JEV_TIMEOUT_MS);
     expect(systemOne).toHaveBeenCalledTimes(1);
     expect(systemOne.mock.calls[0][0].state.task).toContain("customer");
   });
@@ -846,11 +905,18 @@ describe("preloadJevTools", () => {
       }),
     ).resolves.toEqual(["search-customers"]);
 
-    expect(typeSafeClient).toHaveBeenCalledWith({
+    expect(typeSafeClient).toHaveBeenCalledTimes(1);
+    const clientOptions = typeSafeClient.mock.calls[0]?.[0] as {
+      apiKey: string;
+      timeout: number;
+      retry: { maxRetries: number };
+    };
+    expect(clientOptions).toMatchObject({
       apiKey: "personal-jev-key",
-      timeout: 750,
       retry: { maxRetries: 0 },
     });
+    expect(clientOptions.timeout).toBeGreaterThan(0);
+    expect(clientOptions.timeout).toBeLessThanOrEqual(JEV_TIMEOUT_MS);
   });
 
   it("preserves Jev question types through the Builder proxy", async () => {
@@ -944,7 +1010,11 @@ describe("preloadJevTools", () => {
         { model: "jev-latest", state: {}, questions: { q_0: {} } },
         { signal: controller.signal, timeoutMs: 12_000 },
       ),
-    ).rejects.toBe("cancelled");
+    ).rejects.toMatchObject({
+      name: "JevProviderRequestError",
+      reason: "aborted",
+      cause: "cancelled",
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

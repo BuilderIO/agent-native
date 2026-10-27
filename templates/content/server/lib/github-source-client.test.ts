@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requests = vi.hoisted(
-  () => [] as Array<{ path: string; timeoutMs?: number; signal?: AbortSignal }>,
+  () =>
+    [] as Array<{
+      method?: string;
+      path: string;
+      body?: unknown;
+      timeoutMs?: number;
+      signal?: AbortSignal;
+    }>,
 );
 const github = vi.hoisted(() => ({
   hang: false,
@@ -34,7 +41,9 @@ const github = vi.hoisted(() => ({
 }));
 vi.mock("./provider-api.js", () => ({
   executeGitHubSourceRequest: async (args: {
+    method?: string;
     path: string;
+    body?: unknown;
     timeoutMs?: number;
     signal?: AbortSignal;
   }) => {
@@ -77,6 +86,7 @@ import {
   GitHubSourceDeadlineError,
   GitHubSourceError,
   readGitHubBlob,
+  readGitHubBlobTexts,
   readGitHubBranchHead,
   readGitHubFolderTree,
   readGitHubRenames,
@@ -230,7 +240,10 @@ describe("GitHub request deadlines", () => {
     github.ranOutItself = 1;
     await expect(
       readGitHubBranchHead({ ...target, branch: "main" }),
-    ).rejects.toThrow("timed out after 30000ms");
+    ).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "unavailable",
+    });
     expect(requests).toEqual([expect.objectContaining({ timeoutMs: 30_000 })]);
 
     requests.length = 0;
@@ -245,15 +258,26 @@ describe("GitHub request deadlines", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("keeps other failures as they are", async () => {
-    github.failure = new Error("socket hang up");
-    await expect(
+  it("names a request that never reached GitHub, and leaves a missing connection to the caller", async () => {
+    const read = () =>
       readGitHubBlob({
         ...target,
         sha: "b10b",
         signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow("socket hang up");
+      });
+    github.failure = new Error(
+      "Provider API request failed (ECONNRESET): GET api.github.com/repos/acme/docs: socket hang up",
+    );
+    await expect(read()).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "unavailable",
+    });
+
+    const missing = Object.assign(new Error("Connect GitHub."), {
+      agentConnectionRequired: true,
+    });
+    github.failure = missing;
+    await expect(read()).rejects.toBe(missing);
   });
 });
 
@@ -304,5 +328,155 @@ describe("GitHub responses", () => {
         readGitHubRenames({ ...target, base: "a1", head: "b2" }),
       ).rejects.toMatchObject({ code });
     }
+  });
+});
+
+describe("Reading many files at once", () => {
+  const sha = (n: number) => n.toString(16).padStart(40, "0");
+  const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
+  const REPLACEMENT_CHARACTER = String.fromCharCode(0xfffd);
+  const blob = (
+    text: string | null,
+    flags: Partial<Record<string, boolean>> = {},
+  ) => ({
+    text,
+    isBinary: false,
+    isTruncated: false,
+    ...flags,
+  });
+
+  it("asks GitHub's GraphQL API for every file in one request", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: {
+          repository: {
+            b0: blob("# One\n"),
+            b1: blob(`${BYTE_ORDER_MARK}# Two\n`),
+          },
+        },
+      },
+    };
+    const texts = await readGitHubBlobTexts(target, [
+      sha(1),
+      sha(2),
+      sha(1),
+      "not-a-blob",
+    ]);
+    // A file's bytes decode without a leading byte order mark; so does its text.
+    expect(texts).toEqual(
+      new Map([
+        [sha(1), "# One\n"],
+        [sha(2), "# Two\n"],
+      ]),
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      method: "POST",
+      path: "/graphql",
+      body: { variables: { owner: "acme", repo: "site" } },
+    });
+    const query = (requests[0]!.body as { query: string }).query;
+    expect(query.match(/object\(oid: "[0-9a-f]{40}"\)/g)).toEqual([
+      `object(oid: "${sha(1)}")`,
+      `object(oid: "${sha(2)}")`,
+    ]);
+  });
+
+  it("leaves out a file GitHub can't send whole as text, for a read of its own", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: {
+          repository: {
+            b0: blob(null, { isBinary: true }),
+            b1: blob("# Cut off", { isTruncated: true }),
+            b2: blob(`# Not UTF-8 ${REPLACEMENT_CHARACTER}\n`),
+            b3: null,
+            b4: blob("# Fine\n"),
+          },
+        },
+      },
+    };
+    const texts = await readGitHubBlobTexts(target, [1, 2, 3, 4, 5].map(sha));
+    expect(texts).toEqual(new Map([[sha(5), "# Fine\n"]]));
+  });
+
+  it("names a GraphQL answer that comes back with errors instead of files", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: null,
+        errors: [{ type: "INTERNAL", message: "Something went wrong" }],
+      },
+    };
+    await expect(
+      readGitHubBlobTexts(target, [sha(1), sha(2)]),
+    ).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "unavailable",
+      message: expect.stringContaining("Something went wrong"),
+    });
+  });
+
+  it.each([
+    [
+      "GraphQL's own",
+      {
+        status: 200,
+        json: {
+          data: null,
+          errors: [
+            {
+              type: "RATE_LIMITED",
+              message: "API rate limit already exceeded for user ID 1.",
+            },
+          ],
+        },
+      },
+    ],
+    [
+      "a secondary",
+      {
+        status: 403,
+        json: { message: "You have exceeded a secondary rate limit." },
+      },
+    ],
+    ["a 429", { status: 429, json: { message: "Too many requests" } }],
+  ])("names %s rate limit as one", async (_which, response) => {
+    github.response = response;
+    await expect(
+      readGitHubBlobTexts(target, [sha(1), sha(2)]),
+    ).rejects.toMatchObject({
+      name: "GitHubSourceError",
+      code: "rate_limited",
+    });
+  });
+
+  it("asks for no more of the answer than the provider client reads", async () => {
+    github.response = { status: 200, json: { data: { repository: {} } } };
+    await readGitHubBlobTexts(target, [sha(1), sha(2)]);
+    expect((requests[0] as { maxBytes?: number }).maxBytes).toBe(
+      4 * 1024 * 1024,
+    );
+  });
+
+  it("asks nothing for names that aren't blob SHAs", async () => {
+    await expect(
+      readGitHubBlobTexts(target, ["b10b", "../../x"]),
+    ).resolves.toEqual(new Map());
+    expect(requests).toEqual([]);
+  });
+
+  it("ends the request when the caller's time runs out", async () => {
+    github.hang = true;
+    const budget = new AbortController();
+    const read = readGitHubBlobTexts({ ...target, signal: budget.signal }, [
+      sha(1),
+      sha(2),
+    ]);
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    budget.abort();
+    await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
   });
 });

@@ -23,6 +23,11 @@ export default defineAction({
   description:
     "Save a human-proposed instruction update for an agent output. The draft is explicit and never applied automatically.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
     const { userId, orgId } = getObservabilityOrgAdminAccess(ctx);

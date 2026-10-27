@@ -7,6 +7,8 @@ on:
       - "templates/clips/desktop/**"
       - "packages/shared-app-config/**"
       - ".github/workflows/clips-desktop-build-check.yml"
+  schedule:
+    - cron: "41 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -24,20 +26,9 @@ jobs:
     name: Build (${{ matrix.os }})
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: universal-apple-darwin
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-            bundles: ""
-          - os: windows-latest
-            target: ""
-            rust-targets: ""
-            bundles: ""
-          - os: ubuntu-22.04
-            target: ""
-            rust-targets: ""
-            bundles: "appimage,deb,rpm"
+      # Pull requests build only Linux. The macOS and Windows legs run on the
+      # daily schedule and manual dispatch, because macOS minutes bill at 10x.
+      matrix: ${{ github.event_name == 'pull_request' && fromJSON('{"include":[{"os":"ubuntu-22.04","target":"","rust-targets":"","bundles":"appimage,deb,rpm"}]}') || fromJSON('{"include":[{"os":"macos-latest","target":"universal-apple-darwin","rust-targets":"aarch64-apple-darwin,x86_64-apple-darwin","bundles":""},{"os":"windows-latest","target":"","rust-targets":"","bundles":""},{"os":"ubuntu-22.04","target":"","rust-targets":"","bundles":"appimage,deb,rpm"}]}') }}
     runs-on: ${{ matrix.os }}
     env:
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
@@ -47,7 +38,7 @@ jobs:
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm

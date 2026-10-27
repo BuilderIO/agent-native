@@ -64,15 +64,15 @@ export function resolveViewPastePosition(args: {
   if (frame) {
     return {
       fileId: frame.id,
-      x: center.x - frame.geometry.x + args.cascadeOffset,
-      y: center.y - frame.geometry.y + args.cascadeOffset,
+      x: Math.round(center.x - frame.geometry.x + args.cascadeOffset),
+      y: Math.round(center.y - frame.geometry.y + args.cascadeOffset),
     };
   }
   if (!boardFileId) return null;
   return {
     fileId: boardFileId,
-    x: center.x + args.cascadeOffset,
-    y: center.y + args.cascadeOffset,
+    x: Math.round(center.x + args.cascadeOffset),
+    y: Math.round(center.y + args.cascadeOffset),
   };
 }
 
@@ -140,16 +140,16 @@ export function resolveScreenViewPastePositions(args: {
   const rects = located.filter((rect): rect is CanvasRect => rect !== null);
   if (rects.length !== located.length) {
     return located.map((_, index) => ({
-      x: center.x + cascadeOffset + index * 16,
-      y: center.y + cascadeOffset + index * 16,
+      x: Math.round(center.x + cascadeOffset) + index * 16,
+      y: Math.round(center.y + cascadeOffset) + index * 16,
     }));
   }
   const left = Math.min(...rects.map((rect) => rect.x));
   const top = Math.min(...rects.map((rect) => rect.y));
   const right = Math.max(...rects.map((rect) => rect.x + rect.width));
   const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
-  const originX = center.x - (right - left) / 2 + cascadeOffset;
-  const originY = center.y - (bottom - top) / 2 + cascadeOffset;
+  const originX = Math.round(center.x - (right - left) / 2 + cascadeOffset);
+  const originY = Math.round(center.y - (bottom - top) / 2 + cascadeOffset);
   return rects.map((rect) => ({
     x: originX + rect.x - left,
     y: originY + rect.y - top,

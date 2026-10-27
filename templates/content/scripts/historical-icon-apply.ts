@@ -16,8 +16,9 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../actions/_blocks-field-identity.js";
+import { lockDocumentForSave } from "../actions/_document-save-locks.js";
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -178,6 +179,13 @@ export async function replaceHistoricalIconIfUnchanged(
         scopedOrg(schema.documents.orgId),
         eq(schema.documents.content, reference.contentRaw!),
       );
+      const transaction = tx as unknown as ReturnType<typeof getDb>;
+      // A body save's lock order, memberships before the page.
+      const { lockedMembershipIds } = await lockDocumentForSave(transaction, {
+        documentId: reference.rowId,
+        ownerEmail: owner,
+        body: true,
+      });
       const [current] = await tx
         .select()
         .from(schema.documents)
@@ -189,17 +197,21 @@ export async function replaceHistoricalIconIfUnchanged(
         throw new Error(
           "Local-file callout migration requires its file authority",
         );
-      const transaction = tx as unknown as ReturnType<typeof getDb>;
       const fields = await lockPrimaryBlocksFields(
         transaction,
         reference.rowId,
+        { heldMembershipIds: lockedMembershipIds },
       );
       const now = nextDocumentUpdatedAt(current.updatedAt);
+      const legacy = await lockLegacyBodyWrites(tx, [reference.rowId], {
+        operation: "historical-icon-apply",
+        content,
+      });
       const changed = await tx
         .update(schema.documents)
         .set({
           content,
-          bodyRevision: bodyRevisionForContent(content),
+          bodyRevision: legacy.bodyRevision(content),
           updatedAt: now,
         })
         .where(condition)

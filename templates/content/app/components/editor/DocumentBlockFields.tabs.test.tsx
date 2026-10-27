@@ -52,6 +52,25 @@ vi.mock("./VisualEditor", async () => {
     // editor and see whether it was ever remounted.
     VisualEditor: (props: Record<string, unknown>) => {
       const label = React.useRef(String(props.content)).current;
+      const latest = React.useRef(props);
+      latest.current = props;
+      const version = React.useRef({}).current;
+      React.useEffect(() => {
+        const publish = props.onPersistenceControllerChange as
+          | ((controller: unknown) => void)
+          | undefined;
+        publish?.({
+          version,
+          flushLatest: async () => {
+            const save = latest.current.onSaveContent as (
+              content: string,
+            ) => Promise<string>;
+            return (await save(String(latest.current.content))) !== "failed";
+          },
+        });
+        return () => publish?.(null);
+      }, [props.onPersistenceControllerChange, version]);
+
       mocks.editors.set(label, props);
       // Like the real editor: newer text saved elsewhere is merged into the
       // text it holds as soon as it arrives.
@@ -983,6 +1002,7 @@ describe("DocumentBlockFields tabs", () => {
       mocks.configure.mockImplementation(async () => ({
         documentId: "doc-1",
         databaseId: "db-1",
+        propertyId: "blocks-3",
         properties: [content(), notes(), created],
       }));
       await render();
@@ -1015,6 +1035,32 @@ describe("DocumentBlockFields tabs", () => {
       expect(selectedTabId()).toBe("blocks-3");
       expect(document.activeElement).toBe(tab("blocks-3"));
       expect(mocks.configure).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens the field it added when a collaborator adds one at the same moment (TABS-8)", async () => {
+      // The collaborator's create lands between this request and its
+      // response, so it comes back first in the property list.
+      const theirs = field("blocks-3", { name: "Theirs", position: 2 });
+      const mine = field("blocks-4", { name: "Blocks", position: 3 });
+      mocks.configure.mockImplementation(async () => ({
+        documentId: "doc-1",
+        databaseId: "db-1",
+        propertyId: "blocks-4",
+        properties: [content(), notes(), theirs, mine],
+      }));
+      await render();
+
+      await click(addButton()!);
+      setFields([content(), notes(), theirs, mine]);
+      await render();
+      expect(location.href).toBe("/page/doc-1?field=blocks-4");
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-block-field-name-input]",
+      );
+      expect(input?.value).toBe("Blocks");
+      expect(document.activeElement).toBe(input);
+      // The collaborator's tab stays a tab, not open to rename.
+      expect(tab("blocks-3").textContent).toContain("Theirs");
     });
 
     it("shows + only to people who can change the collection's schema (TABS-8)", async () => {

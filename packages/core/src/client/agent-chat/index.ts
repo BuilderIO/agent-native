@@ -8,6 +8,24 @@ export {
   type BackgroundAgentSessionStartOptions,
   type BackgroundAgentSessionStatus,
 } from "../background-agent-session.js";
+export {
+  FrameworkRouteError,
+  isFrameworkRouteError,
+  type FrameworkRouteFailureKind,
+} from "../framework-route-request.js";
+export { fetchAvailableClis, type AvailableCli } from "../available-clis.js";
+export {
+  listChatCheckpoints,
+  restoreChatCheckpoint,
+  type ChatCheckpoint,
+  type ChatCheckpointRestoreTarget,
+} from "../chat-checkpoints.js";
+export {
+  BUILDER_AGENT_NOT_CONNECTED_ERROR_CODE,
+  startBuilderAgentsRun,
+  type BuilderAgentsRunReceipt,
+  type BuilderAgentsRunRequest,
+} from "../builder-agents-run.js";
 
 export {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
@@ -71,6 +89,17 @@ export {
   type AgentComposerReferenceInsertOptions,
   type AgentComposerReferenceInsertPayload,
 } from "../agent-chat.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "../../shared/agent-selection.js";
 export { isContinuationTerminalReason } from "../../agent/types.js";
 export { isRequestedStopAbortReason } from "../../agent/abort-reasons.js";
 export {
@@ -123,6 +152,7 @@ export {
   type PersistedModelSelection,
   type EngineModelGroup,
 } from "../use-chat-models.js";
+export { resolveDefaultModelSelection } from "../chat-model-groups.js";
 export {
   fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
@@ -191,10 +221,15 @@ export {
   useChatThreadList,
   type UseChatThreadListOptions,
   type UseChatThreadListResult,
+  type ChatThreadListRefreshOutcome,
 } from "../use-chat-thread-list.js";
 export {
   ChatThreadListError,
+  ChatThreadMutationError,
+  hideChatThread,
   fetchChatThreadListPage,
+  isClientDraftThread,
+  markClientDraftThread,
   notifyChatThreadsUpdated,
   useChatThreads,
   type ChatThreadAccessBasis,
@@ -251,6 +286,7 @@ export {
   getAgentSidebarMaxWidth,
   getAgentSidebarWideWidth,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarState,
   getInitialAgentSidebarOpen,
   requestAgentSidebarOpen,
   subscribeAgentSidebarUrlChanges,
@@ -265,6 +301,7 @@ export {
   createAgentNativeAgentKitTransport,
   type CreateAgentNativeAgentKitTransportOptions,
 } from "../chat/agentkit-agent-native.js";
+export { trackTurnSubmitted } from "../chat/turn-submitted-telemetry.js";
 export {
   AGENT_CHAT_RUNNING_EVENT,
   dispatchAgentChatRunning,

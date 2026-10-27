@@ -955,6 +955,10 @@ export default {
     drilldownHideSql: "Hide SQL",
     drilldownDownloadCsv: "Download CSV",
     drilldownShowing: "Showing {{shown}} of {{total}} records",
+    drilldownShowingLoaded:
+      "Showing {{shown}} of {{loaded}} loaded records; total unknown.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Export completeness is unknown; this file includes {{exported}} of {{loaded}} loaded records after filtering.",
     drilldownCsvTruncated:
       "Incomplete export: the query matched {{total}} records, but only the first {{loaded}} were loaded; this file includes {{exported}} after filtering.",
     drilldownCountMismatch:
@@ -962,7 +966,13 @@ export default {
     drilldownAggregateOnly:
       "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
     drilldownNoRecords: "No matching records",
+    drilldownNoRecordsIncomplete:
+      "No records loaded. The result is incomplete, so some records may still match.",
+    drilldownNoLoadedMatches:
+      "No loaded records match, but the full result may include records that weren't loaded.",
     drilldownLoadFailed: "Couldn't load records",
+    drilldownOverByteCap:
+      "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
@@ -1029,12 +1039,25 @@ export default {
     columnFormatCurrency: "Currency",
     columnFormatPercent: "Percent",
     columnFormatDate: "Date",
+    columnFormatDuration: "Duration (seconds)",
     columnRename: "Rename column",
     columnHide: "Hide column",
     columnShow: 'Show "{{name}}"',
     columnShowHidden: "Show hidden columns",
     columnName: "Column name",
     columnResize: "Resize column",
+    metricComparisonVs: "vs {{period}}",
+    metricComparisonPreviousPeriod: "the period before",
+    metricComparisonNoChange: "No change",
+    metricComparisonPoints: "{{value}} pts",
+    metricComparisonUp: "Up {{change}} from {{previous}}, {{period}}",
+    metricComparisonDown: "Down {{change}} from {{previous}}, {{period}}",
+    metricComparisonFlat: "No change from {{previous}}, {{period}}",
+    metricComparisonBetter: "{{comparison}} (better)",
+    metricComparisonWorse: "{{comparison}} (worse)",
+    calloutSeverityCritical: "Critical",
+    calloutSeverityWarning: "Warning",
+    calloutSeverityInfo: "Info",
     rowBreakdownBy: "Break down by",
     rowBreakdownAll: "All",
     rowBreakdownOther: "Other",
@@ -1790,6 +1813,10 @@ export default {
     catalogOpenSessions: "Show sessions with {{event}}",
     catalogAutomatic: "Automatic",
     catalogStoppedFiring: "Stopped firing",
+    catalogMadeIt: "Made it",
+    catalogUsedIt: "Used it",
+    catalogNoUsedIt:
+      "“Made it, didn't use it” can't check outputs from {{apps}} because no “used it” event is defined.",
     catalogPropertyKeys: "Property keys",
     catalogMoreKeys: "+{{count}} more",
     catalogTruncated: "Showing only the {{count}} most recently seen events.",
@@ -1803,6 +1830,29 @@ export default {
     speedCoverageStarting: "Speed is measured for page views from now on.",
     speedFilterNeedsLab:
       "This link has a speed filter. Turn on the Sessions triage Lab in Settings to apply it.",
+    unusedOutputs: "Made it, didn't use it",
+    anyOutcome: "Any session",
+    unusedSlidesDecks: "Unused Slides decks",
+    unusedSlidesRule:
+      "Decks made at least {{days}} days ago that weren't presented past the first slide for {{seconds}} s or more, or exported, within {{days}} days. Opening a deck doesn't count.",
+    unusedFilterNeedsLab:
+      "This link has a “made it, didn't use it” filter. Turn on the Sessions triage Lab in Settings to apply it.",
+    outputCoverageSince:
+      "Outputs tracked since {{date}}; unused ones show {{days}} days after they're made.",
+    outputCoverageStarting:
+      "Outputs are tracked from now on; unused ones show {{days}} days after they're made.",
+    openDeck: "Open deck",
+    moreOutputs: "+{{count}} more",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck made {{date}}",
+    outputPresentedOn: "Presented {{date}}",
+    outputExportedOn: "Exported {{date}}",
+    outputUsedOn: "Used {{date}}",
+    outputUnused: "Not used within {{days}} days",
+    outputOpen: "Not used yet; counts as unused after {{date}}",
+    outputUnmeasured: "Not measured: some events failed to save",
+    outputsUnavailable: "Couldn't load outputs.",
     slowRequestCount: "{{count}} slow requests",
     slowRequestCountSingular: "{{count}} slow request",
     speedIncomplete: "Speed data incomplete",

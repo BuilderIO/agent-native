@@ -5,6 +5,7 @@ import type {
   AgentCapabilitiesDiscovery,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
+  AgentConnectionRequest,
   AgentError,
   AgentEvent,
   AgentMessage,
@@ -28,6 +29,7 @@ import {
   isAgentKitProtocolVersion,
   negotiateAgentKitProtocolVersion,
   parseAgentQueuedMessage,
+  parseNullableAgentQueuedSubmissionStatus,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
   persistableFilePart,
@@ -78,6 +80,7 @@ import {
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
+import { trackTurnSubmitted } from "./turn-submitted-telemetry.js";
 
 export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNativeChatRuntimeOptions {
   /** Optional host runtime executed through AgentKit's protocol lifecycle. */
@@ -120,6 +123,11 @@ interface SnapshotAnnotationConflict {
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
 const SAFE_BOUNDARY_POLL_INTERVAL_MS = 500;
+// Stop and send waits this long for the inbox to start an interrupted
+// message before leaving it as the next turn.
+const RECEIPT_SUBMISSION_WAIT_MS = 15_000;
+const RECEIPT_SUBMISSION_POLL_MS = 250;
+const RECEIPT_SUBMISSION_MAX_POLL_MS = 2_000;
 const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
@@ -131,14 +139,40 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * Stored reasoning, each part naming the tool calls that followed it: the
+ * merged reply keeps reasoning ahead of its text, and the saved run keeps no
+ * reasoning events, so this is the only record of where each part fell.
+ */
+function storedReasoningWithToolCalls(
+  storedParts: AgentMessagePart[],
+): Extract<AgentMessagePart, { type: "reasoning" }>[] {
+  const reasoning: Extract<AgentMessagePart, { type: "reasoning" }>[] = [];
+  for (const part of storedParts) {
+    if (part.type === "reasoning") {
+      reasoning.push({ ...part });
+      continue;
+    }
+    const data = part.type === "data" ? asRecord(part.data) : null;
+    const current = reasoning.at(-1);
+    if (
+      !current ||
+      data?.type !== "tool-call" ||
+      typeof data.toolCallId !== "string" ||
+      !data.toolCallId
+    ) {
+      continue;
+    }
+    current.toolCallIds = [...(current.toolCallIds ?? []), data.toolCallId];
+  }
+  return reasoning;
+}
+
 function mergeStoredReasoningParts(
   messageParts: AgentMessagePart[],
   storedParts: AgentMessagePart[],
 ): AgentMessagePart[] {
-  const storedReasoning = storedParts.filter(
-    (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
-      part.type === "reasoning",
-  );
+  const storedReasoning = storedReasoningWithToolCalls(storedParts);
   if (storedReasoning.length === 0) return messageParts;
   const reasoningText = (parts: AgentMessagePart[]) =>
     parts
@@ -149,7 +183,25 @@ function mergeStoredReasoningParts(
       .map((part) => part.text)
       .join("");
   if (reasoningText(messageParts) === reasoningText(storedReasoning)) {
-    return messageParts;
+    const current = messageParts.filter(
+      (part): part is Extract<AgentMessagePart, { type: "reasoning" }> =>
+        part.type === "reasoning",
+    );
+    if (
+      current.length !== storedReasoning.length ||
+      current.some(
+        (part, index) => part.text !== storedReasoning[index]?.text,
+      ) ||
+      !storedReasoning.some((part) => part.toolCallIds?.length)
+    ) {
+      return messageParts;
+    }
+    let reasoningIndex = 0;
+    return messageParts.map((part) => {
+      if (part.type !== "reasoning") return part;
+      const toolCallIds = storedReasoning[reasoningIndex++]?.toolCallIds;
+      return toolCallIds ? { ...part, toolCallIds } : part;
+    });
   }
   const withoutReasoning = messageParts.filter(
     (part) => part.type !== "reasoning",
@@ -164,6 +216,105 @@ function mergeStoredReasoningParts(
     ...storedReasoning,
     ...withoutReasoning.slice(insertionIndex),
   ];
+}
+
+function mergeStoredAssistantTextParts(
+  messageParts: AgentMessagePart[],
+  storedParts: AgentMessagePart[],
+): AgentMessagePart[] {
+  const messageText = messageParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  const storedText = storedParts
+    .filter(
+      (part): part is Extract<AgentMessagePart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("");
+  if (
+    messageText &&
+    storedText.startsWith(messageText) &&
+    storedText.length > messageText.length
+  ) {
+    const snapshotPartByStoredIndex = new Map<number, AgentMessagePart>();
+    let nextSnapshotPartIndex = 0;
+    for (const [storedIndex, storedPart] of storedParts.entries()) {
+      const storedData =
+        storedPart.type === "data" ? asRecord(storedPart.data) : null;
+      const toolCallId = storedData?.toolCallId;
+      if (typeof toolCallId !== "string") continue;
+      const storedDataType = storedData?.type;
+      const snapshotIndex = messageParts.findIndex((part, index) => {
+        if (index < nextSnapshotPartIndex || part.type !== "data") return false;
+        const data = asRecord(part.data);
+        return data?.toolCallId === toolCallId && data?.type === storedDataType;
+      });
+      if (snapshotIndex < 0) continue;
+      snapshotPartByStoredIndex.set(storedIndex, messageParts[snapshotIndex]!);
+      nextSnapshotPartIndex = snapshotIndex + 1;
+    }
+
+    let storedTextOffset = 0;
+    const missingTextParts = storedParts.flatMap((part, index) => {
+      if (part.type !== "text") return [];
+      const visibleTextLength = Math.max(
+        0,
+        messageText.length - storedTextOffset,
+      );
+      storedTextOffset += part.text.length;
+      if (part.text.length <= visibleTextLength) return [];
+      return [
+        { index, part: { ...part, text: part.text.slice(visibleTextLength) } },
+      ];
+    });
+
+    for (const { index, part } of missingTextParts) {
+      const priorAnchor = [...snapshotPartByStoredIndex.entries()]
+        .filter(([storedIndex]) => storedIndex < index)
+        .at(-1)?.[1];
+      const nextAnchor = [...snapshotPartByStoredIndex.entries()].find(
+        ([storedIndex]) => storedIndex > index,
+      )?.[1];
+      const nextAnchorIndex = nextAnchor
+        ? messageParts.indexOf(nextAnchor)
+        : -1;
+      const priorAnchorIndex = priorAnchor
+        ? messageParts.indexOf(priorAnchor)
+        : -1;
+      let insertionIndex: number;
+      if (nextAnchorIndex >= 0) {
+        insertionIndex = nextAnchorIndex;
+      } else if (priorAnchorIndex >= 0) {
+        insertionIndex = priorAnchorIndex + 1;
+      } else {
+        let lastTextIndex = -1;
+        for (const [candidateIndex, candidate] of messageParts.entries()) {
+          if (candidate.type === "text") lastTextIndex = candidateIndex;
+        }
+        insertionIndex = lastTextIndex + 1;
+      }
+      const precedingPart = messageParts[insertionIndex - 1];
+      if (precedingPart?.type === "text") {
+        messageParts = messageParts.map((candidate, candidateIndex) =>
+          candidateIndex === insertionIndex - 1
+            ? { ...precedingPart, text: `${precedingPart.text}${part.text}` }
+            : candidate,
+        );
+      } else {
+        messageParts = [
+          ...messageParts.slice(0, insertionIndex),
+          part,
+          ...messageParts.slice(insertionIndex),
+        ];
+      }
+    }
+  }
+  return mergeStoredReasoningParts(messageParts, storedParts);
 }
 
 function latestSnapshotRunRecord(
@@ -1164,8 +1315,6 @@ function reconcileDurableMessages(
       eventMessageIds.has(snapshotReply.id) &&
       snapshotReply.parts.length > 0 &&
       snapshotReply.parts.every((part) => part.type === "text") &&
-      durableReply.parts.length > 0 &&
-      durableReply.parts.every((part) => part.type === "text") &&
       snapshotText.length > 0 &&
       durableText.length > 0 &&
       snapshotText !== durableText &&
@@ -1334,6 +1483,27 @@ function reconcileDurableMessages(
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
+  // A restored reply takes the id its run's events name. Under the saved id,
+  // nothing ties the run's work, timing or later deltas to the reply.
+  const eventIdByRestoredId = new Map<string, string>();
+  const shownIds = new Set(deduplicatedMessages.map((message) => message.id));
+  for (const message of missingMessages) {
+    const runId = asRecord(message.metadata)?.runId;
+    if (
+      message.role !== "assistant" ||
+      typeof runId !== "string" ||
+      durableByRun.get(runId) !== message
+    ) {
+      continue;
+    }
+    const eventIds = assistantIdsByRun.get(runId);
+    const eventId = eventIds?.size === 1 ? [...eventIds][0] : undefined;
+    if (!eventId || shownIds.has(eventId) || durableById.has(eventId)) {
+      continue;
+    }
+    eventIdByRestoredId.set(message.id, eventId);
+    shownIds.add(eventId);
+  }
 
   const durableIdBySnapshotId = new Map<string, string>();
   for (const [snapshotId, stored] of storedUserBySnapshotId) {
@@ -1370,7 +1540,7 @@ function reconcileDurableMessages(
       ? durableById.get(representedRootId)
       : undefined;
     if (representedRoot?.role === "assistant") {
-      const parts = mergeStoredReasoningParts(
+      const parts = mergeStoredAssistantTextParts(
         message.parts,
         representedRoot.parts,
       );
@@ -1518,7 +1688,10 @@ function reconcileDurableMessages(
     }
     return { ...reconciled, parts };
   });
-  return reconciledMessages;
+  return reconciledMessages.map((message) => {
+    const eventId = eventIdByRestoredId.get(message.id);
+    return eventId ? { ...message, id: eventId } : message;
+  });
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
@@ -1567,6 +1740,16 @@ function storedQueue(
             createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
             requestAttachments: queued.requestAttachments,
           }).requestAttachments;
+    const references =
+      queued.references === undefined
+        ? undefined
+        : parseAgentQueuedMessage({
+            id: queued.id,
+            threadId,
+            text: queued.text,
+            createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
+            references: queued.references,
+          }).references;
     return {
       id: queued.id,
       threadId,
@@ -1574,11 +1757,15 @@ function storedQueue(
       createdAt: timestamp(queued.createdAt, fallbackCreatedAt),
       ...(attachments?.length ? { attachments } : {}),
       ...(requestAttachments?.length ? { requestAttachments } : {}),
+      ...(references?.length ? { references } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
       ...(queued.interruptActiveRun === true
         ? { interruptActiveRun: true }
+        : {}),
+      ...(queued.delivery === "steering" || queued.delivery === "after_reply"
+        ? { delivery: queued.delivery }
         : {}),
       ...(queued.options === undefined
         ? {}
@@ -1667,6 +1854,31 @@ function persistedAnnotation(annotation: AgentAnnotation): AgentAnnotation {
     ...(annotation.url ? { url: annotation.url } : {}),
     ...(annotation.start !== undefined ? { start: annotation.start } : {}),
     ...(annotation.end !== undefined ? { end: annotation.end } : {}),
+  };
+}
+
+function persistedConnectionRequest(
+  request: AgentConnectionRequest,
+): AgentConnectionRequest {
+  return {
+    id: request.id,
+    provider: request.provider,
+    reason: request.reason,
+    status: request.status,
+    ...(request.appId ? { appId: request.appId } : {}),
+    ...(request.detail ? { detail: request.detail } : {}),
+    ...(request.source
+      ? {
+          source: {
+            id: request.source.id,
+            ...(request.source.kind ? { kind: request.source.kind } : {}),
+            ...(request.source.label ? { label: request.source.label } : {}),
+            ...(request.source.uri ? { uri: request.source.uri } : {}),
+          },
+        }
+      : {}),
+    ...(request.createdAt ? { createdAt: request.createdAt } : {}),
+    ...(request.updatedAt ? { updatedAt: request.updatedAt } : {}),
   };
 }
 
@@ -1893,6 +2105,36 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
           ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
           ...(activity.completedAt
             ? { completedAt: activity.completedAt }
+            : {}),
+        },
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "connection.requested" ||
+      event.type === "connection.updated"
+    ) {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        request: persistedConnectionRequest(event.request),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    // A message the user sent into a running turn is where the run's work
+    // before it ends; without it a reload folds that work into the next reply.
+    if (event.type === "message.created" && event.message.role === "user") {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
             : {}),
         },
       });
@@ -3127,16 +3369,34 @@ export function createAgentNativeAgentKitTransport(
     for (const [runId, messageId] of assistantMessageIdsByRun(thread.events)) {
       assistantHistoryMessageIdsByRun.set(runId, messageId);
     }
-    const runsWithAssistantHistory = (thread.runs ?? []).map((run) => {
-      const activeMessageId =
-        run.activeMessageId ?? assistantHistoryMessageIdsByRun.get(run.id);
-      return activeMessageId ? { ...run, activeMessageId } : run;
-    });
     const assistantMessageIds = new Set(
       thread.messages.flatMap((message) =>
         message.role === "assistant" ? [message.id] : [],
       ),
     );
+    // A reply the server saved after the client stopped listening, such as a
+    // stopped run's, has no events tying it to its run. Without that link the
+    // transcript cannot place the run's end under it.
+    const savedReplyIdsByRun = new Map<string, string>();
+    for (const message of durableMessages) {
+      const runId = asRecord(message.metadata)?.runId;
+      if (
+        message.role === "assistant" &&
+        typeof runId === "string" &&
+        assistantMessageIds.has(message.id)
+      ) {
+        savedReplyIdsByRun.set(runId, message.id);
+      }
+    }
+    const runsWithAssistantHistory = (thread.runs ?? []).map((run) => {
+      const activeMessageId =
+        run.activeMessageId ??
+        assistantHistoryMessageIdsByRun.get(run.id) ??
+        (["completed", "failed", "cancelled"].includes(run.status)
+          ? savedReplyIdsByRun.get(run.id)
+          : undefined);
+      return activeMessageId ? { ...run, activeMessageId } : run;
+    });
     for (const run of runsWithAssistantHistory) {
       if (
         typeof run.activeMessageId === "string" &&
@@ -3956,7 +4216,10 @@ export function createAgentNativeAgentKitTransport(
         submissionPayload?: AgentSubmissionPayload;
       }
     | { type: "remove"; messageId: string }
+    | { type: "cancel"; messageId: string }
     | { type: "moveToTop"; messageId: string }
+    | { type: "steer"; messageId: string }
+    | { type: "reorder"; messageIds: readonly string[] }
     | { type: "claim"; messageId: string; claimId: string }
     | { type: "release"; messageId: string; claimId: string };
 
@@ -3970,6 +4233,7 @@ export function createAgentNativeAgentKitTransport(
     alreadySubmitted?: true;
     submittedRunId?: string;
     submissionExpired?: boolean;
+    receiptManaged?: boolean;
   }> {
     if (mutation.type === "append") {
       assertNoInlineImageBytes(
@@ -4038,6 +4302,7 @@ export function createAgentNativeAgentKitTransport(
         ? { alreadySubmitted: true as const, submittedRunId }
         : {}),
       ...(value.submissionExpired === true ? { submissionExpired: true } : {}),
+      ...(value.receiptManaged === true ? { receiptManaged: true } : {}),
     };
   }
 
@@ -4108,6 +4373,16 @@ export function createAgentNativeAgentKitTransport(
     });
     try {
       const run = await startRun(input, context);
+      if (!run.runId) {
+        dispatchAgentChatRunning({
+          isRunning: false,
+          phase: "idle",
+          threadId: input.threadId,
+          tabId: input.threadId,
+          reason: "submission_queued",
+        });
+        return run;
+      }
       dispatchAgentChatRunning({
         isRunning: true,
         phase: "working",
@@ -4157,7 +4432,108 @@ export function createAgentNativeAgentKitTransport(
     );
   }
 
-  const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
+  async function readQueuedSubmissionStatus(
+    threadId: string,
+    messageId: string,
+  ) {
+    const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
+    const response = await fetcher(
+      scopedThreadEndpoint(
+        `${apiUrl}/threads/${encodeURIComponent(threadId)}/queue/${encodeURIComponent(messageId)}/receipt`,
+        options,
+      ),
+      { headers: requestHeaders },
+    );
+    if (response.status === 404) return null;
+    if (!response.ok) throw await responseError(response);
+    return parseNullableAgentQueuedSubmissionStatus(await response.json());
+  }
+
+  async function reconcileQueuedSubmission(
+    threadId: string,
+    messageId: string,
+  ) {
+    const status = await readQueuedSubmissionStatus(threadId, messageId);
+    if (!status) {
+      throw new TypeError(
+        `Receipt-managed queue message ${messageId} has no submission receipt.`,
+      );
+    }
+    if (status.state === "submitted") {
+      if (!status.submittedRunId) {
+        throw new TypeError(
+          `Submitted queue message ${messageId} has no run ID.`,
+        );
+      }
+      return {
+        runId: status.submittedRunId,
+        alreadySubmitted: true as const,
+      };
+    }
+    if (status.state === "removed" || status.state === "expired") {
+      return { alreadyRemoved: true as const };
+    }
+    if (status.state === "blocked") {
+      const error = new Error(
+        `Queued submission ${messageId} is blocked in the server inbox.`,
+      );
+      Object.assign(error, { code: "queue_item_blocked", retryable: false });
+      throw error;
+    }
+    const error = new Error(
+      `Queued submission ${messageId} is still waiting in the server inbox.`,
+    );
+    Object.assign(error, { code: "queue_item_busy", retryable: true });
+    throw error;
+  }
+
+  /**
+   * Stop and send for a message the server inbox owns: it goes to the head of
+   * the inbox, the active run stops at its next safe boundary, and the inbox
+   * starts it. The client never starts it itself, so it is sent once.
+   */
+  async function interruptForReceiptManagedSubmission(
+    threadId: string,
+    messageId: string,
+  ) {
+    await persistQueueMutation(threadId, { type: "moveToTop", messageId });
+    const active = await activeRunStatus(threadId);
+    if (runIsInFlight(active)) {
+      if (typeof active.runId !== "string" || !active.runId) {
+        throw new TypeError(
+          "Agent chat active-run response must include an active run ID.",
+        );
+      }
+      if (!(await abortRunAtSafeBoundary(threadId, active.runId))) {
+        return { delivery: "after_reply" as const };
+      }
+    }
+    return waitForReceiptSubmission(threadId, messageId);
+  }
+
+  async function waitForReceiptSubmission(threadId: string, messageId: string) {
+    const deadline = Date.now() + RECEIPT_SUBMISSION_WAIT_MS;
+    let delay = RECEIPT_SUBMISSION_POLL_MS;
+    for (;;) {
+      try {
+        return await reconcileQueuedSubmission(threadId, messageId);
+      } catch (error) {
+        if (asRecord(error)?.code !== "queue_item_busy") throw error;
+      }
+      if (Date.now() + delay > deadline) {
+        return { delivery: "after_reply" as const };
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, RECEIPT_SUBMISSION_MAX_POLL_MS);
+    }
+  }
+
+  const runtime =
+    options.runtime ??
+    createAgentNativeChatRuntime(options, {
+      onTurnSubmitted: trackTurnSubmitted,
+    });
   const feedbackUrl =
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
@@ -4193,12 +4569,16 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
+      getQueuedSubmissionStatus: async ({ threadId, messageId }) => {
+        return readQueuedSubmissionStatus(threadId, messageId);
+      },
       queueMessage: async ({
         threadId,
         id,
         text,
         attachments,
         requestAttachments,
+        references,
         metadata,
         options: runOptions,
         interruptActiveRun,
@@ -4221,6 +4601,7 @@ export function createAgentNativeAgentKitTransport(
           createdAt: now(),
           attachments,
           requestAttachments,
+          references,
           metadata,
           options: runOptions,
           ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
@@ -4256,15 +4637,23 @@ export function createAgentNativeAgentKitTransport(
         return { message: result.message };
       },
       removeQueuedMessage: async ({ threadId, messageId }) => {
-        await persistQueueMutation(threadId, { type: "remove", messageId });
+        await persistQueueMutation(threadId, { type: "cancel", messageId });
+        clearPromotionClaimId(threadId, messageId);
       },
       moveQueuedMessageToTop: async ({ threadId, messageId }) => {
         await persistQueueMutation(threadId, { type: "moveToTop", messageId });
+      },
+      reorderQueuedMessages: async ({ threadId, messageIds }) => {
+        await persistQueueMutation(threadId, {
+          type: "reorder",
+          messageIds,
+        });
       },
       steerQueuedMessage: async ({
         threadId,
         messageId,
         interruptActiveRun,
+        deliverInActiveRun,
       }) => {
         const initial = await snapshot(threadId);
         if (!initial) throw new Error(`Unknown agent chat thread: ${threadId}`);
@@ -4280,6 +4669,64 @@ export function createAgentNativeAgentKitTransport(
           }
           return { alreadyRemoved: true as const };
         }
+        // A message another path already took is settled by what the thread
+        // now holds, not reported as a failure.
+        async function resolveMissingQueuedMessage(error: unknown) {
+          if (
+            !(error instanceof Error) ||
+            !error.message.includes(`Unknown queued message: ${messageId}`)
+          ) {
+            return undefined;
+          }
+          const latest = await snapshot(threadId);
+          const submitted = latest && submittedQueueMessage(latest, messageId);
+          const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+          if (submitted && typeof runId === "string") {
+            clearPromotionClaimId(threadId, messageId);
+            return { runId, alreadySubmitted: true as const };
+          }
+          if (
+            latest &&
+            !(latest.queuedMessages ?? []).some(
+              (message) => message.id === messageId,
+            )
+          ) {
+            clearPromotionClaimId(threadId, messageId);
+            return { alreadyRemoved: true as const };
+          }
+          return undefined;
+        }
+        if (
+          deliverInActiveRun &&
+          !interruptActiveRun &&
+          runIsInFlight(await activeRunStatus(threadId))
+        ) {
+          if (!serverBackedCapabilities) {
+            // Only the Agent-Native server can hand a message to a running
+            // turn; elsewhere it goes first once this reply ends.
+            await persistQueueMutation(threadId, {
+              type: "moveToTop",
+              messageId,
+            });
+            return { delivery: "after_reply" as const };
+          }
+          // The run takes it at its next tool boundary, or it sends as the
+          // next turn; the server owns delivery either way.
+          let steered: Awaited<ReturnType<typeof persistQueueMutation>>;
+          try {
+            steered = await persistQueueMutation(threadId, {
+              type: "steer",
+              messageId,
+            });
+          } catch (error) {
+            const resolved = await resolveMissingQueuedMessage(error);
+            if (resolved) return resolved;
+            throw error;
+          }
+          if (steered.submissionExpired)
+            return { alreadyRemoved: true as const };
+          return { delivery: steered.message?.delivery ?? "steering" };
+        }
         const claimId = promotionClaimId(threadId, messageId);
         let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
         try {
@@ -4289,28 +4736,8 @@ export function createAgentNativeAgentKitTransport(
             claimId,
           });
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message.includes(`Unknown queued message: ${messageId}`)
-          ) {
-            const latest = await snapshot(threadId);
-            const submitted =
-              latest && submittedQueueMessage(latest, messageId);
-            const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
-            if (submitted && typeof runId === "string") {
-              clearPromotionClaimId(threadId, messageId);
-              return { runId, alreadySubmitted: true };
-            }
-            if (
-              latest &&
-              !(latest.queuedMessages ?? []).some(
-                (message) => message.id === messageId,
-              )
-            ) {
-              clearPromotionClaimId(threadId, messageId);
-              return { alreadyRemoved: true as const };
-            }
-          }
+          const resolved = await resolveMissingQueuedMessage(error);
+          if (resolved) return resolved;
           throw error;
         }
         let claimHeld = true;
@@ -4318,6 +4745,13 @@ export function createAgentNativeAgentKitTransport(
           if (claim.submissionExpired) {
             clearPromotionClaimId(threadId, messageId);
             return { alreadyRemoved: true as const };
+          }
+          if (claim.receiptManaged) {
+            clearPromotionClaimId(threadId, messageId);
+            claimHeld = false;
+            return interruptActiveRun
+              ? await interruptForReceiptManagedSubmission(threadId, messageId)
+              : await reconcileQueuedSubmission(threadId, messageId);
           }
           if (!claim.claimedMessage) {
             throw new TypeError("Agent chat queue claim response is invalid.");
@@ -4394,6 +4828,11 @@ export function createAgentNativeAgentKitTransport(
                 clearPromotionClaimId(threadId, messageId);
                 return { alreadyRemoved: true as const };
               }
+              if (claim.receiptManaged) {
+                clearPromotionClaimId(threadId, messageId);
+                claimHeld = false;
+                return await waitForReceiptSubmission(threadId, messageId);
+              }
               if (claim.alreadySubmitted && claim.submittedRunId) {
                 clearPromotionClaimId(threadId, messageId);
                 return {
@@ -4432,6 +4871,7 @@ export function createAgentNativeAgentKitTransport(
                 },
               ],
               requestAttachments: claimedMessage.requestAttachments,
+              references: claimedMessage.references,
               options: claimedMessage.options,
               metadata: claimedMessage.metadata,
               queuePromotion: {
@@ -4442,6 +4882,11 @@ export function createAgentNativeAgentKitTransport(
             },
             undefined,
           );
+          if (!run.runId) {
+            throw new TypeError(
+              "A queue promotion cannot be acknowledged as a new queued submission.",
+            );
+          }
           const latestThread = await snapshot(threadId);
           if (!latestThread) {
             throw new Error(`Unknown agent chat thread: ${threadId}`);
@@ -4671,6 +5116,9 @@ export function createAgentNativeAgentKitTransport(
       onRunOutcome({
         runId: record.turnId,
         threadId,
+        ...(typeof record.requestTurnId === "string"
+          ? { turnId: record.requestTurnId }
+          : {}),
         outcome: runOutcomeForCode(code),
         ...(code ? { code } : {}),
         ...(error instanceof Error && error.message

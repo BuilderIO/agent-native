@@ -144,14 +144,17 @@ The framework supports two credential scopes:
 | Secret | Scope | How it is set |
 | --- | --- | --- |
 | `A2A_SECRET` | User identity across a deployment | env var, **never auto-generated** |
-| org `a2a_secret` | Organization principal only | auto-generated on org creation; Team page UI |
+| org `a2a_secret` | Organization principal, with optional current-member delegation | auto-generated on org creation; Team page UI |
 
-An org-secret JWT proves only that the caller holds the organization's shared
-credential. Its `sub` or email claims are ignored; do not use it to read
+An ordinary org-secret JWT proves only that the caller holds the organization's
+shared credential. Its `sub` or email claims are ignored; do not use it to read
 person-owned data, claim a user's task, invoke a user-scoped action, or carry a
-human approval. Organization-scoped operations can run with this principal.
-Use an `A2A_SECRET`-signed user identity for user-owned operations and
-approval continuations. MCP applies the same distinction.
+human approval. A separate `agent-native-org-member-delegation` assertion may
+carry the identity of any current receiver-org member to a caller holding that
+shared secret, but only when the receiver's owner enables the setting, the org
+secret differs from `A2A_SECRET`, and the audience and short expiry verify. The
+receiver checks the live roster, and delegated org actions are always capped at
+`member`, including when an MCP endpoint accepts the typed assertion.
 
 Organization IDs are local to each app's database. For calls to a peer app,
 bind the token to the trusted `org_domain` and the peer's canonical audience;
@@ -161,16 +164,16 @@ ID. An ID-only token is valid only when both sides intentionally share the same
 local organization ID, such as a credential scoped to one local database.
 
 The org secret is managed at **Team page → A2A secret** (owner only), where it
-can be revealed, copied, regenerated, and pushed to discovered peers. It is a
-fallback for organization-scoped calls, not a fallback user identity.
+can be revealed, copied, regenerated, and pushed to discovered peers. Its
+member-identity delegation setting is owner-only and defaults off.
 
 `A2A_SECRET` is the deploy-level path. `workspace-deploy` refuses a production
 workspace deploy without it and prints the generator command. Peers that must
-trust user identity assertions need the *same* value on both sides. Keep it
-different from every org `a2a_secret`; a shared value cannot distinguish a
-user assertion from an organization credential. An org secret equal to
-`A2A_SECRET`, or a user token signed only with the org secret, is verified as an
-organization principal and reaches the caller as the typed
+trust deployment-secret user assertions need the *same* value on both sides.
+Keep it different from every org `a2a_secret`; a shared value cannot
+distinguish a deployment user assertion from an organization credential. An
+org secret equal to `A2A_SECRET` is verified as an organization principal and
+reaches the caller as the typed
 `permanent_precondition` error ("no verified user"): an admin/ops fix, never a
 retry. Mismatched `A2A_SECRET` values are rejected with `401`
 (`a2a_auth_rejected`).

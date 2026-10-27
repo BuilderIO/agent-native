@@ -1,4 +1,5 @@
 import type { PublicAgentActionConfig } from "../action.js";
+import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 
 export type {
   A2AAgentActivityPhase,
@@ -182,6 +183,7 @@ export interface A2ACorrelationMetadata {
 
 export interface A2AHandlerContext {
   taskId: string;
+  processingAttemptId?: string;
   contextId?: string;
   metadata?: Record<string, unknown>;
   event?: unknown;
@@ -235,6 +237,11 @@ export interface A2AConfig {
   version?: string;
   skills: AgentSkill[];
   authenticatedSkills?: AgentSkill[];
+  resolvePublicProfile?: () => Promise<AgentProfileMetadata>;
+  resolveAuthenticatedProfile?: (identity: {
+    userEmail: string;
+    orgId?: string;
+  }) => Promise<AgentProfileMetadata>;
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;
   apiKeyEnv?: string;

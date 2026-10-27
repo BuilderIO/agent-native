@@ -18,9 +18,10 @@ import {
  *     an authenticated request for the rest of this document's life. Doing this
  *     after the request leaves that window open; invalidating a cache instead
  *     only schedules a re-read, which answers "authenticated" until it lands.
- *  2. Revoke the server session, and WAIT for it. Navigating first can abandon
- *     the request and leave the session live — the user would be silently
- *     signed back in on their next visit.
+ *  2. Clear registered transient client state while the session cookie still
+ *     works, then revoke the server session and WAIT for it. Navigating first
+ *     can abandon the request and leave the session live — the user would be
+ *     silently signed back in on their next visit.
  *  3. On success, leave with a full location change so the next document
  *     re-runs the server auth guard from scratch. On failure, reload the
  *     current document so it can re-read the still-authoritative session.
@@ -29,7 +30,11 @@ import { clearActionQueryCache } from "./action-query-cache.js";
 import { agentNativePath } from "./api-path.js";
 import { clearRecorder } from "./recorder.js";
 import { buildSignInReturnHref } from "./sign-in-return.js";
-import { beginSignOut, completeSignOut } from "./use-session.js";
+import {
+  beginSignOut,
+  completeSignOut,
+  runBeforeSignOutCleanups,
+} from "./use-session.js";
 
 const LOGOUT_PATH = "/_agent-native/auth/logout";
 const SIGN_OUT_REQUEST_TIMEOUT_MS = 15_000;
@@ -90,6 +95,12 @@ export function signOut(options: SignOutOptions = {}): Promise<void> {
 async function signOutFlow(options: SignOutOptions): Promise<void> {
   setBetaRedirectSignOutSignal();
   beginSignOut();
+  const cleanup = runBeforeSignOutCleanups();
+  if (cleanup) {
+    for (const error of await cleanup) {
+      console.warn("Unable to clear client presence before sign-out", error);
+    }
+  }
   clearRecorder();
   const controller = new AbortController();
   const timeout = setTimeout(

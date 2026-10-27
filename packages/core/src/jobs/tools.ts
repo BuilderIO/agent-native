@@ -1,8 +1,8 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   organizationIdFromResourceOwner,
   resourcePutIfAbsent,
@@ -13,6 +13,7 @@ import {
   sharedResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -32,6 +33,7 @@ import {
 } from "./cron.js";
 import {
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   classifyJobResource,
   jobBelongsToApp,
   type JobFrontmatterPatch,
@@ -63,16 +65,7 @@ async function isCurrentUserOrgAdmin(
   const email = getRequestUserEmail();
   if (!email) return false;
   try {
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    if (rows.length === 0) return false;
-    const role = String((rows[0] as any).role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, email);
     return role === "owner" || role === "admin";
   } catch {
     return false;
@@ -442,6 +435,7 @@ async function runUpdate(
   ) {
     try {
       assertJobExecutionTargetFields(meta);
+      assertJobRunnerTarget(meta);
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }
@@ -584,7 +578,7 @@ async function runDelete(
 }
 
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-jobs": {
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
@@ -704,5 +698,5 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
         }
       },
     },
-  };
+  });
 }

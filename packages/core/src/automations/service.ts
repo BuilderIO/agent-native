@@ -1,8 +1,10 @@
+import type { ActionCaller, ActionRunContext } from "../action.js";
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   assertDelegatedPolicyId,
+  assertJobRunnerTarget,
   buildJobResourceContent,
   isRecoveredFactoryJob,
   jobBelongsToApp,
@@ -19,6 +21,7 @@ import {
   prepareAutomationRunsDelete,
 } from "../jobs/run-history.js";
 import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -36,6 +39,7 @@ import {
   type Resource,
   type TransactionScopedResourceWrite,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -54,6 +58,7 @@ import {
   resolveAutomationAccess,
   type AccessibleAutomation,
 } from "./access.js";
+import { isOutsideAutomationOrigin } from "./outside-origin.js";
 import {
   deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
@@ -70,6 +75,9 @@ export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
   userEmail: string;
+  caller?: ActionCaller;
+  networkProtocol?: ActionRunContext["networkProtocol"];
+  automation?: ActionRunContext["automation"];
   orgId?: string | null;
   appId?: string | null;
 }
@@ -231,15 +239,8 @@ async function readOrganizationMembership(
   orgId: string,
   email: string,
 ): Promise<OrganizationMembership | null> {
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, email.toLowerCase()],
-  });
-  if (!result.rows.length) return null;
-  return { role: String(result.rows[0]?.role ?? "").toLowerCase() };
+  const role = await readOrgMemberRole(orgId, email);
+  return role ? { role } : null;
 }
 
 async function requireOrganizationMembership(
@@ -693,6 +694,7 @@ export async function defineAutomation(
   input: DefineAutomationInput,
 ): Promise<DefinedAutomation> {
   const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
   if (input.scope === "organization") {
     await requireOrganizationMembership(actor);
   }
@@ -783,6 +785,7 @@ export async function defineAutomation(
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
     runAs: "creator",
+    ...(outside ? { mcpManaged: true } : {}),
     ...(input.triggerType === "schedule"
       ? {
           nextRun: nextOccurrence(schedule, undefined, timezone).toISOString(),
@@ -890,6 +893,7 @@ export async function updateAutomation(
   input: UpdateAutomationInput,
 ): Promise<AutomationUpdateResult> {
   const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
   const { definition, access } = await readDefinitionForUpdate(actor, input);
   if (!access.capabilities.canEdit) {
     throw httpError(
@@ -902,8 +906,21 @@ export async function updateAutomation(
   }
 
   const currentMeta = { ...definition.meta };
+  const mcpMessages = outside
+    ? await automationOutcomeMessagesForUser(actor.userEmail)
+    : undefined;
+  const assertMcpTakeoverAllowed = (latest: JobFrontmatter) => {
+    if (mcpMessages && !latest.mcpManaged && latest.lastStatus === "running") {
+      throw httpError(mcpMessages.mcpTakeoverWhileRunning, 409);
+    }
+  };
+  assertMcpTakeoverAllowed(currentMeta);
   const meta: AutomationDefinition["meta"] = { ...currentMeta };
   const fields: JobFrontmatterPatch = {};
+  if (outside) {
+    meta.mcpManaged = true;
+    fields.mcpManaged = true;
+  }
   const triggerType = input.triggerType ?? meta.triggerType;
   const triggerChanged = triggerType !== meta.triggerType;
   const schedule =
@@ -1073,6 +1090,14 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    try {
+      assertJobRunnerTarget(meta);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
     fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {
@@ -1148,6 +1173,7 @@ export async function updateAutomation(
   );
   const deriveFields = (baseContent: string): JobFrontmatterPatch => {
     const latest = parseJobResource(baseContent).meta;
+    assertMcpTakeoverAllowed(latest);
     const derived = { ...fields };
     if (triggerType === "schedule" && fields.nextRun !== undefined) {
       const writeSchedule = input.schedule !== undefined || triggerChanged;
@@ -1291,6 +1317,7 @@ export async function updateAutomation(
   const replaced = parseJobResource(replacedContent);
   const changedField = (before: unknown, after: unknown) => before !== after;
   const requestedDiff =
+    (outside && !replaced.meta.mcpManaged) ||
     (input.body !== undefined && changedField(replaced.body, body)) ||
     (input.enabled !== undefined &&
       changedField(replaced.meta.enabled, meta.enabled)) ||

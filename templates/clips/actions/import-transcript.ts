@@ -8,6 +8,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import {
+  assertRecordingNotExpired,
+  assertRecordingNotExpiredForEmail,
+} from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   hasTranscriptContent,
@@ -67,7 +71,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const db = getDb();
 
     const [rec] = await db
@@ -119,7 +125,11 @@ export default defineAction({
     };
     const outcome = await db.transaction(async (tx) => {
       const [locked] = await tx
-        .select({ id: schema.recordings.id })
+        .select({
+          id: schema.recordings.id,
+          ownerEmail: schema.recordings.ownerEmail,
+          expiresAt: schema.recordings.expiresAt,
+        })
         .from(schema.recordings)
         .where(
           and(
@@ -137,6 +147,7 @@ export default defineAction({
           },
         );
       }
+      assertRecordingNotExpiredForEmail(locked, getCurrentOwnerEmail());
 
       // Locked, so the checks below see the transcript this write replaces: one
       // that becomes ready meanwhile is never replaced without `replace`, and a

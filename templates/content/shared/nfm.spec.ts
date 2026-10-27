@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeNfm,
+  canonicalizeNotionNfm,
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
 } from "./nfm";
+
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
 
 const L = (...lines: string[]) => lines.join("\n");
 
@@ -1540,15 +1546,20 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  describe("n20: canonicalization never trims intentional empty blocks", () => {
-    it("keeps a trailing <empty-block/> after a heading", () => {
-      const nfm = L("# H", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+  describe("n20: canonicalization trims only the editor's trailing filler", () => {
+    // The live copy saves without it, so canonical Markdown does too.
+    it("trims a trailing <empty-block/> after a heading or a list", () => {
+      expect(canonicalizeNfm(L("# H", "<empty-block/>"))).toBe("# H");
+      expect(canonicalizeNfm(L("- item", "<empty-block/>"))).toBe("- item");
     });
 
-    it("keeps a trailing <empty-block/> after a list", () => {
-      const nfm = L("- item", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    it("keeps a trailing <empty-block/> after a paragraph, or one that is indented", () => {
+      for (const nfm of [
+        L("Text", "<empty-block/>"),
+        L("# H", "<empty-block/>", "<empty-block/>"),
+        L("# H", "\t<empty-block/>"),
+      ])
+        expect(canonicalizeNfm(nfm)).toBe(nfm);
     });
 
     it("keeps a trailing <empty-block/> nested inside a callout", () => {
@@ -1893,5 +1904,41 @@ describe("docToNfm — long containers", () => {
     expect(lines).toHaveLength(count);
     expect(lines[0]).toBe("> p0");
     expect(lines[count - 1]).toBe(`\tp${count - 1}`);
+  });
+});
+
+describe("video block ids", () => {
+  const withId =
+    '<video src="https://example.com/demo.mp4" id="video-a1b2c3d4">Demo</video>';
+
+  it("keeps a video's block id through a round trip", () => {
+    const doc = nfmToDoc(withId);
+    expect(doc.content[0]).toMatchObject({
+      type: "video",
+      attrs: {
+        src: "https://example.com/demo.mp4",
+        title: "Demo",
+        blockId: "video-a1b2c3d4",
+      },
+    });
+    expect(docToNfm(doc)).toBe(withId);
+    expect(inspectNfmFidelity(withId)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes no id for a video that has none", () => {
+    const plain = '<video src="https://example.com/demo.mp4"></video>';
+    expect(found(nfmToDoc(plain).content?.[0]).attrs).not.toHaveProperty(
+      "blockId",
+    );
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("leaves the id out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(withId)).toBe(
+      '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
   });
 });

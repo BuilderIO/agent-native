@@ -15,7 +15,7 @@ export interface GenerationAttemptStart {
   prompt: unknown;
   /** Omit when the action cannot know it without extra I/O. */
   hasReferenceDesignSystem?: boolean;
-  /** Sent on the started event and on the terminal event. */
+  /** Sent on the started event and on a failure event. */
   properties?: Record<string, unknown>;
 }
 
@@ -25,19 +25,16 @@ export interface GenerationAttempt {
   start: (start: GenerationAttemptStart) => void;
   /** Live count of files this attempt has committed so far. */
   savedFileCount: () => number;
-  /** Properties known only later in the run, sent on the terminal event. */
+  /** Properties known later in the run, sent if the attempt fails. */
   addProperties: (properties: Record<string, unknown>) => void;
-  /** Marks the saved files as only part of what was requested. */
-  markPartial: () => void;
 }
 
 /**
  * One call of a Design generation action is one attempt. Nothing is recorded
- * until the handler calls `attempt.start()`; after that, exactly one of
- * `generation_completed` (at least one file saved, or `outcome: "unknown"`
- * when the count could not be read) or `generation_failed` (the handler
- * threw, or saved nothing) follows. A failure is recorded and
- * the original error rethrown unchanged.
+ * until the handler calls `attempt.start()`. A failed attempt emits
+ * `generation_failed`; a successful tool return is not a completed design.
+ * The owner-visible `design_ready_viewed` event is the completion signal. A
+ * failure is recorded and the original error rethrown unchanged.
  */
 export function withGenerationAttempt<
   I,
@@ -54,7 +51,6 @@ export function withGenerationAttempt<
     // control-flow narrowing cannot see.
     const started: { base: Record<string, unknown> | null } = { base: null };
     let terminalProperties: Record<string, unknown> = {};
-    let partial = false;
     const attempt: GenerationAttempt = {
       id,
       start: (start) => {
@@ -85,9 +81,6 @@ export function withGenerationAttempt<
       savedFileCount: () => 0,
       addProperties: (properties) => {
         terminalProperties = { ...terminalProperties, ...properties };
-      },
-      markPartial: () => {
-        partial = true;
       },
     };
     // `null` means the count could not be read, which is not "nothing saved".
@@ -129,22 +122,18 @@ export function withGenerationAttempt<
     const base = started.base;
     if (!base) return result;
     const fileCount = filesSaved();
-    trackDesign(
-      fileCount === 0 ? "generation_failed" : "generation_completed",
-      {
-        ...terminalProperties,
-        ...base,
-        ...(fileCount === null
-          ? { outcome: "unknown" }
-          : fileCount > 0
-            ? {
-                outcome: partial ? "partial" : "completed",
-                file_count: fileCount,
-              }
-            : { error_type: "no_files_saved", files_saved: 0 }),
-      },
-      context,
-    );
+    if (fileCount === 0) {
+      trackDesign(
+        "generation_failed",
+        {
+          ...terminalProperties,
+          ...base,
+          error_type: "no_files_saved",
+          files_saved: 0,
+        },
+        context,
+      );
+    }
     return result;
   };
 }

@@ -5,7 +5,10 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import { __resetBlockFieldSaveRegistry } from "./blockFieldSaveRegistry";
+import {
+  __resetBlockFieldSaveRegistry,
+  peekBlockFieldSaveController,
+} from "./blockFieldSaveRegistry";
 import { useBlockFieldEditor } from "./DocumentBlockFields";
 import type { VisualEditorExternalContent } from "./VisualEditor";
 
@@ -28,6 +31,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     container?.remove();
     container = null;
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     __resetBlockFieldSaveRegistry();
   });
 
@@ -79,16 +83,21 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady,
   }: {
     save: (req: SaveCall) => Promise<unknown>;
-    onReady: (onSaveContent: (markdown: string) => Promise<boolean>) => void;
+    onReady: (
+      onSaveContent: (markdown: string) => Promise<boolean>,
+      isAcknowledgedContent: (markdown: string) => boolean,
+      onChange: (markdown: string) => void,
+    ) => void;
   }) {
-    const { onSaveContent } = useBlockFieldEditor({
-      documentId: "doc",
-      propertyId: "field",
-      initialContent: "",
-      initialRevision: 0,
-      save,
-    });
-    onReady(onSaveContent);
+    const { onSaveContent, isAcknowledgedContent, onChange } =
+      useBlockFieldEditor({
+        documentId: "doc",
+        propertyId: "field",
+        initialContent: "",
+        initialRevision: 0,
+        save,
+      });
+    onReady(onSaveContent, isAcknowledgedContent, onChange);
     return null;
   }
 
@@ -193,6 +202,117 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "persisted now",
       expectedBlocksFieldRevision: 0,
     });
+  });
+
+  it("acknowledges only the exact settled value, including change-back across an in-flight save and retained errors", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let release!: () => void;
+    const save = vi.fn(async (_request: SaveCall) => {});
+    save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    let onSaveContent!: (markdown: string) => Promise<boolean>;
+    let isAcknowledgedContent!: (markdown: string) => boolean;
+    let onChange!: (markdown: string) => void;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(ImmediateSaveHarness, {
+          save,
+          onReady: (persist, acknowledged, change) => {
+            onSaveContent = persist;
+            isAcknowledgedContent = acknowledged;
+            onChange = change;
+          },
+        }),
+      );
+    });
+    expect(isAcknowledgedContent("")).toBe(true);
+    expect(isAcknowledgedContent("different serialization")).toBe(false);
+    act(() => onChange("next"));
+    expect(isAcknowledgedContent("next")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = onSaveContent("next");
+    });
+    expect(save).toHaveBeenCalledOnce();
+    act(() => onChange(""));
+    expect(isAcknowledgedContent("")).toBe(false);
+    await act(async () => {
+      release();
+      expect(await saving).toBe(false);
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(isAcknowledgedContent("")).toBe(true);
+    const failure = new Error("Blocks field revision conflict");
+    save.mockRejectedValueOnce(failure);
+    await act(async () => {
+      expect(await onSaveContent("rejected draft")).toBe(false);
+    });
+    expect(isAcknowledgedContent("rejected draft")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
+  });
+
+  it("does not confirm a committed write's failed response from an older cached echo", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let stored = "Baseline";
+    let revision = 0;
+    let rejectResponse!: (error: Error) => void;
+    const failure = new Error("property read failed after commit");
+    const save = vi.fn(async (request: SaveCall) => {
+      if (request.expectedBlocksFieldRevision !== revision)
+        throw new Error("Blocks field revision conflict");
+      stored = request.value;
+      revision += 1;
+      if (save.mock.calls.length === 2)
+        await new Promise<void>((_resolve, reject) => {
+          rejectResponse = reject;
+        });
+      return savedAt(revision);
+    });
+    const { field, render } = mountField({
+      initialContent: stored,
+      initialRevision: revision,
+      save,
+    });
+    act(() => field.onChange("Saved"));
+    await settle();
+    expect(stored).toBe("Saved");
+    act(() => field.onChange("Committed edit"));
+    await settle();
+    expect(stored).toBe("Committed edit");
+    render("Saved", 1);
+    act(() => field.onChange("Saved"));
+    await act(async () => {
+      rejectResponse(failure);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const controller = peekBlockFieldSaveController("doc:field")!;
+    expect(controller.lastError).toBe(failure);
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
+    expect(field.content).toBe("Saved");
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await controller.flush();
+    });
+    expect(save).toHaveBeenLastCalledWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "Saved",
+      expectedBlocksFieldRevision: 1,
+    });
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
   });
 
   it("reports release only after the final persistence settles", async () => {

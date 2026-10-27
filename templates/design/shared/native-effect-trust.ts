@@ -47,6 +47,12 @@ export function nativeEffectExecutionPayload(definition: EffectDefinition) {
     kind: definition.kind,
     placements: definition.placements,
     properties: Object.entries(definition.properties),
+    ...(definition.uniformPacking === undefined
+      ? {}
+      : { uniformPacking: definition.uniformPacking }),
+    ...(definition.uniformFloats === undefined
+      ? {}
+      : { uniformFloats: definition.uniformFloats }),
     ...(definition.parameterConstraints === undefined
       ? {}
       : { parameterConstraints: definition.parameterConstraints }),

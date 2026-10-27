@@ -1,3 +1,4 @@
+import { COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN } from "@shared/comment-quote-anchor";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 export interface CommentTextAnchor {
@@ -6,8 +7,6 @@ export interface CommentTextAnchor {
   suffix: string;
   startOffset: number;
 }
-
-const CONTEXT_LEN = 32;
 
 interface TextSegment {
   textStart: number;
@@ -20,10 +19,29 @@ interface DocText {
   segments: TextSegment[];
 }
 
+// Documents are immutable, and every anchor and suggestion on a Page reads the
+// same one, so each document's text is built once per separator pair.
+const docTexts = new WeakMap<ProseMirrorNode, Map<string, DocText>>();
+
 export function buildDocText(
   doc: ProseMirrorNode,
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",
+): DocText {
+  const key = `${hardBreakSeparator}|${blockSeparator}`;
+  let built = docTexts.get(doc);
+  const known = built?.get(key);
+  if (known) return known;
+  const docText = computeDocText(doc, blockSeparator, hardBreakSeparator);
+  if (!built) docTexts.set(doc, (built = new Map()));
+  built.set(key, docText);
+  return docText;
+}
+
+function computeDocText(
+  doc: ProseMirrorNode,
+  blockSeparator: string,
+  hardBreakSeparator: "" | "\n",
 ): DocText {
   let text = "";
   let hasTextblock = false;
@@ -66,9 +84,9 @@ function offsetToPos(docText: DocText, offset: number): number | null {
 export function resolveAnchorPoint(
   doc: ProseMirrorNode,
   anchor: {
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",
@@ -181,9 +199,9 @@ export function resolveAnchor(
   doc: ProseMirrorNode,
   anchor: {
     quotedText: string | null;
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",

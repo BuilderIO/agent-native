@@ -16,9 +16,12 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
@@ -92,11 +95,13 @@ export {
 } from "./embed-session.js";
 export { createSSEHandler, type SSEHandlerOptions } from "./sse.js";
 export { isCredentialMembershipUnavailable } from "./credential-membership-unavailable.js";
+export { readOrgMemberRole } from "./personal-provider-key-policy.js";
 export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getBrowserCookieSession,
   isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
@@ -120,6 +125,8 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,
@@ -201,10 +208,30 @@ export {
 } from "../agent/production-agent.js";
 export { approvalKeyWithArguments } from "../agent/approval-key.js";
 export {
+  persistAgentTurnToThread,
+  type PersistAgentTurnToThreadInput,
+} from "../agent/persist-agent-turn.js";
+export {
   isJevEnabled,
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export { JEV_DECISIONS_MODEL } from "../decisions/decide.js";
+export { OPENAI_DECISIONS_MODEL } from "../decisions/providers/openai.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestionFailureReason,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
 export {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -223,6 +250,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,
@@ -476,6 +504,8 @@ export {
 export {
   fireInternalDispatch,
   resolveSelfDispatchBaseUrl,
+  SelfDispatchHttpError,
+  SelfDispatchNetworkError,
   type FireInternalDispatchOptions,
 } from "./self-dispatch.js";
 export {
@@ -541,6 +571,10 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
@@ -740,6 +774,9 @@ export {
 } from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
@@ -807,6 +844,21 @@ export {
   type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
+export {
+  BuilderBranchError,
+  getBuilderBranchStatus,
+  sendBuilderBranchMessage,
+  type BuilderBranchAgentState,
+  type BuilderBranchErrorCode,
+  type BuilderBranchOperation,
+  type BuilderBranchPrStatus,
+  type BuilderBranchRef,
+  type BuilderBranchState,
+  type BuilderBranchStatus,
+  type GetBuilderBranchStatusOptions,
+  type SendBuilderBranchMessageOptions,
+  type SendBuilderBranchMessageResult,
+} from "./builder-branch.js";
 export {
   ensureFusionContainer,
   sendFusionBranchMessage,
@@ -879,6 +931,13 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export {
+  hasJobRunner,
+  registerJobRunner,
+  type JobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "../jobs/job-runner.js";
 export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
@@ -902,6 +961,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {
@@ -944,3 +1004,4 @@ export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;
 }
+export { appStateListKeysByKeySuffixPrefix } from "./application-state-maintenance.js";

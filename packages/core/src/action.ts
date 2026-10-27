@@ -64,6 +64,33 @@ import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export {
+  ACTION_RECEIPT_SCHEMA_VERSION,
+  DOMAIN_EVENT_CONTENT_TYPE,
+  DOMAIN_EVENT_SPEC_VERSION,
+  ActionReceiptValidationError,
+  assertActionDomainEvent,
+  assertActionReceipt,
+  commitAction,
+  createActionDomainEvent,
+  parseActionDomainEvent,
+  parseActionReceipt,
+  serializeActionDomainEvent,
+  serializeActionReceipt,
+} from "./action-receipt.js";
+export type {
+  ActionAtomicAdapter,
+  ActionAtomicContext,
+  ActionAtomicOutcome,
+  ActionDomainEvent,
+  ActionDomainEventDraft,
+  ActionDomainEventReference,
+  ActionJsonPrimitive,
+  ActionJsonValue,
+  ActionReceipt,
+  ActionReceiptProvenance,
+  CommitActionOptions,
+} from "./action-receipt.js";
 export { ACTION_EXECUTION_KEY };
 
 /**
@@ -132,8 +159,34 @@ export interface ActionAutomationContext {
   policyId?: string;
 }
 
+export const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+
+/**
+ * The most characters of a pretty-printed result the agent keeps for a call:
+ * the action's own limit, else the agent-wide limit, else the default, bounded
+ * by any hard limit. The agent loop and actions that fit their own results
+ * resolve it here so they cannot disagree.
+ */
+export function resolveToolMaxResultChars(
+  action: { maxResultChars?: number },
+  limits?: { maxResultChars?: number; hardMaxResultChars?: number },
+): number {
+  const configured =
+    action.maxResultChars ??
+    limits?.maxResultChars ??
+    DEFAULT_TOOL_RESULT_CHARS;
+  return typeof limits?.hardMaxResultChars === "number"
+    ? Math.min(configured, limits.hardMaxResultChars)
+    : configured;
+}
+
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /**
+   * Result cap the agent loop enforces on this call, from
+   * `resolveToolMaxResultChars`. Absent outside the agent loop.
+   */
+  maxResultChars?: number;
   userEmail?: string;
   /**
    * Request headers for server-only actions that must delegate to an
@@ -246,6 +299,72 @@ export function fail(message: string, options: FailOptions = {}): never {
   });
 }
 
+/**
+ * The closed set of `errorCode`s an action fails with. Its `fail` and
+ * `noWrite` accept only these codes, so a misspelled code is a compile error
+ * and a caller can switch over the action's failures exhaustively. Pass it to
+ * `defineAction` as `errors` to publish the codes on the definition.
+ */
+export interface ActionErrors<TCode extends string> {
+  readonly codes: readonly TCode[];
+  fail(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+  noWrite(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+}
+
+export function defineActionErrors<const TCode extends string>(
+  ...codes: [TCode, ...TCode[]]
+): ActionErrors<TCode> {
+  const errors: ActionErrors<TCode> = {
+    codes: Object.freeze([...new Set(codes)]),
+    fail: (message, errorCode, options = {}) =>
+      fail(message, { ...options, errorCode }),
+    noWrite: (message, errorCode, options = {}) => {
+      throw new NoWriteError(message, { ...options, errorCode });
+    },
+  };
+  return Object.freeze(errors);
+}
+
+/**
+ * A rejection raised before the action's first write: a missing target, an
+ * edit that matches nothing, a patch identical to what is saved. A caller may
+ * then retry with corrected arguments instead of treating the call as
+ * possibly applied. The framework accepts the claim only for the call that
+ * raised it, and only when no write action nested in that call entered its
+ * handler; otherwise it reads as any other failure. It cannot see the
+ * handler's own database or provider writes, so throw it before the first.
+ */
+export class NoWriteError extends ActionContractError {
+  readonly noWrite = true;
+
+  constructor(message: string, options: FailOptions = {}) {
+    super(message, {
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+      ...(options.details === undefined ? {} : { details: options.details }),
+    });
+    this.name = "NoWriteError";
+  }
+}
+
+export function isNoWriteError(error: unknown): error is NoWriteError {
+  return (
+    isActionContractError(error) &&
+    (error as { noWrite?: unknown }).noWrite === true
+  );
+}
+
+/** Each `NoWriteError` the call that raised it was verified to have written nothing in. */
+const verifiedNoWrites = new WeakSet<object>();
+
 export type { ActionMcpOutputContract } from "./action-output-contract.js";
 
 /** What a call that broke its output contract already did. `run` returned
@@ -325,12 +444,20 @@ export function isActionOutputContractError(
 /**
  * What a failed call had already done, when its failure came after `run`
  * returned: an output-contract error, or a stop or connection signal raised
- * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing.
+ * while its result was checked; or a verified `NoWriteError`. `undefined`
+ * when the failure carries no such evidence, so the caller must not assume
+ * the call changed nothing.
  */
 export function actionFailureEffect(
   error: unknown,
 ): ActionOutputEffect | undefined {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    verifiedNoWrites.has(error)
+  ) {
+    return "none";
+  }
   if (isActionOutputContractError(error)) return error.effect;
   if (!isAgentActionStopError(error)) return undefined;
   const effect = (error as { effect?: unknown }).effect;
@@ -382,14 +509,22 @@ export function invocationEffect(
     readOnly?: boolean;
     retrySafe?: boolean;
     receipt?: { changed: boolean };
-    /** It failed, with what it threw; `lost` when its result never came. */
-    failed?: { error?: unknown; lost?: boolean };
+    /**
+     * It failed, with what it threw; `lost` when its result never came;
+     * `reported` when it returned an error result instead, such as an MCP
+     * tool's `isError`, which says the tool did not do its work.
+     */
+    failed?: { error?: unknown; lost?: boolean; reported?: boolean };
   },
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
   if (outcome.refused) return { effect: "none", changed: false };
   if (outcome.keyed && !record) return { effect: "unknown", changed: true };
+  // The report speaks for the tool, not for a write nested in the call.
+  if (failed?.reported && !failed.lost && !evidence?.nestedWriteEntered) {
+    return { effect: "none", changed: false };
+  }
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
@@ -404,7 +539,7 @@ export function invocationEffect(
   }
   const wrote = record ? record.evidence.writeEntered : readOnly !== true;
   const changed = record
-    ? record.evidence.changeEntered
+    ? record.evidence.changeEntered && !(failed && typed === "none")
     : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
@@ -436,6 +571,52 @@ export function ranCallEmitsChange(
 ): boolean {
   const readOnly = actionCallReadOnly(entry, args) ?? fallbackReadOnly;
   return invocationEffect(entry, outcome, { readOnly }).changed;
+}
+
+/**
+ * PostgreSQL breaks a deadlock (40P01) or a serializable conflict (40001) by
+ * rolling back one whole transaction. Drivers and Drizzle surface that as an
+ * untyped "Failed query", which reads as a bug and hides the rollback, so an
+ * action reports it as a typed conflict. The message must not claim nothing
+ * was saved: an action can commit an earlier transaction or an external write
+ * before the one that rolled back.
+ */
+const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
+
+/** What a run that threw `error` throws: a transaction conflict as typed. */
+function typedTransactionConflict(error: unknown): unknown {
+  let sqlState: string | null;
+  try {
+    sqlState = transactionConflictSqlState(error);
+  } catch {
+    // Any read of a thrown value may throw. That value goes on as thrown,
+    // so readableFailure reports it as unreadable instead of the read's own
+    // error replacing it.
+    return error;
+  }
+  if (!sqlState) return error;
+  return new ActionContractError(
+    "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
+    {
+      errorCode: "transaction_conflict",
+      statusCode: 409,
+      details: { sqlState },
+    },
+  );
+}
+
+function transactionConflictSqlState(error: unknown): string | null {
+  if (isActionContractError(error)) return null;
+  let cause = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cause || typeof cause !== "object") return null;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
+      return code;
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return null;
 }
 
 /**
@@ -602,6 +783,14 @@ function postRunSignal(
  */
 function withCommittedEffect(error: unknown): unknown {
   if (actionFailureEffect(error) !== "none") return error;
+  // Its claim holds only for the call that raised it.
+  if (isNoWriteError(error)) {
+    return new ActionContractError(error.message, {
+      errorCode: error.errorCode,
+      statusCode: error.statusCode,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
   if (isActionOutputContractError(error)) {
     return new ActionOutputContractError({
       actionName: error.actionName,
@@ -705,6 +894,7 @@ export interface ActionMcpAppResourceConfig {
   title?: string;
   description?: string;
   html: string | ActionMcpAppHtmlBuilder;
+  requiresEmbedSession?: boolean;
   mimeType?: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
@@ -731,7 +921,27 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What a result that does not match `outputSchema` does. Defaults to
+ * `"strict"`. `"fallback"` is deprecated: it replaces a broken result with a
+ * value callers cannot tell from a real one.
+ */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
+/**
+ * What an action with `outputSchema` returns under `TStrategy`. `"warn"` can
+ * pass `run`'s unvalidated value through; `"fallback"` returns
+ * `outputFallback` as given, `undefined` when it is unset.
+ */
+export type ActionOutputResult<
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy,
+> = TStrategy extends "strict"
+  ? StandardSchemaV1.InferOutput<TOutputSchema>
+  :
+      | StandardSchemaV1.InferOutput<TOutputSchema>
+      | StandardSchemaV1.InferInput<TOutputSchema>
+      | (TStrategy extends "fallback" ? undefined : never);
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
@@ -744,6 +954,7 @@ interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
@@ -751,8 +962,12 @@ interface DefineActionWithSchema<
   parameters?: never;
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
+   *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
+  /** The action's closed error-code set, from `defineActionErrors`. */
+  errors?: ActionErrors<string>;
   /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
    *  and validate every `structuredContent` against it. Set it only after
    *  auditing that every value `run` can return meets the schema; it requires
@@ -833,12 +1048,20 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges. It covers this action's own write: once a write nested in it
-   * entered its handler, a failure stays an unknown outcome.
+   * charges, except for inputs carrying an idempotency key the action answers
+   * with its first result. It covers this action's own write: once a write
+   * nested in it entered its handler, a failure stays an unknown outcome. MCP
+   * approval reads it too: a call it covers gets no "already ran" warning.
    */
   retrySafe?:
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
+   * How the action reads an ISO date-time argument that names no zone, so an
+   * approval summary can say so: `"calendar"` means in the calendar's own
+   * time zone. Unset, the summary shows such a time as having no zone given.
+   */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -889,15 +1112,21 @@ interface DefineActionWithParams<
     | Record<string, ParameterSchema>
     | undefined,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined =
+    | StandardSchemaV1
+    | undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
   parameters?: TParams;
   schema?: never;
   agentInputSchema?: never;
-  outputSchema?: StandardSchemaV1;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputSchema?: TOutputSchema;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
+  errors?: ActionErrors<string>;
   mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
@@ -924,6 +1153,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -973,6 +1204,7 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -985,7 +1217,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxResultChars?: number;
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   readonly outputFallback?: TReturn;
+  /** Present only when the action declared `errors`. */
+  readonly errorCodes?: readonly string[];
   /** Present only when the action opted in with `mcpOutputSchema: true`. */
   readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
@@ -996,39 +1231,105 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly access?: ActionAccessConfig;
 }
 
-export function defineAction<
-  TSchema extends StandardSchemaV1,
-  TReturn,
-  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
->(
-  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn, undefined>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
 >(
-  options: DefineActionWithParams<TParams, TReturn>,
+  options: DefineActionWithParams<TParams, TReturn, undefined>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
+// With an `outputSchema`, `run` must return the schema's input. Under the
+// default strict strategy the action returns the schema's output; `"warn"`
+// can pass `run`'s value through and `"fallback"` returns `outputFallback`,
+// so those also admit the input shape. These come last, so a `run` whose
+// result does not match is reported against them.
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithParams<
+    TParams,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  InferParams<TParams>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithSchema<
+    TSchema,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  StandardSchemaV1.InferInput<TSchema>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  const tool: ActionTool = {
+    ...(typeof options.title === "string" && options.title.trim()
+      ? { title: options.title.trim() }
+      : {}),
+    description: options.description,
+    ...(!hasSchema && options.parameters
+      ? {
+          parameters: {
+            type: "object" as const,
+            properties: options.parameters,
+          },
+        }
+      : {}),
+  };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
-  // action-heavy app's cold start, so convert only the schema the agent sees.
-  let toolParameters: ActionTool["parameters"];
-  let inputSchemaVerdict: ConvertedSchema["verdict"];
+  // action-heavy app's cold start, so convert only the schema the agent sees,
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
-    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
-      schemaToJsonSchema(
-        options.agentInputSchema && "~standard" in options.agentInputSchema
-          ? options.agentInputSchema
-          : options.schema,
-        options.description,
-      ));
-  } else if (options.parameters) {
-    toolParameters = {
-      type: "object" as const,
-      properties: options.parameters,
+    const agentSchema =
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema;
+    let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
     };
+    Object.defineProperty(tool, "parameters", {
+      enumerable: true,
+      configurable: true,
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
+      set(value: ActionTool["parameters"]) {
+        convertedParameters();
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
   }
 
   const executionKey = {};
@@ -1052,10 +1353,22 @@ export function defineAction(options: any) {
     }
     return options.run(args, ctx);
   };
-  const guardedRun =
+  const accessCheckedRun =
     typeof options.authorize === "function" || options.access
       ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
       : handlerRun;
+  // Access checks query the database too, so they convert the same way.
+  const guardedRun = async (
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs?: () => unknown,
+  ) => {
+    try {
+      return await accessCheckedRun(args, ctx, gateArgs);
+    } catch (error) {
+      throw typedTransactionConflict(error);
+    }
+  };
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext, gateArgs?: () => unknown) => {
@@ -1076,7 +1389,7 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "warn" ||
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
-      : "warn";
+      : "strict";
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -1158,6 +1471,19 @@ export function defineAction(options: any) {
         : output;
     } catch (thrown) {
       const error = readableFailure(thrown);
+      // Raised by this handler, not passed up through a nested call's
+      // boundary, with no nested write entered.
+      if (
+        !ran &&
+        frame &&
+        isNoWriteError(error) &&
+        !frame.nestedWriteEntered &&
+        actionExecutionStorage?.getStore()?.failures.get(error) === undefined
+      ) {
+        verifiedNoWrites.add(error);
+        frame.raised = error;
+        throw error;
+      }
       if (!ran && effect() !== "committed") throw error;
       const raised = ran ? error : withCommittedEffect(error);
       if (frame) frame.raised = raised;
@@ -1165,7 +1491,7 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
@@ -1225,6 +1551,8 @@ export function defineAction(options: any) {
       : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
+  const zonelessTimes =
+    options.zonelessTimes === "calendar" ? options.zonelessTimes : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -1245,7 +1573,8 @@ export function defineAction(options: any) {
     }
     if (
       (options.mcpApp.compactCatalog === true ||
-        options.mcpApp.structuredContent === true) &&
+        options.mcpApp.structuredContent === true ||
+        Array.isArray(options.mcpApp.visibility)) &&
       !options.mcpApp.resource
     ) {
       return options.mcpApp as ActionMcpAppConfig;
@@ -1278,13 +1607,7 @@ export function defineAction(options: any) {
   })();
 
   const entry = {
-    tool: {
-      ...(typeof options.title === "string" && options.title.trim()
-        ? { title: options.title.trim() }
-        : {}),
-      description: options.description,
-      parameters: toolParameters,
-    },
+    tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -1326,6 +1649,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -1353,6 +1677,7 @@ export function defineAction(options: any) {
         }
       : {}),
     ...(mcpOutputContract ? { mcpOutputContract } : {}),
+    ...(options.errors ? { errorCodes: options.errors.codes } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -1377,10 +1702,9 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
-  if (inputSchemaVerdict) {
-    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
-  }
-  return entry;
+  // `never` input keeps the implementation compatible with every overload,
+  // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
+  return entry as ActionDefinition<never, unknown>;
 }
 
 export function isActionExposedToExternalAgents(entry: {
@@ -2422,11 +2746,11 @@ export function boundActionCallIntent(
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
-  toolParameters?: ActionTool["parameters"],
+  toolParameters: () => ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters), ctx);
+    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
   };
 }
 

@@ -1,7 +1,7 @@
 interface ActionQuery {
   queryKey: readonly unknown[];
   isActive?: () => boolean;
-  meta?: Record<string, unknown>;
+  meta?: Record<string, unknown> | undefined;
 }
 
 interface ActionEvent {
@@ -30,12 +30,14 @@ const DOCUMENT_MUTATIONS = new Set([
   "delete-document",
   "delete-document-property",
   "delete-content-database",
+  "disconnect-content-database-source",
   "execute-content-trash-purge",
   "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -72,12 +74,14 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "delete-content-database",
   "delete-document",
   "delete-document-property",
+  "disconnect-content-database-source",
   "duplicate-database-item",
   "duplicate-database-items",
   "duplicate-document-property",
   "edit-document",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "create-github-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -99,10 +103,13 @@ const DATABASE_RESULT_MUTATIONS = new Set([
 ]);
 
 const DATABASE_PRESENTATION_MUTATIONS = new Set([
+  // Deleting a property drops it from saved personal sorts and filters.
+  "delete-document-property",
   "update-content-database-personal-view",
 ]);
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
+  "create-github-collection",
   "delete-content-database",
   "execute-content-trash-purge",
   "permanently-delete-document",
@@ -115,6 +122,7 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "create-document",
+  "create-github-collection",
   "import-content",
   "link-github-folder",
   "refresh-content-database-source",

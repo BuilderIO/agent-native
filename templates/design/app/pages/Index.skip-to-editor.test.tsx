@@ -1708,23 +1708,24 @@ describe("home library", () => {
     );
   });
 
-  it("copies a gallery template directly without submitting or changing the draft", async () => {
+  it("opens a gallery template preview without copying, submitting or changing the draft", async () => {
     const originalPrompt = mocks.promptProps;
     const template = Array.from(
-      container.querySelectorAll<HTMLElement>('[role="button"]'),
+      container.querySelectorAll<HTMLElement>("button"),
     ).find((button) => button.textContent?.includes("Starter template"));
     await act(async () => template?.click());
-    expect(mocks.createFromTemplate).toHaveBeenCalledExactlyOnceWith({
-      templateId: "starter-template",
-      title: "Starter template",
-      newId: "design-1",
-      retryKey: expect.any(String),
-    });
+    const update = mocks.setSearchParams.mock.lastCall?.[0] as (
+      current: URLSearchParams,
+    ) => URLSearchParams;
+    expect(update(new URLSearchParams()).get("previewTemplateId")).toBe(
+      "starter-template",
+    );
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
     expect(mocks.promptProps?.selectedTemplateId).toBe(
       originalPrompt?.selectedTemplateId,
     );
     expect(mocks.focusComposer).not.toHaveBeenCalled();
-    expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });
 

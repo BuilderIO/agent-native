@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import {
   defineAutomation,
+  isOutsideAutomationOrigin,
   listAutomationDefinitions,
   updateAutomation,
 } from "@agent-native/core/triggers";
@@ -26,6 +27,7 @@ const INDEX_RUN_BODY = [
 ].join("\n");
 
 export default defineAction({
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
@@ -65,7 +67,14 @@ export default defineAction({
     const current = await readIndexSchedule(admin.orgId);
     const name =
       current.automationName ?? DEFAULT_INDEX_SCHEDULE_AUTOMATION_NAME;
-    const actor = { userEmail: admin.userEmail, orgId: admin.orgId, appId };
+    const actor = {
+      userEmail: admin.userEmail,
+      orgId: admin.orgId,
+      appId,
+      caller: ctx.caller,
+      networkProtocol: ctx.networkProtocol,
+      automation: ctx.automation,
+    };
     const definitions = await listAutomationDefinitions(actor, "organization");
     const exists = definitions.some((definition) => definition.name === name);
 

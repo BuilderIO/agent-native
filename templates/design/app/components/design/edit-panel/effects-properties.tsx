@@ -7,13 +7,10 @@ import {
   IconDroplet,
   IconEye,
   IconEyeOff,
-  IconLayoutGrid,
   IconMinus,
   IconPlus,
-  IconShadow,
   IconSquare,
   IconSun,
-  IconWaveSine,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -44,11 +41,6 @@ import {
   inferPaintType,
 } from "../inspector/DesignColorPicker";
 import {
-  GlslShaderEffectSection,
-  useScreenGlslShaders,
-  type GlslShaderPanelContext,
-} from "../inspector/GlslShaderPanel";
-import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "../inspector/InspectorControlPopover";
@@ -56,6 +48,11 @@ import {
   hasSelectedNativeEffects,
   NativeShaderEffectSection,
 } from "../inspector/NativeShaderPanel";
+import {
+  SavedGlslEffectRow,
+  useHasSavedGlslEffect,
+} from "../inspector/saved-glsl-shader";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import type { ElementInfo } from "../types";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -628,13 +625,13 @@ export function EffectsProperties({
   element,
   onStyleChange,
   onStylesChange,
-  glslShaderContext,
+  shaderContext,
   motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  glslShaderContext?: GlslShaderPanelContext;
+  shaderContext?: ShaderEditorContext;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
   const t = useT();
@@ -723,18 +720,11 @@ export function EffectsProperties({
     shadowLayers.length,
     reorderShadowLayers,
   );
-  const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
-  const hasShaderEffect = Boolean(
-    glslShaderContext?.nodeId &&
-    screenShaders.mounts.some(
-      (mount) =>
-        mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
-    ),
-  );
+  const hasShaderEffect = useHasSavedGlslEffect(shaderContext);
   const hasNativeEffect = hasSelectedNativeEffects(
-    glslShaderContext?.content,
-    glslShaderContext?.nodeId,
-    glslShaderContext?.selector,
+    shaderContext?.content,
+    shaderContext?.nodeId,
+    shaderContext?.selector,
   );
   const hasEffectsContent =
     effectsAreMixed ||
@@ -751,12 +741,6 @@ export function EffectsProperties({
       onEmptyTitleClick={() => setAddMenuOpen(true)}
       actions={
         <>
-          <SectionIconButton
-            label={t("editPanel.labels.stylesComingSoon")}
-            disabled
-          >
-            <IconLayoutGrid className="size-3.5" />
-          </SectionIconButton>
           <DropdownMenu
             open={addMenuOpen}
             onOpenChange={(open) => {
@@ -791,34 +775,30 @@ export function EffectsProperties({
               }}
             >
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addDropShadow}
               >
-                <IconShadow className="size-3.5" />
                 {t("editPanel.labels.dropShadow")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addLayerBlur}
               >
-                <IconBlur className="size-3.5" />
                 {t("editPanel.labels.layerBlur")}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="gap-2 !text-[11px]"
+                className="!text-[11px]"
                 onSelect={addBackgroundBlur}
               >
-                <IconBackground className="size-3.5" />
                 {"Background blur" /* i18n-ignore design effect type */}
               </DropdownMenuItem>
-              {glslShaderContext?.nodeId ? (
+              {shaderContext?.nodeId ? (
                 <DropdownMenuItem
-                  className="gap-2 !text-[11px]"
+                  className="!text-[11px]"
                   onSelect={() => {
                     openShaderPickerAfterMenuCloseRef.current = true;
                   }}
                 >
-                  <IconWaveSine className="size-3.5" />
                   {t("editPanel.labels.shaderEffectType")}
                 </DropdownMenuItem>
               ) : null}
@@ -1020,15 +1000,11 @@ export function EffectsProperties({
               ) : null}
             </>
           )}
-          {glslShaderContext?.nodeId ? (
+          {shaderContext?.nodeId ? (
             <>
-              <GlslShaderEffectSection
-                context={glslShaderContext}
-                pickerOpen={false}
-                onPickerOpenChange={setShaderPickerOpen}
-              />
+              <SavedGlslEffectRow context={shaderContext} />
               <NativeShaderEffectSection
-                context={glslShaderContext}
+                context={shaderContext}
                 pickerOpen={shaderPickerOpen}
                 onPickerOpenChange={setShaderPickerOpen}
                 renderColorPicker={renderShaderColorPicker}

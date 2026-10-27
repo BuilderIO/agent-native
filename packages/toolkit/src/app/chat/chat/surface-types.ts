@@ -26,6 +26,13 @@ import type {
 import type { ExportedMessageRepository } from "@assistant-ui/react";
 import type * as React from "react";
 
+import type { AgentKitWorkedForSummaryRenderProps } from "../../agentkit/react/context.js";
+import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
+import type { AgentMessageContentOrderResolver } from "../../agentkit/react/message-content-order.js";
+import type {
+  AgentChatTranscriptLayout,
+  AgentChatWorkedForRowLayout,
+} from "../../agentkit/react/transcript-layout.js";
 import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
@@ -55,6 +62,8 @@ export interface AssistantChatSendOptions {
   approvedToolCalls?: string[];
   /** Send as a protocol continuation that stays out of visible history. */
   hideUserMessage?: boolean;
+  /** The app surface this send came from, reported with the turn's analytics. */
+  surface?: string;
 }
 
 export type AssistantChatSubmitResult =
@@ -173,7 +182,6 @@ export interface AssistantChatAdapterContext {
   effortRef: { current: ReasoningEffort | undefined };
   harnessRef?: { current: string | undefined };
   hostedHarnessRef?: { current: boolean };
-  execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
   surface: AgentChatSurfaceKind;
@@ -236,6 +244,14 @@ export interface AssistantChatProps {
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
+  /** Optional transcript geometry. Omitted values keep the shared defaults. */
+  transcriptLayout?: AgentChatTranscriptLayout;
+  /** Optional sizing and typography for built-in chat data charts. */
+  dataChartLayout?: AgentChatDataChartLayout;
+  /** Optional elapsed-work row geometry. Omitted values keep the shared defaults. */
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  /** Optional duration text for the shared completed-work row. */
+  formatWorkedForDuration?: (durationMs: number) => string;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -267,6 +283,12 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Optional shared context banner rendered above the composer input. */
+  composerContextBannerSlot?: React.ReactNode;
+  /** Optional renderer for the shared work-summary disclosure row. */
+  workedForSummarySlot?: React.ComponentType<AgentKitWorkedForSummaryRenderProps>;
+  /** Optional ordering policy for assistant message text and attached widgets. */
+  resolveMessageContentOrder?: AgentMessageContentOrderResolver;
   /** App-owned context controller, mounted separately for each chat thread. */
   composerContextProvider?: React.ComponentType<AssistantChatComposerContextProviderProps>;
   /** Optional home content rendered above the composer on an empty chat. */
@@ -316,14 +338,8 @@ export interface AssistantChatProps {
   isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
-  /** Current execution mode (build/plan) */
-  execMode?: "build" | "plan";
-  /** Callback to change execution mode */
-  onExecModeChange?: (mode: "build" | "plan") => void;
-  /** Disable Plan mode while leaving Act mode available. */
+  /** Hide `/plan`, so every message from this chat acts. */
   planModeDisabled?: boolean;
-  /** Explanation shown next to the disabled Plan option. */
-  planModeDisabledReason?: string;
   /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
   /** Default model from server config (shown in picker when no override is set) */

@@ -9,7 +9,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -217,16 +217,16 @@ export function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -646,16 +646,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -1670,7 +1670,7 @@ function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
 }
 
 function findDetailsSource(
-  response: ContentDatabaseResponse,
+  response: Pick<ContentDatabaseResponsePayload, "sources">,
   candidate: PendingSourceCandidate,
 ) {
   return (
@@ -2066,7 +2066,7 @@ function SourceDetailsFieldPicker({
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded border",
                     selected.has(field.id)
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 text-transparent",
                   )}
                 >
@@ -2644,7 +2644,7 @@ function DatabaseSettingsSwitch({
       <span
         className={cn(
           "relative h-5 w-9 rounded-full transition-colors",
-          checked ? "bg-[#2383e2]" : "bg-muted-foreground/25",
+          checked ? "bg-database-blue" : "bg-muted-foreground/25",
         )}
       >
         <span
@@ -2683,7 +2683,7 @@ function DatabaseSettingsLayoutPanel({
             className={cn(
               "flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               activeView.type === type
-                ? "border-[#2383e2] bg-[#2383e2]/5 text-[#2383e2]"
+                ? "border-database-blue bg-database-blue/5 text-database-blue"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             onClick={() => onViewTypeChange(type)}

@@ -349,6 +349,7 @@ pub fn run() {
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
             notifications::dismiss_meeting_notification,
+            notifications::debug_write_snapshot,
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
             meetings_watcher::meetings_watcher_resume_polling,
@@ -474,6 +475,7 @@ pub fn run() {
             config::sync_launch_at_login(app.handle());
             let feature_config = config::feature_config(app.handle());
             screen_memory::sync_from_config(app.handle(), &feature_config);
+            screen_memory::spawn_retention_sweeper(app.handle().clone());
             clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_countdown_local_key_monitor(app);

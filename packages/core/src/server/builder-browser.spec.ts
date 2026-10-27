@@ -255,6 +255,95 @@ describe("Builder account provisioning", () => {
     });
   });
 
+  it("redacts compound secrets and full Basic authorization values in diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "upstream_failure",
+              message: "sessionToken=private-session-value",
+              detail:
+                "webhookSecret: private-webhook-value; signing_secret=private-signing-value, accessKey: private access key value, sessionKey=private session key value, signingKey: private signing key value, jwt: private jwt payload",
+              error: "Authorization: Basic private-basic-credential",
+            }),
+            { status: 502, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    expect(provisioningError).toMatchObject({ upstreamStatus: 502 });
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain('"message":"sessionToken=[redacted]"');
+    expect(diagnostic).toContain("webhookSecret: [redacted]");
+    expect(diagnostic).toContain("signing_secret=[redacted]");
+    expect(diagnostic).toContain("Authorization: [redacted]");
+    expect(diagnostic).toContain("accessKey: [redacted]");
+    expect(diagnostic).toContain("sessionKey=[redacted]");
+    expect(diagnostic).toContain("signingKey: [redacted]");
+    expect(diagnostic).toContain("jwt: [redacted]");
+    expect(diagnostic).not.toContain("private-session-value");
+    expect(diagnostic).not.toContain("private-webhook-value");
+    expect(diagnostic).not.toContain("private-signing-value");
+    expect(diagnostic).not.toContain("private-basic-credential");
+    expect(diagnostic).not.toContain("private access key value");
+    expect(diagnostic).not.toContain("private session key value");
+    expect(diagnostic).not.toContain("private signing key value");
+    expect(diagnostic).not.toContain("private jwt payload");
+  });
+
+  it("redacts bare tokens inside multiply escaped upstream diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    const githubToken = `ghp_${"G".repeat(36)}`;
+    const jwt = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJ1c2VySWQiOiIxMjM0NTY3ODkwIn0",
+      "signature-segment-value-1234567890",
+    ].join(".");
+    const nestedMessage = JSON.stringify(
+      JSON.stringify({ detail: `${githubToken} ${jwt}` }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: nestedMessage }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain("[redacted-token]");
+    expect(diagnostic).not.toContain(githubToken);
+    expect(diagnostic).not.toContain(jwt);
+  });
+
   it("classifies existing-account errors across runtime boundaries", () => {
     expect(
       isBuilderAccountAlreadyExistsError({
@@ -1689,6 +1778,47 @@ describe("Builder callback CSRF state", () => {
       expect(error).toBeInstanceOf(Error);
       expect(error).not.toHaveProperty("actionContractError");
     });
+
+    // Builder's own error text rarely names the status, so callers that
+    // report what Builder answered need it on the error itself.
+    it.each([
+      [401, "Unauthorized"],
+      [403, "Not a member"],
+      [404, "No such project"],
+      [429, "Slow down"],
+      [500, "Something broke"],
+    ])(
+      "carries Builder's %i status on the error, whatever its text says",
+      async (status, text) => {
+        process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+        process.env.BUILDER_PUBLIC_KEY = "pub-test";
+        process.env.BUILDER_USER_ID = "builder-user-123";
+        process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+        // A 403 or 404 is asked again as the connected user, so each call
+        // needs a body of its own to read.
+        vi.stubGlobal(
+          "fetch",
+          vi.fn().mockImplementation(
+            async () =>
+              new Response(JSON.stringify({ error: text }), {
+                status,
+                headers: { "Content-Type": "application/json" },
+              }),
+          ),
+        );
+
+        const error = await runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }).catch((err: unknown) => err);
+
+        expect(error).toMatchObject({ message: text, builderStatus: status });
+        // Only a 401 is the reconnectable contract error.
+        expect("actionContractError" in (error as object)).toBe(status === 401);
+      },
+    );
 
     it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";

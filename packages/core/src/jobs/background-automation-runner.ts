@@ -1,5 +1,5 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import type { ActionAutomationContext, ActionCaller } from "../action.js";
+import { type ActionAutomationContext, type ActionCaller } from "../action.js";
 import {
   CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -45,6 +45,7 @@ import {
   markAgentExecutionStepDispatched,
   insertRun,
   tryClaimRunSlot,
+  retryRunThreadProjection,
   releaseBackgroundRunBeforeStart,
   type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
@@ -69,6 +70,7 @@ import {
 } from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
@@ -83,6 +85,7 @@ import {
 import { withDbExec, type DbExec } from "../db/client.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -116,6 +119,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryProjectionDeferredError,
   AutomationRecoveryStorageError,
   deliveryNoteForEvents,
   readAutomationRecoveryEvents,
@@ -133,6 +137,11 @@ import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import {
+  getJobRunner,
+  type JobRunnerContext,
+  type JobRunnerResult,
+} from "./job-runner.js";
 import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   attachAutomationRunThread,
@@ -168,6 +177,13 @@ export interface BackgroundAutomationDeps {
     automation?: BackgroundAutomationContext,
   ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  getWorkspaceAppContext?: (input: {
+    request: string;
+    ownerEmail: string;
+    orgId?: string;
+    appId?: string;
+    workspaceAppsEnabled: boolean;
+  }) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
@@ -633,6 +649,7 @@ export async function runBackgroundAutomation(
     if (
       err instanceof StaleExecutionFenceError ||
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
       err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
         (err.errorCode === "background_automation_claim_lost" ||
@@ -745,6 +762,185 @@ async function recordAutomationFailureOutcome(
     !(failure.precondition && !transition.pause),
     Boolean(options.historyId),
   );
+}
+
+interface JobRunnerRunOptions {
+  runnerId: string;
+  automation: BackgroundAutomationContext;
+  ownerEmail: string;
+  orgId?: string;
+  historyId?: string;
+  requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
+  assertCanStart?: () => Promise<void>;
+  resume?: AutomationResume;
+  manual?: boolean;
+}
+
+/**
+ * Runs a job's registered runner in place of the agent loop and settles its
+ * history row exactly once, with the same failure alert and pause message an
+ * agent run gets.
+ */
+export async function runJobRunner(
+  options: JobRunnerRunOptions,
+): Promise<BackgroundAutomationRunResult> {
+  const { automation, historyId, runnerId } = options;
+  if (!historyId)
+    throw new BackgroundAutomationRunError(
+      `Job runner "${runnerId}" has no run history row.`,
+      "background_automation_history_write_failed",
+    );
+  // A runner's row never gets a run id; a resumed row is the one case that has one.
+  const expectedRunId = options.resume?.previousRunId ?? null;
+  const startedAt = Date.now();
+  const hardMs = resolveBackgroundRunHardTimeoutMs();
+  // The resolver is 0 outside a hosted function, which would leave no soft budget.
+  const softMs =
+    resolveBackgroundAutomationSoftTimeoutMs() ||
+    Math.max(1_000, hardMs - BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS);
+  const controller = new AbortController();
+  let hardTimer: ReturnType<typeof setTimeout> | undefined;
+  let result: JobRunnerResult;
+  try {
+    if (automation.meta.mcpManaged) {
+      const messages = await automationOutcomeMessagesForUser(
+        options.ownerEmail,
+      );
+      throw new BackgroundAutomationRunError(
+        messages.mcpApprovalUnavailable,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
+    const runner = getJobRunner(runnerId);
+    if (!runner)
+      throw new BackgroundAutomationRunError(
+        `No job runner named "${runnerId}" is registered in this app.`,
+        "job_runner_unavailable",
+      );
+    if (automation.meta.executionHostId)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot run on an execution host.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    if (options.resume)
+      throw new BackgroundAutomationRunError(
+        `Job runner "${runnerId}" cannot resume an agent run.`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    const hardTimeout = new Promise<never>((_, reject) => {
+      hardTimer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new BackgroundAutomationRunError(
+            `Background automation timed out after ${Math.round(hardMs / 60_000)} minutes`,
+            "background_automation_hard_timeout",
+          ),
+        );
+      }, hardMs);
+    });
+    const context: JobRunnerContext = {
+      name: automation.name,
+      path: automation.resource.path,
+      meta: automation.meta,
+      ownerEmail: options.ownerEmail,
+      ...(options.orgId ? { orgId: options.orgId } : {}),
+      historyId,
+      manual: options.manual === true,
+      scheduledFor: options.manual ? null : (automation.meta.nextRun ?? null),
+      deadlineAt: startedAt + softMs,
+      hardDeadlineAt: startedAt + hardMs,
+      signal: controller.signal,
+      assertCanContinue: options.assertCanStart ?? (async () => {}),
+      actionAutomation: {
+        triggerId: automation.resource.id,
+        triggerName: automation.name,
+        ...(automation.meta.delegatedPolicyId
+          ? { policyId: automation.meta.delegatedPolicyId }
+          : {}),
+      },
+    };
+    result = await Promise.race([
+      runWithRequestContext(
+        {
+          ...options.requestContext,
+          userEmail: options.ownerEmail,
+          orgId: options.orgId,
+        },
+        () => runner(context),
+      ),
+      hardTimeout,
+    ]);
+  } catch (err) {
+    if (
+      err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
+      err instanceof AutomationRecoveryStorageError ||
+      (err instanceof BackgroundAutomationRunError &&
+        err.errorCode === "background_automation_history_write_failed")
+    )
+      throw err;
+    const failure = classifyAutomationFailure(err);
+    const transition = applyAutomationFailure(
+      automation.meta,
+      failure,
+      new Date(),
+      { countTowardPause: !options.manual },
+    );
+    captureError(err, {
+      tags: {
+        area: "job-runner",
+        automation: automation.name,
+        runner: runnerId,
+        scope: options.orgId ? "organization" : "personal",
+        errorCode: failure.code,
+        failureKind: failure.precondition ? "precondition" : "runtime",
+        ownerKind: automationOwnerKind(options.ownerEmail),
+      },
+      extra: {
+        automationPath: automation.resource.path,
+        historyId,
+        errorCode: failure.code,
+        consecutiveFailures: transition.consecutiveFailures,
+        paused: transition.pause,
+      },
+    });
+    await recordRunOutcome(
+      historyId,
+      expectedRunId,
+      "error",
+      transition.pause
+        ? pausedMessage(
+            failure.code,
+            transition.consecutiveFailures,
+            failure.message,
+            failure.deliveryNote,
+          )
+        : withDeliveryNote(failure.message, failure.deliveryNote),
+      failure.code,
+      !(failure.precondition && !transition.pause),
+      true,
+    );
+    throw new BackgroundAutomationRunError(
+      failure.message,
+      failure.code,
+      failure.deliveryNote,
+    );
+  } finally {
+    if (hardTimer) clearTimeout(hardTimer);
+  }
+  await recordRunOutcome(
+    historyId,
+    expectedRunId,
+    result.status,
+    result.status === "skipped" ? result.reason : undefined,
+    undefined,
+    true,
+    true,
+  );
+  const runId = result.runId ?? historyId;
+  return result.status === "skipped"
+    ? { status: "skipped", reason: result.reason, responseText: "", runId }
+    : { status: "success", responseText: "", runId };
 }
 
 async function recordRunThread(
@@ -1043,6 +1239,7 @@ async function confirmAutomationWork(
       );
     }
 
+    await assertConfiguredDeliveryAllowed(automation, ownerEmail);
     await markAgentExecutionStepDispatched(deliveryIntent);
     await adapter.sendMessageToTarget(outgoing, target);
     await completeAgentExecutionStep(
@@ -1073,9 +1270,11 @@ async function confirmAutomationWork(
  */
 async function assertDeliveryTargetSupported(
   automation: BackgroundAutomationContext,
+  ownerEmail: string,
 ): Promise<void> {
   const { deliveryPlatform, deliveryDestination } = automation.meta;
   if (!deliveryPlatform || !deliveryDestination) return;
+  await assertConfiguredDeliveryAllowed(automation, ownerEmail);
   const { getDefaultAdapter } =
     await import("../integrations/adapters/index.js");
   if (!getDefaultAdapter(deliveryPlatform)?.sendMessageToTarget) {
@@ -1084,6 +1283,18 @@ async function assertDeliveryTargetSupported(
       CONFIG_INVALID_ERROR_CODE,
     );
   }
+}
+
+async function assertConfiguredDeliveryAllowed(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+): Promise<void> {
+  if (!automation.meta.mcpManaged) return;
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
+  throw new BackgroundAutomationRunError(
+    messages.mcpApprovalUnavailable,
+    CONFIG_INVALID_ERROR_CODE,
+  );
 }
 
 async function resolveUsableBackgroundEngine(
@@ -1196,8 +1407,23 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       let noOpReason: string | undefined;
       const messages = await automationOutcomeMessagesForUser(ownerEmail);
+      const registeredActions = await deps.getActions(automation);
       const baseActions: Record<string, ActionEntry> = {
-        ...(await deps.getActions(automation)),
+        ...(automation.meta.mcpManaged
+          ? Object.fromEntries(
+              Object.entries(registeredActions)
+                .filter(
+                  ([name, entry]) =>
+                    entry.agentTool !== false &&
+                    entry.uiOnly !== true &&
+                    !isFrameworkRuntimeAction(name, entry),
+                )
+                .map(([name, entry]) => [
+                  name,
+                  { ...entry, allowPersistentApproval: false },
+                ]),
+            )
+          : registeredActions),
         [AUTOMATION_NO_OP_TOOL]: {
           ...automationNoOpAction,
           agentTool: true,
@@ -1245,14 +1471,15 @@ async function executeBackgroundAutomation(
       ) {
         initialToolNames.push(AUTOMATION_NO_OP_TOOL);
       }
-      const actions = initialToolNames
-        ? attachToolSearch({ ...baseActions })
-        : baseActions;
+      const actions =
+        initialToolNames || automation.meta.mcpManaged
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       assertHardDeadline(options.hardDeadlineAt);
-      await assertDeliveryTargetSupported(automation);
+      await assertDeliveryTargetSupported(automation, ownerEmail);
       const engine = await resolveUsableBackgroundEngine(
         { ownerEmail, orgId },
         deps,
@@ -1265,14 +1492,45 @@ async function executeBackgroundAutomation(
         deps,
       );
       assertHardDeadline(options.hardDeadlineAt);
-      const systemPrompt = `${await deps.getSystemPrompt(ownerEmail)}\n\n${messages.noOpInstruction}`;
+      const [baseSystemPrompt, workspaceAppContext] = await Promise.all([
+        deps.getSystemPrompt(ownerEmail),
+        baseActions["call-agent"] && deps.getWorkspaceAppContext
+          ? deps.getWorkspaceAppContext({
+              request: prompt,
+              ownerEmail,
+              orgId,
+              appId: deps.appId,
+              workspaceAppsEnabled: true,
+            })
+          : Promise.resolve(""),
+      ]);
+      const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const resume = options.resume;
+      if (resume) {
+        const projection = await withAutomationRecoveryStorage(() =>
+          retryRunThreadProjection(resume.previousRunId),
+        );
+        switch (projection.state) {
+          case "deferred":
+            throw new AutomationRecoveryProjectionDeferredError(
+              resume.previousRunId,
+            );
+          case "untracked":
+            // Inspection found this run before retention pruned its cleared
+            // projection marker; a pending marker prevents that pruning.
+            break;
+          case "projected":
+          case "already_projected":
+            break;
+        }
+      }
       const thread = resume
         ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
         : await createThread(ownerEmail, {
             title: threadTitle,
             orgId: orgId ?? null,
+            ...(deps.appId ? { source: { appId: deps.appId } } : {}),
           });
       if (!thread)
         throw new Error(
@@ -1523,7 +1781,10 @@ async function executeBackgroundAutomation(
               ownerEmail,
               orgId,
               appId: deps.appId,
-              actionCaller: options.actionCaller,
+              actionCaller: automation.meta.mcpManaged
+                ? "mcp"
+                : options.actionCaller,
+              requireWriteApproval: automation.meta.mcpManaged === true,
               automation: options.actionAutomation,
               ...(options.resume
                 ? { recoverCompletedExecutionSteps: true }

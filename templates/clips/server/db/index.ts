@@ -1,6 +1,9 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { organizations, registerIdentityColumns } from "@agent-native/core/org";
-import { registerShareableResource } from "@agent-native/core/sharing";
+import {
+  registerHostAccessResolver,
+  registerShareableResource,
+} from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
@@ -10,6 +13,7 @@ import {
 } from "../../shared/meeting-agent-access.js";
 import { usesOrganizationLogoRoute } from "../../shared/organization-logo.js";
 import { recordingSharePath } from "../../shared/recording-link.js";
+import { contentDocReaderRole } from "../lib/content-doc-grant.js";
 import { organizationLogoAbsoluteUrl } from "../lib/organization-logo.js";
 import {
   absoluteUrl,
@@ -72,6 +76,9 @@ registerShareableResource({
     }),
   getDb,
   ownerAccessIgnoresOrg: true,
+});
+registerHostAccessResolver("recording", contentDocReaderRole, {
+  includeSignedOut: true,
 });
 
 registerShareableResource({
@@ -197,6 +204,14 @@ registerIdentityColumns([
     emailChange: "retain",
     offboard: "retain",
     reason: "Reporter contact supplied by the capture client, not a principal.",
+  },
+  {
+    table: "recording_content_bindings",
+    column: "created_by",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Who placed the Clip in a Content document; the document grants access, not this column.",
   },
   {
     table: "recording_browser_diagnostics",

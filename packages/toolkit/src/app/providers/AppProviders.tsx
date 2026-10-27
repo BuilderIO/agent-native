@@ -33,15 +33,24 @@ import React, { useContext, useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
+import {
+  McpApprovalReviewGate,
+  McpApprovalReviewSkeleton,
+} from "../mcp-approval/McpApprovalReview.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
   type AppShellSkeletonLayout,
 } from "../shared/AppShellSkeleton.js";
 import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
+import {
+  UnsupportedDeviceGate,
+  type UnsupportedDeviceGateProps,
+} from "../shared/UnsupportedDeviceGate.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -75,6 +84,14 @@ export interface AppProvidersProps {
   skipFirstRunOnboarding?: boolean;
 
   /**
+   * Replaces the app with a hand-off notice on touch screens smaller than an
+   * iPad. It sits outside the session gate so a phone never signs in just to
+   * be turned away, and applies under `sessionBypass`; omit it where the app
+   * renders inside a host, whose pane width says nothing about the device.
+   */
+  unsupportedDevice?: Omit<UnsupportedDeviceGateProps, "children">;
+
+  /**
    * False when the app is mounted inside another app's document (an
    * in-process host). The app then leaves `<html>`, `document.title` and the
    * document head alone: no next-themes class/color-scheme on the root
@@ -82,6 +99,8 @@ export interface AppProvidersProps {
    * theme by toggling `.dark` on the mount node instead.
    */
   ownsDocument?: boolean;
+
+  enableThemeFamily?: boolean;
 
   documentTitleFallback?: string;
 
@@ -385,6 +404,56 @@ function AgentEngineReadinessBootstrap() {
   return null;
 }
 
+const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
+
+const LazyAgentRunAwareness = React.lazy(() =>
+  import("../chat/run-awareness/AgentRunAwareness.js").then((module) => ({
+    default: module.AgentRunAwareness,
+  })),
+);
+
+function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
+  return (
+    <React.Suspense fallback={null}>
+      <LazyAgentRunAwareness persistUnread={persistUnread} />
+    </React.Suspense>
+  );
+}
+
+/**
+ * An MCP approval review the URL names replaces the app. It sits outside the
+ * device gate, so a phone can decide, and outside first-run onboarding, so a
+ * new user can decide before setting up the app.
+ */
+function McpApprovalReviewBoundary({
+  appName,
+  themeFamily,
+  children,
+}: {
+  appName: string | undefined;
+  themeFamily: boolean;
+  children: React.ReactNode;
+}) {
+  const name = appName ?? readDocumentTitleFallback();
+  return (
+    <McpApprovalReviewGate
+      appName={name}
+      wrap={(review) => (
+        <RequireSession fallback={<McpApprovalReviewSkeleton appName={name} />}>
+          {themeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          {review}
+        </RequireSession>
+      )}
+    >
+      {children}
+    </McpApprovalReviewGate>
+  );
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -420,12 +489,17 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
+  // The banner reads the app's locale, so it sits inside the same provider.
   const localizedChildren =
     i18n === false ? (
-      children
+      <>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
+        {ownsDocument ? <ConsentBanner /> : null}
       </AgentNativeI18nProvider>
     );
 
@@ -483,6 +557,7 @@ export function AppProviders({
   skeletonLayout,
   sessionBypass = false,
   skipFirstRunOnboarding = false,
+  unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
@@ -494,6 +569,7 @@ export function AppProviders({
   i18n,
   documentTitleFallback,
   ownsDocument = true,
+  enableThemeFamily = true,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -527,9 +603,18 @@ export function AppProviders({
   const sessionGated = (
     <RequireSession bypass={sessionBypass} fallback={fallback}>
       {sessionBypass ? (
-        children
+        <>
+          {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
+          {children}
+        </>
       ) : (
         <>
+          {ownsDocument ? <AgentRunAwareness /> : null}
+          {ownsDocument && enableThemeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
           <AgentEngineReadinessBootstrap />
           <FirstRunOnboardingStartupGate
             suppressSurface={skipFirstRunOnboarding}
@@ -541,6 +626,28 @@ export function AppProviders({
       )}
     </RequireSession>
   );
+
+  const deviceGated = unsupportedDevice ? (
+    <UnsupportedDeviceGate {...unsupportedDevice}>
+      {sessionGated}
+    </UnsupportedDeviceGate>
+  ) : (
+    sessionGated
+  );
+
+  // A token-authenticated embed or an app inside another app's document
+  // never shows a review: neither is the reader's own top-level page.
+  const gated =
+    sessionBypass || !ownsDocument ? (
+      deviceGated
+    ) : (
+      <McpApprovalReviewBoundary
+        appName={documentTitleFallback}
+        themeFamily={enableThemeFamily}
+      >
+        {deviceGated}
+      </McpApprovalReviewBoundary>
+    );
 
   return (
     <>
@@ -570,11 +677,11 @@ export function AppProviders({
           ownsDocument={ownsDocument}
         >
           {sessionBypass ? (
-            sessionGated
+            gated
           ) : (
             // Outside RequireSession on purpose: inside it, a signed-out session
             // unmounts the gate before it can clear the stored results.
-            <ActionQueryCacheGate>{sessionGated}</ActionQueryCacheGate>
+            <ActionQueryCacheGate>{gated}</ActionQueryCacheGate>
           )}
         </ProvidersInner>
       </ClientOnly>

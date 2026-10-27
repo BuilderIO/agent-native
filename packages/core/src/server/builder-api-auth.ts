@@ -16,6 +16,7 @@ import {
   toHttpServerConfigAsync,
   type RemoteMcpScope,
 } from "../mcp-client/remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
@@ -31,6 +32,16 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "./request-context.js";
+
+export function isBuilderReauthorizationRequired(error: unknown): boolean {
+  return (
+    (error instanceof ActionContractError &&
+      error.errorCode === "builder_oauth_reauthorization_required") ||
+    error instanceof AppSecretDecryptionError ||
+    (error instanceof CredentialStoreUnavailableError &&
+      error.cause instanceof AppSecretDecryptionError)
+  );
+}
 
 function getBuilderCredentialScope(): {
   orgId: string | null;
@@ -93,9 +104,33 @@ export interface BuilderRequestAuthorization {
   authorization: string;
   source: "oauth" | "legacy";
   oauthScope?: RemoteMcpScope;
+  oauthResource?: "general" | "publish";
+  oauthConnectionId?: string;
+  /**
+   * Space selected during Builder OAuth. This is only a request locator; the
+   * provider must verify the token and reject a different apiKey.
+   */
+  oauthSelectedPublicKey?: string;
   legacyCredentialKey?: BuilderLegacyCredentialKey;
   legacyPublicKey?: string;
   userId?: string;
+}
+
+function selectedPublicKeyFromBuilderAccessToken(token: string) {
+  const payload = token.split(".")[1];
+  if (!payload) return undefined;
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    return typeof decoded.org === "string" && decoded.org.trim()
+      ? decoded.org.trim()
+      : undefined;
+  } catch {
+    // coercion-ok: an opaque or malformed optional locator claim is absent;
+    // authorization remains the provider's signed-token responsibility.
+    return undefined;
+  }
 }
 
 async function resolveBuilderPublishAuthorization(
@@ -182,6 +217,7 @@ async function resolveBuilderPublishAuthorization(
       authorization: `Bearer ${match[1]}`,
       source: "oauth",
       oauthScope: candidate.scope,
+      oauthResource: "publish",
     };
   }
   if (ownerEmail) {
@@ -257,6 +293,7 @@ export async function resolveBuilderRequestAuthorization(
           {
             errorCode: "builder_oauth_reauthorization_required",
             statusCode: 400,
+            details: { reason: "missing_scope", scope: input.requiredScope },
           },
         );
       }
@@ -277,6 +314,7 @@ export async function resolveBuilderRequestAuthorization(
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
+          details: { reason: "missing_scope", scope: input.requiredScope },
         },
       );
     }
@@ -285,6 +323,13 @@ export async function resolveBuilderRequestAuthorization(
       authorization: `Bearer ${session.accessToken}`,
       source: "oauth",
       oauthScope: session.scope,
+      oauthResource: "general",
+      ...(session.connectionId
+        ? { oauthConnectionId: session.connectionId }
+        : {}),
+      oauthSelectedPublicKey: selectedPublicKeyFromBuilderAccessToken(
+        session.accessToken,
+      ),
     };
   }
 

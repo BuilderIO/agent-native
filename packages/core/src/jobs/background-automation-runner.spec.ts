@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
@@ -21,6 +21,10 @@ const rawClient = {
     const args = (input.args ?? []) as unknown[];
     if (/^\s*select/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
+    }
+    if (/\bRETURNING\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
     }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
@@ -91,6 +95,9 @@ vi.mock("../chat-threads/store.js", () => ({
   updateThreadData: updateThreadDataMock,
   withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
     fn(),
+  // The run loop checks for Send now messages at every tool boundary.
+  claimSteeredQueuedMessages: async () => [],
+  deferSteeredQueuedMessages: async () => undefined,
 }));
 
 vi.mock("../agent/production-agent.js", () => ({
@@ -119,6 +126,7 @@ const {
   backgroundRunTerminalError,
   resolveBackgroundAutomationIdentity,
   runBackgroundAutomation,
+  runJobRunner,
 } = await import("./background-automation-runner.js");
 
 async function abortReasonOf(runId: string): Promise<string | null> {
@@ -161,6 +169,513 @@ describe("background automation identity scope", () => {
         defaultAgentEngineScope: "deployment",
       },
     });
+  });
+});
+
+describe("MCP-managed automation callers", () => {
+  beforeAll(async () => {
+    await Promise.all([
+      import("../action.js"),
+      import("./tools.js"),
+      import("../agent/tool-search.js"),
+      import("../mcp/framework-tools.js"),
+      import("../../../../templates/analytics/actions/build-data-index.js"),
+      import("../server/agent-chat/script-entries.js"),
+      import("../server/email-actions.js"),
+      vi.importActual("../agent/production-agent.js"),
+      import("../agent/execution-fence.js"),
+      import("../agent/run-loop-with-resume.js"),
+    ]);
+  }, 120_000);
+
+  it.each(
+    ["slack", "email"].flatMap((platform) =>
+      ["preflight", "delivery", "ordinary"].map((stage) => ({
+        platform,
+        stage,
+      })),
+    ),
+  )(
+    "guards $platform configured delivery at $stage",
+    async ({ platform, stage }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn(async () => {});
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({ text, platformContext: {} }),
+        sendMessageToTarget,
+      } as any);
+      const automation = precondition(`mcp-delivery-${platform}-${stage}`, {
+        mcpManaged: stage === "preflight",
+        deliveryPlatform: platform,
+        deliveryDestination: "recipient@example.test",
+      });
+      const agent = vi.mocked(runAgentLoopDirectWithSoftTimeout);
+      const previousImplementation = agent.getMockImplementation()!;
+      const callsBefore = agent.mock.calls.length;
+      const threadsBefore = createThreadMock.mock.calls.length;
+      agent.mockImplementation(async (opts) => {
+        await opts.send?.({ type: "text", text: "Your weekly digest." });
+        if (stage === "delivery") automation.meta.mcpManaged = true;
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(automation),
+          standardDeps,
+        );
+        if (stage === "ordinary") {
+          await expect(run).resolves.toMatchObject({ status: "success" });
+          expect(sendMessageToTarget).toHaveBeenCalledExactlyOnceWith(
+            { text: "Your weekly digest.", platformContext: {} },
+            {
+              destination: "recipient@example.test",
+              threadRef: null,
+              tenantId: undefined,
+            },
+          );
+        } else {
+          await expect(run).rejects.toMatchObject({
+            errorCode: "config_invalid",
+          });
+          expect(sendMessageToTarget).not.toHaveBeenCalled();
+        }
+        expect(agent.mock.calls.length - callsBefore).toBe(
+          stage === "preflight" ? 0 : 1,
+        );
+        expect(createThreadMock.mock.calls.length - threadsBefore).toBe(
+          stage === "preflight" ? 0 : 1,
+        );
+      } finally {
+        agent.mockImplementation(previousImplementation);
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "restricts the runtime registry only for MCP-managed=%s",
+    async (mcpManaged) => {
+      const { defineAction } = await import("../action.js");
+      const { z } = await import("zod");
+      const { createJobTools } = await import("./tools.js");
+      const { attachToolSearch } = await import("../agent/tool-search.js");
+      const { frameworkMcpTool } = await import("../mcp/framework-tools.js");
+      const { default: buildDataIndex } =
+        await import("../../../../templates/analytics/actions/build-data-index.js");
+      const buildIndex = vi
+        .spyOn(buildDataIndex, "run")
+        .mockResolvedValue({ built: true } as never);
+      const { createResourceScriptEntries } =
+        await import("../server/agent-chat/script-entries.js");
+      const { createCoreEmailActionEntries } =
+        await import("../server/email-actions.js");
+      const { executeAgentToolCall } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const { runWithoutExecutionFence } =
+        await import("../agent/execution-fence.js");
+      const callTool = (options: Parameters<typeof executeAgentToolCall>[0]) =>
+        runWithoutExecutionFence(() => executeAgentToolCall(options));
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const appSend = vi.fn(async (_args, ctx) => ({
+        sent: true,
+        caller: ctx?.caller,
+      }));
+      const hiddenRead = vi.fn(async () => ({ hidden: true }));
+      const registry = attachToolSearch({
+        ...createJobTools(),
+        ...(await createResourceScriptEntries()),
+        ...createCoreEmailActionEntries({ unattended: true }),
+        "send-email": defineAction({
+          description: "Send an application message.",
+          needsApproval: (_args, ctx) => ctx?.caller !== "automation",
+          run: appSend,
+        }),
+        "internal-send": defineAction({
+          description: "Send an internal application message.",
+          mcpTool: false,
+          run: async () => ({ sent: true }),
+        }),
+        "build-data-index": buildDataIndex,
+        "agent-hidden-read": defineAction({
+          description: "Read programmatic application state.",
+          agentTool: false,
+          readOnly: true,
+          run: hiddenRead,
+        }),
+        "mcp-only-read": defineAction({
+          description: "Read state through a direct MCP tool.",
+          agentTool: false,
+          mcpTool: true,
+          readOnly: true,
+          run: hiddenRead,
+        }),
+        "query-records": defineAction({
+          description: "Read application records using guarded SQL.",
+          schema: z.object({ sql: z.string() }),
+          readOnly: true,
+          mcpTool: false,
+          run: async () => ({ rows: [] }),
+        }),
+        "run-code": defineAction({
+          description: "Execute runtime code.",
+          run: async () => ({ executed: true }),
+        }),
+        "framework-runtime": frameworkMcpTool(
+          defineAction({
+            description: "Operate framework runtime state.",
+            run: async () => ({ changed: true }),
+          }),
+        ),
+        "call-agent": defineAction({
+          description: "Ask another app's agent.",
+          run: async () => ({ answered: true }),
+        }),
+        "attach-call-evidence": defineAction({
+          description: "Attach call evidence to a CRM record.",
+          run: async () => ({ attached: true }),
+        }),
+        "public-unapproved-send": defineAction({
+          description:
+            "Send an exposed application message without an approval gate.",
+          run: async () => ({ sent: true }),
+        }),
+        "public-predicate-bypass": defineAction({
+          description:
+            "Send an application message with a conditional approval gate.",
+          needsApproval: () => false,
+          run: async () => ({ sent: true }),
+        }),
+        "public-read": defineAction({
+          description: "Read application messages.",
+          readOnly: true,
+          run: async () => ({ messages: [] }),
+        }),
+        "mixed-management": defineAction({
+          description: "List or update application messages.",
+          schema: z.object({ action: z.enum(["list", "update"]) }),
+          planMode: {
+            effect: (args) => (args.action === "list" ? "read" : "write"),
+          },
+          needsApproval: () => false,
+          run: async ({ action }) => ({ action }),
+        }),
+      });
+      const blocked = [
+        "manage-jobs",
+        "resources",
+        "core-send-email",
+        "call-agent",
+        "run-code",
+        "framework-runtime",
+      ];
+      for (const name of blocked) expect(registry[name]).toBeDefined();
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          for (const name of blocked) {
+            if (mcpManaged) {
+              expect(opts.actions[name]).toBeUndefined();
+              await expect(
+                callTool({
+                  actions: opts.actions,
+                  name,
+                  callId: `blocked-${name}`,
+                }),
+              ).resolves.toMatchObject({
+                status: "failed",
+                output: `Unknown or unavailable tool: ${name}`,
+              });
+            } else {
+              expect(opts.actions[name]).toBe(registry[name]);
+            }
+          }
+          if (mcpManaged) {
+            const hiddenNames = ["agent-hidden-read", "mcp-only-read"];
+            for (const name of hiddenNames) {
+              expect(opts.actions[name]).toBeUndefined();
+              await expect(
+                callTool({
+                  actions: opts.actions,
+                  name,
+                  callId: `hidden-${name}`,
+                }),
+              ).resolves.toMatchObject({
+                status: "failed",
+                output: `Unknown or unavailable tool: ${name}`,
+              });
+            }
+            const hiddenSearch = await opts.actions["tool-search"].run({
+              names: hiddenNames,
+            });
+            expect(hiddenSearch.results).toEqual([]);
+            expect(hiddenRead).not.toHaveBeenCalled();
+            const discovered = await opts.actions["tool-search"].run({
+              names: blocked,
+            });
+            expect(discovered.results).toEqual([]);
+          }
+          expect(
+            await callTool({
+              actions: opts.actions,
+              name: "public-read",
+              callId: `public-read-${mcpManaged}`,
+              caller: opts.actionCaller,
+              requireWriteApproval: opts.requireWriteApproval,
+            }),
+          ).toMatchObject({ status: "completed" });
+          expect(
+            await callTool({
+              actions: opts.actions,
+              name: "query-records",
+              input: { sql: "SELECT 1" },
+              callId: `query-records-${mcpManaged}`,
+              caller: opts.actionCaller,
+              requireWriteApproval: opts.requireWriteApproval,
+            }),
+          ).toMatchObject({ status: "completed" });
+          const input = {};
+          const invocation = {
+            actions: opts.actions,
+            name: "send-email",
+            input,
+            callId: `app-send-${mcpManaged}`,
+            ownerEmail: opts.ownerEmail,
+            caller: opts.actionCaller,
+            automation: opts.automation,
+            requireWriteApproval: opts.requireWriteApproval,
+            isToolAlwaysAllowed: vi.fn(async () => true),
+          };
+          for (const name of [
+            "public-unapproved-send",
+            "public-predicate-bypass",
+            "attach-call-evidence",
+            "internal-send",
+          ]) {
+            const result = await callTool({
+              ...invocation,
+              name,
+              callId: `${name}-${mcpManaged}`,
+            });
+            expect(result.status, name).toBe(
+              mcpManaged ? "approval_required" : "completed",
+            );
+          }
+          const buildInvocation = {
+            ...invocation,
+            name: "build-data-index",
+            input: { trigger: "scheduled" },
+            callId: `build-data-index-${mcpManaged}`,
+          };
+          const build = await callTool(buildInvocation);
+          if (mcpManaged) {
+            expect(build.status).toBe("approval_required");
+            expect(buildIndex).not.toHaveBeenCalled();
+            expect(invocation.isToolAlwaysAllowed).not.toHaveBeenCalled();
+            if (build.status !== "approval_required")
+              throw new Error("Missing build approval");
+            expect(
+              await callTool({
+                ...buildInvocation,
+                approvedToolCalls: [build.approvalKey],
+                consumeApproval: async () => true,
+              }),
+            ).toMatchObject({ status: "completed" });
+            expect(
+              await callTool({
+                ...buildInvocation,
+                callId: `${buildInvocation.callId}-again`,
+              }),
+            ).toMatchObject({ status: "approval_required" });
+          } else {
+            expect(build.status).toBe("completed");
+          }
+          expect(buildIndex).toHaveBeenCalledOnce();
+          for (const action of ["list", "update"]) {
+            const result = await callTool({
+              ...invocation,
+              name: "mixed-management",
+              input: { action },
+              callId: `mixed-management-${action}-${mcpManaged}`,
+            });
+            expect(result.status, `${action}: ${result.output}`).toBe(
+              mcpManaged && action === "update"
+                ? "approval_required"
+                : "completed",
+            );
+          }
+          const first = await callTool(invocation);
+          if (mcpManaged) {
+            expect(first.status).toBe("approval_required");
+            expect(invocation.isToolAlwaysAllowed).not.toHaveBeenCalled();
+            expect(appSend).not.toHaveBeenCalled();
+            if (first.status !== "approval_required")
+              throw new Error("Missing approval request");
+            const approved = await callTool({
+              ...invocation,
+              approvedToolCalls: [first.approvalKey],
+              consumeApproval: async () => true,
+            });
+            expect(approved.status).toBe("completed");
+          } else {
+            expect(first.status).toBe("completed");
+          }
+          expect(appSend).toHaveBeenCalledWith(
+            {},
+            expect.objectContaining({
+              caller: mcpManaged ? "mcp" : "automation",
+            }),
+          );
+          await opts.send({
+            type: "tool_done",
+            tool: "send-email",
+            result: "Sent",
+            completedSideEffect: true,
+          });
+          return {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test-model",
+          };
+        },
+      );
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(precondition(`registry-${mcpManaged}`, { mcpManaged }), {
+              actionCaller: "automation",
+            }),
+            {
+              ...standardDeps,
+              getActions: () => registry,
+            },
+          ),
+        ).resolves.toMatchObject({ status: "success" });
+      } finally {
+        buildIndex.mockRestore();
+      }
+    },
+  );
+  it("refuses custom runners that cannot carry per-action approval", async () => {
+    const { registerJobRunner } = await import("./job-runner.js");
+    const { startAutomationRun } = await import("./run-history.js");
+    const settings = await import("../settings/user-settings.js");
+    const locale = vi.spyOn(settings, "getUserSetting").mockResolvedValueOnce({
+      locale: "es-ES",
+    });
+    const automation = precondition("mcp-custom-runner", {
+      mcpManaged: true,
+      runner: "custom",
+    });
+    const runner = vi.fn(async () => ({ status: "success" as const }));
+    const dispose = registerJobRunner("custom", runner);
+    const historyId = await startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    try {
+      await expect(
+        runJobRunner({
+          automation,
+          runnerId: "custom",
+          historyId,
+          ownerEmail: automation.resource.owner,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "config_invalid",
+        message:
+          "Las automatizaciones gestionadas por un agente externo no pueden usar funciones sin aprobación por acción.",
+      });
+      expect(runner).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      locale.mockRestore();
+    }
+  });
+  it.each([
+    { mcpManaged: true, requested: "automation", expected: "mcp" },
+    { mcpManaged: true, requested: "tool", expected: "mcp" },
+    { mcpManaged: undefined, requested: "automation", expected: "automation" },
+    { mcpManaged: undefined, requested: "tool", expected: "tool" },
+  ] as const)(
+    "uses $expected for marked=$mcpManaged and requested=$requested",
+    async ({ mcpManaged, requested, expected }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition(`caller-${mcpManaged}-${requested}`, {
+        mcpManaged,
+      });
+      await runBackgroundAutomation(
+        runOptions(automation, { actionCaller: requested }),
+        standardDeps,
+      );
+      const opts = vi
+        .mocked(runAgentLoopDirectWithSoftTimeout)
+        .mock.calls.at(-1)![0];
+      expect(opts.actionCaller).toBe(expected);
+    },
+  );
+});
+
+describe("background workspace app context", () => {
+  it("preloads matching app context for background runs that expose call-agent", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const automation = precondition("workspace-app-context");
+    const appContext =
+      '<relevant-apps status="selected" selected-ids="calendar">calendar</relevant-apps>';
+    const getWorkspaceAppContext = vi.fn(async () => appContext);
+    let capturedSystemPrompt = "";
+
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        capturedSystemPrompt = opts.systemPrompt;
+        opts.send({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    await runBackgroundAutomation(runOptions(automation), {
+      ...standardDeps,
+      appId: "calendar",
+      getActions: () => ({ "call-agent": {} as any }),
+      getWorkspaceAppContext,
+    });
+
+    expect(getWorkspaceAppContext).toHaveBeenCalledWith({
+      request: "Send the reminders.",
+      ownerEmail: "alice@agent-native.test",
+      orgId: undefined,
+      appId: "calendar",
+      workspaceAppsEnabled: true,
+    });
+    expect(createThreadMock).toHaveBeenCalledWith(
+      "alice@agent-native.test",
+      expect.objectContaining({ source: { appId: "calendar" } }),
+    );
+    expect(capturedSystemPrompt).toContain(appContext);
   });
 });
 
@@ -296,11 +811,14 @@ describe("runBackgroundAutomation — confirmed work", () => {
   it.each(["summary", "no-op", "progress-only"])(
     "includes predecessor work when recovery ends with %s",
     async (scenario) => {
+      const { defineAction } = await import("../action.js");
       const runStore = await import("../agent/run-store.js");
       const history = await import("./run-history.js");
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
-      const automation = precondition(`prior-work-${scenario}`);
+      const automation = precondition(`prior-work-${scenario}`, {
+        mcpManaged: true,
+      });
       const threadId = `thread-prior-${scenario}`;
       const turnId = `turn-prior-${scenario}`;
       const historyId = await history.startAutomationRun({
@@ -356,6 +874,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         });
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
+          expect(opts.actionCaller).toBe("mcp");
           if (scenario === "no-op")
             await opts.actions["automation-no-op"].run({
               reason: "No remaining work.",
@@ -380,7 +899,10 @@ describe("runBackgroundAutomation — confirmed work", () => {
             ...standardDeps,
             getActions: () => ({
               "prior-action": {
-                run: vi.fn(),
+                ...defineAction({
+                  description: "Complete the prior automation action.",
+                  run: vi.fn(),
+                }),
                 confirmsAutomationWork: scenario !== "progress-only",
               },
             }),
@@ -979,7 +1501,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         .get(previous!.threadId, turnId)) as { status: string } | undefined;
       expect(step).toEqual({ status: "dispatched" });
 
-      getThreadMock.mockResolvedValueOnce({
+      const interruptedThread = {
         id: previous!.threadId!,
         title: "Interrupted automation",
         preview: "",
@@ -987,13 +1509,17 @@ describe("runBackgroundAutomation — confirmed work", () => {
         threadData: JSON.stringify({
           messages: [
             {
+              id: "automation-prompt",
               role: "user",
               content: [{ type: "text", text: "Send the reminders." }],
               metadata: { custom: { submittedTurnId: turnId } },
             },
           ],
         }),
-      });
+      };
+      getThreadMock
+        .mockResolvedValueOnce(interruptedThread)
+        .mockResolvedValueOnce(interruptedThread);
       runLoop.mockImplementationOnce(async (opts) => {
         await opts.send?.({
           type: "tool_done",
@@ -1035,10 +1561,57 @@ describe("runBackgroundAutomation — confirmed work", () => {
         )
         .get(previous!.threadId, turnId)) as { status: string } | undefined;
       expect(replayedStep).toEqual({ status: "unknown" });
+      const previousProjection = (await pglite
+        .prepare(
+          `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
+        )
+        .get(previous!.runId!)) as { thread_projection_pending: boolean };
+      expect(previousProjection.thread_projection_pending).toBe(false);
     } finally {
       finish.mockRestore();
       completeReceipt.mockRestore();
       adapter.mockRestore();
+    }
+  });
+
+  it("keeps a resume retryable when its predecessor projection is deferred", async () => {
+    const runStore = await import("../agent/run-store.js");
+    const history = await import("./run-history.js");
+    const { AutomationRecoveryProjectionDeferredError } =
+      await import("./automation-recovery.js");
+    const automation = precondition("projection-deferred");
+    const historyId = await history.startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+    });
+    const retryProjection = vi
+      .spyOn(runStore, "retryRunThreadProjection")
+      .mockResolvedValueOnce({ state: "deferred" });
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId: "thread-projection-deferred",
+              turnId: "turn-projection-deferred",
+              previousRunId: "run-projection-deferred",
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          standardDeps,
+        ),
+      ).rejects.toBeInstanceOf(AutomationRecoveryProjectionDeferredError);
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        finishedAt: null,
+        status: "running",
+      });
+      expect(await countRowsWithPrefix("job-projection-deferred")).toBe(0);
+    } finally {
+      retryProjection.mockRestore();
     }
   });
 
@@ -2612,7 +3185,14 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
     });
   });
 
-  it.each(["journal", "delivery evidence", "thread", "transcript", "claim"])(
+  it.each([
+    "journal",
+    "delivery evidence",
+    "thread",
+    "transcript",
+    "claim",
+    "projection",
+  ])(
     "keeps unfinished history retryable after a temporary %s storage failure",
     async (failureAt) => {
       const store = await import("../agent/run-store.js");
@@ -2686,6 +3266,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
           new Error("evidence database temporarily unavailable"),
         );
       const finish = vi.spyOn(history, "finishAutomationRun");
+      const projection = vi.spyOn(store, "retryRunThreadProjection");
       const claim = vi
         .spyOn(store, "tryClaimRunSlot")
         .mockImplementation(async (id, runId, _staleMs, options) => {
@@ -2699,6 +3280,10 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       if (failureAt === "journal")
         journal.mockRejectedValueOnce(
           new Error("journal database temporarily unavailable"),
+        );
+      else if (failureAt === "projection")
+        projection.mockRejectedValueOnce(
+          new Error("projection database temporarily unavailable"),
         );
       else if (failureAt === "delivery evidence")
         getSystemPrompt.mockRejectedValueOnce(
@@ -2794,6 +3379,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         journal.mockRestore();
         ref.mockRestore();
         evidence.mockRestore();
+        projection.mockRestore();
         finish.mockRestore();
         claim.mockRestore();
         getThreadMock.mockReset();
@@ -2845,6 +3431,106 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       attach.mockRestore();
     }
   });
+
+  it.each([
+    ["invalid JSON", "not valid JSON"],
+    ["non-array messages", JSON.stringify({ messages: "corrupt" })],
+    [
+      "malformed message before the valid prompt",
+      JSON.stringify({
+        messages: [
+          { message: { role: "assistant", content: "lost" } },
+          {
+            message: {
+              id: "current-prompt",
+              role: "user",
+              content: [{ type: "text", text: "Continue" }],
+            },
+          },
+        ],
+      }),
+    ],
+  ])(
+    "records an outcome when a resumed predecessor has corrupt projected thread data (%s)",
+    async (_description, threadData) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const automation = precondition("corrupt-predecessor-projection");
+      const threadId = `thread-corrupt-projection-${Date.now()}`;
+      const turnId = `turn-corrupt-projection-${Date.now()}`;
+      const previousRunId = `run-corrupt-projection-${Date.now()}`;
+      const historyId = await history.startAutomationRun({
+        owner: automation.resource.owner,
+        automation: automation.name,
+        path: automation.resource.path,
+        runId: previousRunId,
+        threadId,
+      });
+      await runStore.insertRun(previousRunId, threadId, turnId);
+      await runStore.insertRunEvent(
+        previousRunId,
+        0,
+        JSON.stringify({ type: "text", text: "Persisted assistant output" }),
+      );
+      await pglite
+        .prepare(
+          `UPDATE agent_runs
+         SET status = 'completed', completed_at = ?, thread_projection_pending = TRUE
+         WHERE id = ?`,
+        )
+        .run(Date.now(), previousRunId);
+      getThreadMock.mockResolvedValueOnce({
+        id: threadId,
+        title: "Interrupted",
+        preview: "",
+        messageCount: 1,
+        threadData,
+      });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+      await expect(
+        runBackgroundAutomation(
+          runOptions(automation, {
+            historyId,
+            resume: {
+              historyId,
+              threadId,
+              turnId,
+              previousRunId,
+              hardDeadlineAt: Date.now() + 60_000,
+            },
+          }),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "tool_call_journal_unreadable" });
+
+      expect(await history.getAutomationRun(historyId)).toMatchObject({
+        runId: previousRunId,
+        status: "error",
+        finishedAt: expect.any(Number),
+        errorCode: "tool_call_journal_unreadable",
+      });
+      const marker = (await pglite
+        .prepare(
+          `SELECT thread_projection_pending, thread_projection_retry_order,
+                  thread_projection_error_code
+         FROM agent_runs WHERE id = ?`,
+        )
+        .get(previousRunId)) as {
+        thread_projection_pending: boolean;
+        thread_projection_retry_order: number | null;
+        thread_projection_error_code: string | null;
+      };
+      expect(marker.thread_projection_pending).toBe(true);
+      expect(marker.thread_projection_retry_order).toBeNull();
+      expect(marker.thread_projection_error_code).toBe(
+        "tool_call_journal_unreadable",
+      );
+      expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     "reassigned",

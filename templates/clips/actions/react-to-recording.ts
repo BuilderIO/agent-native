@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -23,7 +24,9 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "viewer"),
+    );
 
     const viewerEmail = getRequestUserEmail();
     if (!viewerEmail) {

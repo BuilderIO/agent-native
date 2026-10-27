@@ -21,11 +21,18 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../server/lib/recording-page-access.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
+  sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { getAgentClipReadiness } from "../shared/agent-context.js";
@@ -83,7 +90,7 @@ function mapRecording(r: any) {
 
 async function fetchRecording(id: string) {
   const db = getDb();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.recordings)
     .where(
@@ -97,7 +104,16 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  return row ? mapRecording(row) : null;
+  const row = rows.values().next().value;
+  if (!row) return null;
+  const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
+  if (
+    isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||
+    isRecordingExpiredForViewer({ expiresAt: row.expiresAt, viewerIsOwner })
+  ) {
+    return null;
+  }
+  return mapRecording(row);
 }
 
 async function fetchTranscript(recordingId: string) {
@@ -193,6 +209,7 @@ async function fetchLibrary({
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
   const conditions = [
+    recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
       schema.recordings,
       schema.recordingShares,
@@ -391,27 +408,14 @@ async function fetchMeetingDetail(meetingId: string) {
     .from(schema.meetingActionItems)
     .where(eq(schema.meetingActionItems.meetingId, meetingId));
 
-  let recording: { id: string; title: string } | null = null;
-  let transcriptSnippet: string | null = null;
-  if (meeting.recordingId) {
-    const [rec] = await db
-      .select({
-        id: schema.recordings.id,
-        title: schema.recordings.title,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, meeting.recordingId))
-      .limit(1);
-    recording = rec ?? null;
-    const [tr] = await db
-      .select({ fullText: schema.recordingTranscripts.fullText })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-      .limit(1);
-    if (tr?.fullText) {
-      transcriptSnippet = tr.fullText.slice(0, 2000);
-    }
-  }
+  const linked = await loadMeetingRecordingContent(
+    meeting,
+    getRequestUserEmail(),
+  );
+  const recording = linked.recording
+    ? { id: linked.recording.id, title: linked.recording.title }
+    : null;
+  const transcriptSnippet = linked.transcript?.fullText.slice(0, 2000) ?? null;
 
   return {
     meeting: {
@@ -501,7 +505,10 @@ async function addRecordingContext(
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
       fetchTranscript(recordingId),
-      fetchComments(recordingId),
+      recording.enableComments ||
+      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+        ? fetchComments(recordingId)
+        : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);
@@ -659,11 +666,10 @@ export default defineAction({
       }
       case "bug-report-done": {
         if (nav.recordingId) {
-          const [recording, bugReportSummary] = await Promise.all([
-            fetchRecording(nav.recordingId),
-            fetchBugReportSummary(nav.recordingId),
-          ]);
-          if (recording) screen.recording = recording;
+          const recording = await fetchRecording(nav.recordingId);
+          if (!recording) break;
+          const bugReportSummary = await fetchBugReportSummary(nav.recordingId);
+          screen.recording = recording;
           if (bugReportSummary) screen.bugReport = bugReportSummary;
         }
         break;

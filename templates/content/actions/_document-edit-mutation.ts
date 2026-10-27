@@ -1,12 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { ActionContractError } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
 import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -19,9 +17,33 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { rebuildDocumentBodyBase } from "../server/lib/document-body-steps.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  documentContentHash,
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "../server/lib/document-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
+export {
+  documentContentHash,
+  documentRevisionToken,
+  parseDocumentRevisionToken,
+} from "../server/lib/document-revision.js";
+import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
 import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
+import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
+import { drizzleOverExec } from "../server/live-copy/exec-db.js";
+import { persistedContentBodyCommit } from "../server/live-copy/persist.js";
+import {
+  editContentLiveCopy,
+  liveCopyRebaseConflict,
+  liveCopyWriteLeftPath,
+  unrepresentableBodyError,
+  type ContentLiveCopyRebaseInput,
+} from "../server/live-copy/write.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import {
   resolveDocumentTextEdits,
@@ -39,28 +61,6 @@ import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 type Db = ReturnType<typeof getDb>;
 
-export function documentContentHash(content: string): string {
-  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
-}
-
-export function documentRevisionToken(
-  revision: number,
-  content: string,
-): string {
-  return `body:${revision}:${documentContentHash(content)}`;
-}
-
-export function parseDocumentRevisionToken(
-  value: string,
-): { revision: number; contentHash: string } | null {
-  const match = /^body:(0|[1-9]\d*):(sha256:[a-f0-9]{64})$/.exec(value);
-  if (!match) return null;
-  const revision = Number(match[1]);
-  return Number.isSafeInteger(revision)
-    ? { revision, contentHash: match[2]! }
-    : null;
-}
-
 function digest(value: unknown): string {
   return documentContentHash(JSON.stringify(value));
 }
@@ -77,6 +77,18 @@ function conflict(
   });
 }
 
+// A page in Trash refuses edits the way get-document refuses to read it.
+export function assertEditableDocument<T extends { trashedAt: string | null }>(
+  document: T | undefined,
+): asserts document is T {
+  if (!document || document.trashedAt) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+}
+
 function validateDocumentEditSnapshot(
   document: typeof schema.documents.$inferSelect | undefined,
   base: { revision: number; contentHash: string },
@@ -85,12 +97,7 @@ function validateDocumentEditSnapshot(
   initializeContent?: string,
   baseContent?: string,
 ) {
-  if (!document) {
-    throw new ActionContractError("Document not found.", {
-      errorCode: "DOCUMENT_NOT_FOUND",
-      statusCode: 404,
-    });
-  }
+  assertEditableDocument(document);
   const beforeContent = baseContent ?? document.content ?? "";
   const beforeHash = documentContentHash(beforeContent);
   if (
@@ -131,6 +138,7 @@ function validateDocumentEditSnapshot(
       { validation: resolved.error },
     );
   }
+  assertNoNewlySharedVideoIds(beforeContent, resolved.content);
   return { document, beforeContent, beforeHash, resolved };
 }
 
@@ -377,10 +385,31 @@ async function performDocumentBodyMutation(
     });
     const previous = await readReplay(db);
     if (previous) return previous;
+    if ((await liveBodyWriterGate(args.documentId)).writePath === "live_copy") {
+      const live = await mutateLiveCopyDocumentBody({
+        db,
+        documentId: args.documentId,
+        base,
+        baseRevision: args.baseRevision,
+        idempotencyKey: args.idempotencyKey,
+        edits: normalizedEdits,
+        initializeContent: initializationContent,
+        payloadDigest,
+        scope,
+        ctx: args.ctx,
+        resolveCreativeContext: args.resolveCreativeContext
+          ? args.resolveCreativeContext
+          : async () => args.creativeContext,
+        readReplay,
+        observation,
+      });
+      if (live) return live;
+    }
     const [preflightDocument] = await db
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, args.documentId));
+    assertEditableDocument(preflightDocument);
     const preflightHasCurrentBase =
       preflightDocument?.bodyRevision === base.revision &&
       documentContentHash(preflightDocument.content ?? "") === base.contentHash;
@@ -434,7 +463,8 @@ async function performDocumentBodyMutation(
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
-      if (document) assertSourceAllowsPageEdit(document);
+      assertEditableDocument(document);
+      assertSourceAllowsPageEdit(document);
       const hasCurrentBase =
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;
@@ -583,6 +613,12 @@ async function performDocumentBodyMutation(
           tx,
           args.documentId,
         );
+        // The page may have switched since the gate above chose this path.
+        await lockLegacyBodyWrites(tx, [args.documentId], {
+          operation: "edit-document",
+          routed: true,
+          content: null,
+        });
         const updated = await tx
           .update(schema.documents)
           .set({
@@ -596,10 +632,16 @@ async function performDocumentBodyMutation(
               eq(schema.documents.id, document.id),
               eq(schema.documents.bodyRevision, document.bodyRevision),
               eq(schema.documents.content, document.content),
+              isNull(schema.documents.trashedAt),
             ),
           )
           .returning({ bodyRevision: schema.documents.bodyRevision });
         if (updated.length !== 1) {
+          const [current] = await tx
+            .select()
+            .from(schema.documents)
+            .where(eq(schema.documents.id, document.id));
+          assertEditableDocument(current);
           conflict(
             "STALE_BASE_REVISION",
             "The document changed while the edit was committing.",
@@ -770,4 +812,245 @@ async function performDocumentBodyMutation(
     });
     return replay;
   }
+}
+
+/**
+ * An edit to a switched page, through its live copy. The edits resolve
+ * against the exact body they were made on, as on a legacy page, and the
+ * live copy applies the blocks they changed to the body it holds when the
+ * edit commits (`rebase-body`), keeping what tabs typed since. An edit whose
+ * place in that body is ambiguous is refused, since an exact find run again
+ * there can match a different passage. The receipt is written in the
+ * commit's transaction. Undefined when the page left its live copy before
+ * anything committed; the caller takes its legacy path.
+ */
+async function mutateLiveCopyDocumentBody(input: {
+  db: Db;
+  documentId: string;
+  base: { revision: number; contentHash: string };
+  baseRevision: string;
+  idempotencyKey: string;
+  edits: DocumentTextEdit[] | undefined;
+  initializeContent: string | undefined;
+  payloadDigest: string;
+  scope: string;
+  ctx: ActionRunContext;
+  resolveCreativeContext: () => Promise<
+    DocumentEditCreativeContext | undefined
+  >;
+  readReplay: (client: Db) => Promise<DocumentEditMutationResult | null>;
+  observation: { staleBase: "true" | "false" | "unknown" };
+}): Promise<DocumentEditMutationResult | undefined> {
+  const { db, documentId, base, baseRevision, edits } = input;
+  // guard:allow-unscoped — the caller asserted editor access to this page.
+  const [document] = await db
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  if (!document) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  const current = document.content ?? "";
+  const currentRevision = documentRevisionToken(document.bodyRevision, current);
+  const hasCurrentBase =
+    document.bodyRevision === base.revision &&
+    documentContentHash(current) === base.contentHash;
+  input.observation.staleBase = hasCurrentBase ? "false" : "true";
+  if (
+    input.initializeContent !== undefined &&
+    document.bodyRevision !== base.revision
+  ) {
+    conflict(
+      "DOCUMENT_BODY_NOT_EMPTY",
+      "Document initialization requires the current body to be empty.",
+      { currentRevision },
+    );
+  }
+  // A tab's commits can move past the base inside one History interval, so
+  // no row holds it; the commits' body steps rebuild it exactly.
+  const baseContent = hasCurrentBase
+    ? current
+    : ((await findDocumentBodyBase({
+        db,
+        ownerEmail: document.ownerEmail,
+        documentId,
+        contentHash: base.contentHash,
+        revision: base.revision,
+      })) ??
+      (await rebuildDocumentBodyBase({
+        db,
+        ownerEmail: document.ownerEmail,
+        documentId,
+        contentHash: base.contentHash,
+        revision: base.revision,
+        current: { revision: document.bodyRevision, content: current },
+      })));
+  const { beforeContent, resolved } = validateDocumentEditSnapshot(
+    document,
+    base,
+    baseRevision,
+    edits,
+    input.initializeContent,
+    baseContent ?? undefined,
+  );
+  const rebase: ContentLiveCopyRebaseInput = {
+    base: beforeContent,
+    candidate: resolved.content,
+    authored: resolved.ranges,
+  };
+  const creativeContext = await input.resolveCreativeContext();
+  let result: DocumentEditMutationResult | undefined;
+  try {
+    await editContentLiveCopy(documentId, {
+      cause: {
+        ctx: input.ctx,
+        operation: "edit-document",
+        intent: {
+          intent: {
+            writerId: `${input.scope}:edit-document`,
+            operationId: input.idempotencyKey,
+            authoredBaseRevision: base.revision,
+          },
+          candidateHash: documentContentHash(resolved.content),
+        },
+      },
+      edit: CONTENT_LIVE_COPY_EDITS.rebaseBody,
+      input: rebase,
+      persist: async (tx) => {
+        const txDb = drizzleOverExec(tx);
+        // A concurrent call with this key committed first; the caller
+        // answers with its receipt.
+        if (await input.readReplay(txDb)) {
+          conflict(
+            "IDEMPOTENCY_KEY_REUSED",
+            "This document edit was already applied.",
+            { idempotencyKey: input.idempotencyKey },
+          );
+        }
+        await assertAccess("document", documentId, "editor", {
+          userEmail: input.ctx.userEmail,
+          orgId: input.ctx.orgId ?? undefined,
+          transaction: tx,
+        });
+        // guard:allow-unscoped — reads the page row this transaction locked.
+        const [row] = await txDb
+          .select({
+            content: schema.documents.content,
+            bodyRevision: schema.documents.bodyRevision,
+            ownerEmail: schema.documents.ownerEmail,
+            orgId: schema.documents.orgId,
+            updatedAt: schema.documents.updatedAt,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId));
+        const committed = persistedContentBodyCommit(tx);
+        if (
+          !row ||
+          (committed &&
+            (row.content !== committed.after ||
+              row.bodyRevision !== committed.bodyRevision))
+        ) {
+          conflict(
+            "STALE_BASE_REVISION",
+            "The document changed while the edit was being verified.",
+            { expectedRevision: baseRevision },
+          );
+        }
+        const before = committed?.before ?? row.content;
+        const after = committed?.after ?? row.content;
+        const changed = after !== before;
+        const beforeRevision = changed
+          ? row.bodyRevision - 1
+          : row.bodyRevision;
+        const now =
+          committed?.updatedAt ?? nextDocumentUpdatedAt(row.updatedAt);
+        if (changed && creativeContext) {
+          await recordGenerationCreativeContext(
+            {
+              appId: "content",
+              artifactType: "document",
+              artifactId: documentId,
+              ...creativeContext,
+            },
+            { db: txDb },
+          );
+        }
+        const receiptId = crypto.randomUUID();
+        const ranges = resolved.ranges.map((range, editIndex) => ({
+          editIndex,
+          start: range.start,
+          end: range.end,
+        }));
+        const afterHash = documentContentHash(after);
+        result = {
+          applied: changed ? resolved.ranges.length : 0,
+          total: edits?.length ?? 1,
+          receipt: {
+            receiptId,
+            outcome: changed ? "applied" : "unchanged",
+            documentId,
+            revisions: {
+              before: documentRevisionToken(beforeRevision, before),
+              after: documentRevisionToken(row.bodyRevision, after),
+            },
+            bodyRevision: { before: beforeRevision, after: row.bodyRevision },
+            hashes: { before: documentContentHash(before), after: afterHash },
+            ranges,
+            idempotency: {
+              key: input.idempotencyKey,
+              result: "applied",
+              payloadDigest: input.payloadDigest,
+            },
+            readback: { verified: true },
+          },
+        };
+        await txDb.insert(schema.documentEditReceipts).values({
+          id: receiptId,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId,
+          documentId,
+          callerScope: input.scope,
+          idempotencyKey: input.idempotencyKey,
+          payloadDigest: input.payloadDigest,
+          baseRevision: base.revision,
+          resultRevision: row.bodyRevision,
+          beforeHash: documentContentHash(before),
+          afterHash,
+          rangesJson: JSON.stringify(ranges),
+          actorJson: JSON.stringify({
+            caller: input.ctx.caller,
+            userEmail: input.ctx.userEmail,
+            orgId: input.ctx.orgId,
+            networkProtocol: input.ctx.networkProtocol,
+            networkId: input.ctx.networkId,
+            networkPeer: input.ctx.networkPeer,
+            runId: input.ctx.runId,
+            threadId: input.ctx.threadId,
+          }),
+          resultJson: JSON.stringify(result),
+          createdAt: now,
+        });
+      },
+    });
+  } catch (error) {
+    if (liveCopyWriteLeftPath(error)) return undefined;
+    if (liveCopyRebaseConflict(error)) {
+      conflict(
+        "STALE_BASE_REVISION",
+        "The document changed where these edits apply after it was read. Read it again with get-document and retry.",
+        { expectedRevision: baseRevision },
+      );
+    }
+    throw unrepresentableBodyError(error) ?? error;
+  }
+  if (!result) {
+    // guard:allow-bare-error — invariant: persist sets the result before its transaction commits.
+    throw new Error(
+      `The live-copy edit of page ${documentId} committed without its receipt.`,
+    );
+  }
+  return result;
 }

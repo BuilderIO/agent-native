@@ -90,6 +90,7 @@ import {
   acquireBlockFieldSaveController,
   blockFieldRevision,
   blockFieldSaveImplRef,
+  createBlockFieldPersistenceRef,
   forgetBlockFieldSaveController,
   isBlockFieldDeleting,
   peekBlockFieldSaveController,
@@ -116,7 +117,11 @@ import {
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
 import { dbText } from "./database/text";
-import { VisualEditor, type VisualEditorExternalContent } from "./VisualEditor";
+import {
+  VisualEditor,
+  type VisualEditorExternalContent,
+  type VisualEditorPersistenceController,
+} from "./VisualEditor";
 
 const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 // The default `auto` track grows to its widest unbreakable line, which widens
@@ -1789,7 +1794,11 @@ export function useBlockFieldEditor({
   externalContent: VisualEditorExternalContent | null;
   onChange: (markdown: string) => void;
   onSaveContent: (markdown: string) => Promise<boolean>;
+  isAcknowledgedContent: (markdown: string) => boolean;
   isPendingContent: (markdown: string) => boolean;
+  onPersistenceControllerChange: (
+    controller: VisualEditorPersistenceController | null,
+  ) => void;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -1824,6 +1833,13 @@ export function useBlockFieldEditor({
   };
 
   const controllerRef = useRef<BlockFieldSaveController | null>(null);
+  const persistenceRef = useMemo(createBlockFieldPersistenceRef, [key]);
+  const onPersistenceControllerChange = useCallback(
+    (controller: VisualEditorPersistenceController | null) => {
+      persistenceRef.current = controller;
+    },
+    [persistenceRef],
+  );
 
   const factory = () =>
     createBlockFieldSaveController({
@@ -1846,8 +1862,12 @@ export function useBlockFieldEditor({
     });
 
   const [settledSaves, setSettledSaves] = useState(0);
-  useEffect(() => {
-    const controller = acquireBlockFieldSaveController(key, factory);
+  useLayoutEffect(() => {
+    const controller = acquireBlockFieldSaveController(
+      key,
+      factory,
+      persistenceRef,
+    );
     controllerRef.current = controller;
     const unsubscribe = controller.subscribe(() =>
       setSettledSaves((count) => count + 1),
@@ -1855,17 +1875,19 @@ export function useBlockFieldEditor({
     return () => {
       unsubscribe();
       controllerRef.current = null;
-      void releaseBlockFieldSaveController(key).then((evicted) => {
-        onReleaseSettledRef.current?.(evicted);
-      });
+      void releaseBlockFieldSaveController(key, persistenceRef).then(
+        (evicted) => {
+          onReleaseSettledRef.current?.(evicted);
+        },
+      );
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, persistenceRef]);
 
   const [content, setContent] = useState(() => {
     const existing = peekBlockFieldSaveController(key);
     if (existing) {
-      if (existing.pending !== existing.lastSaved) {
+      if (!existing.isClean) {
         return existing.pending;
       }
       if (existing.hasSavedLocally && existing.lastSaved !== initialContent) {
@@ -1909,7 +1931,7 @@ export function useBlockFieldEditor({
     }
     // Older props lag a save of this editor's.
     if (initialRevision < revision.base) return;
-    if (controller.pending !== controller.lastSaved) return;
+    if (!controller.isClean) return;
     if (initialContent === controller.lastSaved) {
       if (controller.hasSavedLocally) controller.mark(initialContent);
       return;
@@ -2005,7 +2027,11 @@ export function useBlockFieldEditor({
         return;
       }
       // A refused save waits for the newer text, which hasn't arrived.
-      if (controller.pending === controller.lastSaved || revision.stale) {
+      if (
+        (controller.pending === controller.lastSaved &&
+          controller.lastError === null) ||
+        revision.stale
+      ) {
         return;
       }
       const sent = keepaliveSaveRef.current?.({
@@ -2044,11 +2070,21 @@ export function useBlockFieldEditor({
     if (!controller) return false;
     controller.change(markdown);
     await controller.flush();
-    return controller.lastSaved === markdown;
+    return controller.isClean && controller.lastSaved === markdown;
   }
 
   function isPendingContent(markdown: string) {
     return controllerRef.current?.pending === markdown;
+  }
+
+  function isAcknowledgedContent(markdown: string) {
+    const controller = controllerRef.current;
+    return (
+      controller !== null &&
+      controller.isClean &&
+      controller.pending === markdown &&
+      controller.lastSaved === markdown
+    );
   }
 
   return {
@@ -2056,7 +2092,9 @@ export function useBlockFieldEditor({
     externalContent,
     onChange,
     onSaveContent,
+    isAcknowledgedContent,
     isPendingContent,
+    onPersistenceControllerChange,
   };
 }
 
@@ -2096,7 +2134,9 @@ function AdditionalBlockEditor({
     externalContent,
     onChange,
     onSaveContent,
+    isAcknowledgedContent,
     isPendingContent,
+    onPersistenceControllerChange,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2157,13 +2197,16 @@ function AdditionalBlockEditor({
         if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
+        if (isAcknowledgedContent(markdown)) return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
       editable={canEdit}
+      onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}
+      onBlockComment={comments?.onBlockComment}
       commentThreads={comments?.commentThreads}
       activeThreadId={comments?.activeThreadId}
       hoveredThreadId={comments?.hoveredThreadId}

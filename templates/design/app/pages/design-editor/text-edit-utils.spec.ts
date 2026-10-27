@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 
+import { registerTextEditOwner } from "@/components/design/design-canvas/pending-text-capture";
 import {
   BEGIN_TEXT_EDIT_ACTIVATION_CONFIRM_DELAY_MS,
   BEGIN_TEXT_EDIT_RETRY_DELAYS_MS,
@@ -255,4 +256,44 @@ it("starts a keyboard text edit without the pointer settle delay", async () => {
   expect(
     post.mock.calls.filter(([message]) => message.type === "begin-text-edit"),
   ).toHaveLength(1);
+});
+
+it("asks the registered owner for each retry instead of opening a bare session", async () => {
+  vi.useFakeTimers();
+  const board = document.createElement("div");
+  board.dataset.boardSurfaceLayer = "";
+  const iframe = document.createElement("iframe");
+  iframe.dataset.designPreviewIframe = "";
+  board.append(iframe);
+  document.body.append(board);
+  const win = iframe.contentWindow!;
+  const post = vi.spyOn(win, "postMessage").mockImplementation((message) => {
+    if (message.type !== "agent-native:text-edit-status") return;
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: win,
+        data: {
+          type: "agent-native:text-edit-status-result",
+          correlationId: message.correlationId,
+          status: "not-editing",
+        },
+      }),
+    );
+  });
+  const ownerBegin = vi.fn(() => true);
+  const unregister = registerTextEditOwner("board", ownerBegin);
+  try {
+    scheduleBeginTextEditForScreen("board", "text", {
+      boardFileId: "board",
+      afterPointerGesture: true,
+    });
+    await vi.advanceTimersByTimeAsync(BEGIN_TEXT_EDIT_RETRY_DELAYS_MS[0]! + 50);
+  } finally {
+    unregister();
+  }
+
+  expect(ownerBegin).toHaveBeenCalledWith("text");
+  expect(
+    post.mock.calls.filter(([message]) => message.type === "begin-text-edit"),
+  ).toHaveLength(0);
 });

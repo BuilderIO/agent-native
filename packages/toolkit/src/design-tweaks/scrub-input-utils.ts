@@ -1,5 +1,7 @@
 export interface ScrubExpressionOptions {
   unit?: string;
+  /** Suffix shown in the field; defaults to `unit`. Parsing still uses `unit`. */
+  displayUnit?: string;
   min?: number;
   max?: number;
   precision?: number;
@@ -152,7 +154,10 @@ export function roundScrubDragValue(
 
 export function formatScrubValue(
   value: number,
-  options: Pick<ScrubExpressionOptions, "precision" | "unit"> = {},
+  options: Pick<
+    ScrubExpressionOptions,
+    "precision" | "unit" | "displayUnit"
+  > = {},
 ): string {
   const normalized = normalizeScrubNumber(value, options);
   let numeric: string;
@@ -166,7 +171,7 @@ export function formatScrubValue(
   } else {
     numeric = String(normalized);
   }
-  return `${numeric}${options.unit ?? ""}`;
+  return `${numeric}${options.displayUnit ?? options.unit ?? ""}`;
 }
 
 export function getScrubStepFromEvent(
@@ -179,6 +184,16 @@ export function getScrubStepFromEvent(
   return step * multiplier;
 }
 
+const UNIT_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  deg: ["deg", "°"],
+  "°": ["°", "deg"],
+};
+
+function acceptedUnits(unit: string | undefined): readonly string[] {
+  if (!unit) return [];
+  return UNIT_ALIASES[unit.toLowerCase()] ?? [unit];
+}
+
 function toNumericExpression(
   raw: string,
   currentValue: number,
@@ -186,8 +201,11 @@ function toNumericExpression(
 ): string {
   let expression = raw.trim();
 
-  if (unit) {
-    expression = expression.replace(new RegExp(escapeRegExp(unit), "gi"), "");
+  for (const accepted of acceptedUnits(unit)) {
+    expression = expression.replace(
+      new RegExp(escapeRegExp(accepted), "gi"),
+      "",
+    );
   }
 
   expression = expression.replace(/\bx\b/gi, `(${currentValue})`);

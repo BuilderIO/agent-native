@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   ContentDatabaseFilter,
@@ -7,8 +7,20 @@ import type {
 } from "./api";
 import {
   applyContentDatabaseTableQuery,
+  contentDatabaseDateFilterCheck,
+  contentDatabaseDateFilterValueError,
+  contentDatabaseFilterGroupMode,
+  contentDatabaseFilterInstant,
+  contentDatabaseFilterIsRelative,
+  contentDatabaseFilterMenuOperatorsForType,
   contentDatabaseFilterOperatorsForType,
+  contentDatabaseFilterToday,
+  contentDatabaseFilterTree,
+  contentDatabaseRelativeDateRange,
+  contentDatabaseRelativeDateRangeToken,
   contentDatabaseTableQueryUsesProperties,
+  materializeContentDatabaseFilterGroupModes,
+  withContentDatabaseFilterGroupMode,
 } from "./database-query";
 
 function item(id: string, title: string, date: string): ContentDatabaseItem {
@@ -242,5 +254,1068 @@ describe("content database number filters", () => {
     expect(contentDatabaseFilterOperatorsForType("text")).not.toContain(
       "greater_than_or_equal",
     );
+  });
+});
+
+function advancedRule(
+  operator: ContentDatabaseFilter["operator"],
+  value = "",
+  mode?: "and" | "or",
+): ContentDatabaseFilter {
+  return {
+    ...rankFilter(operator, value),
+    filterGroupId: "advanced",
+    ...(mode ? { filterGroupMode: mode } : {}),
+  };
+}
+
+function nestedRule(
+  groupId: string,
+  operator: ContentDatabaseFilter["operator"],
+  value = "",
+  modes: { group?: "and" | "or"; parent?: "and" | "or" } = {},
+): ContentDatabaseFilter {
+  return {
+    ...rankFilter(operator, value),
+    filterGroupId: groupId,
+    parentFilterGroupId: "advanced",
+    ...(modes.group ? { filterGroupMode: modes.group } : {}),
+    ...(modes.parent ? { parentFilterGroupMode: modes.parent } : {}),
+  };
+}
+
+// How views combined rules before groups had their own modes: every root rule
+// and every nested group under the view's one mode.
+function flatMatchingIds(
+  filters: ContentDatabaseFilter[],
+  filterMode: "and" | "or",
+) {
+  const matchesBy = new Map(
+    filters.map((filter) => [
+      filter,
+      new Set(matchingIds([rankFilter(filter.operator, filter.value)])),
+    ]),
+  );
+  const combine = (matches: boolean[]) =>
+    matches.length === 0 ||
+    (filterMode === "or" ? matches.some(Boolean) : matches.every(Boolean));
+  const nested = new Map<string, ContentDatabaseFilter[]>();
+  for (const filter of filters) {
+    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
+    nested.set(filter.filterGroupId, [
+      ...(nested.get(filter.filterGroupId) ?? []),
+      filter,
+    ]);
+  }
+  return rankedItems
+    .map((row) => row.document.id)
+    .filter((id) =>
+      combine([
+        ...filters
+          .filter((filter) => !filter.parentFilterGroupId)
+          .map((filter) => matchesBy.get(filter)!.has(id)),
+        ...[...nested.values()].map((group) =>
+          combine(group.map((filter) => matchesBy.get(filter)!.has(id))),
+        ),
+      ]),
+    );
+}
+
+describe("content database filter groups", () => {
+  it("combines groups without stored modes exactly as before", () => {
+    const views: ContentDatabaseFilter[][] = [
+      [rankFilter("is_not_empty"), advancedRule("less_than", "25")],
+      [
+        rankFilter("greater_than", "4"),
+        advancedRule("less_than", "12"),
+        nestedRule("advanced-a", "equals", "25"),
+        nestedRule("advanced-a", "greater_than_or_equal", "30"),
+      ],
+      [
+        nestedRule("advanced-a", "less_than", "5"),
+        nestedRule("advanced-b", "greater_than", "25"),
+        { ...rankFilter("equals", "12"), parentFilterGroupId: "advanced" },
+      ],
+    ];
+    for (const filters of views) {
+      for (const filterMode of ["and", "or"] as const) {
+        expect(matchingIds(filters, filterMode)).toEqual(
+          flatMatchingIds(filters, filterMode),
+        );
+      }
+    }
+  });
+
+  it("combines the advanced filter with its own Or inside an And view", () => {
+    expect(
+      matchingIds(
+        [
+          rankFilter("is_not_empty"),
+          advancedRule("less_than", "5", "or"),
+          advancedRule("greater_than", "25", "or"),
+        ],
+        "and",
+      ),
+    ).toEqual(["rank-4", "rank-30"]);
+  });
+
+  it("combines a nested group with its own Or inside an And advanced filter", () => {
+    const filters = [
+      advancedRule("greater_than_or_equal", "5", "and"),
+      nestedRule("advanced-a", "less_than", "6", {
+        group: "or",
+        parent: "and",
+      }),
+      nestedRule("advanced-a", "greater_than", "25", {
+        group: "or",
+        parent: "and",
+      }),
+    ];
+    expect(matchingIds(filters, "and")).toEqual(["rank-5", "rank-30"]);
+    // The view's Any reaches only its own members: the chip and the advanced
+    // filter as a whole.
+    expect(matchingIds([rankFilter("equals", "12"), ...filters], "or")).toEqual(
+      ["rank-5", "rank-12", "rank-30"],
+    );
+  });
+
+  it("creates the advanced parent for nested groups that have no rule of their own", () => {
+    const filters = [
+      rankFilter("less_than", "30"),
+      nestedRule("advanced-a", "greater_than_or_equal", "5", {
+        group: "and",
+        parent: "or",
+      }),
+      nestedRule("advanced-a", "less_than_or_equal", "5", {
+        group: "and",
+        parent: "or",
+      }),
+      nestedRule("advanced-b", "greater_than_or_equal", "25", {
+        group: "and",
+        parent: "or",
+      }),
+    ];
+
+    expect(matchingIds(filters, "and")).toEqual(["rank-5", "rank-25"]);
+    const tree = contentDatabaseFilterTree(filters, "and");
+    expect(tree.filters).toEqual([filters[0]]);
+    expect(tree.groups).toMatchObject([
+      {
+        id: "advanced",
+        mode: "or",
+        filters: [],
+        groups: [
+          { id: "advanced-a", mode: "and" },
+          { id: "advanced-b", mode: "and" },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the tree two levels deep and ignores rules that name only a parent", () => {
+    const deep = {
+      ...rankFilter("equals", "4"),
+      filterGroupId: "advanced-deep",
+      parentFilterGroupId: "advanced-a",
+    };
+    const parentOnly = {
+      ...rankFilter("equals", "5"),
+      parentFilterGroupId: "advanced",
+    };
+    const filters = [
+      nestedRule("advanced-a", "equals", "12"),
+      deep,
+      parentOnly,
+    ];
+    const tree = contentDatabaseFilterTree(filters, "or");
+
+    expect(tree.groups.map((group) => group.id)).toEqual([
+      "advanced",
+      "advanced-deep",
+    ]);
+    expect(tree.groups[0]?.groups.map((group) => group.id)).toEqual([
+      "advanced-a",
+    ]);
+    expect(tree.groups[1]?.groups).toEqual([]);
+    expect(matchingIds(filters, "or")).toEqual(["rank-4", "rank-12"]);
+  });
+
+  it("reads a group's mode from the first rule that stores one", () => {
+    const mixed = [
+      rankFilter("is_not_empty"),
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25", "or"),
+      advancedRule("equals", "12", "and"),
+    ];
+    expect(contentDatabaseFilterGroupMode(mixed, "advanced", "and")).toBe("or");
+    expect(matchingIds(mixed, "and")).toEqual(["rank-4", "rank-12", "rank-30"]);
+
+    const nestedOnly = [
+      nestedRule("advanced-a", "less_than", "5"),
+      nestedRule("advanced-a", "equals", "12", { parent: "or" }),
+      nestedRule("advanced-b", "equals", "30", { parent: "and" }),
+    ];
+    expect(contentDatabaseFilterGroupMode(nestedOnly, "advanced", "and")).toBe(
+      "or",
+    );
+    expect(contentDatabaseFilterGroupMode(nestedOnly, "advanced-a", "or")).toBe(
+      "or",
+    );
+    expect(
+      contentDatabaseFilterGroupMode(nestedOnly, "advanced-a", "and"),
+    ).toBe("and");
+
+    // A nested rule's parent mode counts as a stored mode in rule order.
+    const nestedFirst = [
+      nestedRule("advanced-a", "equals", "12", { parent: "or" }),
+      advancedRule("less_than", "5", "and"),
+    ];
+    expect(contentDatabaseFilterGroupMode(nestedFirst, "advanced", "and")).toBe(
+      "or",
+    );
+  });
+
+  it("reads a group's mode from its inactive rules too", () => {
+    expect(
+      matchingIds(
+        [
+          advancedRule("less_than", "", "or"),
+          advancedRule("less_than", "5"),
+          advancedRule("greater_than", "25"),
+        ],
+        "and",
+      ),
+    ).toEqual(["rank-4", "rank-30"]);
+  });
+
+  it("writes a group's mode onto its rules and onto its nested rules as their parent mode", () => {
+    const chip = rankFilter("is_not_empty");
+    const filters = [
+      chip,
+      advancedRule("less_than", "5"),
+      nestedRule("advanced-a", "equals", "12"),
+      nestedRule("advanced-b", "equals", "30"),
+    ];
+
+    const advancedOr = withContentDatabaseFilterGroupMode(
+      filters,
+      "advanced",
+      "or",
+    );
+    expect(advancedOr[0]).toBe(chip);
+    expect(advancedOr[1]).toMatchObject({ filterGroupMode: "or" });
+    expect(advancedOr[1]).not.toHaveProperty("parentFilterGroupMode");
+    expect(advancedOr[2]).toMatchObject({ parentFilterGroupMode: "or" });
+    expect(advancedOr[2]).not.toHaveProperty("filterGroupMode");
+    expect(contentDatabaseFilterGroupMode(advancedOr, "advanced", "and")).toBe(
+      "or",
+    );
+
+    const nestedAnd = withContentDatabaseFilterGroupMode(
+      advancedOr,
+      "advanced-a",
+      "and",
+    );
+    expect(nestedAnd[2]).toMatchObject({
+      filterGroupMode: "and",
+      parentFilterGroupMode: "or",
+    });
+    expect(nestedAnd[3]).toMatchObject({ parentFilterGroupMode: "or" });
+    expect(nestedAnd[3]).not.toHaveProperty("filterGroupMode");
+    expect(filters[1]).not.toHaveProperty("filterGroupMode");
+  });
+
+  it("freezes inherited group modes so a later view mode change leaves them alone", () => {
+    const chip = rankFilter("is_not_empty");
+    const filters = [
+      chip,
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25", "and"),
+      nestedRule("advanced-a", "equals", "4"),
+      nestedRule("advanced-a", "equals", "30"),
+    ];
+    const frozen = materializeContentDatabaseFilterGroupModes(filters, "or");
+    expect(frozen[0]).toBe(chip);
+    expect(frozen.slice(1).map((filter) => filter.filterGroupMode)).toEqual([
+      "and",
+      "and",
+      "or",
+      "or",
+    ]);
+    expect(
+      frozen.slice(3).map((filter) => filter.parentFilterGroupMode),
+    ).toEqual(["and", "and"]);
+    expect(matchingIds(frozen, "or")).toEqual(matchingIds(filters, "or"));
+
+    const inheriting = [
+      chip,
+      advancedRule("less_than", "5"),
+      advancedRule("greater_than", "25"),
+    ];
+    const frozenOr = materializeContentDatabaseFilterGroupModes(
+      inheriting,
+      "or",
+    );
+    expect(matchingIds(inheriting, "and")).toEqual([]);
+    expect(matchingIds(frozenOr, "and")).toEqual(["rank-4", "rank-30"]);
+  });
+});
+
+function titledItem(id: string, title: string): ContentDatabaseItem {
+  return { ...item(id, title, "2026-01-01"), properties: [] };
+}
+
+const titledItems = [
+  titledItem("alpha", "Alpha launch"),
+  titledItem("beta", "Beta Launch plan"),
+  titledItem("padded", "  alpha notes "),
+  titledItem("untitled", ""),
+  titledItem("gamma", "Gamma"),
+];
+
+function titleMatches(
+  operator: ContentDatabaseFilter["operator"],
+  value: string,
+) {
+  return applyContentDatabaseTableQuery(titledItems, [], {
+    search: "",
+    filters: [{ key: "name", label: "Name", operator, value }],
+    sorts: [],
+    filterMode: "and",
+  }).map((row) => row.document.id);
+}
+
+describe("content database text filters", () => {
+  it("matches does not contain, starts with, and ends with without case", () => {
+    expect(titleMatches("does_not_contain", "ALPHA")).toEqual([
+      "beta",
+      "untitled",
+      "gamma",
+    ]);
+    expect(titleMatches("starts_with", "alpha")).toEqual(["alpha", "padded"]);
+    expect(titleMatches("starts_with", "BETA")).toEqual(["beta"]);
+    expect(titleMatches("ends_with", "launch")).toEqual(["alpha"]);
+    expect(titleMatches("ends_with", "NOTES")).toEqual(["padded"]);
+  });
+
+  it("matches empty rows only with does not contain", () => {
+    expect(titleMatches("does_not_contain", "a")).toEqual(["untitled"]);
+    expect(titleMatches("starts_with", "a")).not.toContain("untitled");
+    expect(titleMatches("ends_with", "a")).not.toContain("untitled");
+  });
+
+  it("ignores a text filter until it has a value", () => {
+    const allIds = titledItems.map((row) => row.document.id);
+    for (const operator of [
+      "does_not_contain",
+      "starts_with",
+      "ends_with",
+    ] as const) {
+      expect(titleMatches(operator, "")).toEqual(allIds);
+      expect(titleMatches(operator, "   ")).toEqual(allIds);
+    }
+  });
+
+  it("offers the new text operators only to text-like properties", () => {
+    for (const type of [
+      "text",
+      "url",
+      "email",
+      "phone",
+      "created_by",
+    ] as const) {
+      expect(contentDatabaseFilterOperatorsForType(type)).toEqual([
+        "contains",
+        "does_not_contain",
+        "equals",
+        "does_not_equal",
+        "starts_with",
+        "ends_with",
+        "is_empty",
+        "is_not_empty",
+      ]);
+    }
+    for (const type of [
+      "number",
+      "date",
+      "select",
+      "multi_select",
+      "checkbox",
+      "relation",
+    ] as const) {
+      const operators = contentDatabaseFilterOperatorsForType(type);
+      expect(operators).not.toContain("does_not_contain");
+      expect(operators).not.toContain("starts_with");
+      expect(operators).not.toContain("ends_with");
+    }
+  });
+});
+
+function datedItem(
+  id: string,
+  value: DocumentProperty["value"],
+): ContentDatabaseItem {
+  const row = item(id, id, "2026-01-01");
+  return { ...row, properties: [{ ...dateProperty, value }] };
+}
+
+// Thursday 22 October 2026. Its week runs Sunday the 18th to Saturday the 24th.
+const TODAY = "2026-10-22";
+
+const datedItems = [
+  datedItem("day-before", { start: "2026-10-21", includeTime: false }),
+  datedItem("morning", "2026-10-22T08:00"),
+  datedItem("whole-day", { start: "2026-10-22", includeTime: false }),
+  datedItem("evening", { start: "2026-10-22T18:00", includeTime: true }),
+  datedItem("day-after", "2026-10-23"),
+  datedItem("undated", null),
+];
+
+function dateMatches(
+  operator: ContentDatabaseFilter["operator"],
+  value: string,
+  items = datedItems,
+) {
+  return applyContentDatabaseTableQuery(
+    items,
+    [dateProperty],
+    {
+      search: "",
+      filters: [{ key: "date", label: "Date", operator, value }],
+      sorts: [],
+      filterMode: "and",
+    },
+    { today: TODAY },
+  ).map((row) => row.document.id);
+}
+
+describe("content database date filters", () => {
+  it("treats a date without a time as the whole day", () => {
+    expect(dateMatches("equals", "2026-10-22")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("does_not_equal", "2026-10-22")).toEqual([
+      "day-before",
+      "day-after",
+      "undated",
+    ]);
+    expect(dateMatches("before", "2026-10-22")).toEqual(["day-before"]);
+    expect(dateMatches("after", "2026-10-22")).toEqual(["day-after"]);
+    expect(
+      dateMatches("between", JSON.stringify(["2026-10-21", "2026-10-22"])),
+    ).toEqual(["day-before", "morning", "whole-day", "evening"]);
+  });
+
+  it("skips a range with a blank end until it's filled in", () => {
+    const everyRow = datedItems.map((item) => item.document.id);
+    for (const value of [
+      JSON.stringify(["2026-10-21", ""]),
+      JSON.stringify(["", "2026-10-22"]),
+      // A single date carried over from another operator.
+      "2026-10-21",
+    ]) {
+      expect(dateMatches("between", value)).toEqual(everyRow);
+    }
+  });
+
+  it("includes the whole boundary day for on or before and on or after", () => {
+    expect(dateMatches("on_or_before", "2026-10-22")).toEqual([
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("on_or_after", "2026-10-22")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+    expect(dateMatches("on_or_before", "2026-10-20")).toEqual([]);
+  });
+
+  it("compares a value written with a time as a moment", () => {
+    expect(dateMatches("on_or_after", "2026-10-22T12:00")).toEqual([
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+    expect(dateMatches("after", "2026-10-22T12:00")).toEqual([
+      "evening",
+      "day-after",
+    ]);
+    expect(dateMatches("before", "2026-10-22T12:00")).toEqual([
+      "day-before",
+      "morning",
+    ]);
+  });
+
+  it("compares a row without a time by day against a value with one", () => {
+    // The whole-day row is 22 October, the day 08:00 falls on.
+    expect(dateMatches("equals", "2026-10-22T08:00")).toEqual([
+      "morning",
+      "whole-day",
+    ]);
+    expect(dateMatches("on_or_after", "2026-10-22T00:00")).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+  });
+
+  it("orders a range's day and time by when each starts and ends", () => {
+    // From 10:00 to the end of 22 October, written either way round.
+    expect(
+      dateMatches(
+        "between",
+        JSON.stringify(["2026-10-22T10:00", "2026-10-22"]),
+      ),
+    ).toEqual(["whole-day", "evening"]);
+    expect(
+      dateMatches(
+        "between",
+        JSON.stringify(["2026-10-23", "2026-10-22T10:00"]),
+      ),
+    ).toEqual(["whole-day", "evening", "day-after"]);
+  });
+
+  it("reads times without an offset in the caller's time zone", () => {
+    const onOrAfter = (value: string, timeZone: string) =>
+      applyContentDatabaseTableQuery(
+        datedItems,
+        [dateProperty],
+        {
+          search: "",
+          filters: [
+            { key: "date", label: "Date", operator: "on_or_after", value },
+          ],
+          sorts: [],
+          filterMode: "and",
+        },
+        { today: TODAY, timeZone },
+      ).map((row) => row.document.id);
+    // The evening row's 18:00 is a wall-clock time: 22:00 UTC in New York and
+    // 09:00 UTC in Tokyo. 21:00 UTC is still 22 October in New York but 23
+    // October in Tokyo, which decides the whole-day row.
+    expect(onOrAfter("2026-10-22T21:00:00Z", "America/New_York")).toEqual([
+      "whole-day",
+      "evening",
+      "day-after",
+    ]);
+    expect(onOrAfter("2026-10-22T21:00:00Z", "Asia/Tokyo")).toEqual([
+      "day-after",
+    ]);
+    // A wall-clock bound against wall-clock rows reads the same in any zone.
+    for (const timeZone of ["America/New_York", "Asia/Tokyo", "UTC"]) {
+      expect(onOrAfter("2026-10-22T12:00", timeZone)).toEqual([
+        "whole-day",
+        "evening",
+        "day-after",
+      ]);
+    }
+  });
+
+  it("matches nothing for a date that does not exist", () => {
+    expect(dateMatches("on_or_before", "2026-02-30")).toEqual([]);
+    expect(dateMatches("before", "not a date")).toEqual([]);
+  });
+
+  it("resolves today, tomorrow, and yesterday against the day it is read", () => {
+    expect(dateMatches("on_or_before", "today")).toEqual([
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("equals", "tomorrow")).toEqual(["day-after"]);
+    expect(dateMatches("equals", "yesterday")).toEqual(["day-before"]);
+    expect(
+      dateMatches("between", JSON.stringify(["yesterday", "today"])),
+    ).toEqual(["day-before", "morning", "whole-day", "evening"]);
+  });
+
+  it("counts relative ranges in whole days, today included", () => {
+    const items = [
+      datedItem("sep-22", "2026-09-22T23:59"),
+      datedItem("sep-23", "2026-09-23"),
+      datedItem("oct-15", "2026-10-15T23:59"),
+      datedItem("oct-16", "2026-10-16T00:00"),
+      ...datedItems,
+      datedItem("oct-28", "2026-10-28T23:59"),
+      datedItem("oct-29", "2026-10-29T00:00"),
+      datedItem("nov-20", "2026-11-20"),
+      datedItem("nov-21", "2026-11-21"),
+    ];
+    // Seven days: 16 to 22 October and 22 to 28 October.
+    expect(dateMatches("is_within", "past_7_days", items)).toEqual([
+      "oct-16",
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("is_within", "next_7_days", items)).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+      "oct-28",
+    ]);
+    // Thirty days: 23 September to 22 October and 22 October to 20 November.
+    expect(dateMatches("is_within", "past_30_days", items)).toEqual([
+      "sep-23",
+      "oct-15",
+      "oct-16",
+      "day-before",
+      "morning",
+      "whole-day",
+      "evening",
+    ]);
+    expect(dateMatches("is_within", "next_30_days", items)).toEqual([
+      "morning",
+      "whole-day",
+      "evening",
+      "day-after",
+      "oct-28",
+      "oct-29",
+      "nov-20",
+    ]);
+  });
+
+  it("runs this week from Sunday to Saturday", () => {
+    const items = [
+      datedItem("sat-10", "2026-10-10"),
+      datedItem("sun-11", "2026-10-11"),
+      datedItem("sat-17", "2026-10-17T23:00"),
+      datedItem("sun-18", "2026-10-18"),
+      datedItem("sat-24", "2026-10-24"),
+      datedItem("sun-25", "2026-10-25T09:00"),
+      datedItem("sat-31", "2026-10-31"),
+      datedItem("sun-nov-1", "2026-11-01"),
+    ];
+    expect(dateMatches("is_within", "this_week", items)).toEqual([
+      "sun-18",
+      "sat-24",
+    ]);
+    // A week counted back from today is the past seven days, not this week.
+    expect(dateMatches("is_within", "past_1_week", items)).toEqual([
+      "sat-17",
+      "sun-18",
+    ]);
+  });
+
+  it("matches nothing for a range it does not know", () => {
+    expect(dateMatches("is_within", "next_fortnight")).toEqual([]);
+    // The calendar weeks either side of this one are no longer ranges.
+    expect(dateMatches("is_within", "last_week")).toEqual([]);
+    expect(dateMatches("is_within", "next_week")).toEqual([]);
+  });
+
+  it("marks only filters that depend on the day as relative", () => {
+    const filter = (
+      operator: ContentDatabaseFilter["operator"],
+      value: string,
+    ): ContentDatabaseFilter => ({
+      key: "date",
+      label: "Date",
+      operator,
+      value,
+    });
+    expect(
+      contentDatabaseFilterIsRelative(filter("is_within", "this_week")),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(filter("on_or_before", "today")),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(
+        filter("between", JSON.stringify(["2026-10-01", "today"])),
+      ),
+    ).toBe(true);
+    expect(
+      contentDatabaseFilterIsRelative(filter("on_or_before", "2026-10-22")),
+    ).toBe(false);
+    expect(contentDatabaseFilterIsRelative(filter("contains", "today"))).toBe(
+      false,
+    );
+  });
+
+  it("offers on or before, on or after, and is within only to dates", () => {
+    for (const type of ["date", "created_time", "last_edited_time"] as const) {
+      expect(contentDatabaseFilterOperatorsForType(type)).toEqual([
+        "equals",
+        "does_not_equal",
+        "before",
+        "after",
+        "on_or_before",
+        "on_or_after",
+        "between",
+        "is_within",
+        "is_empty",
+        "is_not_empty",
+      ]);
+    }
+    for (const type of ["text", "number", "select", "relation"] as const) {
+      const operators = contentDatabaseFilterOperatorsForType(type);
+      expect(operators).not.toContain("on_or_before");
+      expect(operators).not.toContain("on_or_after");
+      expect(operators).not.toContain("is_within");
+    }
+  });
+
+  it("leaves is not out of a date's menu unless the rule already uses it", () => {
+    for (const type of ["date", "created_time", "last_edited_time"] as const) {
+      expect(contentDatabaseFilterMenuOperatorsForType(type)).toEqual([
+        "equals",
+        "before",
+        "after",
+        "on_or_before",
+        "on_or_after",
+        "between",
+        "is_within",
+        "is_empty",
+        "is_not_empty",
+      ]);
+      expect(
+        contentDatabaseFilterMenuOperatorsForType(type, "before"),
+      ).not.toContain("does_not_equal");
+      expect(
+        contentDatabaseFilterMenuOperatorsForType(type, "does_not_equal"),
+      ).toEqual(contentDatabaseFilterOperatorsForType(type));
+    }
+    for (const type of ["text", "number", "select", "person"] as const) {
+      expect(contentDatabaseFilterMenuOperatorsForType(type)).toEqual(
+        contentDatabaseFilterOperatorsForType(type),
+      );
+    }
+  });
+});
+
+describe("content database relative date ranges", () => {
+  const parse = contentDatabaseRelativeDateRange;
+  const token = contentDatabaseRelativeDateRangeToken;
+  const isWithin = (value: string) =>
+    ({
+      key: "due",
+      label: "Due",
+      operator: "is_within",
+      value,
+    }) as const;
+  // The first and last day an is_within token covers when read on `today`.
+  const days = (value: string, today: string) => {
+    const check = contentDatabaseDateFilterCheck(isWithin(value), today);
+    if (check?.op !== "between") return null;
+    if (!("day" in check.start) || !("day" in check.end)) return null;
+    return [check.start.day, check.end.day];
+  };
+
+  it("reads past, this, and next tokens with the unit in either number", () => {
+    expect(parse("past_7_days")).toEqual({
+      direction: "past",
+      count: 7,
+      unit: "day",
+    });
+    expect(parse("next_1_week")).toEqual({
+      direction: "next",
+      count: 1,
+      unit: "week",
+    });
+    expect(parse("past_1_months")).toEqual({
+      direction: "past",
+      count: 1,
+      unit: "month",
+    });
+    expect(parse("next_12_year")).toEqual({
+      direction: "next",
+      count: 12,
+      unit: "year",
+    });
+    expect(parse("this_day")).toEqual({ direction: "this", unit: "day" });
+    expect(parse("this_week")).toEqual({ direction: "this", unit: "week" });
+    expect(parse("this_month")).toEqual({ direction: "this", unit: "month" });
+    expect(parse("this_year")).toEqual({ direction: "this", unit: "year" });
+  });
+
+  it("writes the unit singular for one and plural for more", () => {
+    expect(token({ direction: "past", count: 1, unit: "day" })).toBe(
+      "past_1_day",
+    );
+    expect(token({ direction: "past", count: 2, unit: "week" })).toBe(
+      "past_2_weeks",
+    );
+    expect(token({ direction: "next", count: 1, unit: "month" })).toBe(
+      "next_1_month",
+    );
+    expect(token({ direction: "next", count: 999, unit: "year" })).toBe(
+      "next_999_years",
+    );
+    expect(token({ direction: "this", unit: "week" })).toBe("this_week");
+    // A token written in the other number reads back in the fitting one.
+    expect(token(parse("past_1_days")!)).toBe("past_1_day");
+    expect(token(parse("next_3_week")!)).toBe("next_3_weeks");
+  });
+
+  it("counts from 1 to 999 and reads nothing else", () => {
+    expect(parse("past_1_day")).not.toBeNull();
+    expect(parse("next_999_days")).not.toBeNull();
+    for (const value of [
+      "past_0_days",
+      "next_1000_days",
+      "past_-1_days",
+      "past_07_days",
+      "past_1.5_days",
+      "past_days",
+      "past_7_hours",
+      "Past_7_days",
+      "this_weeks",
+      "this_2_weeks",
+      "last_week",
+      "next_week",
+      "next_fortnight",
+      "",
+    ]) {
+      expect(parse(value), value).toBeNull();
+    }
+  });
+
+  it("names the token grammar when it rejects a range", () => {
+    expect(
+      contentDatabaseDateFilterValueError(isWithin("next_week"), "date"),
+    ).toBe(
+      'Filter on "due" uses is_within with "next_week"; use past_<n>_<unit> or next_<n>_<unit> with n from 1 to 999, or this_<unit>, where the unit is day, week, month, or year, such as past_7_days, next_1_month, past_2_weeks, or this_year.',
+    );
+    expect(
+      contentDatabaseDateFilterValueError(
+        isWithin("past_1000_days"),
+        "created_time",
+      ),
+    ).toContain('uses is_within with "past_1000_days"');
+    for (const value of ["past_2_weeks", " this_month ", "next_1_days", ""]) {
+      expect(
+        contentDatabaseDateFilterValueError(
+          isWithin(value),
+          "last_edited_time",
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("counts past and next ranges in whole days, today included", () => {
+    expect(days("past_1_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("next_1_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("past_7_days", TODAY)).toEqual(["2026-10-16", "2026-10-22"]);
+    expect(days("next_7_days", TODAY)).toEqual(["2026-10-22", "2026-10-28"]);
+    expect(days("past_30_days", TODAY)).toEqual(["2026-09-23", "2026-10-22"]);
+    expect(days("next_30_days", TODAY)).toEqual(["2026-10-22", "2026-11-20"]);
+    expect(days("past_1_week", TODAY)).toEqual(["2026-10-16", "2026-10-22"]);
+    expect(days("past_2_weeks", TODAY)).toEqual(["2026-10-09", "2026-10-22"]);
+    expect(days("next_2_weeks", TODAY)).toEqual(["2026-10-22", "2026-11-04"]);
+    expect(days("past_1_month", TODAY)).toEqual(["2026-09-23", "2026-10-22"]);
+    expect(days("next_3_months", TODAY)).toEqual(["2026-10-22", "2027-01-21"]);
+    expect(days("past_1_year", TODAY)).toEqual(["2025-10-23", "2026-10-22"]);
+    expect(days("next_2_years", TODAY)).toEqual(["2026-10-22", "2028-10-21"]);
+    expect(days("past_999_days", TODAY)).toEqual(["2024-01-28", "2026-10-22"]);
+  });
+
+  it("covers today, this week, this month, and this year", () => {
+    expect(days("this_day", TODAY)).toEqual(["2026-10-22", "2026-10-22"]);
+    expect(days("this_week", TODAY)).toEqual(["2026-10-18", "2026-10-24"]);
+    expect(days("this_month", TODAY)).toEqual(["2026-10-01", "2026-10-31"]);
+    expect(days("this_year", TODAY)).toEqual(["2026-01-01", "2026-12-31"]);
+  });
+
+  it("starts a week on Sunday, even across a month or year", () => {
+    // Sunday the 18th and Saturday the 24th each sit in their own week.
+    expect(days("this_week", "2026-10-18")).toEqual([
+      "2026-10-18",
+      "2026-10-24",
+    ]);
+    expect(days("this_week", "2026-10-24")).toEqual([
+      "2026-10-18",
+      "2026-10-24",
+    ]);
+    expect(days("this_week", "2026-10-25")).toEqual([
+      "2026-10-25",
+      "2026-10-31",
+    ]);
+    // Thursday 31 December's week ends on Saturday 2 January.
+    expect(days("this_week", "2026-12-31")).toEqual([
+      "2026-12-27",
+      "2027-01-02",
+    ]);
+  });
+
+  it("takes a shorter month's last day when a month lands past it", () => {
+    // 31 March less a month is 28 February, so the month counted back to
+    // today starts on 1 March.
+    expect(days("past_1_month", "2026-03-31")).toEqual([
+      "2026-03-01",
+      "2026-03-31",
+    ]);
+    expect(days("past_1_month", "2026-03-15")).toEqual([
+      "2026-02-16",
+      "2026-03-15",
+    ]);
+    expect(days("past_3_months", "2026-05-31")).toEqual([
+      "2026-03-01",
+      "2026-05-31",
+    ]);
+    // 31 January plus a month is 28 February, which has no 31st to stop
+    // before, so the month runs through it.
+    expect(days("next_1_month", "2026-01-31")).toEqual([
+      "2026-01-31",
+      "2026-02-28",
+    ]);
+    expect(days("next_1_month", "2026-01-29")).toEqual([
+      "2026-01-29",
+      "2026-02-28",
+    ]);
+    expect(days("next_1_month", "2026-01-28")).toEqual([
+      "2026-01-28",
+      "2026-02-27",
+    ]);
+    expect(days("next_1_month", "2026-12-31")).toEqual([
+      "2026-12-31",
+      "2027-01-30",
+    ]);
+    expect(days("this_month", "2026-02-10")).toEqual([
+      "2026-02-01",
+      "2026-02-28",
+    ]);
+  });
+
+  it("counts a leap day", () => {
+    expect(days("this_month", "2028-02-10")).toEqual([
+      "2028-02-01",
+      "2028-02-29",
+    ]);
+    expect(days("past_7_days", "2028-03-02")).toEqual([
+      "2028-02-25",
+      "2028-03-02",
+    ]);
+    expect(days("past_1_month", "2028-03-30")).toEqual([
+      "2028-03-01",
+      "2028-03-30",
+    ]);
+    // 29 February a year on or back is 28 February.
+    expect(days("past_1_year", "2028-02-29")).toEqual([
+      "2027-03-01",
+      "2028-02-29",
+    ]);
+    expect(days("next_1_year", "2028-02-29")).toEqual([
+      "2028-02-29",
+      "2029-02-28",
+    ]);
+    expect(days("this_year", "2028-02-29")).toEqual([
+      "2028-01-01",
+      "2028-12-31",
+    ]);
+  });
+
+  it("reads no range from a token it does not know", () => {
+    expect(days("last_week", TODAY)).toBeNull();
+    expect(days("past_0_days", TODAY)).toBeNull();
+  });
+});
+
+describe("content database filter instants", () => {
+  const iso = (value: string, timeZone?: string) =>
+    new Date(contentDatabaseFilterInstant(value, timeZone)).toISOString();
+
+  it("reads a wall-clock time in the given time zone", () => {
+    expect(iso("2026-10-22T12:00", "America/New_York")).toBe(
+      "2026-10-22T16:00:00.000Z",
+    );
+    expect(iso("2026-10-22 12:00:30.5", "Asia/Tokyo")).toBe(
+      "2026-10-22T03:00:30.500Z",
+    );
+    // Either side of New York's change to daylight time on 8 March.
+    expect(iso("2026-03-08T01:30", "America/New_York")).toBe(
+      "2026-03-08T06:30:00.000Z",
+    );
+    expect(iso("2026-03-08T03:30", "America/New_York")).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+  });
+
+  it("moves a skipped time forward and takes the first of a repeated one", () => {
+    // 02:30 never happens on 8 March in New York; it reads as 03:30.
+    expect(iso("2026-03-08T02:30", "America/New_York")).toBe(
+      "2026-03-08T07:30:00.000Z",
+    );
+    expect(iso("2026-03-29T02:30", "Europe/Berlin")).toBe(
+      "2026-03-29T01:30:00.000Z",
+    );
+    // 01:30 on 1 November happens twice in New York; the first is daylight time.
+    expect(iso("2026-11-01T01:30", "America/New_York")).toBe(
+      "2026-11-01T05:30:00.000Z",
+    );
+    expect(iso("2026-10-25T02:30", "Europe/Berlin")).toBe(
+      "2026-10-25T00:30:00.000Z",
+    );
+  });
+
+  it("reads only an ISO date and time", () => {
+    for (const value of [
+      "2026-10",
+      "10/22/2026",
+      "5",
+      "Oct 22 2026 12:00",
+      "2026-10-22",
+      "2026-10-22T24:00",
+      "2026-10-22T12:60",
+      "2026-10-22T12:00+25:00",
+    ]) {
+      expect(contentDatabaseFilterInstant(value, "UTC"), value).toBeNaN();
+    }
+    expect(iso("2026-10-22 12:34:56.789+00", "Asia/Tokyo")).toBe(
+      "2026-10-22T12:34:56.789Z",
+    );
+    expect(iso("2026-10-22T12:00-0530")).toBe("2026-10-22T17:30:00.000Z");
+  });
+
+  it("keeps a written offset and falls back to this machine's zone", () => {
+    expect(iso("2026-10-22T12:00:00+02:00", "Asia/Tokyo")).toBe(
+      "2026-10-22T10:00:00.000Z",
+    );
+    expect(contentDatabaseFilterInstant("2026-10-22T12:00", "Not/AZone")).toBe(
+      new Date("2026-10-22T12:00").getTime(),
+    );
+    expect(contentDatabaseFilterInstant("2026-02-30T10:00", "UTC")).toBeNaN();
+    expect(contentDatabaseFilterInstant("2026-02-30T10:00")).toBeNaN();
+  });
+});
+
+describe("content database filter today", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reads today in the given time zone", () => {
+    const now = new Date("2026-10-23T02:30:00Z");
+    expect(contentDatabaseFilterToday("America/New_York", now)).toBe(
+      "2026-10-22",
+    );
+    expect(contentDatabaseFilterToday("Asia/Tokyo", now)).toBe("2026-10-23");
+    expect(contentDatabaseFilterToday("Not/AZone", now)).toBe(
+      contentDatabaseFilterToday(undefined, now),
+    );
+  });
+
+  it("counts from this machine's today when no day is given", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 22, 12));
+    const ids = applyContentDatabaseTableQuery(datedItems, [dateProperty], {
+      search: "",
+      filters: [
+        { key: "date", label: "Date", operator: "equals", value: "today" },
+      ],
+      sorts: [],
+      filterMode: "and",
+    }).map((row) => row.document.id);
+    expect(ids).toEqual(["morning", "whole-day", "evening"]);
   });
 });

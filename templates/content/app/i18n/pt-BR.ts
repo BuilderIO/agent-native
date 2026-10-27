@@ -2,6 +2,166 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajustar à largura",
+  githubLinkTitle: "Vincular uma pasta do GitHub",
+  githubNewCollectionTitle: "Nova coleção a partir de uma pasta do GitHub",
+  githubLinkDescription:
+    "Os documentos da pasta aparecem aqui como páginas somente leitura e se atualizam sozinhos quando os arquivos mudam no GitHub.",
+  githubNewCollectionDescription:
+    "O Content cria uma coleção com o nome da pasta. Os documentos da pasta aparecem lá como páginas somente leitura e se atualizam sozinhos quando os arquivos mudam no GitHub.",
+  githubLinkUrlLabel: "Link da pasta do GitHub",
+  githubLinkUrlHelp:
+    "No GitHub, abra a pasta e copie o endereço do seu navegador.",
+  githubLinkCheck: "Verificar pasta",
+  githubLinkReading: "Lendo a pasta no GitHub…",
+  githubConnectChecking: "Verificando sua conexão com o GitHub…",
+  githubConnectPrompt:
+    "Conecte sua conta do GitHub para que o Content possa ler suas pastas.",
+  githubConnect: "Conectar GitHub",
+  githubPreviewPagesOne: "1 página",
+  githubPreviewPages: "{{count}} páginas",
+  githubPreviewPagesUpTo: "Até {{count}} páginas",
+  githubLinkMore: "mais {{count}}",
+  githubLinkNoFiles:
+    "Esta pasta não tem arquivos Markdown (.md), então não há nada para mostrar.",
+  githubPreviewColumnsOne: "1 coluna",
+  githubPreviewColumns: "{{count}} colunas",
+  githubLinkNoColumns:
+    "Estes arquivos não têm informações no topo, então cada página recebe só o título.",
+  githubLinkNotShownOne: "1 arquivo ainda não vai aparecer.",
+  githubLinkNotShown: "{{count}} arquivos ainda não vão aparecer.",
+  githubLinkPicturesWaiting:
+    "As imagens destes arquivos só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubShowDetails: "Mostrar detalhes",
+  githubHideDetails: "Ocultar detalhes",
+  githubDetailsPages: "Páginas",
+  githubDetailsColumns: "Colunas",
+  githubDetailsColumnsSampled:
+    "Lidas dos primeiros {{count}} de {{total}} arquivos. Os outros podem adicionar colunas.",
+  githubDetailsNotShown: "Ainda não aparecem",
+  githubDetailsFrom: "Origem",
+  githubDetailsBranchVersion: "Branch {{branch}} · versão {{commit}}",
+  githubYes: "Sim",
+  githubNo: "Não",
+  githubSkipMdx: "Usa MDX, que o Content ainda não consegue mostrar",
+  githubSkipTooLarge: "Grande demais para o Content mostrar",
+  githubSkipNotText: "Não é um arquivo de texto que o Content consegue ler",
+  githubLinkSubmitOne: "Vincular 1 página",
+  githubLinkSubmit: "Vincular {{count}} páginas",
+  githubLinkSubmitUpTo: "Vincular até {{count}} páginas",
+  githubLinking: "Vinculando…",
+  githubLinkingProgressOne: "Trazendo 1 página do GitHub…",
+  githubLinkingProgress: "Trazendo {{count}} páginas do GitHub…",
+  githubLinkedToastOne: "Pasta vinculada. 1 página de {{folder}} já está aqui.",
+  githubLinkedToast:
+    "Pasta vinculada. {{count}} páginas de {{folder}} já estão aqui.",
+  githubLinkedPartialToast:
+    "Pasta vinculada. {{done}} de {{total}} páginas já estão aqui; o resto chega em até um minuto.",
+  githubLinkedSyncFailed:
+    "A pasta {{folder}} foi vinculada, mas ainda não foi possível trazer as páginas.",
+  githubLinkInvalidUrl:
+    "Esse não é um link de pasta do GitHub. No GitHub, abra a pasta e copie o endereço do seu navegador.",
+  githubLinkFileUrl: "Esse é o link de um único arquivo.",
+  githubLinkUseFolder: "Usar a pasta “{{folder}}”",
+  githubLinkRepositoryNotFound:
+    "Não foi possível abrir “{{repo}}”. Confira se o nome está certo ou se sua conta do GitHub consegue vê-lo.",
+  githubLinkBranchNotFound:
+    "Não existe uma branch chamada “{{branch}}” em {{repo}}. Confira o link.",
+  githubLinkFolderNotFound:
+    "Não existe uma pasta chamada “{{folder}}” em {{repo}}. Confira o link.",
+  githubLinkForbidden:
+    "Sua conta do GitHub não consegue abrir “{{repo}}”. Peça acesso ao proprietário.",
+  githubLinkTooLarge:
+    "Esta pasta tem mais de {{max}} arquivos. Escolha uma pasta menor dentro dela.",
+  githubLinkUnavailable:
+    "Não foi possível acessar o GitHub agora. Tente de novo em um minuto.",
+  githubLinkBlockedHasRows:
+    "Esta coleção agora tem páginas, então uma pasta do GitHub não pode mais preenchê-la.",
+  githubLinkBlockedLinked: "Esta coleção já recebe as páginas de outro app.",
+  githubLinkBlockedSystem: "Esta coleção não pode mostrar uma pasta do GitHub.",
+  githubNewCollectionInstead: "Nova coleção do GitHub",
+  githubRowAvailable: "Mostrar aqui os documentos de uma pasta do GitHub",
+  githubRowConnectFirst: "Conecte sua conta do GitHub primeiro",
+  githubRowEmptyOnly: "Só para coleções vazias",
+  githubRowOtherSource: "Já recebe as páginas de {{source}}",
+  githubRowFiles: "Indisponível para Arquivos",
+  githubRowSystem: "Indisponível para esta coleção",
+  githubRowEditorsOnly: "Só para editores",
+  githubRowLinked: "Pasta {{folder}} · Atualizada {{time}}",
+  githubRowLinkedNotUpdated: "Pasta {{folder}} · Ainda não atualizada",
+  githubRowUnavailableWhileLinked:
+    "Indisponível enquanto estiver vinculada ao GitHub",
+  githubExplainHasPagesOne:
+    "Uma pasta do GitHub preenche uma coleção inteira, então precisa de uma sem páginas. Esta tem 1 página.",
+  githubExplainHasPages:
+    "Uma pasta do GitHub preenche uma coleção inteira, então precisa de uma sem páginas. Esta tem {{count}} páginas.",
+  githubExplainOtherSource:
+    "Uma coleção recebe as páginas de um só lugar. Esta usa {{source}}.",
+  githubExplainFiles:
+    "A coleção Arquivos não pode mostrar uma pasta do GitHub.",
+  githubExplainSystem: "Esta coleção não pode mostrar uma pasta do GitHub.",
+  githubExplainEditorsOnly:
+    "Só quem pode editar esta coleção pode vincular uma pasta do GitHub. Peça acesso de edição ao proprietário.",
+  githubExplainLinked:
+    "As páginas desta coleção vêm do GitHub. Desvincule a pasta para usar outra fonte.",
+  githubDetailFolder: "Pasta",
+  githubDetailBranch: "Branch",
+  githubDetailVersion: "Versão",
+  githubDetailUpdated: "Última atualização",
+  githubCheckForUpdates: "Verificar atualizações",
+  githubOpenFolder: "Abrir no GitHub",
+  githubUnlinkFolder: "Desvincular pasta…",
+  githubUnlinkTitle: "Desvincular esta pasta do GitHub?",
+  githubUnlinkBodyOne:
+    "A página continua aqui e vira uma página normal que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
+  githubUnlinkBody:
+    "As {{count}} páginas continuam aqui e viram páginas normais que você pode editar. As mudanças no GitHub não vão mais chegar. Para vincular esta pasta de novo depois, você vai usar uma nova coleção.",
+  githubUnlink: "Desvincular",
+  githubUnlinking: "Desvinculando…",
+  githubUnlinkedToast:
+    "Pasta desvinculada. Suas páginas foram mantidas e agora você pode editá-las.",
+  githubUnlinkFailed: "Não foi possível desvincular a pasta",
+  githubFromFolder: "Da pasta {{folder}} no GitHub",
+  githubFromRepo: "De {{repo}} no GitHub",
+  githubUpdatedAgo: "Última atualização: {{time}}",
+  githubJustNow: "agora mesmo",
+  githubNotUpdatedYet: "Ainda sem atualização",
+  githubEditOnGitHub: "Editar no GitHub",
+  githubDetails: "Detalhes",
+  githubNotShownOne: "1 arquivo não exibido",
+  githubNotShown: "{{count}} arquivos não exibidos",
+  githubNotShownHeading: "Não exibidos",
+  githubShowingAsOf: "Mostrando as páginas como estavam {{time}}.",
+  githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
+  githubPicturesWaiting:
+    "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubPicturesNotSaved:
+    "Algumas imagens não puderam ser salvas no armazenamento de arquivos. Cada sincronização tenta de novo.",
+  githubReconnect: "Reconectar GitHub",
+  githubProblemConnection:
+    "Atualizações interrompidas: o GitHub precisa que você faça login de novo.",
+  githubProblemForbidden:
+    "Atualizações interrompidas: sua conta do GitHub não consegue mais abrir este repositório. Peça acesso ao proprietário.",
+  githubProblemRepositoryNotFound:
+    "Atualizações interrompidas: o repositório foi movido, renomeado ou ficou privado.",
+  githubProblemBranchNotFound:
+    "Atualizações interrompidas: a branch “{{branch}}” não existe mais no GitHub.",
+  githubProblemFolderNotFound:
+    "Atualizações interrompidas: a pasta “{{folder}}” não existe mais nessa branch.",
+  githubProblemPaused:
+    "As atualizações estão pausadas por um momento. Elas voltam sozinhas.",
+  githubProblemTooLarge:
+    "Atualizações interrompidas: a pasta agora tem mais de {{max}} arquivos.",
+  githubProblemStorageUnavailable:
+    "As imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",
+  githubAlreadyUpToDate: "Tudo atualizado.",
+  githubSyncedToastOne: "Atualizado. 1 página mudou.",
+  githubSyncedToast: "Atualizado. {{count}} páginas mudaram.",
+  githubSyncPartialToast:
+    "Atualizando: {{done}} de {{total}} arquivos até agora.",
+  githubSyncBusy:
+    "Já há uma verificação de atualizações em andamento. As mudanças aparecem quando ela terminar.",
+  emptyCollectionSourceHint: "Ou preencha a partir de uma fonte",
   formChecked: "Marcado",
   formChooseOption: "Escolha uma opção",
   formDescription:
@@ -25,6 +185,39 @@ const database = {
   formSubmitted: "Resposta enviada",
   formSubmittedDescription: "A nova página da coleção está pronta.",
   formSubmitting: "Enviando...",
+  listRows: "Linhas",
+  listRowsDescription:
+    "Escolha uma predefinição, ou o que cada parte de uma linha mostra.",
+  listRowsEdit: "Editar linhas",
+  listRowsDone: "Concluído",
+  listRowsEditOnList: "Editar na lista",
+  listRowsEditHint: "Clique em qualquer parte de uma linha para alterá-la.",
+  listRowsPresetDefault: "Padrão",
+  listRowsPresetChecklist: "Checklist",
+  listRowsPresetReminders: "Lembretes",
+  listRowsPresetTracker: "Acompanhamento",
+  listRowsPresetDigest: "Resumo",
+  listRowsNeedsCheckbox: "Requer uma propriedade de caixa de seleção",
+  listRowsNeedsStatus: "Requer uma propriedade de status",
+  listRowsStart: "Início",
+  listRowsTitle: "Título",
+  listRowsLine2: "Linha 2",
+  listRowsLine3: "Linha 3",
+  listRowsEnd: "Fim",
+  listRowsEndHint: "Vai para baixo do título em telas estreitas.",
+  listRowsChangeSlot: "Alterar {{slot}}",
+  listRowsAddSlot: "Adicionar {{slot}}",
+  listRowsPageIcon: "Ícone da página",
+  listRowsCheckbox: "Caixa de seleção",
+  listRowsStatus: "Status",
+  listRowsRegular: "Normal",
+  listRowsMedium: "Médio",
+  listRowsBold: "Negrito",
+  listRowsNothing: "Nada",
+  listRowsPageText: "Texto da página",
+  listRowsOneLine: "1 linha",
+  listRowsLineCount: "{{count}} linhas",
+  listRowsNoStatus: "Sem status",
   addARowTo: "Adicionar uma linha a…",
   addASource: "Adicionar uma fonte",
   aField: "um campo",
@@ -153,6 +346,8 @@ const database = {
   failedToCreateRow: "Falha ao criar linha",
   pageCreatedCollectionRefreshFailed:
     "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
+  builderPushResultNotLoaded:
+    "A atualização chegou ao Builder, mas esta revisão não conseguiu carregar o resultado. Recarregue para vê-lo.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:
@@ -246,6 +441,65 @@ const database = {
   unfreezeColumns: "Desafixar colunas",
   selectAllLoadedRows: "Selecionar todas as linhas carregadas",
   clearSelectedRows: "Desmarcar linhas",
+  filterOperatorContains: "Contém",
+  filterOperatorDoesNotContain: "Não contém",
+  filterOperatorStartsWith: "Começa com",
+  filterOperatorEndsWith: "Termina com",
+  filterOperatorIs: "É",
+  filterOperatorIsNot: "Não é",
+  filterOperatorGreaterThan: "Maior que",
+  filterOperatorLessThan: "Menor que",
+  filterOperatorGreaterThanOrEqual: "Maior ou igual a",
+  filterOperatorLessThanOrEqual: "Menor ou igual a",
+  filterOperatorBefore: "Antes de",
+  filterOperatorAfter: "Depois de",
+  filterOperatorOnOrBefore: "Igual ou anterior a",
+  filterOperatorOnOrAfter: "Igual ou posterior a",
+  filterOperatorBetween: "Entre",
+  filterOperatorIsWithin: "Está dentro de",
+  filterOperatorIsEmpty: "Está vazio",
+  filterOperatorIsNotEmpty: "Não está vazio",
+  filterOperatorChecked: "Marcado",
+  filterOperatorUnchecked: "Desmarcado",
+  filterDateExact: "Data exata",
+  filterDateToday: "Hoje",
+  filterDateTomorrow: "Amanhã",
+  filterDateYesterday: "Ontem",
+  filterDatePast: "Passado",
+  filterDateThis: "Este",
+  filterDateNext: "Próximo",
+  filterDateDays_zero: "dias",
+  filterDateDays_one: "dia",
+  filterDateDays_two: "dias",
+  filterDateDays_few: "dias",
+  filterDateDays_many: "dias",
+  filterDateDays_other: "dias",
+  filterDateWeeks_zero: "semanas",
+  filterDateWeeks_one: "semana",
+  filterDateWeeks_two: "semanas",
+  filterDateWeeks_few: "semanas",
+  filterDateWeeks_many: "semanas",
+  filterDateWeeks_other: "semanas",
+  filterDateMonths_zero: "meses",
+  filterDateMonths_one: "mês",
+  filterDateMonths_two: "meses",
+  filterDateMonths_few: "meses",
+  filterDateMonths_many: "meses",
+  filterDateMonths_other: "meses",
+  filterDateYears_zero: "anos",
+  filterDateYears_one: "ano",
+  filterDateYears_two: "anos",
+  filterDateYears_few: "anos",
+  filterDateYears_many: "anos",
+  filterDateYears_other: "anos",
+  filterDatePastRange: "Desde {{count}} {{unit}} atrás",
+  filterDateNextRange: "Até daqui a {{count}} {{unit}}",
+  filterDateThisWeek: "Esta semana",
+  filterDateThisMonth: "Este mês",
+  filterDateThisYear: "Este ano",
+  filterDateRangeValue: "{{start}} a {{end}}",
+  filterChooseDates: "Escolher datas",
+  filterChooseOption: "Escolher opção",
 };
 
 const databaseExactEnglish = {
@@ -360,7 +614,7 @@ const databaseExactEnglish = {
   sortRowsBy: "Ordenar filas por",
   startDate: "Fecha de inicio",
   thisDatabaseIsLocalConnectASourceToMapIts:
-    "Esta colección es local. Conecta una fuente para mapear sus columnas a estas filas.",
+    "Traga páginas de outro app para esta coleção.",
   thisPropertyHasNoOptionsYet: "Esta propiedad aún no tiene opciones.",
   thisSourceIsNoLongerConnected: "Esta fuente ya no está conectada.",
 };
@@ -435,6 +689,16 @@ const editor = {
     purple: "Roxo",
     pink: "Rosa",
     red: "Vermelho",
+    defaultText: "Texto padrão",
+    defaultBackground: "Fundo padrão",
+    textChoice: "Texto: {{color}}",
+    backgroundChoice: "Fundo: {{color}}",
+  },
+  blockMenu: {
+    label: "Ações do bloco",
+    duplicate: "Duplicar",
+    delete: "Excluir",
+    insertBelow: "Inserir bloco abaixo",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -985,6 +1249,11 @@ const comments = {
   replyCount_one: "{{count}} resposta",
   replyCount_many: "{{count}} respostas",
   replyCount_other: "{{count}} respostas",
+  stackCollapse: "Recolher",
+  stackShowAll_one: "Mostrar {{count}} comentário aqui",
+  stackShowAll_many: "Mostrar os {{count}} comentários aqui",
+  stackShowAll_other: "Mostrar os {{count}} comentários aqui",
+  stackMore: "+{{count}} mais",
   commentActions: "Ações do comentário",
   checkSaved: "Verificar comentário salvo",
   edit: "Editar",
@@ -1019,6 +1288,10 @@ const comments = {
   proposalEditCount_other: "{{count}} edições",
   acceptRemaining: "Aceitar restantes",
   rejectRemaining: "Rejeitar restantes",
+  acceptAll: "Aceitar todas",
+  rejectAll: "Rejeitar todas",
+  suggestionReviewReadOnly:
+    "Somente quem pode editar esta página pode aceitar ou rejeitar as sugestões dela.",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
@@ -1116,6 +1389,14 @@ const exactEnglish = {
       "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
     proposalUnplaceable:
       "Uma destas sugestões não pode ser aplicada porque o texto ao redor dela mudou, então nenhuma foi aplicada. Todas continuam pendentes: aceite ou rejeite uma de cada vez.",
+    suggestionAcceptFailed: "Não foi possível aceitar a sugestão",
+    suggestionRejectFailed: "Não foi possível rejeitar a sugestão",
+    proposalAcceptFailed: "Não foi possível aceitar as sugestões",
+    proposalRejectFailed: "Não foi possível rejeitar as sugestões",
+    suggestionDecisionReverted:
+      "Ela voltou a ficar pendente. Tudo o que você digitou depois foi mantido.",
+    proposalDecisionReverted:
+      "Elas voltaram a ficar pendentes. Tudo o que você digitou depois foi mantido.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
@@ -1476,6 +1757,13 @@ const overrides = {
   comments: {
     add: "Adicionar comentário...",
     cancel: "Cancelar",
+    discardCommentQuestion: "Descartar comentário?",
+    discardReplyQuestion: "Descartar resposta?",
+    discardEditQuestion: "Descartar alterações?",
+    discardDescription: "O que você escreveu será perdido.",
+    discardEditDescription: "Seu comentário vai continuar como estava.",
+    discard: "Descartar",
+    keepEditing: "Continuar editando",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",

@@ -71,6 +71,12 @@ export interface ReasoningPart {
   text: string;
   label?: string;
   visibility?: "visible" | "summary" | "hidden";
+  /**
+   * Tool calls made after this reasoning and before the next, in order. Saved
+   * history keeps no reasoning events, so this is what places reasoning
+   * between the calls it introduced.
+   */
+  toolCallIds?: string[];
 }
 
 export interface CitationPart {
@@ -1075,6 +1081,8 @@ export interface AgentRunSnapshot {
   status: AgentRunStatus;
   lastSequence: number;
   activeMessageId?: string;
+  /** A streaming reply from an earlier run that this run continues. */
+  inheritedMessageId?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: AgentUsage;
@@ -1089,9 +1097,40 @@ export interface AgentQueuedMessage {
   createdAt: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
+  /**
+   * Send now was pressed while a run was working: `steering` sends it into
+   * that run at its next step, `after_reply` sends it as the next turn.
+   */
+  delivery?: AgentQueuedMessageDelivery;
+}
+
+export type AgentQueuedMessageDelivery = "steering" | "after_reply";
+
+export interface AgentSubmissionReference {
+  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
+  path: string;
+  name: string;
+  source: string;
+  refType?: string;
+  refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentQueuedSubmissionReceipt {
+  state: "queued";
+  message: AgentQueuedMessage;
+  activeRunId?: RunId;
+}
+
+export interface AgentQueuedSubmissionStatus {
+  state: "queued" | "submitted" | "removed" | "expired" | "blocked";
+  submittedRunId?: RunId;
 }
 
 export interface ListThreadsInput {
@@ -1114,7 +1153,15 @@ export interface ThreadMessageInput extends ThreadIdInput {
 }
 
 export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  /** Stops the active run before sending. */
   interruptActiveRun?: boolean;
+  /** Sends into the active run at its next step instead of stopping it. */
+  deliverInActiveRun?: boolean;
+}
+
+export interface ReorderQueuedMessagesInput extends ThreadIdInput {
+  /** Every queued message id exactly once, in the new order. */
+  messageIds: readonly string[];
 }
 
 export interface CreateThreadInput {
@@ -1141,6 +1188,7 @@ export interface QueueMessageInput {
   text: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
@@ -1169,6 +1217,7 @@ export interface AgentSubmissionPayload {
   /** Fingerprints keep original attachment identity without retaining file bodies. */
   attachments?: AgentSubmissionFileIdentity[];
   requestAttachments?: AgentSubmissionRequestAttachmentIdentity[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
@@ -1187,8 +1236,10 @@ export type QueueMessageResult =
     };
 
 export type SteerQueuedMessageResult =
-  | (StartRunResult & { alreadySubmitted?: true })
+  | (AgentRunStartResult & { alreadySubmitted?: true })
   | { alreadyRemoved: true }
+  /** The message stays queued until the active run takes it or ends. */
+  | { delivery: AgentQueuedMessageDelivery }
   | void;
 
 export interface AgentTransportThreadOperations {
@@ -1228,6 +1279,10 @@ export interface AgentTransportThreadOperations {
     input: ThreadIdInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage[]>;
+  getQueuedSubmissionStatus?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null>;
   queueMessage?(
     input: QueueMessageInput,
     context?: AgentRequestContext,
@@ -1244,6 +1299,14 @@ export interface AgentTransportThreadOperations {
   /** Move an existing queued message to the head of the durable queue. */
   moveQueuedMessageToTop?(
     input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  /**
+   * Replace the durable queue order. Rejects when `messageIds` no longer
+   * matches the queued set, so a stale client never reorders blind.
+   */
+  reorderQueuedMessages?(
+    input: ReorderQueuedMessagesInput,
     context?: AgentRequestContext,
   ): Promise<void>;
 }
@@ -1272,7 +1335,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   resumeRun?(
     input: ResumeRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * Continues a run that stopped before it finished (a time limit, a crashed
    * worker, an error) as a new run in the same turn, so steps the stopped run
@@ -1281,7 +1344,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   continueRun?(
     input: ContinueRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
    * bridge for protocol-v1 transports while consumers migrate to interrupts.
@@ -1324,6 +1387,7 @@ export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
@@ -1357,10 +1421,19 @@ export interface ContinueRunInput {
   attachments?: FilePart[];
 }
 
-export interface StartRunResult {
+export interface AgentRunStartResult {
   runId: RunId;
   capabilities?: AgentCapabilities;
+  queuedSubmission?: never;
 }
+
+export type StartRunResult =
+  | AgentRunStartResult
+  | {
+      queuedSubmission: AgentQueuedSubmissionReceipt;
+      capabilities?: AgentCapabilities;
+      runId?: never;
+    };
 
 export interface SubscribeToRunInput {
   threadId: ThreadId;
@@ -1435,6 +1508,7 @@ export interface AgentProtocolEnvelope<TPayload = unknown> {
 }
 
 export * from "./validation.js";
+export * from "./submission-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./errors.js";
 export * from "./agui.js";

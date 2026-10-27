@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { CATALOG_GENERATOR_CANDIDATES } from "../../../../shared/native-effect-catalog-generators";
+import { FOLDED_MESH_EFFECT } from "../../../../shared/native-effect-folded-mesh";
 import { LIQUID_GLASS_EFFECT } from "../../../../shared/native-effect-liquid-glass-v3";
 import * as effectTrust from "../../../../shared/native-effect-trust";
 import { GLOWING_WAVES_EFFECT } from "../../../../shared/native-effect-v1-graphics";
@@ -22,8 +23,102 @@ import * as sourceProvider from "./native-source-provider";
 import { NativeStatelessFrameTransaction } from "./native-stateless-frame-transaction";
 import { nativeSvgViewportToClient } from "./native-svg-geometry";
 import { serializeNativeSvgSource } from "./native-svg-source";
+import {
+  NativeWorkerSceneHost,
+  NativeWorkerSceneSourceError,
+} from "./native-worker-scene-host";
 
 describe("persistent generated fill frames", () => {
+  it("draws the indexed mesh with a private depth attachment on the legacy GPU path", async () => {
+    fixture();
+    const internals = runtime as unknown as {
+      white: GPUTexture;
+      sampler: GPUSampler;
+      effectInputTextures: (...args: unknown[]) => Promise<unknown>;
+      effectPasses: (...args: unknown[]) => Promise<GPUTexture>;
+      ensureCompositionBudget: (...args: unknown[]) => void;
+      texture: (...args: unknown[]) => GPUTexture;
+      pipeline: (...args: unknown[]) => Promise<GPURenderPipeline>;
+      bind: (...args: unknown[]) => GPUBindGroup;
+      meshDepth: (...args: unknown[]) => GPUTexture;
+      meshGrid: (...args: unknown[]) => {
+        buffer: GPUBuffer;
+        indexCount: number;
+      };
+      packPointerForTime: (...args: unknown[]) => Float32Array;
+    };
+    const source = {} as GPUTexture;
+    const output = { createView: () => ({}) } as unknown as GPUTexture;
+    const depth = { createView: () => ({}) } as unknown as GPUTexture;
+    const grid = { buffer: {} as GPUBuffer, indexCount: 128 * 96 * 6 };
+    internals.white = source;
+    internals.sampler = {} as GPUSampler;
+    vi.spyOn(internals, "effectInputTextures").mockResolvedValue({
+      resources: new Map([["source", source]]),
+      inputPlan: { inputs: new Map() },
+    });
+    vi.spyOn(internals, "ensureCompositionBudget").mockImplementation(() => {});
+    vi.spyOn(internals, "texture").mockReturnValue(output);
+    const pipeline = vi
+      .spyOn(internals, "pipeline")
+      .mockResolvedValue({} as GPURenderPipeline);
+    vi.spyOn(internals, "bind").mockReturnValue({} as GPUBindGroup);
+    vi.spyOn(internals, "meshDepth").mockReturnValue(depth);
+    vi.spyOn(internals, "meshGrid").mockReturnValue(grid);
+    vi.spyOn(internals, "packPointerForTime").mockReturnValue(
+      new Float32Array(128),
+    );
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      setIndexBuffer: vi.fn(),
+      drawIndexed: vi.fn(),
+      draw: vi.fn(),
+      end: vi.fn(),
+    };
+    const encoder = {
+      beginRenderPass: vi.fn(() => pass),
+    } as unknown as GPUCommandEncoder;
+    const instance = {
+      id: "folded",
+      nodeId: "frame",
+      placement: "fill",
+      params: {},
+      seed: 1,
+      timing: { time: 0, paused: false, speed: 1 },
+    };
+    const mount = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      width: 20,
+      height: 10,
+      pixelRatio: 2,
+      resourceTextures: new Map(),
+    };
+    expect(
+      await internals.effectPasses(
+        mount,
+        source,
+        0,
+        encoder,
+        FOLDED_MESH_EFFECT,
+        instance,
+      ),
+    ).toBe(output);
+    expect(pipeline.mock.calls[0]?.[6]).toBe(true);
+    expect(encoder.beginRenderPass).toHaveBeenCalledWith(
+      expect.objectContaining({
+        depthStencilAttachment: expect.objectContaining({
+          depthClearValue: 1,
+          depthStoreOp: "discard",
+        }),
+      }),
+    );
+    expect(pass.setIndexBuffer).toHaveBeenCalledWith(grid.buffer, "uint32");
+    expect(pass.drawIndexed).toHaveBeenCalledWith(grid.indexCount);
+    expect(pass.draw).not.toHaveBeenCalled();
+  });
+
   it.each(["success", "gpu", "source-during-encode", "source-before-publish"])(
     "preserves atomic generated fill publication: %s",
     async (mode) => {
@@ -269,6 +364,7 @@ type SceneRuntime = {
   previewTargetDensities: Map<Element, number>;
   previewBudgetDensities: Map<string, number>;
   planPreviewTargetDensities(): boolean;
+  unmount(mount: unknown): void;
   layout(mount: unknown): void;
   offscreen(mount: unknown): boolean;
   renderMount(
@@ -304,6 +400,8 @@ type SceneRuntime = {
   syncPresentation(mount: unknown): void;
   positionedParents: Map<HTMLElement, number>;
   syncScenePresentationMode(managed: boolean): void;
+  prepareWorkerSceneCommit(): void;
+  workerScene: unknown;
   restoreIndividualPresentationsAfterSceneFailure(): void;
 };
 
@@ -335,6 +433,32 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("shared board animation origin", () => {
+  it("starts remounted runtimes at the same absolute phase without changing ordinary clocks", () => {
+    vi.spyOn(performance, "now").mockReturnValue(5000);
+    const nowMs = performance.now();
+    const epochMs = performance.timeOrigin + nowMs - 1250;
+    const script = document.createElement("script");
+    script.setAttribute(
+      "data-agent-native-animation-epoch-ms",
+      String(epochMs),
+    );
+    const Runtime = runtime.constructor as new (script: Node | null) => {
+      currentTime(nowMs?: number): number;
+    };
+    const first = new Runtime(script);
+    const second = new Runtime(script);
+    expect(first.currentTime(nowMs)).toBeCloseTo(1.25, 2);
+    expect(second.currentTime(nowMs)).toBeCloseTo(first.currentTime(nowMs), 8);
+    expect(new Runtime(null).currentTime(nowMs)).toBe(0);
+
+    script.setAttribute("data-agent-native-animation-epoch-ms", "Infinity");
+    expect(() => new Runtime(script)).toThrow(
+      "The shared preview animation epoch is invalid.",
+    );
+  });
+});
+
 function fixture() {
   vi.stubGlobal("innerWidth", 1044);
   vi.stubGlobal("innerHeight", 1042);
@@ -351,10 +475,13 @@ function fixture() {
     backgroundImage: "none",
     backgroundColor: "rgb(255, 255, 255)",
     transform: "none",
+    transformOrigin: "0px 0px",
     translate: "none",
     rotate: "none",
     scale: "none",
     opacity: "1",
+    borderRadius: "4px",
+    zIndex: "auto",
     getPropertyValue: () => "",
   };
   vi.spyOn(window, "getComputedStyle").mockReturnValue(
@@ -1122,9 +1249,33 @@ describe("native scene viewport composition", () => {
       isTopLayer: boolean;
       suppressed: boolean;
       outputTexture: unknown;
+      outputExtent: {
+        pixelRatio: number;
+        width: number;
+        height: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        expanded: boolean;
+      };
       layerSourceOpacityDeferred: boolean;
     };
     layer.instance.placement = "layer";
+    layer.outputExtent = {
+      pixelRatio: 1,
+      width: 100,
+      height: 100,
+      sourceWidth: 100,
+      sourceHeight: 100,
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      expanded: false,
+    };
     layer.canvas.style.visibility = "hidden";
     frame.setAttribute("data-an-native-layer-suppressed", "");
 
@@ -1157,6 +1308,69 @@ describe("native scene viewport composition", () => {
     expect(backdropCanvas.style.visibility).toBe("hidden");
   });
 
+  it("reprojects last-good canvases after a camera change when preview budgeting fails", async () => {
+    const { frame } = fixture();
+    Object.defineProperties(frame, {
+      offsetLeft: { configurable: true, value: 240 },
+      offsetTop: { configurable: true, value: 140 },
+      offsetWidth: { configurable: true, value: 120 },
+      offsetHeight: { configurable: true, value: 80 },
+    });
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(240, 140, 120, 80),
+    );
+    const mount = runtime.mounts.get("fill") as Record<string, unknown>;
+    Object.assign(mount, {
+      width: 64,
+      height: 48,
+      pixelRatio: 2,
+      authoredInputs: new Map(),
+      definition: { simulation: false, feedback: false },
+      outputExtent: {
+        width: 64,
+        height: 48,
+        pixelRatio: 2,
+        left: 4,
+        top: 6,
+        right: 8,
+        bottom: 10,
+        expanded: false,
+      },
+    });
+    const canvas = mount.canvas as HTMLCanvasElement;
+    canvas.width = 64;
+    canvas.height = 48;
+    canvas.style.left = "1px";
+    canvas.style.top = "2px";
+    canvas.style.width = "30px";
+    canvas.style.height = "40px";
+    runtime.compositionPixelRatio = null;
+    runtime.compositionOutputRegion = null;
+    runtime.previewViewport = { x: 0, y: 0, width: 500, height: 400 };
+    vi.spyOn(runtime, "planPreviewTargetDensities").mockImplementation(() => {
+      throw new sourceProvider.NativeSourceError(
+        "gpu-budget-exceeded",
+        "The shared native preview working set cannot fit.",
+      );
+    });
+
+    let failure: unknown;
+    try {
+      runtime.planPreviewTargetDensities();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "gpu-budget-exceeded" });
+    runtime.restoreIndividualPresentationsAfterSceneFailure();
+
+    expect(canvas.style.left).toBe("238px");
+    expect(canvas.style.top).toBe("137px");
+    expect(canvas.style.width).toBe("126px");
+    expect(canvas.style.height).toBe("88px");
+    expect(canvas).toHaveProperty("width", 64);
+    expect(canvas).toHaveProperty("height", 48);
+  });
+
   it("enables scene-managed presentation only after a backdrop scene commits", async () => {
     fixture();
     const backdrop = runtime.mounts.get("fill") as {
@@ -1171,6 +1385,89 @@ describe("native scene viewport composition", () => {
     expect(
       document.documentElement.hasAttribute("data-an-native-scene-managed"),
     ).toBe(true);
+  });
+
+  it("retires direct mounts before the worker commit without scheduling another generation", () => {
+    const { frame } = fixture();
+    frame.setAttribute("data-an-native-status", "ready");
+    frame.setAttribute("data-an-native-backend", "webgpu");
+    frame.setAttribute("data-an-native-scene-suppressed", "");
+    document.documentElement.setAttribute("data-an-native-scene-managed", "");
+    const mount = runtime.mounts.get("fill")!;
+    const previousWorkerScene = runtime.workerScene;
+    const setEntries = vi.fn();
+    runtime.workerScene = { setEntries } as never;
+    Object.assign(mount, {
+      renderWallSamples: [],
+      authoredInputs: new Map(),
+      graphPipelinePins: new Map(),
+      assetAbort: new AbortController(),
+      assetTextures: new Map(),
+      assetPending: new Map(),
+      assetFailures: new Map(),
+      context: { unconfigure: vi.fn() },
+      outputTexture: null,
+      maskTexture: null,
+      resourceTextures: new Map(),
+      drawBindings: new Map(),
+      sourceTextures: new Map(),
+      isolationTextures: new Map(),
+    });
+    frame.setAttribute("data-an-native-fill-instance", "worker-fill");
+    const unmount = vi.spyOn(runtime, "unmount");
+    runtime.releaseScenePresentation.mockImplementation(() => {
+      runtime.scenePresentation = null;
+      document.documentElement.removeAttribute("data-an-native-scene-managed");
+    });
+
+    try {
+      runtime.prepareWorkerSceneCommit();
+
+      expect(runtime.mounts.size).toBe(0);
+      expect(unmount).toHaveBeenCalledWith(mount);
+      expect(runtime.scenePresentation).toBeNull();
+      expect(frame.hasAttribute("data-an-native-status")).toBe(false);
+      expect(frame.hasAttribute("data-an-native-fill-instance")).toBe(false);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(false);
+      expect(setEntries).not.toHaveBeenCalled();
+
+      const marker = document.createElement("canvas");
+      const workerHost = Object.assign(
+        Object.create(NativeWorkerSceneHost.prototype),
+        {
+          entries: [
+            {
+              instance: { id: "worker-fill", placement: "fill" },
+              target: frame,
+            },
+          ],
+          markedTargets: new Set([frame]),
+          targets: new Map([["worker-fill", { marker }]]),
+        },
+      ) as { restoreEntryMarkersAndVisibility(): void };
+      workerHost.restoreEntryMarkersAndVisibility();
+      expect(frame.getAttribute("data-an-native-fill-instance")).toBe(
+        "worker-fill",
+      );
+      expect(marker.style.visibility).toBe("visible");
+      frame.setAttribute("data-an-native-scene-suppressed", "");
+      frame.setAttribute("data-an-native-status", "ready");
+      frame.setAttribute("data-an-native-backend", "webgpu-worker");
+      document.documentElement.setAttribute("data-an-native-scene-managed", "");
+      expect(frame.getAttribute("data-an-native-status")).toBe("ready");
+      expect(frame.getAttribute("data-an-native-backend")).toBe(
+        "webgpu-worker",
+      );
+      expect(frame.hasAttribute("data-an-native-scene-suppressed")).toBe(true);
+      expect(
+        document.documentElement.hasAttribute("data-an-native-scene-managed"),
+      ).toBe(true);
+      expect(runtime.mounts.has("fill")).toBe(false);
+    } finally {
+      runtime.workerScene = previousWorkerScene;
+    }
   });
 
   it("renders a zoomed-out scene at its displayed pixel density", async () => {
@@ -1398,7 +1695,10 @@ describe("native scene viewport composition", () => {
       );
     const fill = capture("fill");
     expect(fill.documentElement.getAttribute("opacity")).toBe("1");
-    expect(fill.documentElement.getAttribute("transform")).toBe("none");
+    expect(fill.documentElement.hasAttribute("transform")).toBe(false);
+    expect(fill.querySelector("polygon")!.hasAttribute("transform")).toBe(
+      false,
+    );
     expect(fill.querySelector("polygon")!.getAttribute("fill")).toBe(
       "url(#paint)",
     );
@@ -2890,7 +3190,9 @@ describe("native scene viewport composition", () => {
       ],
     };
     const workerScene = {
-      committedScene: vi.fn(() => ({ scene: { generation: 7 } })),
+      committedScene: vi.fn(() => ({
+        scene: { generation: 7, instances: [fullInstance] },
+      })),
       captureExportScene: vi.fn(async () => exported),
     };
     Object.assign(runtime, {
@@ -2920,6 +3222,105 @@ describe("native scene viewport composition", () => {
       Object.assign(runtime, {
         workerScene: priorWorkerScene,
         workerEntries: priorWorkerEntries,
+      });
+    }
+  });
+
+  it("validates authored instances but summarizes only instances in the committed scene", async () => {
+    const { mount, options, savedInstance } = await committedCaptureFixture();
+    const previousWorkerScene = (runtime as unknown as { workerScene: unknown })
+      .workerScene;
+    const previousWorkerEntries = (
+      runtime as unknown as { workerEntries: unknown }
+    ).workerEntries;
+    const collapsedInstance = {
+      ...savedInstance,
+      id: "collapsed-layer",
+      nodeId: "collapsed-layer-target",
+    };
+    options.expectedInstances.push(collapsedInstance);
+    vi.stubGlobal("crypto", {
+      subtle: { digest: vi.fn(async () => new ArrayBuffer(32)) },
+    });
+    const exported = {
+      previewGeneration: 7,
+      width: 1044,
+      height: 1042,
+      rgba: new ArrayBuffer(1044 * 1042 * 4),
+      timeSeconds: 0,
+      committedInstances: [
+        {
+          instanceId: savedInstance.id,
+          definitionHash: "hash",
+          payload: JSON.stringify(savedInstance),
+          localTime: 0,
+        },
+      ],
+    };
+    const savedReceipt = exported.committedInstances[0]!;
+    const workerScene = {
+      committedScene: vi.fn(() => ({
+        scene: { generation: 7, instances: [savedInstance] },
+      })),
+      captureExportScene: vi.fn(async () => exported),
+    };
+    Object.assign(runtime, {
+      workerScene,
+      workerEntries: [
+        {
+          instance: savedInstance,
+          definition: mount.definition,
+          definitionHash: "hash",
+        },
+        {
+          instance: collapsedInstance,
+          definition: mount.definition,
+          definitionHash: "hash",
+        },
+      ],
+    });
+    try {
+      const pixels = await runtime.captureCommittedCompositionPixels(options);
+      expect(pixels).toMatchObject({
+        committedInstances: [{ instanceId: savedInstance.id }],
+      });
+      expect(workerScene.captureExportScene).toHaveBeenCalledOnce();
+
+      options.expectedInstances[1] = {
+        ...collapsedInstance,
+        definitionVersion: "stale",
+      };
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-instance-stale" });
+      expect(workerScene.captureExportScene).toHaveBeenCalledOnce();
+      options.expectedInstances[1] = collapsedInstance;
+
+      exported.committedInstances.pop();
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+      exported.committedInstances.push(savedReceipt);
+
+      exported.committedInstances.push(savedReceipt);
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+      exported.committedInstances.pop();
+
+      exported.committedInstances.push({
+        instanceId: collapsedInstance.id,
+        definitionHash: "hash",
+        payload: JSON.stringify(collapsedInstance),
+        localTime: 0,
+      });
+      await expect(
+        runtime.captureCommittedCompositionPixels(options),
+      ).rejects.toMatchObject({ code: "composition-preview-stale" });
+    } finally {
+      Object.assign(runtime, {
+        workerScene: previousWorkerScene,
+        workerEntries: previousWorkerEntries,
       });
     }
   });
@@ -3510,5 +3911,172 @@ describe("stateless frame queue submission", () => {
     await expect(transaction.finish()).rejects.toThrow("profiling failed");
     await drain();
     expect((await frame.submissionOutcome).status).toBe("rejected");
+  });
+});
+
+describe("independent native Fill source dependencies", () => {
+  it("rescans an unrelated browser-shaped text failure into direct Fill rendering", async () => {
+    type Subject = {
+      onWorkerSceneFailure(error: Error): void;
+      workerCapabilityBlocked: boolean;
+      workerRootSourceBlocked: boolean;
+      workerSourceRetryTimer: number;
+      onAuthoredStyleMutations(records: MutationRecord[]): void;
+      requestScan(): void;
+      workerEntries: unknown[];
+      workerScene: unknown;
+      playing: boolean;
+      disposed: boolean;
+      mounts: Map<string, unknown>;
+      parse(): unknown;
+      mount(...args: unknown[]): Promise<unknown>;
+      renderInternal(...args: unknown[]): Promise<unknown>;
+      syncPresentation(...args: unknown[]): void;
+      scheduleIdleSourcePoll(): void;
+      issue(...args: unknown[]): void;
+      postStatus(...args: unknown[]): void;
+    };
+    const Runtime = runtime.constructor as new (script: Node | null) => Subject;
+    const subject = new Runtime(null);
+    const target = document.createElement("div");
+    target.setAttribute("data-agent-native-node-id", "mesh");
+    document.body.append(target);
+    const instance = {
+      id: "mesh-fill",
+      nodeId: "mesh",
+      definitionId: FOLDED_MESH_EFFECT.id,
+      definitionVersion: FOLDED_MESH_EFFECT.version,
+      placement: "fill",
+      params: {},
+      enabled: true,
+      opacity: 1,
+      seed: 1,
+      clip: "bounds",
+      blend: "normal",
+      timing: { speed: 1, paused: false, time: 0 },
+    };
+    const entry = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      definitionHash: "mesh",
+      target,
+    };
+    const worker = { committedScene: () => null, dispose: vi.fn() };
+    const direct = {
+      instance,
+      definition: FOLDED_MESH_EFFECT,
+      target,
+      canvas: document.createElement("canvas"),
+    };
+    vi.spyOn(subject, "parse").mockReturnValue([
+      {
+        schemaVersion: 2,
+        definitions: [FOLDED_MESH_EFFECT],
+        instances: [instance],
+      },
+    ]);
+    const mount = vi.spyOn(subject, "mount").mockResolvedValue(direct);
+    const render = vi.spyOn(subject, "renderInternal").mockResolvedValue({
+      time: 0,
+      rendered: 1,
+      failures: [],
+      renderWallMs: 0,
+    });
+    vi.spyOn(subject, "syncPresentation").mockImplementation(() => {});
+    vi.spyOn(subject, "scheduleIdleSourcePoll").mockImplementation(() => {});
+    const issue = vi.spyOn(subject, "issue").mockImplementation(() => {});
+    vi.spyOn(subject, "postStatus").mockImplementation(() => {});
+    const Worker = vi.fn();
+    vi.stubGlobal("Worker", Worker);
+    const offscreen = Object.getOwnPropertyDescriptor(
+      HTMLCanvasElement.prototype,
+      "transferControlToOffscreen",
+    );
+    Object.defineProperty(
+      HTMLCanvasElement.prototype,
+      "transferControlToOffscreen",
+      { configurable: true, value: () => ({}) },
+    );
+    subject.workerScene = worker;
+    subject.workerEntries = [entry];
+    subject.playing = false;
+    subject.disposed = false;
+    const observer = new MutationObserver(() => {});
+    try {
+      subject.onWorkerSceneFailure(
+        new NativeWorkerSceneSourceError(
+          new sourceProvider.NativeSourceCapabilityError(
+            "source-webfont-style",
+            "Browser-shaped text required",
+          ),
+        ),
+      );
+      expect(subject.workerCapabilityBlocked).toBe(false);
+      expect(subject.workerRootSourceBlocked).toBe(true);
+      await vi.waitFor(() => expect(render).toHaveBeenCalledOnce());
+      expect(worker.dispose).toHaveBeenCalledOnce();
+      expect(subject.workerScene).toBeNull();
+      expect(subject.mounts.get("mesh-fill")).toBe(direct);
+      expect(mount).toHaveBeenCalledOnce();
+      expect(issue).toHaveBeenCalledWith(
+        "source-webfont-style",
+        "Browser-shaped text required",
+      );
+      expect(Worker).not.toHaveBeenCalled();
+      vi.useFakeTimers();
+      const rescan = vi
+        .spyOn(subject, "requestScan")
+        .mockImplementation(() => {});
+      const chrome = document.createElement("div");
+      chrome.setAttribute("data-agent-native-editor-chrome", "");
+      const text = document.createTextNode("Unsupported source");
+      document.body.append(chrome, text);
+      observer.observe(document.body, {
+        attributes: true,
+        characterData: true,
+        subtree: true,
+      });
+      chrome.style.opacity = "0.5";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(100);
+      expect(subject.workerRootSourceBlocked).toBe(true);
+      expect(rescan).not.toHaveBeenCalled();
+
+      text.data = "Corrected source";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(50);
+      text.data = "Final correction";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(99);
+      expect(subject.workerRootSourceBlocked).toBe(true);
+      expect(rescan).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(subject.workerRootSourceBlocked).toBe(false);
+      expect(subject.workerCapabilityBlocked).toBe(false);
+      expect(rescan).toHaveBeenCalledOnce();
+
+      subject.workerRootSourceBlocked = true;
+      subject.workerCapabilityBlocked = true;
+      text.data = "Another correction";
+      subject.onAuthoredStyleMutations(observer.takeRecords());
+      await vi.advanceTimersByTimeAsync(100);
+      expect(subject.workerRootSourceBlocked).toBe(false);
+      expect(subject.workerCapabilityBlocked).toBe(true);
+    } finally {
+      observer.disconnect();
+      clearTimeout(subject.workerSourceRetryTimer);
+      vi.useRealTimers();
+      if (offscreen)
+        Object.defineProperty(
+          HTMLCanvasElement.prototype,
+          "transferControlToOffscreen",
+          offscreen,
+        );
+      else
+        Reflect.deleteProperty(
+          HTMLCanvasElement.prototype,
+          "transferControlToOffscreen",
+        );
+    }
   });
 });

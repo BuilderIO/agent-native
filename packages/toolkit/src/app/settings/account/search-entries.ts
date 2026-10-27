@@ -34,6 +34,12 @@ export const PREFERENCES_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     anchor: "interface-language",
   },
   {
+    id: "theme-family",
+    labelKey: key("themeFamily"),
+    keywords: "theme appearance style colors",
+    anchor: "theme-family",
+  },
+  {
     id: "timezone",
     labelKey: key("timezone"),
     keywords: "timezone time zone clock schedule scheduling",
@@ -45,6 +51,13 @@ export const PREFERENCES_SEARCH_ENTRIES: readonly SettingsPageSearchEntry[] = [
     keywords:
       "voice transcription speech dictation microphone speech to text mac native google realtime batch",
     anchor: "voice",
+  },
+  {
+    id: "voice-chat",
+    labelKey: key("voiceChat"),
+    keywords:
+      "voice chat realtime conversation microphone device language intelligence voice style speaker",
+    anchor: "voice-chat",
   },
 ];
 

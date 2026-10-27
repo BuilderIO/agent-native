@@ -97,6 +97,15 @@ function approvalLabel(approval: string, t: Translate): string {
   if (approval === "mcp-client-accepted") {
     return t("agentChat.settings.audit.approvalMcpClient");
   }
+  if (approval === "mcp-review") {
+    return t("agentChat.settings.audit.approvalMcpReview");
+  }
+  if (approval === "cli-prompt") {
+    return t("agentChat.settings.audit.approvalCliPrompt");
+  }
+  if (approval === "cli-flag") {
+    return t("agentChat.settings.audit.approvalCliFlag");
+  }
   return approval;
 }
 

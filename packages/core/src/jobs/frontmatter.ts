@@ -19,6 +19,8 @@ export interface JobFrontmatter {
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
+  /** Sticky provenance: MCP edits cannot inherit unattended action approval. */
+  mcpManaged?: boolean;
   lastRun?: string;
   lastHistoryId?: string;
   lastRunManual?: boolean;
@@ -57,6 +59,8 @@ export interface JobFrontmatter {
   domain?: string;
   appId?: string;
   executionHostId?: string;
+  /** Id of a job runner registered with `registerJobRunner`; absent means the agent loop. */
+  runner?: string;
   executionEngine?: string;
   executionCwd?: string;
   remoteRequestId?: string;
@@ -152,6 +156,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "createdBy",
   "orgId",
   "runAs",
+  "mcpManaged",
   "lastRun",
   "lastHistoryId",
   "lastRunManual",
@@ -183,6 +188,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "domain",
   "appId",
   "executionHostId",
+  "runner",
   "executionEngine",
   "executionCwd",
   "remoteRequestId",
@@ -239,6 +245,21 @@ export function assertJobExecutionTargetFields(
   ) {
     throw new Error(
       "Execution workspace paths must be at most 1024 characters.",
+    );
+  }
+}
+
+/**
+ * A runner job executes in this process; a remote host would run its stub body
+ * as an agent prompt. Raw resource edits skip this check, so the scheduler
+ * refuses the pair again at run time.
+ */
+export function assertJobRunnerTarget(
+  meta: Pick<JobFrontmatter, "runner" | "executionHostId">,
+): void {
+  if (meta.runner && meta.executionHostId) {
+    throw new Error(
+      "A job with a runner cannot also target an execution host.",
     );
   }
 }
@@ -333,6 +354,9 @@ function parseKnownField(
     case "runAs":
       meta.runAs =
         value === "shared" || value === "creator" ? value : undefined;
+      break;
+    case "mcpManaged":
+      meta.mcpManaged = value === "true";
       break;
     case "lastRun":
       meta.lastRun = value;
@@ -433,6 +457,9 @@ function parseKnownField(
       break;
     case "executionHostId":
       meta.executionHostId = value || undefined;
+      break;
+    case "runner":
+      meta.runner = value || undefined;
       break;
     case "executionEngine":
       meta.executionEngine = value || undefined;
@@ -544,6 +571,7 @@ export function buildJobResourceContent(
 ): string {
   assertDelegatedPolicyId(meta.delegatedPolicyId);
   assertJobExecutionTargetFields(meta);
+  assertJobRunnerTarget(meta);
   assertBoundedFrontmatterValue(
     meta.remoteRequestId,
     "Remote request IDs",
@@ -580,6 +608,7 @@ export function buildJobResourceContent(
   pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
   pushString(lines, "executionHostId", meta.executionHostId);
+  pushString(lines, "runner", meta.runner);
   pushString(lines, "executionEngine", meta.executionEngine);
   pushString(lines, "executionCwd", meta.executionCwd);
   pushString(lines, "remoteRequestId", meta.remoteRequestId);
@@ -592,6 +621,7 @@ export function buildJobResourceContent(
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
+  if (meta.mcpManaged) lines.push("mcpManaged: true");
   if (meta.triggerType !== "manual") {
     pushString(lines, "timezone", meta.timezone);
   }
