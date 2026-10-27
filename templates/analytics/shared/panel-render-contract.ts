@@ -76,6 +76,7 @@ export const PANEL_CONFIG_KEYS = {
   stacked: {},
   legend: {},
   valueLabels: {},
+  comparison: { onlyFor: ["metric"] },
   sortable: {},
   columns: {},
   breakdowns: { onlyFor: ["table"] },
@@ -274,6 +275,25 @@ const CHART_VALUE_FORMATTER_SHAPE: ConfigValueShape = {
   expected: `one of ${CHART_VALUE_FORMATTERS.map((name) => `"${name}"`).join(", ")} ("duration" reads the value as seconds)`,
 };
 
+const COMPARISON_STRING_FIELDS = ["previousKey", "periodKey", "label"];
+const COMPARISON_BETTER_VALUES = ["higher", "lower", "neither"];
+
+function comparisonProblem(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "better") {
+      if (!COMPARISON_BETTER_VALUES.includes(item as string)) {
+        return `config.comparison.better must be "higher", "lower" or "neither", not ${clipHead(stableStringify(item), 30)}`;
+      }
+    } else if (!COMPARISON_STRING_FIELDS.includes(key)) {
+      return `config.comparison.${key} is not a comparison option`;
+    } else if (typeof item !== "string" || item.trim() === "") {
+      return `config.comparison.${key} must be a non-empty string`;
+    }
+  }
+  return null;
+}
+
 const FUNNEL_OUTCOME_FIELDS = [
   "completedKey",
   "leftKey",
@@ -315,6 +335,12 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
     valid: isValidPanelBreakdowns,
     expected:
       "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
+  },
+  comparison: {
+    valid: (value) => isRecord(value) && comparisonProblem(value) === null,
+    expected:
+      'an object with optional string previousKey (the column with the previous value, default "previous_value"), periodKey (the column naming that period, default "period") and label (names the period when the row has no period), and better: "higher" (the default), "lower" or "neither"',
+    problem: comparisonProblem,
   },
   drilldown: {
     valid: isValidPanelDrilldown,
