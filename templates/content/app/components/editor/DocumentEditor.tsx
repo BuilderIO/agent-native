@@ -2298,15 +2298,15 @@ export function liveCopyWritePathConfirmer(options: {
 }) {
   let known = true;
   let left = false;
-  let askAgain = false;
+  let acknowledgementVersion = 0;
   let running: Promise<void> | null = null;
   const leave = () => {
     left = true;
     options.leave();
   };
   const check = async () => {
-    do {
-      askAgain = false;
+    for (;;) {
+      const readVersion = acknowledgementVersion;
       let live: boolean;
       try {
         live = await confirmLiveCopyWritePath(options.readDocument);
@@ -2320,12 +2320,11 @@ export function liveCopyWritePathConfirmer(options: {
       }
       // An acknowledgment that came in while the page was read may be for an
       // update the server took after that read, so the answer may be stale.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- acknowledge can change this flag during the awaited page read
-      if (askAgain) continue;
+      if (readVersion !== acknowledgementVersion) continue;
       if (!live) return leave();
       known = true;
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- acknowledge can change this flag during the awaited page read
-    } while (askAgain);
+      return;
+    }
   };
   const start = () =>
     (running ??= check().finally(() => {
@@ -2336,11 +2335,11 @@ export function liveCopyWritePathConfirmer(options: {
       if (action === "leave") return leave();
       if (action === "keep") {
         known = true;
-        if (running) askAgain = true;
+        if (running) acknowledgementVersion++;
         return;
       }
       known = false;
-      askAgain = true;
+      acknowledgementVersion++;
       void start();
     },
     /** Settles any check, asking again once if it is still unknown. */

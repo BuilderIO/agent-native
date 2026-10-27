@@ -1313,24 +1313,7 @@ class CollabDocConnection {
         online = this.onlineDuringUpdate;
         this.onlineDuringUpdate = false;
       }
-      if (
-        !this.disposed &&
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- response and subscriber callbacks can refuse updates during the awaited request
-        !this.snapshot.updatesRefused &&
-        this.pendingUpdates.length &&
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- an edit can schedule a flush while the request is awaiting its response
-        !this.flushTimer
-      ) {
-        this.flushTimer = setTimeout(
-          () => {
-            this.flushTimer = null;
-            void this.flushPendingUpdates();
-          },
-          this.updateErrors && !online
-            ? calcBackoff(this.updateErrors)
-            : UPDATE_DEBOUNCE_MS,
-        );
-      }
+      this.schedulePendingFlush(online);
     }
     // Ordinary receipts keep nullable-ACK compatibility. Strict owners have
     // already handled their outcome before its pending bytes were removed.
@@ -1351,6 +1334,25 @@ class CollabDocConnection {
           sub.onUpdateAcknowledged?.(ack);
       }
     }
+  }
+
+  private schedulePendingFlush(online: boolean): void {
+    if (
+      this.disposed ||
+      this.snapshot.updatesRefused ||
+      this.pendingUpdates.length === 0 ||
+      this.flushTimer
+    )
+      return;
+    this.flushTimer = setTimeout(
+      () => {
+        this.flushTimer = null;
+        void this.flushPendingUpdates();
+      },
+      this.updateErrors && !online
+        ? calcBackoff(this.updateErrors)
+        : UPDATE_DEBOUNCE_MS,
+    );
   }
 
   private startSync(): void {
