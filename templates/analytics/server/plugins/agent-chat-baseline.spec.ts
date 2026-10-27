@@ -47,8 +47,14 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * requires (AGENTS.md routing bullets and the dbt readiness guidance line, plus
  * the query-dbt-semantic-metric, bigquery, find-data, and data-source-status
  * descriptions that route to it), ~440t. Trimming it would remove the fix.
+ *
+ * 18,750 -> 18,850: the readiness and resume rules the review fixes made explicit
+ * (unknown is not disconnected, lookup recovery only under the same metric name,
+ * truncated warehouse reads still checked, cursor resumes for each recoverable
+ * status). Trimming the AGENTS routing bullet and the BigQuery and get-dbt-connection
+ * descriptions, which repeated data-querying, leaves ~55t over the last ratchet.
  */
-const BASELINE_BUDGET_TOKENS = 18_750;
+const BASELINE_BUDGET_TOKENS = 18_850;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

@@ -103,6 +103,13 @@ export const observabilityConfig = z.object({
       env: ["AGENT_NATIVE_OBSERVABILITY_EVAL_SAMPLE_RATE"],
       doc: "Fraction of runs given an LLM-as-judge eval, 0 to 1.",
     }),
+  hostedModelExperiment: z
+    .enum(["auto", "on", "off"])
+    .default("auto")
+    .meta({
+      env: ["AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT"],
+      doc: "Haiku 5.5 at medium effort versus the default Luna at high, split 50/50 for default-model users. auto runs on first-party hosted deployments; off is the emergency rollback.",
+    }),
 
   inferredSentimentEnabled: z.boolean().optional().meta({
     doc: "Classify the raw user message as positive, negative, or neutral. Defaults on for first-party hosted deployments only.",

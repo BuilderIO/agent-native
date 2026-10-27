@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -7,6 +8,9 @@ import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import { socialStory } from "../../../../templates/design/shared/design-template-presets/social-story.js";
 import { AgentNativeExtensionSlot } from "../../../toolkit/src/app/extensions/AgentNativeExtensionFrame.js";
 import { startSessionReplay, stopSessionReplay } from "./session-replay.js";
+
+// A visitor outside the consent region, already known this session.
+sessionStorage.setItem("an_consent_region", "none");
 
 const extension = {
   id: "session-replay-extension",
@@ -126,4 +130,8 @@ function Host() {
   );
 }
 
-createRoot(document.getElementById("root") as HTMLElement).render(<Host />);
+createRoot(document.getElementById("root") as HTMLElement).render(
+  <QueryClientProvider client={new QueryClient()}>
+    <Host />
+  </QueryClientProvider>,
+);

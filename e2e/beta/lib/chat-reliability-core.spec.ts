@@ -11,6 +11,8 @@ import {
   inspectActiveRun,
   inspectPersistedThread,
   isIdle,
+  isQueuedMessageAppendPost,
+  isTurnPost,
   lineToken,
   longAnswerPrompt,
   LONG_ANSWER_LINES,
@@ -1064,6 +1066,38 @@ test("the active-run read distinguishes idle, active, and unreadable", () => {
   assert.equal(inspectActiveRun(null).kind, "unreadable");
 });
 
+test("active-run diagnostics keep stage labels and omit stage details", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    terminalReason: "error:stale_run",
+    runId: "r",
+    dispatchMode: "background-processing",
+    diagStage:
+      '{"stage":"stale_run_recovery_attempted","detail":"declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
+    workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
+    heartbeatAt: 123,
+    lastProgressAt: 456,
+  });
+  assert.equal(
+    view.detail,
+    JSON.stringify({
+      active: false,
+      status: "errored",
+      terminalReason: "error:stale_run",
+      runId: "r",
+      dispatchMode: "background-processing",
+      diagStage: "stale_run_recovery_attempted",
+      diagEvidence:
+        "declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
+      workerStage: "worker_started",
+      heartbeatAt: 123,
+      lastProgressAt: 456,
+    }),
+  );
+  assert.doesNotMatch(view.detail, /PRIVATE_DETAIL/);
+});
+
 test("text helpers", () => {
   assert.equal(countOccurrences("a-b-a", "a"), 2);
   assert.equal(countOccurrences("abc", ""), 0);
@@ -1119,5 +1153,24 @@ test("the thread id comes from the turn POST before any other request", () => {
       }),
     ]),
     "from-poll",
+  );
+});
+
+test("queued append mutations are distinct from turn POSTs", () => {
+  const entry: TrafficEntry = {
+    atMs: 0,
+    method: "POST",
+    path: "/_agent-native/agent-chat/threads/thread-1/queued",
+    query: "",
+    status: 200,
+    threadId: "thread-1",
+    messageId: "message-1",
+    queueMutationType: "append",
+  };
+  assert.equal(isQueuedMessageAppendPost(entry), true);
+  assert.equal(isTurnPost(entry), false);
+  assert.equal(
+    isQueuedMessageAppendPost({ ...entry, queueMutationType: "claim" }),
+    false,
   );
 });

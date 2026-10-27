@@ -18,6 +18,7 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { registerMcpAppCardsLab } from "./app-cards-lab.js";
 import {
   verifyAuth,
   McpIdentityVerificationUnavailableError,
@@ -391,6 +392,7 @@ async function handleMcpRequestInternal(
         (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
       resourceUrl: getMcpOAuthAudiences(event, routePath),
       requestOrigin: getOrigin(event),
+      event,
     });
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
@@ -529,6 +531,7 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
+  registerMcpAppCardsLab();
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

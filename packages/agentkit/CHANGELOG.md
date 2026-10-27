@@ -1,5 +1,47 @@
 # @agent-native/agentkit
 
+## 0.220.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.219.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.218.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.217.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.216.0
+
+### Minor Changes
+
+- b28df00: Agent chat now validates durable queued submission receipts against the original session and message identity, preserves retry context after an unreadable acknowledgement, and prevents attachment payloads from being admitted under a mismatched receipt. Queued follow-ups keep their attachment references, drain at completed-turn boundaries, and expose terminal receipt states so mobile turns can settle when admission expires or is blocked.
+
+### Patch Changes
+
+- b28df00: Preserve accepted inbox order, bounded retry behavior, effective run settings, and inline attachment identity when Agent-Native chat submissions are queued or promoted.
+- b28df00: Keep receipt-backed queue promotion under the durable inbox retry policy and report cancellation failures without marking queued mobile turns stopped.
+- Release all public npm packages with a patch version bump.
+
+## 0.215.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.214.0
 
 ### Patch Changes

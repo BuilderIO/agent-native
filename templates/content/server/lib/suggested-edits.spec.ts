@@ -1,9 +1,16 @@
-import { yDocToProsemirrorJSON } from "@tiptap/y-tiptap";
+import {
+  initProseMirrorDoc,
+  prosemirrorJSONToYXmlFragment,
+  yDocToProsemirrorJSON,
+} from "@tiptap/y-tiptap";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import type { PrimaryBlocksField } from "../../actions/_blocks-field-identity";
 import { markdownSuggestionOperationsForEditorRevision } from "../../app/components/editor/suggestions/markdown-operation";
+import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema";
+import { docToNfm, nfmToDoc } from "../../shared/nfm";
+import { suggestionPlacementForRange } from "../../shared/suggestion-placement";
 
 type BlocksHelpers = typeof import("../../actions/_blocks-field-identity");
 
@@ -15,6 +22,17 @@ const lockPrimaryBlocksFields = vi.fn(
   ): Promise<PrimaryBlocksField[]> => [],
 );
 const persistBlocksFieldIdentity = vi.fn(async () => ({}));
+const present = vi.fn(
+  async (
+    _documentId: string,
+  ): Promise<
+    Array<{ clientId: number; state: string; lastSeen: number }>
+  > => [],
+);
+vi.mock("@agent-native/core/collab", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/collab")>()),
+  loadAwarenessRows: present,
+}));
 vi.mock("@agent-native/core/feature-flags", () => ({
   isFeatureFlagEnabled: vi.fn(async () => true),
 }));
@@ -33,6 +51,7 @@ const {
   contentDocumentSuggestionAdapter,
   publishPersistedAcceptedSuggestion,
 } = await import("./suggested-edits");
+const { AGENT_CLIENT_ID } = await import("@agent-native/core/collab");
 
 const operation = {
   ordinal: 0,
@@ -631,7 +650,7 @@ describe("Content document suggestion adapter", () => {
     expect(
       writes.some((sql) =>
         sql.startsWith(
-          "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?",
+          "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = COALESCE(?, collab_body_revision)",
         ),
       ),
     ).toBe(true);
@@ -878,6 +897,21 @@ describe("applyMarkdownSuggestionOperation", () => {
     ).toBe("Intro\nAlpha new Omega\nOutro");
   });
 
+  it("applies a suggestion saved as the whole page only to that page", () => {
+    const wholePage = {
+      ...operation,
+      before: { markdown: "Alpha beta", changedText: "Alpha beta" },
+      after: { markdown: "Alpha BETA", changedText: "Alpha BETA" },
+      anchor: null,
+    };
+    expect(applyMarkdownSuggestionOperation("Alpha beta", wholePage)).toBe(
+      "Alpha BETA",
+    );
+    expect(
+      applyMarkdownSuggestionOperation("ALPHA beta", wholePage),
+    ).toBeNull();
+  });
+
   it("refuses an ambiguous or changed anchor", () => {
     expect(
       applyMarkdownSuggestionOperation(
@@ -993,5 +1027,290 @@ describe("applyMarkdownSuggestionOperation", () => {
     expect(
       applyMarkdownSuggestionOperation("First Beta Gamma.", malformed),
     ).toBeNull();
+  });
+});
+
+describe("accepting into the live copy", () => {
+  const stored = "The lazy dog sleeps.\nSecond paragraph.";
+  function replaceWord(markdown: string, word: string, replacement: string) {
+    const from = markdown.indexOf(word);
+    const to = from + word.length;
+    return {
+      ...operation,
+      before: { markdown, changedText: word },
+      after: {
+        markdown: markdown.slice(0, from) + replacement + markdown.slice(to),
+        changedText: replacement,
+      },
+      anchor: {
+        from,
+        to,
+        prefix: markdown.slice(Math.max(0, from - 32), from),
+        suffix: markdown.slice(to, to + 32),
+      },
+    };
+  }
+  function liveCopy(markdown: string) {
+    const doc = new Y.Doc();
+    prosemirrorJSONToYXmlFragment(
+      createContentEditorStructuralSchema(),
+      nfmToDoc(markdown),
+      doc.getXmlFragment("default"),
+    );
+    return { doc };
+  }
+  function liveMarkdown(doc: Y.Doc) {
+    return docToNfm(
+      yDocToProsemirrorJSON(doc, "default") as Parameters<typeof docToNfm>[0],
+    );
+  }
+  /** Where a browser holding `doc` shows `words`, as it sends it. */
+  function placementOf(doc: Y.Doc, words: string) {
+    const browser = new Y.Doc();
+    Y.applyUpdate(browser, Y.encodeStateAsUpdate(doc));
+    const fragment = browser.getXmlFragment("default");
+    const { doc: page, mapping } = initProseMirrorDoc(
+      fragment,
+      createContentEditorStructuralSchema(),
+    );
+    let range: { from: number; to: number } | null = null;
+    page.descendants((node, position) => {
+      const index = node.isText ? node.text!.indexOf(words) : -1;
+      if (!range && index >= 0)
+        range = { from: position + index, to: position + index + words.length };
+    });
+    return suggestionPlacementForRange(
+      { doc: browser, type: fragment, mapping },
+      range!,
+    );
+  }
+  function pageTransaction() {
+    const writes: Array<{ sql: string; args?: unknown[] }> = [];
+    const tx = {
+      execute: vi.fn(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          writes.push(typeof query === "string" ? { sql } : query);
+          if (sql.startsWith("SELECT id,title")) {
+            return {
+              rows: [
+                {
+                  id: "doc-1",
+                  title: "Page",
+                  content: stored,
+                  body_revision: 0,
+                  owner_email: "owner@example.com",
+                  updated_at: "rev-1",
+                  source_mode: null,
+                  source_kind: null,
+                  source_path: null,
+                  trashed_at: null,
+                },
+              ],
+            };
+          }
+          if (sql.startsWith("SELECT id FROM content_database_items")) {
+            return { rows: [] };
+          }
+          return { rows: [], rowsAffected: 1 };
+        },
+      ),
+    };
+    const bodyWrite = () =>
+      writes.find((write) =>
+        write.sql.startsWith("UPDATE documents SET content = ?"),
+      );
+    const storedBody = () => bodyWrite()?.args?.[0];
+    /** The body revision the write says the live copy holds, if any. */
+    const collabRevision = () => bodyWrite()?.args?.[2];
+    return { tx, storedBody, collabRevision };
+  }
+  function acceptContext(
+    accepted: ReturnType<typeof replaceWord>,
+    id: string,
+    tx: unknown,
+    coordination: ReturnType<typeof decisionCoordination>,
+    placement?: unknown,
+  ) {
+    return {
+      resourceType: "document",
+      resourceId: "doc-1",
+      suggestion: {
+        id,
+        revision: 1,
+        resourceType: "document",
+        resourceId: "doc-1",
+        adapterKind: contentDocumentSuggestionAdapter.kind,
+        adapterVersion: 1,
+        threadId: `thread-${id}`,
+        authorEmail: "commenter@example.com",
+        actorKind: "human" as const,
+        baseRevision: "rev-1",
+        status: "pending" as const,
+        summary: "Suggest edits",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        visibility: "private" as const,
+        createdAt: "now",
+        updatedAt: "now",
+        metadata: null,
+        operations: [accepted],
+      },
+      operations: [accepted],
+      access: { ...access, resource: { ...access.resource, content: stored } },
+      ctx: {},
+      transaction: tx,
+      coordination,
+      placement,
+    };
+  }
+
+  it("keeps typing in the live copy when the adapter accepts", async () => {
+    const { tx, storedBody, collabRevision } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(
+      "The lazy dog sleeps.\nSecond paragraph. Typed just now.",
+    ).doc;
+    await contentDocumentSuggestionAdapter.apply(
+      acceptContext(
+        replaceWord(stored, "lazy", "sleepy"),
+        "suggestion-1",
+        tx,
+        coordination,
+      ),
+    );
+    const live = "The sleepy dog sleeps.\nSecond paragraph. Typed just now.";
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(live);
+    expect(coordination.ydoc.persist).toHaveBeenCalledWith(tx, live);
+    expect(storedBody()).toBe("The sleepy dog sleeps.\nSecond paragraph.");
+    // The typing isn't saved yet, so the live copy doesn't hold this body.
+    expect(collabRevision()).toBeNull();
+  });
+
+  it("lands each member of a group where the editor showed it", async () => {
+    const { tx, storedBody } = pageTransaction();
+    const coordination = {
+      ...decisionCoordination(),
+      deferPersistence: true,
+    };
+    // Typed into both paragraphs since the Page was last saved.
+    coordination.ydoc.doc = liveCopy(
+      "The very lazy dog sleeps.\nSecond paragraph. Typed.",
+    ).doc;
+    const lazy = placementOf(coordination.ydoc.doc, "lazy");
+    const second = placementOf(coordination.ydoc.doc, "Second");
+    await contentDocumentSuggestionAdapter.apply(
+      acceptContext(
+        replaceWord(stored, "lazy", "sleepy"),
+        "suggestion-1",
+        tx,
+        coordination,
+        lazy,
+      ),
+    );
+    await contentDocumentSuggestionAdapter.apply(
+      acceptContext(
+        replaceWord(stored, "Second", "Next"),
+        "suggestion-2",
+        tx,
+        coordination,
+        second,
+      ),
+    );
+    expect(storedBody()).toBeUndefined();
+    await contentDocumentSuggestionAdapter.finalizeProposalDecision!({
+      resourceType: "document",
+      resourceId: "doc-1",
+      transaction: tx,
+      coordination,
+    });
+    const live = "The very sleepy dog sleeps.\nNext paragraph. Typed.";
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(live);
+    expect(coordination.ydoc.persist).toHaveBeenCalledWith(tx, live);
+    expect(storedBody()).toBe("The sleepy dog sleeps.\nNext paragraph.");
+  });
+
+  it("refuses an accept whose paragraph was edited live, without a placement", async () => {
+    present.mockResolvedValueOnce([
+      { clientId: 7, state: "{}", lastSeen: Date.now() },
+    ]);
+    const { tx, storedBody } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(
+      "The very lazy dog sleeps.\nSecond paragraph.",
+    ).doc;
+    await expect(
+      contentDocumentSuggestionAdapter.apply(
+        acceptContext(
+          replaceWord(stored, "lazy", "sleepy"),
+          "suggestion-1",
+          tx,
+          coordination,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+    expect(storedBody()).toBeUndefined();
+    expect(coordination.ydoc.persist).not.toHaveBeenCalled();
+  });
+
+  it("refuses an accept with a placement over edited words even without presence", async () => {
+    // The click came from an open editor, whatever presence says.
+    const { tx, storedBody } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(stored).doc;
+    const lazy = placementOf(coordination.ydoc.doc, "lazy");
+    const paragraph = coordination.ydoc.doc
+      .getXmlFragment("default")
+      .get(0) as Y.XmlElement;
+    const text = paragraph.get(0) as Y.XmlText;
+    coordination.ydoc.doc.transact(() => {
+      text.delete(4, 4);
+      text.insert(4, "idle");
+    });
+    await expect(
+      contentDocumentSuggestionAdapter.apply(
+        acceptContext(
+          replaceWord(stored, "lazy", "sleepy"),
+          "suggestion-1",
+          tx,
+          coordination,
+          lazy,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    });
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(
+      "The idle dog sleeps.\nSecond paragraph.",
+    );
+    expect(storedBody()).toBeUndefined();
+  });
+
+  it("brings a live copy behind a save to the accepted Page when nobody has it open", async () => {
+    // The agent's own presence after its save isn't a person typing.
+    present.mockResolvedValueOnce([
+      { clientId: AGENT_CLIENT_ID, state: "{}", lastSeen: Date.now() },
+    ]);
+    const { tx, storedBody, collabRevision } = pageTransaction();
+    const coordination = decisionCoordination();
+    coordination.ydoc.doc = liveCopy(
+      "The very lazy dog sleeps.\nSecond paragraph.",
+    ).doc;
+    await contentDocumentSuggestionAdapter.apply(
+      acceptContext(
+        replaceWord(stored, "lazy", "sleepy"),
+        "suggestion-1",
+        tx,
+        coordination,
+      ),
+    );
+    const accepted = "The sleepy dog sleeps.\nSecond paragraph.";
+    expect(liveMarkdown(coordination.ydoc.doc)).toBe(accepted);
+    expect(storedBody()).toBe(accepted);
+    expect(collabRevision()).toBe(1);
   });
 });

@@ -1,5 +1,7 @@
 import type {
+  AgentSubmissionReference,
   AgentSubmissionPayload,
+  AgentRunOptions,
   AgentSuggestion,
 } from "@agent-native/agentkit/protocol";
 
@@ -201,17 +203,7 @@ export interface AgentChatStructuredMessage {
   content: AgentChatStructuredContentPart[];
 }
 
-export interface AgentChatReference {
-  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
-  path: string;
-  name: string;
-  source: string;
-  refType?: string;
-  refId?: string;
-  slotKey?: string;
-  slotLabel?: string;
-  metadata?: Record<string, unknown>;
-}
+export type AgentChatReference = AgentSubmissionReference;
 
 export type MentionItemMedia =
   | {
@@ -270,6 +262,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  id?: string;
+  mediaType?: string;
   displayOnly?: boolean;
   data?: string;
   url?: string;
@@ -279,6 +273,7 @@ export interface AgentChatAttachment {
   storageRequired?: boolean;
   storageUploadFailed?: boolean;
   contentType?: string;
+  referenceUrl?: string;
   text?: string;
 }
 
@@ -298,6 +293,7 @@ export interface AgentChatRequest {
   agentKitMessageId?: string;
   /** Original queue-shaped submit used for idempotent direct/queued admission. */
   submissionPayload?: AgentSubmissionPayload;
+  options?: AgentRunOptions;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   queuedMessageClaimId?: string;
@@ -389,6 +385,31 @@ export interface AgentChatRichEventEnvelope {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Why a write's outcome is unknown. `rejection`: it failed and said so,
+ * without showing it wrote nothing. `interruption`: its result never came.
+ * `unattributed`: it returned, but what ran cannot be attributed to it.
+ */
+export const UNKNOWN_WRITE_CAUSES = [
+  "rejection",
+  "interruption",
+  "unattributed",
+] as const;
+export type UnknownWriteCause = (typeof UNKNOWN_WRITE_CAUSES)[number];
+
+/** Stored and replayed events are read back untyped. */
+export function isUnknownWriteCause(
+  value: unknown,
+): value is UnknownWriteCause {
+  return (UNKNOWN_WRITE_CAUSES as readonly unknown[]).includes(value);
+}
+
+/**
+ * Why a failed tool call failed, where the loop could tell: its arguments
+ * failed validation before it ran, or it failed having written nothing.
+ */
+export type ToolErrorClass = "input_invalid" | "rejected";
+
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
@@ -448,6 +469,10 @@ export type AgentChatEvent =
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
+      /** With `outcomeUnknown`: why it is unknown, when that was recorded. */
+      unknownCause?: UnknownWriteCause;
+      /** Why a failed call failed, where the loop could tell. */
+      errorClass?: ToolErrorClass;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
@@ -539,6 +564,10 @@ export type AgentChatEvent =
       details?: string;
       recoverable?: boolean;
       providerRetryable?: boolean;
+      /** For `write_tool_outcome_unknown`: the call held back. */
+      blockedTool?: string;
+      /** What left the earlier call of `blockedTool` unknown. */
+      blockedBy?: UnknownWriteCause;
     }
   /**
    * Legacy SSE terminal event. New streams emit
@@ -556,7 +585,25 @@ export type AgentChatEvent =
       reason: ContinuationReason;
       maxIterations?: number;
     }
-  | { type: "clear" };
+  | { type: "clear" }
+  /**
+   * A queued message the user sent into this run with Send now, delivered at
+   * a tool boundary. The run's later output is written under
+   * `continuationMessageId`, so the message sits between the two replies.
+   */
+  | {
+      type: "user_message";
+      message: AgentChatSteeredUserMessage;
+      continuationMessageId: string;
+    };
+
+export interface AgentChatSteeredUserMessage {
+  /** The queued message id, kept as the delivered message id. */
+  id: string;
+  text: string;
+  createdAt: string;
+  attachments?: AgentChatAttachment[];
+}
 
 export const CONTINUATION_REASONS = [
   "run_timeout",

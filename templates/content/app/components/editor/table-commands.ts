@@ -48,6 +48,12 @@ export function findTableByIndex(
   return result;
 }
 
+function tableNodeAt(doc: ProseMirrorNode, tablePos: number) {
+  const table = doc.nodeAt(tablePos);
+  if (!table) throw new Error(`No table at position ${tablePos}`);
+  return table;
+}
+
 function children(node: ProseMirrorNode) {
   const result: ProseMirrorNode[] = [];
   node.forEach((child) => result.push(child));
@@ -110,7 +116,7 @@ export function setTableHeaders(
   });
 
   return tr.setNodeMarkup(table.pos, undefined, {
-    ...tr.doc.nodeAt(table.pos)!.attrs,
+    ...tableNodeAt(tr.doc, table.pos).attrs,
     headerRow: next.row,
     headerColumn: next.column,
   });
@@ -122,7 +128,7 @@ export function setTableFitWidth(
   fitPageWidth: boolean,
 ) {
   return tr.setNodeMarkup(table.pos, undefined, {
-    ...tr.doc.nodeAt(table.pos)!.attrs,
+    ...tableNodeAt(tr.doc, table.pos).attrs,
     fitPageWidth,
   });
 }
@@ -152,7 +158,7 @@ function setColumnMeta(
   return tr.setNodeMarkup(
     tablePos,
     undefined,
-    withColumnMeta(tr.doc.nodeAt(tablePos)!, columns),
+    withColumnMeta(tableNodeAt(tr.doc, tablePos), columns),
   );
 }
 
@@ -184,14 +190,14 @@ export function setColumnColor(
   columnIndex: number,
   color: string | null,
 ) {
-  const columns = getColumnMeta(tr.doc.nodeAt(table.pos)!);
+  const columns = getColumnMeta(tableNodeAt(tr.doc, table.pos));
   while (columns.length <= columnIndex) columns.push({});
   columns[columnIndex] = { ...columns[columnIndex], color };
   return setColumnMeta(tr, table.pos, columns);
 }
 
 function tableRect(doc: ProseMirrorNode, tablePos: number): TableRect {
-  const table = doc.nodeAt(tablePos)!;
+  const table = tableNodeAt(doc, tablePos);
   const map = TableMap.get(table);
   return {
     map,
@@ -226,7 +232,7 @@ function spliceColumnMeta(
   ...inserted: ColumnMeta[]
 ) {
   const columns = splicedColumnMeta(
-    tr.doc.nodeAt(tablePos)!,
+    tableNodeAt(tr.doc, tablePos),
     columnIndex,
     deleteCount,
     ...inserted,
@@ -252,10 +258,10 @@ function attrsWithDuplicatedColumn(
   table: ProseMirrorNode,
   columnIndex: number,
 ) {
-  const source = getColumnMeta(table)[columnIndex];
-  const columns =
-    source && splicedColumnMeta(table, columnIndex + 1, 0, { ...source });
-  return columns ? withColumnMeta(table, columns) : table.attrs;
+  const columns = getColumnMeta(table);
+  if (columnIndex >= columns.length) return table.attrs;
+  columns.splice(columnIndex + 1, 0, { ...columns[columnIndex] });
+  return withColumnMeta(table, columns);
 }
 
 /**
@@ -273,7 +279,7 @@ export function tableWithDuplicatedColumn(
     const cells: ProseMirrorNode[] = [];
     row.forEach((cell, cellOffset) => {
       const { left, right } = map.findCell(rowOffset + 1 + cellOffset);
-      if (left > columnIndex || right <= columnIndex) cells.push(cell);
+      if (columnIndex < left || columnIndex >= right) cells.push(cell);
       else if (right - left === 1) cells.push(cell, cell.copy(cell.content));
       else {
         const at = columnIndex - left;
@@ -363,5 +369,39 @@ export function deleteTableRow(
   rowIndex: number,
 ) {
   removeRow(tr, tableRect(tr.doc, table.pos), rowIndex);
+  return tr;
+}
+
+/**
+ * A table's size by its grid, as these commands count it: a cell merged
+ * across columns takes up every column it spans.
+ */
+export function tableGridSize(table: ProseMirrorNode) {
+  return { rows: table.childCount, columns: TableMap.get(table).width };
+}
+
+/** Adds or removes columns at the table's end until it has `count`. */
+export function setTableColumnCount(
+  tr: Transaction,
+  table: TableAt,
+  count: number,
+) {
+  let { columns } = tableGridSize(table.node);
+  for (; columns < count; columns += 1) insertTableColumn(tr, table, columns);
+  for (; columns > count; columns -= 1) {
+    deleteTableColumn(tr, table, columns - 1);
+  }
+  return tr;
+}
+
+/** Adds or removes rows at the table's end until it has `count`. */
+export function setTableRowCount(
+  tr: Transaction,
+  table: TableAt,
+  count: number,
+) {
+  let { rows } = tableGridSize(table.node);
+  for (; rows < count; rows += 1) insertTableRow(tr, table, rows);
+  for (; rows > count; rows -= 1) deleteTableRow(tr, table, rows - 1);
   return tr;
 }

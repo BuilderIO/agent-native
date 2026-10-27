@@ -5,8 +5,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
-import { withoutDatabaseColumnPresentation } from "../shared/database-table-columns.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { withoutDeletedDatabaseProperty } from "../shared/database-table-columns.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
@@ -152,7 +152,7 @@ export default defineAction({
           viewConfigJson: serializeDatabaseViewConfig({
             ...viewConfig,
             views: viewConfig.views.map((view) =>
-              withoutDatabaseColumnPresentation(view, propertyId),
+              withoutDeletedDatabaseProperty(view, propertyId),
             ),
           }),
           updatedAt: new Date().toISOString(),
@@ -197,6 +197,11 @@ export default defineAction({
             )
             .map((item) => item.documentId);
           if (documentsWithoutSurvivingPrimary.length > 0) {
+            const legacy = await lockLegacyBodyWrites(
+              tx,
+              documentsWithoutSurvivingPrimary,
+              { operation: "delete-document-property", content: "" },
+            );
             const now = new Date().toISOString();
             await lockDocumentRows(
               tx as unknown as ReturnType<typeof getDb>,
@@ -206,7 +211,7 @@ export default defineAction({
               .update(schema.documents)
               .set({
                 content: "",
-                bodyRevision: bodyRevisionForContent(""),
+                bodyRevision: legacy.bodyRevision(""),
                 updatedAt: now,
               })
               .where(

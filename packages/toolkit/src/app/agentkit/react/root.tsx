@@ -17,7 +17,14 @@ import type {
   AgentTransport,
   ThreadId,
 } from "@agent-native/agentkit/protocol";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   AgentKitProvider,
@@ -29,8 +36,11 @@ import {
   type AgentKitRenderFailure,
   type AgentKitRunUsageLoader,
   type AgentKitSlots,
+  type AgentKitThreadLoadState,
 } from "./context.js";
+import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
+import type { AgentChatWorkedForRowLayout } from "./transcript-layout.js";
 
 const mountedManagedClients = new WeakMap<AgentKitClient, number>();
 
@@ -86,6 +96,11 @@ export interface AgentKitRootBaseProps {
   ) => Promise<AgentConnectionResponse>;
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   resolveMessageContentOrder?: AgentMessageContentOrderResolver;
+  workedForRowLayout?: AgentChatWorkedForRowLayout;
+  dataChartLayout?: AgentChatDataChartLayout;
+  formatWorkedForDuration?: (durationMs: number) => string;
+  /** Display name for a model id in run details; the id shows without it. */
+  formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
     type: "client.effect" | "client.deeplink";
     name: string;
@@ -96,6 +111,16 @@ export interface AgentKitRootBaseProps {
 }
 
 export type AgentKitRootProps = AgentKitRootBaseProps & AgentKitClientSource;
+
+/** A host callback the client was built around, read at call time. */
+function latestCallback<T>(callback: T | undefined, name: string): T {
+  if (callback === undefined) {
+    throw new Error(
+      `AgentKitRoot ${name} was removed after the client was created.`,
+    );
+  }
+  return callback;
+}
 
 export function AgentKitRoot({
   controller,
@@ -116,6 +141,10 @@ export function AgentKitRoot({
   onConnectionRequest,
   onRenderError,
   resolveMessageContentOrder,
+  workedForRowLayout,
+  dataChartLayout,
+  formatWorkedForDuration,
+  formatModelName,
   onClientEffect,
   load = "auto",
   onLoadError,
@@ -130,9 +159,13 @@ export function AgentKitRoot({
       "AgentKitRoot requires exactly one controller, transport, or HTTP endpoint.",
     );
   }
-  const httpFetch = http?.fetch;
-  const httpHeaders = http?.headers;
-  const httpCreateCorrelationId = http?.createCorrelationId;
+  // Hosts pass these inline. The client and its live streams are keyed on the
+  // transport and structural options only; callbacks are read through refs.
+  const latest = useRef({ http, clientOptions });
+  latest.current = { http, clientOptions };
+  const hasHttpFetch = http?.fetch !== undefined;
+  const hasHttpHeaders = http?.headers !== undefined;
+  const hasHttpCorrelationId = http?.createCorrelationId !== undefined;
   const httpSignal = http?.signal;
   const resolvedTransport = useMemo(
     () =>
@@ -140,68 +173,123 @@ export function AgentKitRoot({
       (endpoint
         ? createAgentKitHttpTransport({
             baseUrl: endpoint,
-            fetch: httpFetch,
-            headers: httpHeaders,
-            createCorrelationId: httpCreateCorrelationId,
+            fetch: hasHttpFetch
+              ? (input, init) =>
+                  latestCallback(latest.current.http?.fetch, "http.fetch")(
+                    input,
+                    init,
+                  )
+              : undefined,
+            headers: hasHttpHeaders
+              ? () => {
+                  const headers = latest.current.http?.headers ?? {};
+                  return typeof headers === "function" ? headers() : headers;
+                }
+              : undefined,
+            createCorrelationId: hasHttpCorrelationId
+              ? () =>
+                  latestCallback(
+                    latest.current.http?.createCorrelationId,
+                    "http.createCorrelationId",
+                  )()
+              : undefined,
             signal: httpSignal,
           })
         : undefined),
     [
       endpoint,
-      httpCreateCorrelationId,
-      httpFetch,
-      httpHeaders,
+      hasHttpCorrelationId,
+      hasHttpFetch,
+      hasHttpHeaders,
       httpSignal,
       transport,
     ],
   );
-  const createId = clientOptions?.createId;
-  const now = clientOptions?.now;
+  const hasCreateId = clientOptions?.createId !== undefined;
+  const hasNow = clientOptions?.now !== undefined;
   const reconnectAttempts = clientOptions?.reconnect?.attempts;
-  const reconnectDelay = clientOptions?.reconnect?.delayMs;
+  const hasReconnectDelay = clientOptions?.reconnect?.delayMs !== undefined;
   const aiSetupReadiness = clientOptions?.aiSetupReadiness;
-  const onError = clientOptions?.onError;
-  const onIntegrityReport = clientOptions?.onIntegrityReport;
-  const upload = clientOptions?.upload;
+  const hasOnError = clientOptions?.onError !== undefined;
+  const hasOnIntegrityReport = clientOptions?.onIntegrityReport !== undefined;
+  const hasUpload = clientOptions?.upload !== undefined;
   const transportOwnership = endpoint
     ? "owned"
     : clientOptions?.transportOwnership;
   const retainActiveRunsOnThreadRelease =
     clientOptions?.retainActiveRunsOnThreadRelease;
-  const managedClient = useMemo(
-    () =>
-      controller
-        ? undefined
-        : createAgentKitClient({
-            transport: resolvedTransport as AgentTransport,
-            aiSetupReadiness,
-            transportOwnership,
-            createId,
-            now,
-            reconnect: {
-              attempts: reconnectAttempts,
-              delayMs: reconnectDelay,
-            },
-            onError,
-            onIntegrityReport,
-            retainActiveRunsOnThreadRelease,
-            upload,
-          }),
-    [
-      controller,
-      createId,
-      aiSetupReadiness,
-      now,
-      onError,
-      onIntegrityReport,
-      reconnectAttempts,
-      reconnectDelay,
-      resolvedTransport,
-      retainActiveRunsOnThreadRelease,
-      transportOwnership,
-      upload,
-    ],
-  );
+  const managedClient = useMemo(() => {
+    if (controller) return undefined;
+    const options = () => latest.current.clientOptions;
+    return createAgentKitClient({
+      transport: resolvedTransport as AgentTransport,
+      ...(aiSetupReadiness === undefined ? {} : { aiSetupReadiness }),
+      ...(transportOwnership === undefined ? {} : { transportOwnership }),
+      ...(hasCreateId
+        ? {
+            createId: (prefix) =>
+              latestCallback(
+                options()?.createId,
+                "clientOptions.createId",
+              )(prefix),
+          }
+        : {}),
+      ...(hasNow
+        ? {
+            now: () => latestCallback(options()?.now, "clientOptions.now")(),
+          }
+        : {}),
+      reconnect: {
+        ...(reconnectAttempts === undefined
+          ? {}
+          : { attempts: reconnectAttempts }),
+        ...(hasReconnectDelay
+          ? {
+              delayMs: (attempt) =>
+                latestCallback(
+                  options()?.reconnect?.delayMs,
+                  "clientOptions.reconnect.delayMs",
+                )(attempt),
+            }
+          : {}),
+      },
+      ...(hasOnError
+        ? { onError: (error) => options()?.onError?.(error) }
+        : {}),
+      ...(hasOnIntegrityReport
+        ? {
+            onIntegrityReport: (report) =>
+              options()?.onIntegrityReport?.(report),
+          }
+        : {}),
+      ...(retainActiveRunsOnThreadRelease === undefined
+        ? {}
+        : { retainActiveRunsOnThreadRelease }),
+      ...(hasUpload
+        ? {
+            upload: (target, file, context) =>
+              latestCallback(options()?.upload, "clientOptions.upload")(
+                target,
+                file,
+                context,
+              ),
+          }
+        : {}),
+    });
+  }, [
+    controller,
+    aiSetupReadiness,
+    hasCreateId,
+    hasNow,
+    hasOnError,
+    hasOnIntegrityReport,
+    hasReconnectDelay,
+    hasUpload,
+    reconnectAttempts,
+    resolvedTransport,
+    retainActiveRunsOnThreadRelease,
+    transportOwnership,
+  ]);
   const resolvedController = controller ?? managedClient;
   if (!resolvedController) {
     throw new Error(
@@ -211,6 +299,17 @@ export function AgentKitRoot({
   const activeLoadLease = useRef<ActiveThreadLeaseScope | undefined>(undefined);
   const onLoadErrorRef = useRef(onLoadError);
   onLoadErrorRef.current = onLoadError;
+  const [threadLoadState, setThreadLoadState] = useState<
+    AgentKitThreadLoadState & {
+      controller: AgentKitController;
+      attempt: number;
+    }
+  >();
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const retryLoad = useCallback(
+    () => setLoadAttempt((attempt) => attempt + 1),
+    [],
+  );
 
   useEffect(() => {
     if (load !== "auto") return;
@@ -220,6 +319,13 @@ export function AgentKitRoot({
       released: false,
     };
     activeLoadLease.current = lease;
+    const settle = (status: AgentKitThreadLoadState["status"]) =>
+      setThreadLoadState({
+        controller: resolvedController,
+        threadId,
+        status,
+        attempt: loadAttempt,
+      });
     void resolvedController
       .openThread(threadId)
       .then((threadLease) => {
@@ -229,13 +335,17 @@ export function AgentKitRoot({
           return;
         }
         if (threadLease.threadFound === false) {
+          settle("missing");
           const error = new Error(`Thread not found: ${threadId}`);
           Object.assign(error, { status: 404, code: "not_found" });
           onLoadErrorRef.current?.(error);
+        } else {
+          settle("found");
         }
       })
       .catch((error) => {
         if (!lease.released && activeLoadLease.current === lease) {
+          settle("failed");
           onLoadErrorRef.current?.(error);
           return;
         }
@@ -259,7 +369,7 @@ export function AgentKitRoot({
       lease.released = true;
       lease.thread?.release();
     };
-  }, [load, resolvedController, threadId]);
+  }, [load, loadAttempt, resolvedController, threadId]);
 
   useEffect(() => {
     if (!managedClient) return;
@@ -278,9 +388,32 @@ export function AgentKitRoot({
     };
   }, [managedClient]);
 
+  const threadLoad = useMemo<AgentKitThreadLoadState | undefined>(() => {
+    if (load !== "auto") return undefined;
+    if (
+      !threadLoadState ||
+      threadLoadState.controller !== resolvedController ||
+      threadLoadState.threadId !== threadId ||
+      threadLoadState.attempt !== loadAttempt
+    ) {
+      return { threadId, status: "pending" };
+    }
+    return threadLoadState.status === "failed"
+      ? { threadId, status: "failed", retry: retryLoad }
+      : { threadId, status: threadLoadState.status };
+  }, [
+    load,
+    loadAttempt,
+    resolvedController,
+    retryLoad,
+    threadId,
+    threadLoadState,
+  ]);
+
   return (
     <AgentKitProvider
       controller={resolvedController}
+      threadLoad={threadLoad}
       threadId={threadId}
       slots={slots}
       registry={registry}
@@ -294,6 +427,10 @@ export function AgentKitRoot({
       onConnectionRequest={onConnectionRequest}
       onRenderError={onRenderError}
       resolveMessageContentOrder={resolveMessageContentOrder}
+      workedForRowLayout={workedForRowLayout}
+      dataChartLayout={dataChartLayout}
+      formatWorkedForDuration={formatWorkedForDuration}
+      formatModelName={formatModelName}
       onClientEffect={onClientEffect}
     >
       {children}

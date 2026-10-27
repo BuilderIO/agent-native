@@ -1,0 +1,293 @@
+{
+  "spec": "ExecutionLease.tla",
+  "tlaTools": {
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  },
+  "checks": [
+    {
+      "config": "ExecutionLease.cfg"
+    },
+    {
+      "config": "ExecutionLeasePolicyFlip.cfg"
+    },
+    {
+      "config": "sufficiency/fence-alone.cfg"
+    },
+    {
+      "config": "sufficiency/clause-alone.cfg"
+    }
+  ],
+  "mutations": [
+    {
+      "config": "mutations/a-dispatch-without-fence.cfg",
+      "invariant": "P1",
+      "breaks": "markAgentExecutionStepDispatched without the fence (ownership clause kept)"
+    },
+    {
+      "config": "mutations/b-replay-dispatched-never-step.cfg",
+      "invariant": "P8",
+      "breaks": "beginAgentExecutionStep replaying a dispatched never step"
+    },
+    {
+      "config": "mutations/c-effect-before-dispatch-commit.cfg",
+      "invariant": "P8",
+      "breaks": "the action starting before markAgentExecutionStepDispatched commits"
+    },
+    {
+      "config": "mutations/d-claim-ignores-live-owner.cfg",
+      "invariant": "ClaimRespectsLiveOwner",
+      "breaks": "claimExecutionLease taking a live lease from a running owner"
+    },
+    {
+      "config": "mutations/e-fence-check-then-act.cfg",
+      "invariant": "P1",
+      "breaks": "a fenced write whose lease check commits before the write"
+    },
+    {
+      "config": "mutations/g-reset-without-successor-fence.cfg",
+      "invariant": "P1",
+      "breaks": "reset fallback writing to a successor without checking its current lease"
+    }
+  ],
+  "findings": [
+    {
+      "config": "findings/F2-prune-under-live-lease.cfg",
+      "invariant": "P8",
+      "finding": "F2: the retention prune deletes step rows without checking the lease"
+    },
+    {
+      "config": "findings/F3-policy-flip-forgets-dispatch.cfg",
+      "invariant": "P8Strict",
+      "finding": "F3: re-adopting a dispatched retry-safe step forgets it was dispatched"
+    }
+  ],
+  "coverage": {
+    "syncCommit": "5d0a977551988461d84ffed6f663cb2d92f4d955",
+    "code": [
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "claimExecutionLease",
+        "sha256": "37cb4113a1a5e2533d9d70456a9576da750b9da2c24c7a61e7804b28450aaea7"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "renewExecutionLease",
+        "sha256": "eeec8f605d5459db907b0015b793876e1be225cca731d32cd490f9d88bf03044"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "releaseTurnExecutionLease",
+        "sha256": "ccce48832329ed2e68810aa1de26ce0abb0e64f25e9ec6eff5fd9ea801cf8031"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "withAgentExecutionStepIntentFence",
+        "sha256": "901bb8dd73dc73ed033d817489ead23e28115de984ede8737a9ce72a06651909"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "beginAgentExecutionStep",
+        "sha256": "2b7fcb58d698d5f19f94409327e75a63c21bd5de3f25f639f787f5e489809cf4"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "markAgentExecutionStepDispatched",
+        "sha256": "a66d7733297b7c79d99b0e744b6333d123b6909ef8d96b868d6cd33b92a8f436"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "resetAgentExecutionStepBeforeInvocation",
+        "sha256": "77980f0770a6141e7a354e693f09ba7b643b6d7c8c2b7d061dd1ba3d0cd8d56a"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "completeAgentExecutionStep",
+        "sha256": "a394d847aa95411031568f6aa8379fd323a892e30d50bfe3a9e1efb3520dda79"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "markAgentExecutionStepUnknown",
+        "sha256": "a06c9935c84574bb31e335b1a2bea2cf7b2291172d6b7cd3516912bcd83cba87"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "recordLateAgentExecutionStepOutcome",
+        "sha256": "93c387c269013720a648f203b53b09650b4618570f54071208394f2de1058893"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "updateRunStatusIfRunning",
+        "sha256": "b11df089d98c1ac61d05fd496d2b6cdd7ad9ae40422c3e2bf1e990600c06eea8"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "revokeTaskExecutionLease",
+        "sha256": "7dc15e1e554731f113de21c883f384caab510dd722b94ff4cd984dac405dfd71"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "revokeExecutionLeasesForRuns",
+        "sha256": "9c659819c24cf210ceece22cb4466d9c8682ab1549e09b6570e6185cb41f21a7"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "updateRunAborted",
+        "sha256": "34303f17ade3a74ef977841622fa7490e66a11690220ed17636dfeb69757e2da"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "markTurnAborted",
+        "sha256": "94a1135fb503d0100c463da1c4ee2d392d5539a8b99ac7b0d7b4333b654941b9"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "insertTurnAbortMarkers",
+        "sha256": "7d31e5b3916aa80ef72a9e9c1a9eb2e6731d984d74e82d164fb6bdb6cd5e5842"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "reapSingleStaleRun",
+        "sha256": "723c3b8e0e0b71bfa6890cf4121fe8ea4eb4a938935f92991a4d6f4c7fbecf03"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "failRunBeforeDispatch",
+        "sha256": "dd3035f91cf29d0062870168f7076b5bb27af6d7e734bc091e986c4d0a454e17"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "finalizeClaimedBackgroundRunFailure",
+        "sha256": "d44e03eb6ca1001284913b5d48df5b7d1c7e7f4b2741c9b30a83a9c2d42f9e94"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "releaseBackgroundRunBeforeStart",
+        "sha256": "7a6280572cbfcc2afc4848c930b26d46035b871603994cb4e72f5340d4e5d24c"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "reapUnclaimedBackgroundRun",
+        "sha256": "ad5ec824428723cb38a7aa5b677398acf521cf03a4185c4778bcd0b3815e993e"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "tryClaimRunSlot",
+        "sha256": "318bcabe060e9e1c5918c8f5164494d00ed2bb2bfb8e539c08b7b4a2e944e66e"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "attemptStaleRunRecovery",
+        "sha256": "ad73090034f9876ea38496be86a78ababc80ef43fbbd387af7111305636caa17"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "insertRun",
+        "sha256": "f09c39c56de9d09aae24779ffaff387c5029518f556bb7b243092769585b4ac8"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "pruneAndRollUpPrunedRunOutcomes",
+        "sha256": "034be8dfe4ef43f866b0c601437f9c15fe01727024acf305c5a7fcd77f14c364"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "lockAndAssertCurrentExecutionFences",
+        "sha256": "14275075908e01dd143ff3054343b5fc7dec85001f5d2c78ba4852b14a6c1d8a"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "withFencedExecutionWrite",
+        "sha256": "51abd5b380a4a8ccda0aca6e6155963b8c2479f06dbc7ba2334bd2d5fd7c2734"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "name": "invokeAction",
+        "sha256": "bfc83261e844b305d3be51f0fd85368f593aeb43091805e1811e12a616c9f45a"
+      },
+      {
+        "file": "packages/core/src/jobs/background-automation-runner.ts",
+        "name": "confirmAutomationWork",
+        "sha256": "36cf9d9ff22400f37fb938cbfa84e358bbfa59ec7cad5c6435a8fa33cf363fef"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "const executionFence = currentExecutionFence();",
+        "to": "? await beginAgentExecutionStep(executionStepIntent)",
+        "sha256": "2523a512cffb1241265ea26195a5765c5bbe3410350558820db39acc437f3582"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "currentExecutionFence",
+        "sha256": "f54805df3cedab016973ab4fad116c994552c4fd3addcaaf5ead86791a821275"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "currentExecutionFenceForScope",
+        "sha256": "544d3dd795a9538eae2883d3bbbb1f4a88e5b43f8b5731a17649aaeb36de5ccc"
+      },
+      {
+        "file": "packages/core/src/agent/execution-fence.ts",
+        "name": "withExecutionFence",
+        "sha256": "00170c8d69bdd2aa4004597d3690c70ff39b5395ea1556b6d93f8ab227afae25"
+      },
+      {
+        "file": "packages/core/src/agent/run-store.ts",
+        "name": "lockTurnExecutionLease",
+        "sha256": "f1590e82518b6b5419ba87ef17676852255e77232bb602a057f1b34d4787940f"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "const registeredEntry = actions[toolCall.name];",
+        "to": "? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))",
+        "sha256": "d45778170ba2bf2402b50f9d1078b5a380c65d3e939607594fcc3e46d34fa251"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "name": "intentIsReadOnly",
+        "sha256": "ef113f29360a51e75cdb10cc2b42aa72a494b808b22f09b770cfa9fe8595b730"
+      },
+      {
+        "file": "packages/core/src/action-call-classification.ts",
+        "name": "actionCallIsRetrySafe",
+        "sha256": "dd87718d0babb816d02370b9057da4fa275408e13b53ea770d8ab9ff20c130b5"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "name": "resolveToolCallIntent",
+        "sha256": "b83f253b91011dea47ee2dea4435b85cd28c3992cf978276313b322d58d50bd5"
+      },
+      {
+        "file": "packages/core/src/action-call-classification.ts",
+        "name": "classifyActionCall",
+        "sha256": "ca1e64bc3cee4634157faa96c47ba1d8782ea02a5fe4ecaad9fcbaf9124232be"
+      },
+      {
+        "file": "packages/core/src/action.ts",
+        "name": "actionCallIntent",
+        "sha256": "6a0a6733443a3d2c06dcface0c77b604b335db462cf7edee719e88774674b775"
+      },
+      {
+        "file": "packages/core/src/action.ts",
+        "name": "preparedCallArguments",
+        "sha256": "d1dfad50db94bc94595513354aa83c302b1758d503aca4e3dafe53c2e0561f0e"
+      },
+      {
+        "file": "packages/core/src/action-input-coercion.ts",
+        "name": "coerceGatewayStringifiedArgs",
+        "sha256": "60998e423b73e217c6a318cc449596693ffb922792498ffbdc9dd39332e3d4a5"
+      },
+      {
+        "file": "packages/core/src/action.ts",
+        "name": "validateActionArgs",
+        "sha256": "e60d44389f87dba653a678136c3743b88ff16ab762c42ca63634961a7028b2b8"
+      },
+      {
+        "file": "packages/core/src/action-arguments-identity.ts",
+        "name": "snapshotActionArguments",
+        "sha256": "6c010fb9669b7a96b1b7419ef8ea7f5cb552fb956da8c84a6c55d185eb1bc90a"
+      }
+    ]
+  }
+}

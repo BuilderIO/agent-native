@@ -174,7 +174,7 @@ function expectStyledCards(html: string, cards: number) {
   expect(html).not.toContain("color: orange");
   expect(html).not.toContain("agent-native-clipboard-v1");
   expect(html).not.toContain('data-agent-native-node-id="source-card"');
-  expect(count(html, 'data-agent-native-clone-root="true"')).toBe(cards);
+  expect(html).not.toContain("data-agent-native-clone-root");
   expect(count(html, 'data-agent-native-preserve-styles="true"')).toBe(cards);
 }
 
@@ -377,7 +377,6 @@ test.describe("editor keyboard layer clipboard", () => {
       "data-agent-native-node-id": sourceCard,
       "data-agent-native-layer-name": "Copy Card",
       class: "max-[1279px]:p-6",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
 

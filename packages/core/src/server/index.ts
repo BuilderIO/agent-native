@@ -16,6 +16,7 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
@@ -210,6 +211,19 @@ export {
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
 export {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -747,6 +761,9 @@ export {
 } from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";

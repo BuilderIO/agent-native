@@ -151,9 +151,9 @@ type DragHandleMenuContext = {
   sourcePos: number;
   sourceNodeSize: number;
   /** The block's Yjs element, when the editor is collaborative. */
-  yBlock?: YBlock;
+  yBlock?: YBlock | undefined;
   /** The open menu, whose block the editor tracks without collaboration. */
-  menu?: object;
+  menu?: object | undefined;
 };
 
 type YBlock = {
@@ -194,7 +194,8 @@ function watchYBlock(
   const binding = getYBinding(view);
   if (!binding) return undefined;
   const index = view.state.doc.resolve(pos).index();
-  const candidate = binding.type.get(index);
+  const candidate =
+    index < binding.type.length ? binding.type.get(index) : null;
   const element =
     candidate && binding.mapping.get(candidate) === view.state.doc.child(index)
       ? candidate

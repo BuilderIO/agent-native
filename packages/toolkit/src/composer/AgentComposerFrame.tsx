@@ -3,6 +3,10 @@ import { useEffect, useRef } from "react";
 import type React from "react";
 
 import { cn } from "../utils.js";
+import {
+  ComposerNoticeScopeProvider,
+  useComposerNoticeSlot,
+} from "./composer-notice.js";
 import type { AgentComposerLayoutVariant } from "./types.js";
 
 export interface AgentComposerFrameProps {
@@ -16,6 +20,8 @@ export interface AgentComposerFrameProps {
   rootStyle?: React.CSSProperties;
   layoutVariant?: AgentComposerLayoutVariant;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
+  /** Collect the surrounding ComposerNoticeScope's notices above this input. */
+  noticeOutlet?: boolean;
 }
 
 export function AgentComposerFrame({
@@ -29,16 +35,21 @@ export function AgentComposerFrame({
   rootStyle,
   layoutVariant = "default",
   onClick,
+  noticeOutlet = false,
 }: AgentComposerFrameProps) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const notices = useComposerNoticeSlot(noticeOutlet);
 
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
 
-    const shell = frame.closest<HTMLElement>(
-      ".agent-layout-shell, .agent-sidebar-shell",
-    );
+    // Standalone hosts have no app shell; scope the height to the chat, or
+    // the document, so the keyboard still lifts the composer.
+    const shell =
+      frame.closest<HTMLElement>(".agent-layout-shell, .agent-sidebar-shell") ??
+      frame.closest<HTMLElement>(".agentkit-chat") ??
+      document.documentElement;
     const viewport = window.visualViewport;
     if (!shell || !viewport) return;
     const activeShell = shell;
@@ -142,19 +153,27 @@ export function AgentComposerFrame({
       style={style}
       onClick={onClick}
     >
-      <ComposerPrimitive.Root
-        data-agent-composer-variant={layoutVariant}
-        data-agent-composer-slot="root"
-        className={cn(
-          "agent-composer-root flex min-w-0 flex-col rounded-lg border border-input transition-colors",
-          layoutVariant !== "default" &&
-            `agent-composer-root--${layoutVariant}`,
-          rootClassName,
-        )}
-        style={rootStyle}
-      >
-        {children}
-      </ComposerPrimitive.Root>
+      {/* Notices portal in here; React renders nothing else inside it. */}
+      <div
+        ref={notices.slotRef}
+        data-agent-composer-slot="notices"
+        className="agent-composer-notices flex min-w-0 flex-col gap-2 pb-2 empty:hidden"
+      />
+      <ComposerNoticeScopeProvider value={notices.scope}>
+        <ComposerPrimitive.Root
+          data-agent-composer-variant={layoutVariant}
+          data-agent-composer-slot="root"
+          className={cn(
+            "agent-composer-root flex min-w-0 flex-col border transition-colors",
+            layoutVariant !== "default" &&
+              `agent-composer-root--${layoutVariant}`,
+            rootClassName,
+          )}
+          style={rootStyle}
+        >
+          {children}
+        </ComposerPrimitive.Root>
+      </ComposerNoticeScopeProvider>
     </div>
   );
 

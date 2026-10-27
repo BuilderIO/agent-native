@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER } from "../action-ui.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -75,7 +76,7 @@ export function createWorkspaceFileActionEntries(): Record<
   string,
   ActionEntry
 > {
-  return {
+  return frameworkMcpTools({
     "show-workspace-file": showWorkspaceFileAction,
-  };
+  });
 }

@@ -21,9 +21,12 @@ import {
   setColumnColors,
   setRowColor,
   setRowColors,
+  setTableColumnCount,
   setTableFitWidth,
   setTableHeaders,
+  setTableRowCount,
   type TableAt,
+  tableGridSize,
   tableWithDuplicatedColumn,
 } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
@@ -34,24 +37,32 @@ const schema = getSchema(createVisualEditorExtensions());
 function cell(spec: string) {
   const header = spec.startsWith("h:");
   const text = header ? spec.slice(2) : spec;
-  return (header ? schema.nodes.tableHeader : schema.nodes.tableCell).create(
+  return schema.node(
+    header ? "tableHeader" : "tableCell",
     null,
-    schema.nodes.paragraph.create(null, text ? schema.text(text) : null),
+    schema.node("paragraph", null, text ? schema.text(text) : undefined),
   );
 }
 
 function table(rows: string[][], attrs: Record<string, unknown> = {}) {
-  return schema.nodes.table.create(
+  return schema.node(
+    "table",
     attrs,
-    rows.map((row) => schema.nodes.tableRow.create(null, row.map(cell))),
+    rows.map((row) => schema.node("tableRow", null, row.map(cell))),
   );
 }
 
 function docWith(...tables: ProseMirrorNode[]) {
-  return schema.nodes.doc.create(null, [
-    schema.nodes.paragraph.create(null, schema.text("Before")),
+  return schema.node("doc", null, [
+    schema.node("paragraph", null, schema.text("Before")),
     ...tables,
   ]);
+}
+
+function firstTable(doc: ProseMirrorNode) {
+  const table = findTableByIndex(doc, 0);
+  if (!table) throw new Error("The document has no table");
+  return table;
 }
 
 function edit(
@@ -59,8 +70,8 @@ function edit(
   change: (tr: Transaction, table: TableAt) => void,
 ) {
   const tr = EditorState.create({ doc: docWith(node) }).tr;
-  change(tr, findTableByIndex(tr.doc, 0)!);
-  return findTableByIndex(tr.doc, 0)!.node;
+  change(tr, firstTable(tr.doc));
+  return firstTable(tr.doc).node;
 }
 
 function cells(node: ProseMirrorNode) {
@@ -306,21 +317,23 @@ describe("rows", () => {
 describe("a merged cell's rows and columns", () => {
   // A table whose first cell spans `span` columns or rows.
   function withMergedCell(span: "colspan" | "rowspan", rows: string[][]) {
-    const merged = schema.nodes.tableCell.create(
+    const merged = schema.node(
+      "tableCell",
       { [span]: 2 },
-      schema.nodes.paragraph.create(null, schema.text("A")),
+      schema.node("paragraph", null, schema.text("A")),
     );
-    const node = schema.nodes.table.create(
+    const node = schema.node(
+      "table",
       null,
       rows.map((row, index) =>
-        schema.nodes.tableRow.create(null, [
+        schema.node("tableRow", null, [
           ...(index === 0 ? [merged] : []),
           ...row.map(cell),
         ]),
       ),
     );
     const map = TableMap.get(node);
-    return { node, span: map.findCell(map.map[0]) };
+    return { node, span: map.findCell(map.positionAt(0, 0, node)) };
   }
 
   it("colours and deletes every column the cell covers", () => {
@@ -336,6 +349,30 @@ describe("a merged cell's rows and columns", () => {
     );
     expect(cells(deleted)).toEqual([["C"], ["F"]]);
     expect(columnColors(deleted)).toEqual([null]);
+  });
+
+  it("counts and resizes a table by its grid when its first row has a merged cell", () => {
+    // The first row has two cells, but the table is three columns wide.
+    const { node } = withMergedCell("colspan", [["C"], ["D", "E", "F"]]);
+    expect(tableGridSize(node)).toEqual({ rows: 2, columns: 3 });
+
+    const wider = edit(node, (tr, target) =>
+      setTableColumnCount(tr, target, 4),
+    );
+    expect(tableGridSize(wider)).toEqual({ rows: 2, columns: 4 });
+    expect(cells(wider)).toEqual([
+      ["A", "C", ""],
+      ["D", "E", "F", ""],
+    ]);
+
+    const narrower = edit(node, (tr, target) =>
+      setTableColumnCount(tr, target, 2),
+    );
+    expect(tableGridSize(narrower)).toEqual({ rows: 2, columns: 2 });
+    expect(cells(narrower)).toEqual([["A"], ["D", "E"]]);
+
+    const taller = edit(node, (tr, target) => setTableRowCount(tr, target, 3));
+    expect(tableGridSize(taller)).toEqual({ rows: 3, columns: 3 });
   });
 
   it("duplicates a column by the grid, growing a cell merged across it", () => {
@@ -356,7 +393,7 @@ describe("a merged cell's rows and columns", () => {
       ["A", "C"],
       ["D", "E", "E", "F"],
     ]);
-    expect(next.firstChild!.firstChild!.attrs.colspan).toBe(3);
+    expect(next.child(0).child(0).attrs.colspan).toBe(3);
     expect(columnColors(next)).toEqual([null, "red", "red", null]);
     expect(TableMap.get(next).problems).toBeNull();
   });
@@ -366,7 +403,7 @@ describe("a merged cell's rows and columns", () => {
 
     const next = tableWithDuplicatedColumn(node, 0);
     expect(cells(next)).toEqual([["A", "A", "B"], ["C"], ["D", "D", "E"]]);
-    expect(next.firstChild!.child(1).attrs.rowspan).toBe(2);
+    expect(next.child(0).child(1).attrs.rowspan).toBe(2);
     expect(TableMap.get(next).problems).toBeNull();
   });
 

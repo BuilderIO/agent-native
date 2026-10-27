@@ -207,6 +207,7 @@ export function renderEditorCanvasArea({
     commentsHidden,
     handleContextMenuAgentPreset,
     handleAddAutoLayout,
+    handleDisableAutoLayout,
     handleSuggestAutoLayout,
     handleToggleUi,
     handleToggleComments,
@@ -360,6 +361,7 @@ export function renderEditorCanvasArea({
         order: t("canvasMenu.order"),
         createComponent: t("canvasMenu.createComponent"),
         addAutoLayout: t("canvasMenu.addAutoLayout"),
+        removeAutoLayout: t("canvasMenu.removeAutoLayout"),
         copyAs: t("canvasMenu.copyAs"),
         copyProps: t("canvasMenu.copyProps"),
         pasteProps: t("canvasMenu.pasteProps"),
@@ -507,6 +509,13 @@ export function renderEditorCanvasArea({
         selectedDomLayerIds.length >= 1 &&
         selectedLayersInActiveFile
       }
+      canRemoveAutoLayout={
+        canEditDesign &&
+        selectedLayersInActiveFile &&
+        Boolean(
+          selectedElement?.isFlexContainer || selectedElement?.isGridContainer,
+        )
+      }
       canSuggestAutoLayout={canSuggestAutoLayout}
       isUiHidden={uiHidden}
       isCommentsHidden={commentsHidden}
@@ -560,6 +569,9 @@ export function renderEditorCanvasArea({
       onFlipHorizontal={canEditDesign ? handleFlipHorizontal : undefined}
       onFlipVertical={canEditDesign ? handleFlipVertical : undefined}
       onAddAutoLayout={canEditDesign ? handleAddAutoLayout : undefined}
+      onRemoveAutoLayout={
+        canEditDesign ? () => handleDisableAutoLayout() : undefined
+      }
       onSuggestAutoLayout={
         canSuggestAutoLayout ? handleSuggestAutoLayout : undefined
       }

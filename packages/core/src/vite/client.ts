@@ -78,7 +78,6 @@ import {
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
 import {
-  AGENT_NATIVE_TYPEGEN_ENV,
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
   isTruthyRuntimeValue,
@@ -1185,7 +1184,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
-    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },
@@ -2916,10 +2914,11 @@ function readAppChangelogMarkdown(
   changelogPath: string,
   watchFile: (file: string) => void,
 ): string {
-  watchFile(changelogPath);
-  const existing = fs.existsSync(changelogPath)
-    ? fs.readFileSync(changelogPath, "utf-8")
-    : "";
+  // Vite resolves watch files as imports of this `?raw` module, so watching a
+  // missing CHANGELOG.md fails the page's client import in dev.
+  const hasChangelog = fs.existsSync(changelogPath);
+  if (hasChangelog) watchFile(changelogPath);
+  const existing = hasChangelog ? fs.readFileSync(changelogPath, "utf-8") : "";
   const pendingDir = path.join(path.dirname(changelogPath), "changelog");
   if (!fs.existsSync(pendingDir)) {
     return existing;
@@ -4713,8 +4712,6 @@ function reportRuntimeConfigDiagnostics(
   mode: string,
   env: Record<string, string | undefined> = process.env,
 ): void {
-  if (process.env[AGENT_NATIVE_TYPEGEN_ENV] === "1") return;
-
   const production =
     mode === "production" || process.env.NODE_ENV === "production";
   if (!production) return;

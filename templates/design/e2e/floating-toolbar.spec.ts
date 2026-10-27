@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { waitForEditorBoot } from "./editor-boot";
 import {
   appPath,
   gotoEditor,
@@ -216,6 +217,7 @@ test.describe("floating toolbar", () => {
     await page.goto(appPath(`/design/${designId}?tool=agent`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     const toolbar = page.locator(TOOLBAR);
     const move = toolbar.getByRole("button", { name: "Move", exact: true });
 

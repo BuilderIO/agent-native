@@ -1383,6 +1383,7 @@ describe("runDuplicateScreen", () => {
       designId: "design-1",
       filename: "index-copy.html",
       fileType: "html",
+      frameType: null,
       createdAt: "2026-10-14T00:00:00.000Z",
       renderable: true,
       _receipt: {

@@ -85,10 +85,11 @@ describe("BlockActionsMenu", () => {
     });
     host = document.createElement("div");
     document.body.append(host);
-    root = createRoot(host);
+    const nextRoot = createRoot(host);
+    root = nextRoot;
     const current = editor;
     act(() =>
-      root!.render(
+      nextRoot.render(
         <BlockActionsMenu
           editor={current}
           onComment={onComment}
@@ -144,8 +145,11 @@ describe("BlockActionsMenu", () => {
         `${label(item)}${item.hasAttribute("aria-checked") ? `=${item.getAttribute("aria-checked")}` : ""}`,
     );
 
-  const item = (text: string, menu = menus()[0]) =>
-    menuItems(menu).find((element) => label(element) === text)!;
+  function item(text: string, menu = menus()[0]) {
+    const found = menuItems(menu).find((element) => label(element) === text);
+    if (!found) throw new Error(`No menu item "${text}"`);
+    return found;
+  }
 
   function choose(text: string, menu = menus()[0]) {
     act(() => item(text, menu).click());
@@ -181,6 +185,21 @@ describe("BlockActionsMenu", () => {
     act(() => trigger.focus());
     press(trigger, "ArrowRight");
     return menus()[1]!;
+  }
+
+  function pressEscape() {
+    const focused = document.activeElement;
+    if (!focused) throw new Error("Nothing has focus");
+    act(() => {
+      focused.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+    });
+  }
+
+  function mounted() {
+    if (!root || !host) throw new Error("Nothing is mounted");
+    return { root, host };
   }
 
   it("offers a table's header and width switches", () => {
@@ -522,7 +541,7 @@ describe("BlockActionsMenu", () => {
     const target = mount();
     open(target, 1);
 
-    press(document.activeElement!, "Escape");
+    pressEscape();
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
     expect(menus()).toEqual([]);
@@ -551,9 +570,9 @@ describe("BlockActionsMenu", () => {
     const target = mount();
     open(target, 1);
     const input = document.createElement("input");
-    host!.append(input);
+    mounted().host.append(input);
 
-    press(document.activeElement!, "Escape");
+    pressEscape();
     input.focus();
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
@@ -563,8 +582,9 @@ describe("BlockActionsMenu", () => {
 
   it("closes when the grip closes it", () => {
     const { request, close } = open(mount(), 1);
+    if (!close) throw new Error("The editor's menu didn't open");
 
-    act(() => close!());
+    act(() => close());
 
     expect(menus()).toEqual([]);
     expect(request.onClose).not.toHaveBeenCalled();
@@ -574,7 +594,7 @@ describe("BlockActionsMenu", () => {
     const target = mount();
     const { request } = open(target, 1);
 
-    act(() => root!.render(null));
+    act(() => mounted().root.render(null));
 
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(request.onClose).toHaveBeenCalledOnce();
@@ -582,7 +602,7 @@ describe("BlockActionsMenu", () => {
 
   it("lets the grip open its own menu when no editor menu is mounted", () => {
     const target = mount();
-    act(() => root!.unmount());
+    act(() => mounted().root.unmount());
     root = null;
 
     expect(open(target, 1).close).toBeNull();

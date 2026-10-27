@@ -93,6 +93,7 @@ function PropertyChoices({
   selectedIds: savedIds,
   multiple,
   noneLabel,
+  otherChoice,
   onChange,
 }: {
   label: string;
@@ -100,6 +101,8 @@ function PropertyChoices({
   selectedIds: string[];
   multiple: boolean;
   noneLabel?: string;
+  /** A choice that isn't a property, listed after Nothing (Line 2's page text). */
+  otherChoice?: { label: string; selected: boolean; onSelect: () => void };
   onChange: (ids: string[]) => void;
 }) {
   // A saved slot can name a property this menu doesn't offer: one hidden, or
@@ -107,8 +110,11 @@ function PropertyChoices({
   // In Line 3 and End it stays saved for when it's shown again.
   const offeredIds = properties.map((property) => property.definition.id);
   const selectedIds = savedIds.filter((id) => offeredIds.includes(id));
-  const rows = [
+  const rows: Array<{ id: string; name: string; other?: true }> = [
     ...(noneLabel ? [{ id: "", name: noneLabel }] : []),
+    ...(otherChoice
+      ? [{ id: "", name: otherChoice.label, other: true as const }]
+      : []),
     ...properties.map((property) => ({
       id: property.definition.id,
       name: property.definition.name,
@@ -121,9 +127,11 @@ function PropertyChoices({
       className="grid max-h-56 gap-0.5 overflow-y-auto"
     >
       {rows.map((row) => {
-        const selected = row.id
-          ? selectedIds.includes(row.id)
-          : selectedIds.length === 0;
+        const selected = row.other
+          ? otherChoice!.selected
+          : row.id
+            ? selectedIds.includes(row.id)
+            : selectedIds.length === 0 && !otherChoice?.selected;
         const position = row.id ? selectedIds.indexOf(row.id) : -1;
         const full =
           multiple &&
@@ -132,12 +140,13 @@ function PropertyChoices({
           selectedIds.length >= MAX_ITEM_LAYOUT_META_PROPERTIES;
         return (
           <button
-            key={row.id || "none"}
+            key={row.id || (row.other ? "other" : "none")}
             type="button"
             aria-pressed={selected}
             disabled={full}
             className="flex h-8 items-center gap-2 rounded px-2 text-left text-sm enabled:hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             onClick={() => {
+              if (row.other) return otherChoice!.onSelect();
               if (!multiple) return onChange(row.id ? [row.id] : []);
               onChange(
                 toggleContentDatabaseItemLayoutMetaProperty(
@@ -253,22 +262,37 @@ export function ListItemLayoutSlotEditor({
     );
   }
   if (slot === "line2") {
+    const pageText = layout.line2.source === "page";
+    const { lines } = layout.line2;
     return (
       <div className="grid gap-2">
         <PropertyChoices
           label={label}
           properties={itemLayoutLine2Candidates(properties)}
-          selectedIds={layout.line2.propertyId ? [layout.line2.propertyId] : []}
+          selectedIds={
+            !pageText && layout.line2.propertyId
+              ? [layout.line2.propertyId]
+              : []
+          }
           multiple={false}
           noneLabel={dbText("listRowsNothing")}
+          otherChoice={{
+            label: dbText("listRowsPageText"),
+            selected: pageText,
+            onSelect: () =>
+              onChange({
+                ...layout,
+                line2: { source: "page", propertyId: null, lines },
+              }),
+          }}
           onChange={([id]) =>
             onChange({
               ...layout,
-              line2: { ...layout.line2, propertyId: id ?? null },
+              line2: { propertyId: id ?? null, lines },
             })
           }
         />
-        {layout.line2.propertyId ? (
+        {pageText || layout.line2.propertyId ? (
           <Segmented<1 | 2 | 3>
             label={label}
             value={layout.line2.lines}

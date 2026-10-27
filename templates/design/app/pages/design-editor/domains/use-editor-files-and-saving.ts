@@ -35,6 +35,7 @@ import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import { isHostedInProcess } from "@/host/design-host-channel";
+import { recordSaveReplayOutcomes } from "@/lib/canvas-outcome-tracking";
 import {
   acknowledgeDesignSaveOutboxEntry,
   createDesignSaveOutboxEntry,
@@ -315,6 +316,7 @@ export function useEditorFilesAndSaving({
         designId: id,
         actorScope: designSaveActorScope,
       });
+      recordSaveReplayOutcomes(result, id);
       if (result.rebased.length > 0) {
         toast.error(t("designEditor.toasts.saveConflict"), {
           id: "design-save-conflict:outbox",

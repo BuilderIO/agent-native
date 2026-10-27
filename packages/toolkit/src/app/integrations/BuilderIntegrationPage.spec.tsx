@@ -472,6 +472,28 @@ describe("BuilderIntegrationPage", () => {
     expect(disconnectMock).toHaveBeenCalledWith({ disconnect: "org" });
   });
 
+  it("keeps Builder usage unknown when the active storage provider cannot be checked", async () => {
+    flowMock.current = orgConnected();
+    actionMocks.useActionQuery.mockReturnValue({
+      data: {
+        activeProvider: null,
+        activeProviderUnavailable: true,
+      },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    await render(admin);
+
+    await vi.waitFor(() =>
+      expect(row("builder-used-for-error")).not.toBeNull(),
+    );
+    expect(row("builder-use-file-storage")).toBeNull();
+    expect(row("builder-used-for-error")?.textContent).toContain(
+      "Couldn't check which services run on Builder.io.",
+    );
+  });
+
   async function openOrgDisconnect() {
     await openMenu("org");
     await act(async () => button("Disconnect", document.body)?.click());

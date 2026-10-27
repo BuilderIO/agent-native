@@ -24,7 +24,10 @@ import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { createAppendPositionAllocator } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
@@ -256,7 +259,7 @@ export default defineAction({
     documentId: z.string().optional(),
     sourceId: z.string().optional(),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -572,6 +575,9 @@ export default defineAction({
       );
     });
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

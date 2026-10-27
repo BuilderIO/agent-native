@@ -280,11 +280,12 @@ export async function amendSuggestion(
   summary: string,
   idempotencyKey: string,
   request: string,
+  baseRevision: string = before.baseRevision,
 ): Promise<ResourceSuggestion | null> {
   const now = new Date().toISOString();
   const claimed = await client.execute({
-    sql: "UPDATE agent_review_suggestions SET revision = revision + 1, summary = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
-    args: [summary, now, before.id, before.revision],
+    sql: "UPDATE agent_review_suggestions SET revision = revision + 1, summary = ?, base_revision = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND revision = ?",
+    args: [summary, baseRevision, now, before.id, before.revision],
   });
   if (claimed.rowsAffected !== 1) return null;
   await client.execute({
@@ -313,6 +314,37 @@ export async function amendSuggestion(
   return after;
 }
 
+/**
+ * Moves a pending suggestion onto `baseRevision` with `operations` that make
+ * the same change there, as when its resource was rewritten into an
+ * equivalent form. It is recorded as an amendment, so the suggestion's
+ * revision moves and anyone holding the old one refreshes before deciding.
+ * Null when the suggestion was decided or changed since `before` was read.
+ */
+export function rebaseSuggestion(
+  client: DbExec,
+  before: ResourceSuggestion,
+  input: {
+    operations: SuggestionOperation[];
+    baseRevision: string;
+    idempotencyKey: string;
+    reason: string;
+  },
+): Promise<ResourceSuggestion | null> {
+  return amendSuggestion(
+    client,
+    before,
+    input.operations,
+    before.summary,
+    input.idempotencyKey,
+    JSON.stringify({
+      rebase: input.reason,
+      baseRevision: input.baseRevision,
+    }),
+    input.baseRevision,
+  );
+}
+
 export async function getSuggestion(
   suggestionId: string,
   client = getDbExec(),
@@ -332,6 +364,41 @@ export async function getSuggestion(
     })
   ).rows;
   return suggestionFromRows(row, rows);
+}
+
+/** Loads several suggestions in two queries; missing ids come back as null. */
+export async function getSuggestions(
+  suggestionIds: readonly string[],
+  client = getDbExec(),
+): Promise<(ResourceSuggestion | null)[]> {
+  await ensureSuggestionTables(client);
+  if (suggestionIds.length === 0) return [];
+  const placeholders = suggestionIds.map(() => "?").join(",");
+  const rows = (
+    await client.execute({
+      sql: `SELECT s.*,p.summary AS proposal_summary FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id WHERE s.id IN (${placeholders})`,
+      args: [...suggestionIds],
+    })
+  ).rows;
+  const operations = new Map<string, Record<string, unknown>[]>();
+  for (const operation of (
+    await client.execute({
+      sql: `SELECT * FROM agent_review_suggestion_operations WHERE suggestion_id IN (${placeholders}) ORDER BY suggestion_id,ordinal`,
+      args: [...suggestionIds],
+    })
+  ).rows) {
+    const id = String(operation.suggestion_id);
+    const list = operations.get(id);
+    if (list) list.push(operation);
+    else operations.set(id, [operation]);
+  }
+  const byId = new Map(
+    rows.map((row) => [
+      String(row.id),
+      suggestionFromRows(row, operations.get(String(row.id)) ?? []),
+    ]),
+  );
+  return suggestionIds.map((id) => byId.get(id) ?? null);
 }
 
 function suggestionFromRows(

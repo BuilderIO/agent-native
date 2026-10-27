@@ -74,8 +74,8 @@ describe("TablePresentation", () => {
     const cells = render({ colMeta: [{}, { color: "red" }] }, "blue_bg");
     const colour = (text: string) =>
       cells
-        .find((element) => element.textContent === text)!
-        .classList.contains("content-block-color--red");
+        .find((element) => element.textContent === text)
+        ?.classList.contains("content-block-color--red");
 
     expect(["B", "D", "F"].map(colour)).toEqual([true, false, true]);
     expect(["A", "C", "E"].map(colour)).toEqual([false, false, false]);

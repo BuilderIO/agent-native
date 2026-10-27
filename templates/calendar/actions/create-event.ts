@@ -338,10 +338,8 @@ export default defineAction({
       ),
   }),
   needsApproval: ({ sendUpdates, attendees, eventType, autoDeclineMode }) =>
-    sendUpdates === "all" ||
-    sendUpdates === "externalOnly" ||
-    (sendUpdates === undefined &&
-      (normalizeAttendees(attendees)?.length ?? 0) > 0) ||
+    ((normalizeAttendees(attendees)?.length ?? 0) > 0 &&
+      sendUpdates !== "none") ||
     (eventType === "outOfOffice" && autoDeclineMode !== "declineNone"),
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();

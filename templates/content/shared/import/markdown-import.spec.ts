@@ -670,10 +670,12 @@ describe("Markdown import", () => {
     const page = importMarkdown(source);
 
     expect(page.dialect).toBe("nfm");
-    expect(page.content.length).toBeLessThan(source.length);
-    expect(noteKinds(page)).toEqual(
-      expect.arrayContaining(["unsupported-markdown", "text-not-landed"]),
+    expect(page.content).toContain("Deep body");
+    const deepestIndent = Math.max(
+      ...page.content.split("\n").map((line) => /^\t*/.exec(line)![0].length),
     );
+    expect(deepestIndent).toBeLessThanOrEqual(33);
+    expect(noteKinds(page)).toContain("unsupported-markdown");
   });
 
   it.each([

@@ -573,7 +573,7 @@ describe("export-pptx action", () => {
     expect(parsed.data).not.toHaveProperty("exportPurpose");
   });
 
-  it("stays silent inside the Google Slides build step", async () => {
+  it("stays silent inside the export build step", async () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: {
         title: "Deck",
