@@ -6693,6 +6693,7 @@ async function refreshBuilderPageTitles(
     }
   }
   const rows: typeof args.rows = [];
+  const titleUpdates: Array<{ id: string; value: string }> = [];
   for (const row of args.rows) {
     const previous = args.previousRows.get(row.documentId);
     const localTitle = localTitleById.get(row.documentId);
@@ -6716,10 +6717,7 @@ async function refreshBuilderPageTitles(
       displayKey: row.sourceDisplayKey,
     });
     if (read.title) {
-      await tx
-        .update(schema.documents)
-        .set({ title: read.title, updatedAt: args.now })
-        .where(eq(schema.documents.id, row.documentId));
+      titleUpdates.push({ id: row.documentId, value: read.title });
     }
     const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
       ownedKeys: [BUILDER_CMS_TITLE_CONFLICT_KEY],
@@ -6731,6 +6729,24 @@ async function refreshBuilderPageTitles(
         ? row
         : { ...row, sourceValuesJson: JSON.stringify(nextSourceValues) },
     );
+  }
+  for (const batch of chunks(titleUpdates, bulkChunkSizeForColumnCount(3))) {
+    await tx
+      .update(schema.documents)
+      .set({
+        title: hydrationCaseSql(
+          schema.documents.id,
+          schema.documents.title,
+          batch,
+        ),
+        updatedAt: args.now,
+      })
+      .where(
+        inArray(
+          schema.documents.id,
+          batch.map((update) => update.id),
+        ),
+      );
   }
   return rows;
 }
@@ -7016,8 +7032,7 @@ export async function materializeSourceFieldPropertyValues(args: {
   const boundSourceFieldKeys = new Set(
     boundFields.map((field) => field.sourceFieldKey),
   );
-  const editConflictUpdates: Array<{ id: string; sourceValuesJson: string }> =
-    [];
+  const editConflictUpdates: Array<{ id: string; value: string }> = [];
 
   for (const row of scopedRows) {
     const sourceValues =
@@ -7108,15 +7123,30 @@ export async function materializeSourceFieldPropertyValues(args: {
     ) {
       editConflictUpdates.push({
         id: row.id,
-        sourceValuesJson: JSON.stringify(nextSourceValues),
+        value: JSON.stringify(nextSourceValues),
       });
     }
   }
-  for (const update of editConflictUpdates) {
+  for (const batch of chunks(
+    editConflictUpdates,
+    bulkChunkSizeForColumnCount(3),
+  )) {
     await db
       .update(schema.contentDatabaseSourceRows)
-      .set({ sourceValuesJson: update.sourceValuesJson, updatedAt: args.now })
-      .where(eq(schema.contentDatabaseSourceRows.id, update.id));
+      .set({
+        sourceValuesJson: hydrationCaseSql(
+          schema.contentDatabaseSourceRows.id,
+          schema.contentDatabaseSourceRows.sourceValuesJson,
+          batch,
+        ),
+        updatedAt: args.now,
+      })
+      .where(
+        inArray(
+          schema.contentDatabaseSourceRows.id,
+          batch.map((update) => update.id),
+        ),
+      );
   }
   for (const chunk of chunks(
     Array.from(upsertsByDocumentAndProperty.values()),
