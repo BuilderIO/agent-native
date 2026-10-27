@@ -103,5 +103,5 @@ or green test alone is not live proof.
 ## Related skills
 
 - `/ship` for the normal guarded flow without post-merge monitoring.
-- `/ship-now` for the fast admin-merge path, which already includes monitoring.
+- `/ship-now` for the fast admin-merge path; it monitors only when this skill is asked for.
 - `/new-branch` for the required branch rotation after merge.
