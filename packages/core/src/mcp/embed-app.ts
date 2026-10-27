@@ -802,17 +802,21 @@ export function embedApp(
             routerBasePath: window.__reactRouterContext && window.__reactRouterContext.basename,
             workspaceAppPath: appConfig.workspaceAppPath,
             workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+            explicitRootPath: appConfig.explicitRootPath === true,
             frameworkRoutePrefix: appConfig.frameworkRoutePrefix
           }
         );
+        if (typeof basePath !== "string") return undefined;
         return key + ":" + (basePath || "/");
       }
       try {
         if (config.token) {
-          sessionStorage.setItem(embedStorageKey(${JSON.stringify(EMBED_TOKEN_STORAGE_KEY)}), config.token);
+          var tokenStorageKey = embedStorageKey(${JSON.stringify(EMBED_TOKEN_STORAGE_KEY)});
+          if (tokenStorageKey) sessionStorage.setItem(tokenStorageKey, config.token);
         }
         if (config.chatBridgeActive && config.token) {
-          sessionStorage.setItem(embedStorageKey(${JSON.stringify(MCP_CHAT_BRIDGE_STORAGE_KEY)}), config.token);
+          var bridgeStorageKey = embedStorageKey(${JSON.stringify(MCP_CHAT_BRIDGE_STORAGE_KEY)});
+          if (bridgeStorageKey) sessionStorage.setItem(bridgeStorageKey, config.token);
         }
       } catch (_err) {}
       if (window.__agentNativeExternalEmbedRuntimeInstalled) return;

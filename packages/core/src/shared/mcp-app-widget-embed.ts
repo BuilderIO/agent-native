@@ -50,8 +50,30 @@ export function resolveMcpAppEmbedBasePath(
     const fallbackPath = normalize(options.fallbackPath);
     const routerBasePath = normalize(options.routerBasePath);
 
-    if (routerBasePath && matches(routerBasePath)) return routerBasePath;
-    if (configuredPath && matches(configuredPath)) return configuredPath;
+    const matchingHostPaths = [routerBasePath, configuredPath]
+      .filter((basePath) => basePath && matches(basePath))
+      .sort((left, right) => right.length - left.length);
+    const matchingHostPath = matchingHostPaths[0];
+    if (matchingHostPath && !options.preferDeclaredMounts) {
+      return matchingHostPath;
+    }
+
+    const declaredMounts = (
+      Array.isArray(options.workspaceAppMountPaths)
+        ? options.workspaceAppMountPaths
+        : []
+    )
+      .filter((value): value is string => typeof value === "string")
+      .map(normalize)
+      .filter(Boolean);
+    const matchingMount = declaredMounts
+      .filter((basePath) => matches(basePath))
+      .sort((left, right) => right.length - left.length)[0];
+    if (matchingHostPath && options.preferDeclaredMounts) {
+      return [matchingHostPath, matchingMount]
+        .filter((basePath): basePath is string => Boolean(basePath))
+        .sort((left, right) => right.length - left.length)[0];
+    }
 
     const segment = pathname.split("/").find(Boolean);
     if (!segment) {
@@ -65,21 +87,13 @@ export function resolveMcpAppEmbedBasePath(
       `/${segment}` === frameworkRoutePrefix ||
       segment === "api"
     ) {
+      if (options.preferDeclaredMounts) {
+        return explicitRootPath ? "" : undefined;
+      }
       return fallbackPath;
     }
     if (explicitRootPath && !options.preferDeclaredMounts) return "";
 
-    const declaredMounts = (
-      Array.isArray(options.workspaceAppMountPaths)
-        ? options.workspaceAppMountPaths
-        : []
-    )
-      .filter((value): value is string => typeof value === "string")
-      .map(normalize)
-      .filter(Boolean);
-    const matchingMount = declaredMounts
-      .filter((basePath) => matches(basePath))
-      .sort((left, right) => right.length - left.length)[0];
     if (matchingMount) return matchingMount;
     if (explicitRootPath) return "";
     return fallbackPath || undefined;
@@ -217,6 +231,7 @@ export function getMcpAppWidgetEmbedBootScriptBody(
     var tokenStorageKey = ${safeJsonForHtml(tokenStorageKey)};
     var bridgeStorageKey = ${safeJsonForHtml(bridgeStorageKey)};
     var external = w[${safeJsonForHtml(EXTERNAL_EMBED_WINDOW_KEY)}];
+    var storageScopeAvailable = true;
     ${
       dynamicWorkspaceBasePath
         ? `var appConfig = w.__AGENT_NATIVE_CONFIG__ || {};
@@ -234,17 +249,21 @@ export function getMcpAppWidgetEmbedBootScriptBody(
     var basePath = external && typeof external.target === "string"
       ? resolveMcpAppEmbedBasePath("external-target", external.target, Object.assign({ workspaceRuntime: true }, workspaceOptions))
       : resolveMcpAppEmbedBasePath("workspace-path", w.location.pathname, workspaceOptions);
-    if (typeof basePath !== "string") return;
-    var normalizedBasePath = basePath.trim();
-    normalizedBasePath = !normalizedBasePath || normalizedBasePath === "/"
-      ? ""
-      : "/" + normalizedBasePath.replace(/^\\/+/, "").replace(/\\/+$/, "");
-    tokenStorageKey += ":" + (normalizedBasePath || "/");
-    bridgeStorageKey += ":" + (normalizedBasePath || "/");`
+    if (typeof basePath !== "string") {
+      storageScopeAvailable = false;
+    } else {
+      var normalizedBasePath = basePath.trim();
+      normalizedBasePath = !normalizedBasePath || normalizedBasePath === "/"
+        ? ""
+        : "/" + normalizedBasePath.replace(/^\\/+/, "").replace(/\\/+$/, "");
+      tokenStorageKey += ":" + (normalizedBasePath || "/");
+      bridgeStorageKey += ":" + (normalizedBasePath || "/");
+    }`
         : ""
     }
     var params = new URLSearchParams(w.location.search);
     var stored = function (key) {
+      if (!storageScopeAvailable) return null;
       // coercion-ok: denied storage reads as absent, exactly as isEmbedMcpChatBridgeActive does.
       try { return w.sessionStorage.getItem(key); } catch (e) { return null; }
     };

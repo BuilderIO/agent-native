@@ -265,6 +265,7 @@ describe("embedApp", () => {
       workspaceRuntime: true,
       workspaceAppPath: "/",
       workspaceAppMountPaths: ["/deck"],
+      explicitRootPath: true,
       frameworkRoutePrefix: "/_platform",
     };
     const configScript = {
@@ -386,6 +387,32 @@ describe("embedApp", () => {
     expect(stored.get(mcpChatBridgeStorageKey("/deck", true))).toBe(
       "child-token",
     );
+
+    installRuntime({
+      origin: "https://app.example",
+      target: "/reports/detail",
+      token: "root-token",
+      chatBridgeActive: true,
+      appConfig: { workspaceRuntime: true, explicitRootPath: true },
+    });
+
+    expect(stored.get(embedTokenStorageKey("", true))).toBe("root-token");
+    expect(stored.get(mcpChatBridgeStorageKey("", true))).toBe("root-token");
+    expect(stored.has(embedTokenStorageKey("/reports", true))).toBe(false);
+
+    const storedBeforeUnresolvedTarget = [...stored.entries()];
+    installRuntime({
+      origin: "https://app.example",
+      target: "/api/auth/session",
+      token: "unresolved-token",
+      chatBridgeActive: true,
+      appConfig: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect([...stored.entries()]).toEqual(storedBeforeUnresolvedTarget);
   });
 
   it("prefers canonical metadata when legacy open-link fields conflict", () => {

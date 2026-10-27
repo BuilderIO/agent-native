@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMBED_TOKEN_STORAGE_KEY,
@@ -113,6 +113,13 @@ describe("MCP app widget embed boot storage", () => {
     expect(
       resolveExternalEmbedTargetBasePath("/mail/inbox/threads", {
         workspaceRuntime: true,
+        routerBasePath: "/mail",
+        workspaceAppMountPaths: ["/mail/inbox"],
+      }),
+    ).toBe("/mail/inbox");
+    expect(
+      resolveExternalEmbedTargetBasePath("/mail/inbox/threads", {
+        workspaceRuntime: true,
       }),
     ).toBe("/mail");
     expect(
@@ -125,6 +132,12 @@ describe("MCP app widget embed boot storage", () => {
 
   it("leaves a non-workspace external target unresolved", () => {
     expect(resolveExternalEmbedTargetBasePath("/deck/reports")).toBeUndefined();
+    expect(
+      resolveExternalEmbedTargetBasePath("/api/auth", {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/mail"],
+      }),
+    ).toBeUndefined();
   });
 
   it("runs the workspace resolver in the minified first-paint script", async () => {
@@ -255,6 +268,30 @@ describe("MCP app widget embed boot storage", () => {
     sessionStorage.setItem(mcpChatBridgeStorageKey("", true), "root-token");
 
     expect(runBootScript(undefined, true)).toBe(true);
+  });
+
+  it("uses explicit embed signals when the workspace mount cannot be resolved", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl(
+      "http://localhost:3000/api/auth?__an_embed_token=child-token&__an_mcp_chat_bridge=1",
+    );
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/api/auth" };
+    const getItem = vi.spyOn(sessionStorage, "getItem");
+
+    try {
+      expect(runBootScript(undefined, true)).toBe(true);
+      expect(getItem).not.toHaveBeenCalled();
+    } finally {
+      getItem.mockRestore();
+    }
   });
 
   it("recognizes a transplanted active bridge before sessionStorage is written", () => {
