@@ -90,6 +90,7 @@ import {
   trackMcpToolsList,
 } from "./analytics.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
+import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -363,26 +364,6 @@ function formatAskAgentResult(result: unknown): string {
   }
   const serialized = JSON.stringify(result);
   return serialized === undefined ? String(result) : serialized;
-}
-
-export function isMcpAppsInlineEnabled(
-  identity: MCPCallerIdentity | undefined,
-): boolean {
-  const flag = process.env.AGENT_NATIVE_MCP_APPS_INLINE?.trim().toLowerCase();
-  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
-    return true;
-  }
-  const email = identity?.userEmail?.trim().toLowerCase();
-  if (email) {
-    const allowed = (
-      process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS ?? ""
-    )
-      .split(/[\s,]+/)
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
-    if (allowed.includes(email)) return true;
-  }
-  return false;
 }
 
 const TOOL_SEARCH_TOOL_NAME = "tool-search";
@@ -2869,7 +2850,7 @@ export async function createMCPServerForRequest(
       config.catalogMode === "directory" ||
       requestMeta?.inlineMcpApps === true ||
       (requestMeta?.inlineMcpApps === undefined &&
-        isMcpAppsInlineEnabled(effectiveIdentity)),
+        (await isMcpAppsInlineEnabled(effectiveIdentity))),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -3699,12 +3680,13 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            const resourceActions = mcpAppWidgetsEnabledForIdentity(
-              config,
-              effectiveIdentity,
-            )
-              ? Object.entries(grantedActions)
-              : [];
+            // Reads follow the same cards decision as resources/list, so a
+            // caller without the lab can't fetch a card by its known URI.
+            const resourceActions =
+              requestMeta.inlineMcpApps &&
+              mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
+                ? Object.entries(grantedActions)
+                : [];
             const orderedResourceActions =
               config.catalogMode === "directory"
                 ? resourceActions.sort(([a], [b]) =>
