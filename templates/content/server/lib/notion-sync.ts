@@ -13,6 +13,7 @@ import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
+import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
 import {
   canonicalizeNotionNfm,
   nfmToDoc,
@@ -436,9 +437,9 @@ function syncLinkValues(args: SyncLinkArgs) {
   };
 }
 
-async function upsertSyncLink(args: SyncLinkArgs) {
+async function upsertSyncLink(args: SyncLinkArgs, db = getDb()) {
   const values = syncLinkValues(args);
-  await getDb()
+  await db
     .insert(schema.documentSyncLinks)
     .values({ ...values, createdAt: nowIso() })
     .onConflictDoUpdate({
@@ -446,6 +447,22 @@ async function upsertSyncLink(args: SyncLinkArgs) {
       set: values,
     });
   return values;
+}
+
+/**
+ * Links an existing page to a Notion page under the page's row lock. A
+ * switch to the live copy rechecks the page's links under that lock, so it
+ * either sees this link and refuses, or switched first and this refuses with
+ * LIVE_BODY_WRITER_UNSUPPORTED.
+ */
+async function installSyncLink(args: SyncLinkArgs) {
+  return getDb().transaction(async (tx) => {
+    await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "Notion link",
+      content: null,
+    });
+    return upsertSyncLink(args, tx);
+  });
 }
 
 async function loadRemotePageDocumentLookup(
@@ -862,7 +879,7 @@ export async function linkDocumentToNotionPage(
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
   const previousLink = await getSyncLink(documentId, owner);
-  const installed = await upsertSyncLink({
+  const installed = await installSyncLink({
     owner,
     documentId,
     remotePageId: page.id,
@@ -1056,7 +1073,10 @@ async function pullDocumentFromNotionInner(
   }
 
   const newTitle = pageContent.title || freshDocument.title;
-  const newContent = pageContent.content ?? freshDocument.content;
+  const newContent = keepVideoBlockIds(
+    freshDocument.content,
+    pageContent.content,
+  );
   const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
@@ -1293,7 +1313,7 @@ async function pushDocumentToNotionInner(
   });
 
   const freshDocument = await getDocument(documentId, owner);
-  const newContent = remote.content ?? document.content;
+  const newContent = keepVideoBlockIds(document.content, remote.content);
   const newTitle = remote.title || document.title;
   const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =
@@ -1632,6 +1652,8 @@ export async function createAndLinkNotionPage(
     icon: document.icon,
   });
 
+  // Not installSyncLink: Notion has the new page now, so the link goes in
+  // even if the page switched meanwhile.
   await upsertSyncLink({
     owner,
     documentId,

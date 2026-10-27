@@ -33,10 +33,13 @@ type BoundAwarenessState =
   | { ok: true; serialized: string }
   | { ok: false; reason: "invalid-json" | "not-object" };
 
+const EDIT_CAPABILITY_FIELDS = ["canFlushDocument", "canFlushTitle"] as const;
+
 function bindAwarenessIdentity(
   state: string,
   session: { email: string; name?: string; image?: string },
   actorEmail: string,
+  canEdit: boolean,
 ): BoundAwarenessState {
   let parsed: unknown;
   try {
@@ -49,18 +52,21 @@ function bindAwarenessIdentity(
   }
 
   const image = session.image?.trim();
-  return {
-    ok: true,
-    serialized: JSON.stringify({
-      ...(parsed as Record<string, unknown>),
-      user: {
-        name: session.name?.trim() || emailToName(actorEmail),
-        email: actorEmail,
-        color: emailToColor(actorEmail),
-        ...(image ? { avatarUrl: image } : {}),
-      },
-    }),
+  const bound: Record<string, unknown> = {
+    ...(parsed as Record<string, unknown>),
+    user: {
+      name: session.name?.trim() || emailToName(actorEmail),
+      email: actorEmail,
+      color: emailToColor(actorEmail),
+      ...(image ? { avatarUrl: image } : {}),
+    },
   };
+  if (!canEdit) {
+    // Set, not deleted: a state without `canFlushDocument` still counts as a
+    // best-effort editor to the servers that ask open editors to save.
+    for (const field of EDIT_CAPABILITY_FIELDS) bound[field] = false;
+  }
+  return { ok: true, serialized: JSON.stringify(bound) };
 }
 
 export interface AwarenessEntry {
@@ -509,6 +515,13 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const contextScope = (
     event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
   )?._collabAwarenessScope;
+  const canEdit = (
+    event.context as { _collabAwarenessCanEdit?: unknown } | undefined
+  )?._collabAwarenessCanEdit;
+  if (typeof canEdit !== "boolean") {
+    setResponseStatus(event, 500);
+    return { error: "awareness edit access unavailable" };
+  }
 
   const body = await readCollabBody(event);
   const { clientId, clientSequence, state, clearToken } = body as {
@@ -552,7 +565,7 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const boundState =
     state === null
       ? undefined
-      : bindAwarenessIdentity(state, session, actorEmail);
+      : bindAwarenessIdentity(state, session, actorEmail, canEdit);
   if (boundState && !boundState.ok) {
     setResponseStatus(event, 400);
     return { error: "invalid awareness state or clientSequence" };

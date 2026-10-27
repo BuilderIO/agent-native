@@ -6,8 +6,9 @@ import { resolve } from "node:path";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { EditorState, type Transaction } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,6 +35,8 @@ vi.mock("@shared/nfm", async (importOriginal) => {
 
 import {
   createSuggestionHighlightPlugin,
+  isProvisionalDraftSpec,
+  suggestionDecisionHoldsHistory,
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./SuggestionHighlight";
@@ -76,6 +79,11 @@ function state(text = "Before after"): EditorState {
     doc: doc(text),
     plugins: [createSuggestionHighlightPlugin()],
   });
+}
+
+// The server's accepted change reaches the editor over live sync.
+function fromLiveSync(transaction: Transaction): Transaction {
+  return transaction.setMeta(ySyncPluginKey, { isChangeOrigin: true });
 }
 
 function setSpecs(
@@ -609,7 +617,7 @@ describe("SuggestionHighlight", () => {
           view.dom.querySelector(".suggestion-settling-text"),
         ).not.toBeNull();
 
-        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+        view.dispatch(fromLiveSync(view.state.tr.addMark(1, 5, mark())));
 
         expect(view.state.doc.textContent).toBe("Echo sample. peer");
         expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
@@ -653,7 +661,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 9, schema.text("New", [strong]))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 4 }],
@@ -691,7 +699,7 @@ describe("SuggestionHighlight", () => {
       ).not.toBeNull();
 
       view.dispatch(
-        view.state.tr
+        fromLiveSync(view.state.tr)
           .replaceWith(1, 4, schema.text("New York"))
           .setMeta(suggestionHighlightKey, {
             specs: [{ ...spec, from: 1, to: 9 }],
@@ -1850,5 +1858,250 @@ describe("SuggestionHighlight", () => {
     } finally {
       view.destroy();
     }
+  });
+});
+
+describe("settling suggestions", () => {
+  const settling: SuggestionHighlightSpec = {
+    suggestionId: "accepted",
+    kind: "replace",
+    from: 1,
+    to: 7,
+    insertedText: "Later",
+    settling: true,
+  };
+
+  it("keeps local edits out of the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(3, "x")).toBe("Before after");
+    expect(type(13, "!")).toBe("Before after!");
+    const erase = (from: number, to: number) =>
+      base.applyTransaction(base.tr.delete(from, to)).state.doc.textContent;
+    expect(erase(6, 8)).toBe("Before after");
+  });
+
+  it("holds a letter that would join the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(1, "x")).toBe("Before after");
+    expect(type(7, "x")).toBe("Before after");
+    expect(
+      base.applyTransaction(base.tr.delete(7, 8)).state.doc.textContent,
+    ).toBe("Before after");
+    expect(type(7, ",")).toBe("Before, after");
+  });
+
+  it("keeps typing right beside the words an accepted suggestion is replacing", () => {
+    const base = setSpecs(state(), [settling]);
+    const type = (at: number, text: string) =>
+      base.applyTransaction(base.tr.insertText(text, at)).state.doc.textContent;
+    expect(type(7, " really")).toBe("Before really after");
+    expect(type(1, "So ")).toBe("So Before after");
+    const typed = base.applyTransaction(base.tr.insertText(" really", 7));
+    expect(
+      typed.state.applyTransaction(typed.state.tr.insertText("!", 8)).state.doc
+        .textContent,
+    ).toBe("Before !really after");
+  });
+
+  it("lets live sync replace those words, and leaves pending suggestions editable", () => {
+    const base = setSpecs(state(), [settling]);
+    expect(
+      base.applyTransaction(fromLiveSync(base.tr.insertText("Later", 1, 7)))
+        .state.doc.textContent,
+    ).toBe("Later after");
+    const pending = setSpecs(state(), [{ ...settling, settling: false }]);
+    expect(
+      pending.applyTransaction(pending.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Bexfore after");
+  });
+
+  it("holds the words of an accepted suggestion still drawn as a suggestion", () => {
+    const frozen = setSpecs(state(), [
+      { ...settling, settling: false, frozen: true },
+    ]);
+    expect(
+      frozen.applyTransaction(frozen.tr.insertText("x", 3)).state.doc
+        .textContent,
+    ).toBe("Before after");
+  });
+
+  it("holds undo and redo while a decision saves", () => {
+    expect(suggestionDecisionHoldsHistory(state())).toBe(false);
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false }]),
+      ),
+    ).toBe(false);
+    expect(suggestionDecisionHoldsHistory(setSpecs(state(), [settling]))).toBe(
+      true,
+    );
+    expect(
+      suggestionDecisionHoldsHistory(
+        setSpecs(state(), [{ ...settling, settling: false, frozen: true }]),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("drafts while the author types", () => {
+  // "The lazy dog." with "lazy" replaced by a draft "s": the Page has drawn
+  // the draft, and the author keeps typing before it redraws.
+  const replacement: SuggestionHighlightSpec = {
+    suggestionId: "draft-1",
+    kind: "mark",
+    from: 5,
+    to: 6,
+    deletedText: "lazy",
+    editableBoundary: true,
+    editableText: true,
+    draft: true,
+  };
+
+  function drafting(
+    text: string,
+    specs: SuggestionHighlightSpec[],
+  ): EditorState {
+    const editorState = state(text);
+    return editorState.apply(
+      editorState.tr.setMeta(suggestionHighlightKey, {
+        specs,
+        activeId: null,
+        drafting: true,
+      }),
+    );
+  }
+
+  function specsOf(editorState: EditorState): SuggestionHighlightSpec[] {
+    return suggestionHighlightKey.getState(editorState)!.specs;
+  }
+
+  function struckText(editorState: EditorState): string[] {
+    const view = new EditorView(document.createElement("div"), {
+      state: editorState,
+    });
+    try {
+      return Array.from(
+        view.dom.querySelectorAll(".suggestion-delete-widget"),
+        (widget) => widget.textContent ?? "",
+      );
+    } finally {
+      view.destroy();
+    }
+  }
+
+  it("keeps the struck-out word and grows the draft over each letter typed", () => {
+    let editorState = drafting("The s dog.", [replacement]);
+    for (const letter of "leepy") {
+      editorState = editorState.apply(
+        editorState.tr.insertText(letter, editorState.doc.content.size - 6),
+      );
+      expect(struckText(editorState)).toEqual(["lazy"]);
+    }
+    expect(editorState.doc.textContent).toBe("The sleepy dog.");
+    expect(specsOf(editorState)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 11, deletedText: "lazy" },
+    ]);
+  });
+
+  it("keeps the struck-out word when every typed letter is removed", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(editorState.tr.delete(5, 6));
+    expect(next.doc.textContent).toBe("The  dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("strikes out a word typed over at once, before the Page draws the draft", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(next.doc.textContent).toBe("The s dog.");
+    expect(struckText(next)).toEqual(["lazy"]);
+    const [typed] = specsOf(next);
+    expect(isProvisionalDraftSpec(typed!)).toBe(true);
+    expect(typed).toMatchObject({ kind: "mark", from: 5, to: 6 });
+  });
+
+  it("joins letters deleted beside a draft to its struck-out text", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-2",
+      kind: "delete",
+      from: 4,
+      to: 4,
+      deletedText: "dy",
+      editableBoundary: true,
+      draft: true,
+    };
+    let editorState = drafting("lazog.", [deletion]);
+    editorState = editorState.apply(editorState.tr.delete(3, 4));
+    editorState = editorState.apply(editorState.tr.delete(2, 3));
+    expect(editorState.doc.textContent).toBe("log.");
+    expect(struckText(editorState)).toEqual(["azdy"]);
+    expect(specsOf(editorState)).toHaveLength(1);
+  });
+
+  it("turns a draft deletion into a replacement when the author types there", () => {
+    const deletion: SuggestionHighlightSpec = {
+      suggestionId: "draft-3",
+      kind: "delete",
+      from: 5,
+      to: 5,
+      deletedText: "lazy",
+      editableBoundary: true,
+      draft: true,
+    };
+    const editorState = drafting("The  dog.", [deletion]);
+    const next = editorState.apply(editorState.tr.insertText("s", 5));
+    expect(specsOf(next)).toMatchObject([
+      { kind: "mark", from: 5, to: 6, deletedText: "lazy", editableText: true },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("leaves undo, live sync and loads to the Page's next redraw", () => {
+    const editorState = drafting("The lazy dog.", []);
+    const undo = editorState.tr.insertText("s", 5, 9).setMeta("history$", {});
+    const sync = fromLiveSync(editorState.tr.insertText("s", 5, 9));
+    const load = editorState.tr
+      .insertText("s", 5, 9)
+      .setMeta("addToHistory", false);
+    for (const transaction of [undo, sync, load])
+      expect(specsOf(editorState.apply(transaction))).toEqual([]);
+  });
+
+  it("leaves a draft to the Page's redraw when live sync redraws the whole Page", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    // Live sync replaces the whole Page, as y-tiptap does for a peer's edit.
+    const next = editorState.apply(
+      fromLiveSync(
+        editorState.tr.replaceWith(
+          0,
+          editorState.doc.content.size,
+          doc("The s dog!").content,
+        ),
+      ),
+    );
+    expect(specsOf(next)).toEqual([]);
+    expect(struckText(next)).toEqual([]);
+  });
+
+  it("keeps the struck-out word in place when undo removes the typed letters", () => {
+    const editorState = drafting("The s dog.", [replacement]);
+    const next = editorState.apply(
+      editorState.tr.delete(5, 6).setMeta("history$", {}),
+    );
+    expect(specsOf(next)).toMatchObject([
+      { suggestionId: "draft-1", from: 5, to: 5, deletedText: "lazy" },
+    ]);
+    expect(struckText(next)).toEqual(["lazy"]);
+  });
+
+  it("draws nothing new for typing when the author isn't suggesting", () => {
+    const editorState = state("The lazy dog.");
+    const next = editorState.apply(editorState.tr.insertText("s", 5, 9));
+    expect(specsOf(next)).toEqual([]);
   });
 });

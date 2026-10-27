@@ -96,6 +96,13 @@ import {
   filesSystemPropertyProjection,
 } from "./_files-system-properties.js";
 import {
+  propertyChangeIdsFor,
+  propertyGenerationsFor,
+  readPropertyTombstones,
+  storedPropertyGenerations,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
+import {
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   parseDatabaseViewConfig,
@@ -258,6 +265,7 @@ type DocumentListRow = Omit<
   | "content"
   | "collabBodyRevision"
   | "liveBodySwitchedAt"
+  | "liveBodyOptedOutAt"
   | "liveCopyVersion"
   | "createdBy"
   | "updatedBy"
@@ -1103,6 +1111,10 @@ export async function getContentDatabasePageResponse(
       )!,
     );
   }
+  // Before the values: see readPropertyTombstones.
+  const tombstones = await readPropertyTombstones(db, documentIds);
+  const changeIds: StoredPropertyChangeIds = new Map();
+  const storedGenerations = storedPropertyGenerations(changeIds, tombstones);
   const [
     favorites,
     shareRows,
@@ -1134,7 +1146,7 @@ export async function getContentDatabasePageResponse(
     listPropertiesForDatabaseDocuments(
       databaseId,
       documents as Array<typeof schema.documents.$inferSelect>,
-      { includeBlocksFieldIdentity: false, propertySchema },
+      { includeBlocksFieldIdentity: false, propertySchema, changeIds },
     ),
     filesSystemPropertyProjection({
       database,
@@ -1239,6 +1251,16 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      propertyGenerations: propertyGenerationsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        storedGenerations,
+      ),
+      propertyChangeIds: propertyChangeIdsFor(
+        document.id,
+        propertiesByDocumentId.get(document.id) ?? [],
+        changeIds,
+      ),
       rowRevision: databaseRowRevision({
         itemId: item.id,
         documentId: document.id,
@@ -1737,6 +1759,15 @@ export async function deleteDatabaseDataForDocument(
         .delete(schema.documentPropertyValues)
         .where(
           inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
+      // After the values: deleting them records a tombstone for each one.
+      await db
+        .delete(schema.documentPropertyValueTombstones)
+        .where(
+          inArray(
+            schema.documentPropertyValueTombstones.propertyId,
+            definitionIds,
+          ),
         );
       await db
         .delete(schema.documentBlockFieldContents)

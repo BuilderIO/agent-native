@@ -157,49 +157,9 @@ Une fois que votre espace de travail connecte Brain, Clips envoie automatiquemen
 
 ### Preuve d'appel CRM
 
-Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enregistrement complet. Clips ne transmet qu'un ID de clip opaque et un lien durable, jamais la vidéo ni une transcription. Cela ne fonctionne que pour un enregistrement que vous pouvez déjà voir, et seulement quand vous le demandez ou qu'une automatisation approuvée le déclenche.
+Les outils CRM ont parfois besoin d'une preuve qu'un appel a eu lieu, sans l'enregistrement complet. Clips ne transmet qu'un ID de clip opaque et un lien durable, jamais la vidéo ni une transcription. Cela ne fonctionne que pour un enregistrement que vous pouvez déjà voir, et seulement quand vous le demandez.
 
-<Diagram id="doc-block-clips-crm" title="Preuve d'appel CRM" summary={"Une automatisation clip.created transmet à un flux de travail CRM un lien durable, jamais le média lui-même."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Enregistrement prêt</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted"
-      >automatisation approuvée</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Lien de preuve</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">Enregistrement CRM</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+La configuration des automatisations d’appels de CRM vers Clips n’est pas encore disponible.
 
 ### Délégation en langage naturel via Dispatch
 

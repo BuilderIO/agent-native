@@ -114,7 +114,7 @@ describe("Slides 2 MCP catalog contracts", () => {
     expect(advertised.has("share-resource")).toBe(true);
     expect(advertised.has("get-deck")).toBe(true);
     expect(advertised.has("delete-staged-dataset")).toBe(true);
-    expect(advertised.has("provider-api-request")).toBe(true);
+    expect(advertised.has("provider-api-request")).toBe(false);
     expect(advertised.has("extract-pdf")).toBe(false);
     expect(advertised.has("generate-image")).toBe(false);
     expect(app.templateActionNames.has("share-resource")).toBe(false);

@@ -49,15 +49,16 @@ export const DISCUSSION_TARGETS: readonly DiscussionTarget[] = [
 ];
 
 export function discussionThreadTarget(
-  thread: Pick<CommentThread, "quotedText" | "property">,
+  thread: Pick<CommentThread, "quotedText" | "property" | "block">,
 ): DiscussionTarget {
   if (thread.property) return "property";
-  return thread.quotedText?.trim() ? "text" : "page";
+  // A thread on a whole block, such as a video, sits in the text as a quote does.
+  return thread.block || thread.quotedText?.trim() ? "text" : "page";
 }
 
-/** A comment on the whole page: no quote and no Property. */
+/** A comment on the whole page: no quote, block, or Property. */
 export function isPageCommentThread(
-  thread: Pick<CommentThread, "quotedText" | "property">,
+  thread: Pick<CommentThread, "quotedText" | "property" | "block">,
 ) {
   return discussionThreadTarget(thread) === "page";
 }
