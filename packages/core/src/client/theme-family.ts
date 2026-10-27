@@ -228,9 +228,37 @@ function subscribe(
     }
   };
   const onFamilyChange = (event: Event) => {
-    const storageKey = (event as CustomEvent<{ storageKey?: unknown }>).detail
-      ?.storageKey;
-    if (storageKey === scopeKey(appId)) refreshFromStorage();
+    const detail = (
+      event as CustomEvent<{
+        storageKey?: unknown;
+        family?: unknown;
+        storageStatus?: unknown;
+      }>
+    ).detail;
+    const key = scopeKey(appId);
+    if (detail?.storageKey !== key) return;
+
+    if (
+      getThemeFamilyUrlOverride(window.location.search, families) === null &&
+      detail.storageStatus === "unreadable" &&
+      isThemeFamily(detail.family) &&
+      families.includes(detail.family)
+    ) {
+      familySnapshots.set(key, detail.family);
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_ATTRIBUTE,
+        detail.family,
+      );
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_STATUS_ATTRIBUTE,
+        "unreadable",
+      );
+      onStorageStatusChange("unreadable");
+      onChange();
+      return;
+    }
+
+    refreshFromStorage();
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(THEME_FAMILY_CHANGE_EVENT, onFamilyChange);
@@ -272,7 +300,7 @@ export function applyThemeFamily(
     root.setAttribute(THEME_FAMILY_STATUS_ATTRIBUTE, "unreadable");
     window.dispatchEvent(
       new CustomEvent(THEME_FAMILY_CHANGE_EVENT, {
-        detail: { storageKey: key },
+        detail: { storageKey: key, family, storageStatus: "unreadable" },
       }),
     );
     return { family, storageStatus: "unavailable" };
@@ -306,10 +334,19 @@ type SetThemeFamilyResult = { family: ThemeFamily; appId: string | null };
 export function useThemeFamily(): ThemeFamilyHook {
   const runtimeAppId = injectedAgentNativeAppId();
   const configuredThemeFamily = injectedAgentNativeConfig().themeFamily;
-  const { families, defaultFamily } = useMemo(
-    () => resolveThemeFamilyConfig(configuredThemeFamily),
-    [configuredThemeFamily],
-  );
+  const themeFamilyConfigKey = JSON.stringify([
+    configuredThemeFamily?.families ?? null,
+    configuredThemeFamily?.defaultFamily ?? null,
+  ]);
+  const { families, defaultFamily } = useMemo(() => {
+    const [configuredFamilies, configuredDefaultFamily] = JSON.parse(
+      themeFamilyConfigKey,
+    ) as [ThemeFamily[] | null, ThemeFamily | null];
+    return resolveThemeFamilyConfig({
+      families: configuredFamilies ?? undefined,
+      defaultFamily: configuredDefaultFamily ?? undefined,
+    });
+  }, [themeFamilyConfigKey]);
   const urlOverride =
     typeof window === "undefined"
       ? null

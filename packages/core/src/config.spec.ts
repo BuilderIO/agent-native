@@ -542,6 +542,30 @@ describe("agent-native config environment aliases", () => {
     });
   });
 
+  it("inherits configured families for a default-family-only env override", () => {
+    const base = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "original",
+      },
+    });
+    const override = readAgentNativeConfigEnv({
+      AGENT_NATIVE_CONFIG_THEME_FAMILY_DEFAULT_FAMILY: "agent-native",
+    });
+
+    expect(override.themeFamily).toEqual({ defaultFamily: "agent-native" });
+    expect(
+      mergeAgentNativeConfigs(base, override, { arrayStrategy: "replace" })
+        .themeFamily,
+    ).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+    expect(() =>
+      mergeAgentNativeConfigs({}, override, { arrayStrategy: "replace" }),
+    ).toThrow("families must be a non-empty array");
+  });
+
   it("keeps the legacy deployment variable outside config-layer precedence", () => {
     expect(
       readAgentNativeConfigEnv({

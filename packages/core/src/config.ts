@@ -106,6 +106,10 @@ export interface AgentNativeConfig {
   themeFamily?: AgentNativeThemeFamilyConfig;
 }
 
+type AgentNativeConfigEnvOverride = Omit<AgentNativeConfig, "themeFamily"> & {
+  themeFamily?: Partial<AgentNativeThemeFamilyConfig>;
+};
+
 export interface AgentNativeConfigContext {
   command: "serve" | "build";
   mode: string;
@@ -220,16 +224,32 @@ function isAgentNativeConfigEnvKey(key: string): boolean {
 function normalizeThemeFamilyConfig(
   value: unknown,
   source: string,
-): AgentNativeThemeFamilyConfig {
+): AgentNativeThemeFamilyConfig;
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+  allowPartialFamilies: true,
+): Partial<AgentNativeThemeFamilyConfig>;
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+  allowPartialFamilies = false,
+): AgentNativeThemeFamilyConfig | Partial<AgentNativeThemeFamilyConfig> {
   if (!isRecord(value)) {
     throw new Error(`${source} must be an object`);
   }
-  if (!Array.isArray(value.families) || value.families.length === 0) {
+  if (value.families === undefined && !allowPartialFamilies) {
+    throw new Error(`${source}.families must be a non-empty array`);
+  }
+  if (
+    value.families !== undefined &&
+    (!Array.isArray(value.families) || value.families.length === 0)
+  ) {
     throw new Error(`${source}.families must be a non-empty array`);
   }
 
   const families: ThemeFamily[] = [];
-  for (const family of value.families) {
+  for (const family of (value.families ?? []) as unknown[]) {
     if (!isThemeFamily(family)) {
       throw new Error(
         `${source}.families contains an unsupported theme family`,
@@ -244,12 +264,16 @@ function normalizeThemeFamilyConfig(
       `${source}.defaultFamily must be a registered theme family`,
     );
   }
-  if (defaultFamily !== undefined && !families.includes(defaultFamily)) {
+  if (
+    defaultFamily !== undefined &&
+    families.length > 0 &&
+    !families.includes(defaultFamily)
+  ) {
     throw new Error(`${source}.defaultFamily must be included in families`);
   }
 
   return {
-    families,
+    ...(value.families === undefined ? {} : { families }),
     ...(defaultFamily === undefined ? {} : { defaultFamily }),
   };
 }
@@ -433,7 +457,7 @@ function assignAgentNativeConfigEnvFragment(
 
 export function readAgentNativeConfigEnv(
   env: Record<string, string | undefined>,
-): AgentNativeConfig {
+): AgentNativeConfigEnvOverride {
   const known = new Map<string, AgentNativeConfigEnvNode>();
   for (const node of AGENT_NATIVE_CONFIG_ENV_NODES) {
     for (const key of agentNativeConfigEnvKeys(node)) {
@@ -468,7 +492,24 @@ export function readAgentNativeConfigEnv(
     }
   }
 
-  return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+  const themeFamilyValue = layer.themeFamily;
+  if (themeFamilyValue === undefined) {
+    return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+  }
+
+  const configWithoutThemeFamily = { ...layer };
+  delete configWithoutThemeFamily.themeFamily;
+  return {
+    ...normalizeAgentNativeConfig(
+      configWithoutThemeFamily,
+      "Agent-Native config environment",
+    ),
+    themeFamily: normalizeThemeFamilyConfig(
+      themeFamilyValue,
+      "Agent-Native config environment.themeFamily",
+      true,
+    ),
+  };
 }
 
 export function normalizeAgentNativeConfig(
@@ -584,7 +625,7 @@ export function normalizeAgentNativeConfig(
 
 export function mergeAgentNativeConfigs(
   base: AgentNativeConfig,
-  override: AgentNativeConfig,
+  override: AgentNativeConfigEnvOverride,
   options: {
     arrayStrategy?: "merge" | "replace";
   } = {},
@@ -720,7 +761,7 @@ export function mergeAgentNativeConfigs(
 }
 
 export function resolveAgentNativeConfig(
-  input: AgentNativeConfigInput | undefined,
+  input: AgentNativeConfigInput | AgentNativeConfigEnvOverride | undefined,
   context: AgentNativeConfigContext,
 ): AgentNativeConfig {
   const value = typeof input === "function" ? input(context) : (input ?? {});

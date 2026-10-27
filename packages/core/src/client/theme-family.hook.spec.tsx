@@ -11,6 +11,7 @@ const deps = vi.hoisted(() => ({
       defaultFamily: "original" as const,
     },
   },
+  returnFreshConfig: false,
   appStateVersion: 0,
   readClientAppState: vi.fn(async () => ({ family: "agent-native" })),
   query: {
@@ -29,7 +30,16 @@ const deps = vi.hoisted(() => ({
 
 vi.mock("./app-config.js", () => ({
   injectedAgentNativeAppId: () => deps.appId,
-  injectedAgentNativeConfig: () => deps.appConfig,
+  injectedAgentNativeConfig: () =>
+    deps.returnFreshConfig
+      ? {
+          ...deps.appConfig,
+          themeFamily: {
+            ...deps.appConfig.themeFamily,
+            families: [...deps.appConfig.themeFamily.families],
+          },
+        }
+      : deps.appConfig,
 }));
 vi.mock("./application-state.js", () => ({
   readClientAppState: deps.readClientAppState,
@@ -68,6 +78,13 @@ describe("useThemeFamily", () => {
       source: "default",
       appId: "sample-app",
     };
+    deps.appConfig = {
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "original",
+      },
+    };
+    deps.returnFreshConfig = false;
     deps.query.refetch.mockReset();
     deps.mutation.mutateAsync.mockReset();
     deps.appStateVersion = 0;
@@ -158,6 +175,65 @@ describe("useThemeFamily", () => {
       "original",
     );
     expect(deps.query.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a successful family selection when local storage writes fail", async () => {
+    deps.mutation.mutateAsync.mockResolvedValue({
+      family: "agent-native",
+      appId: "sample-app",
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("Storage writes are blocked");
+      });
+    try {
+      await act(async () => {
+        await expect(current?.setFamily("agent-native")).resolves.toBe(
+          "agent-native",
+        );
+      });
+
+      expect(current?.family).toBe("agent-native");
+      expect(current?.storageStatus).toBe("unreadable");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("agent-native");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_STATUS_ATTRIBUTE),
+      ).toBe("unreadable");
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it("does not reapply stale query data when config objects are recreated", async () => {
+    deps.returnFreshConfig = true;
+    deps.mutation.mutateAsync.mockResolvedValue({
+      family: "agent-native",
+      appId: "sample-app",
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    await act(async () => {
+      await current?.setFamily("agent-native");
+    });
+
+    expect(current?.family).toBe("agent-native");
+    expect(window.localStorage.getItem("theme-family:sample-app")).toBe(
+      "agent-native",
+    );
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "agent-native",
+    );
   });
 
   it("applies a theme-family change from app state outside Preferences", async () => {
