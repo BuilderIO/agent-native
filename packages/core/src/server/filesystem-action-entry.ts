@@ -1,6 +1,7 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import { ACTION_EXECUTION_KEY } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { carryFrameworkMcpTool } from "../mcp/framework-tools.js";
 
 // Without the key an app wrapper around `run` cannot be recognized as the same
 // action, and every validation failure reads as an unknown write.
@@ -68,6 +69,7 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
       ? { chatUI: def.chatUI }
       : {}),
   };
+  carryFrameworkMcpTool(def as ActionEntry, out);
   carryExecutionKey(def, out);
   return out;
 }

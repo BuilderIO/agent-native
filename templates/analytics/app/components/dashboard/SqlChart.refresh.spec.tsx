@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,7 +75,12 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import { formatSqlChartError, limitChartRows, SqlChart } from "./SqlChart";
+import {
+  ChartFillHeight,
+  formatSqlChartError,
+  limitChartRows,
+  SqlChart,
+} from "./SqlChart";
 
 describe("limitChartRows", () => {
   it("keeps tables untouched and bounds chart point rendering", () => {
@@ -113,6 +118,7 @@ describe("SqlChart refresh feedback", () => {
     mocks.queryReuseCompleted = undefined;
     mocks.queryKey = null;
     mocks.embeddedExtensionProps = null;
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -517,6 +523,168 @@ describe("SqlChart refresh feedback", () => {
     expect(
       container.querySelector('[data-dashboard-report-loading="true"]'),
     ).toBeNull();
+  });
+
+  it("sizes an extension panel to the height its iframe reports, even under one unit", async () => {
+    const panel = {
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId: "extension-1" },
+    };
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        initialHeight?: number;
+        onReady?: () => void;
+        onHeightChange?: (height: number) => void;
+      };
+    const wrapper = () =>
+      container.querySelector<HTMLElement>("[aria-busy]") as HTMLElement;
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+
+    // Before the first report the panel holds one panel height unit.
+    expect(extensionProps().initialHeight).toBe(180);
+    expect(wrapper().style.minHeight).toBe("180px");
+
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+      extensionProps().onReady?.();
+    });
+
+    // The wrapper no longer holds a floor, so the iframe's 64px is the panel.
+    expect(wrapper().style.minHeight).toBe("");
+    expect(wrapper().className).not.toMatch(/min-h-/);
+
+    // The next load starts at the reported height instead of jumping.
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+    expect(extensionProps().initialHeight).toBe(64);
+    expect(wrapper().style.minHeight).toBe("64px");
+
+    // Taller content is remembered as tall, and other dashboards start fresh.
+    await act(async () => {
+      extensionProps().onHeightChange?.(612);
+    });
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="repo-health" />);
+    });
+    expect(extensionProps().initialHeight).toBe(612);
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<SqlChart panel={panel} dashboardId="other-dashboard" />);
+    });
+    expect(extensionProps().initialHeight).toBe(180);
+  });
+
+  it("starts a mounted panel that switches extension at that extension's own height", async () => {
+    const panelFor = (extensionId: string) => ({
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId },
+    });
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        extensionId?: string;
+        initialHeight?: number;
+        onReady?: () => void;
+        onHeightChange?: (height: number) => void;
+      };
+    const wrapper = () =>
+      container.querySelector<HTMLElement>("[aria-busy]") as HTMLElement;
+    const show = (extensionId: string) =>
+      act(async () => {
+        root.render(
+          <SqlChart panel={panelFor(extensionId)} dashboardId="repo-health" />,
+        );
+      });
+
+    await show("extension-1");
+    await act(async () => {
+      extensionProps().onHeightChange?.(612);
+      extensionProps().onReady?.();
+    });
+    expect(wrapper().style.minHeight).toBe("");
+
+    // Same mounted panel, new extension: it loads again from the default.
+    await show("extension-2");
+    expect(extensionProps().extensionId).toBe("extension-2");
+    expect(extensionProps().initialHeight).toBe(180);
+    expect(wrapper().getAttribute("aria-busy")).toBe("true");
+    expect(wrapper().style.minHeight).toBe("180px");
+
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+    });
+
+    // Switching back starts at the first extension's remembered height.
+    await show("extension-1");
+    expect(extensionProps().initialHeight).toBe(612);
+    expect(wrapper().style.minHeight).toBe("612px");
+  });
+
+  it("keeps the full-screen view's height apart from the dashboard card's", async () => {
+    const panel = {
+      id: "github-status",
+      title: "GitHub data",
+      sql: "",
+      source: "first-party" as const,
+      chartType: "extension" as const,
+      width: 3,
+      config: { extensionId: "extension-1" },
+    };
+    const extensionProps = () =>
+      mocks.embeddedExtensionProps as {
+        initialHeight?: number;
+        onHeightChange?: (height: number) => void;
+      };
+    const card = <SqlChart panel={panel} dashboardId="repo-health" />;
+    const fullScreen = (
+      <ChartFillHeight>
+        <SqlChart panel={panel} dashboardId="repo-health" />
+      </ChartFillHeight>
+    );
+    const remount = async (node: ReactNode) => {
+      act(() => root.unmount());
+      root = createRoot(container);
+      await act(async () => {
+        root.render(node);
+      });
+    };
+
+    await act(async () => {
+      root.render(card);
+    });
+    await act(async () => {
+      extensionProps().onHeightChange?.(64);
+    });
+
+    // The wider full-screen view wraps to its own height and remembers it.
+    await remount(fullScreen);
+    expect(extensionProps().initialHeight).toBe(180);
+    await act(async () => {
+      extensionProps().onHeightChange?.(40);
+    });
+
+    await remount(card);
+    expect(extensionProps().initialHeight).toBe(64);
+    await remount(fullScreen);
+    expect(extensionProps().initialHeight).toBe(40);
   });
 
   it("shows a readable retry action when a chart query fails", async () => {

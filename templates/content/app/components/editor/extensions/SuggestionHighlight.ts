@@ -1,5 +1,7 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import { WORD_CHARACTER } from "@shared/suggestion-placement";
 import {
   resolveMarkdownSuggestionRange,
   resolveMarkdownSuggestionRangeInContext,
@@ -11,8 +13,16 @@ import {
   type SuggestionPresentationNode,
 } from "@shared/suggestion-text";
 import { Extension } from "@tiptap/core";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Selection,
+  type Transaction,
+} from "@tiptap/pm/state";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import { buildDocText } from "../comment-anchors";
@@ -36,6 +46,10 @@ export interface SuggestionHighlightSpec {
   editableBoundary?: boolean;
   editableText?: boolean;
   settling?: boolean;
+  /** Accepted but not saved yet, drawn as a suggestion: its words hold still. */
+  frozen?: boolean;
+  /** The author's own unsaved suggestion, which follows their typing. */
+  draft?: boolean;
   settlingBeforePresentation?: SuggestionPresentationContext;
   settlingAfterSource?: string;
   settlingReadbackContent?: string | null;
@@ -44,12 +58,15 @@ export interface SuggestionHighlightSpec {
 export interface SuggestionHighlightState {
   specs: SuggestionHighlightSpec[];
   activeId: string | null;
+  /** Whether the author is suggesting, so their typing draws as drafts. */
+  drafting: boolean;
   decorations: DecorationSet;
 }
 
 export interface SuggestionHighlightMeta {
   specs?: SuggestionHighlightSpec[];
   activeId?: string | null;
+  drafting?: boolean;
 }
 
 export const suggestionHighlightKey = new PluginKey<SuggestionHighlightState>(
@@ -815,6 +832,232 @@ function buildDecorations(
   return DecorationSet.create(doc, decorations);
 }
 
+/**
+ * Whether a local edit touches words an accepted suggestion is replacing.
+ * They stay fixed until the server's change arrives over live sync, so a
+ * keystroke can't land in text that's about to be replaced.
+ */
+export function editsSettlingSuggestion(
+  transaction: Transaction,
+  specs: readonly SuggestionHighlightSpec[],
+): boolean {
+  if (
+    !transaction.docChanged ||
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false
+  )
+    return false;
+  // Each held range as the transaction moves it, and where it began.
+  let ranges = specs
+    .filter((spec) => spec.settling || spec.frozen)
+    .map(({ from, to }) => ({ from, to, was: { from, to } }));
+  for (const step of transaction.steps) {
+    if (ranges.length === 0) return false;
+    const touched: Array<{ from: number; to: number }> = [];
+    const { from, to } = step as { from?: unknown; to?: unknown };
+    if (typeof from === "number" && typeof to === "number")
+      touched.push({ from, to });
+    const map = step.getMap();
+    map.forEach((oldStart, oldEnd) =>
+      touched.push({ from: oldStart, to: oldEnd }),
+    );
+    // Typing right beside the words leaves them as reviewed. A point has no
+    // inside, so typing exactly there waits.
+    if (
+      touched.some((edit) =>
+        ranges.some((range) =>
+          range.from === range.to
+            ? edit.from <= range.to && edit.to >= range.from
+            : edit.from < range.to && edit.to > range.from,
+        ),
+      )
+    )
+      return true;
+    ranges = ranges.map((range) => ({
+      from: map.map(range.from, 1),
+      to: map.map(range.to, -1),
+      was: range.was,
+    }));
+  }
+  // A letter typed onto either end, or a space taken away there, makes a
+  // different word than was reviewed, which the server would turn down. So
+  // that waits too. An end that is a space or punctuation has no word to join.
+  return ranges.some(
+    (range) =>
+      range.was.from !== range.was.to &&
+      (["before", "after"] as const).some((side) => {
+        const was = side === "before" ? range.was.from : range.was.to;
+        const is = side === "before" ? range.from : range.to;
+        const outside = characterBeside(transaction.doc, is, side);
+        return (
+          WORD_CHARACTER.test(outside) &&
+          WORD_CHARACTER.test(
+            characterBeside(
+              transaction.doc,
+              is,
+              side === "before" ? "after" : "before",
+            ),
+          ) &&
+          outside !== characterBeside(transaction.before, was, side)
+        );
+      }),
+  );
+}
+
+/** The character beside `position` within its textblock, or "". */
+function characterBeside(
+  doc: ProseMirrorNode,
+  position: number,
+  side: "before" | "after",
+): string {
+  const $position = doc.resolve(position);
+  const { parent, parentOffset: offset } = $position;
+  if (!parent.isTextblock) return "";
+  const characters = Array.from(
+    side === "before"
+      ? parent.textBetween(Math.max(0, offset - 2), offset, "", "￼")
+      : parent.textBetween(
+          offset,
+          Math.min(parent.content.size, offset + 2),
+          "",
+          "￼",
+        ),
+  );
+  // Empty at either end of the textblock.
+  return (
+    side === "before" ? characters.slice(-1) : characters.slice(0, 1)
+  ).join("");
+}
+
+/**
+ * Whether undo and redo wait for a decision to save. Undo comes back through
+ * live sync, where an edit can't be refused, and it could rewrite the words
+ * an accepted suggestion is replacing.
+ */
+export function suggestionDecisionHoldsHistory(state: EditorState): boolean {
+  return (suggestionHighlightKey.getState(state)?.specs ?? []).some(
+    (spec) => spec.settling || spec.frozen,
+  );
+}
+
+/** Drafts drawn from a keystroke before the Page has redrawn its drafts. */
+const PROVISIONAL_DRAFT_PREFIX = "draft-provisional:";
+let provisionalDrafts = 0;
+
+export function isProvisionalDraftSpec(spec: SuggestionHighlightSpec): boolean {
+  return spec.suggestionId.startsWith(PROVISIONAL_DRAFT_PREFIX);
+}
+
+/** Whether an edit is the author's own typing, not a sync, load or undo. */
+function isTyping(transaction: Transaction): boolean {
+  return !(
+    isChangeOrigin(transaction) ||
+    transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) ||
+    transaction.getMeta("addToHistory") === false ||
+    transaction.getMeta("history$")
+  );
+}
+
+/** The plain text an edit inside one paragraph removes, or null otherwise. */
+function typedRemoval(doc: ProseMirrorNode, step: ReplaceStep): string | null {
+  const $from = doc.resolve(step.from);
+  if (!$from.parent.isTextblock || !$from.sameParent(doc.resolve(step.to)))
+    return null;
+  if (step.slice.openStart !== 0 || step.slice.openEnd !== 0) return null;
+  const inline: ProseMirrorNode[] = [];
+  step.slice.content.forEach((node) => {
+    inline.push(node);
+  });
+  doc.nodesBetween(step.from, step.to, (node) => {
+    if (node.isInline) inline.push(node);
+  });
+  return inline.every((node) => node.isText)
+    ? doc.textBetween(step.from, step.to)
+    : null;
+}
+
+/**
+ * While suggesting, the Page redraws the author's drafts a frame or two after
+ * each keystroke, and until then the old drafts no longer match the text. So
+ * drafts follow the typing: text typed at a draft's edge joins it, text
+ * removed beside one joins its struck-out words, and text typed or removed
+ * anywhere else shows as a new draft at once instead of blinking out.
+ */
+function typedDraftSpecs(
+  tr: Transaction,
+  specs: SuggestionHighlightSpec[],
+): SuggestionHighlightSpec[] {
+  const step = tr.steps.length === 1 ? tr.steps[0] : null;
+  const removed =
+    step instanceof ReplaceStep ? typedRemoval(tr.before, step) : null;
+  let next = specs;
+  let typed: SuggestionHighlightSpec | null = null;
+  if (step instanceof ReplaceStep && removed !== null) {
+    const drafts = specs.filter((spec) => spec.draft && !spec.settling);
+    const inside = drafts.some(
+      (spec) => spec.from <= step.from && step.to <= spec.to,
+    );
+    const before = removed
+      ? drafts.find(
+          (spec) =>
+            spec.from === step.to && (spec.deletedText || spec.editableText),
+        )
+      : undefined;
+    const after = removed
+      ? drafts.find(
+          (spec) =>
+            spec.to === step.from && (spec.deletedText || spec.editableText),
+        )
+      : undefined;
+    const joined = before ?? after;
+    if (!inside && joined) {
+      next = specs.map((spec) => {
+        if (spec !== joined) return spec;
+        const { deletedPresentation: _presentation, ...rest } = spec;
+        return {
+          ...rest,
+          deletedText: before
+            ? removed + (spec.deletedText ?? "")
+            : (spec.deletedText ?? "") + removed,
+          editableBoundary: true,
+        };
+      });
+    } else if (
+      !inside &&
+      (removed || step.slice.size > 0) &&
+      !drafts.some((spec) => step.from <= spec.to && step.to >= spec.from)
+    ) {
+      provisionalDrafts += 1;
+      typed = {
+        suggestionId: `${PROVISIONAL_DRAFT_PREFIX}${provisionalDrafts}`,
+        kind: step.slice.size > 0 ? "mark" : "delete",
+        from: step.from,
+        to: step.from + step.slice.size,
+        ...(removed ? { deletedText: removed } : {}),
+        editableBoundary: !!removed,
+        editableText: step.slice.size > 0,
+        draft: true,
+      };
+    }
+  }
+  const mapped = next.map((spec) => {
+    if (!spec.draft || spec.settling)
+      return {
+        ...spec,
+        from: tr.mapping.map(spec.from, 1),
+        to: tr.mapping.map(spec.to, -1),
+      };
+    // Typing at either edge of a draft is part of it.
+    const from = tr.mapping.map(spec.from, -1);
+    const to = tr.mapping.map(spec.to, 1);
+    return spec.kind === "delete" && to > from
+      ? { ...spec, from, to, kind: "mark" as const, editableText: true }
+      : { ...spec, from, to };
+  });
+  return typed ? [...mapped, typed] : mapped;
+}
+
 export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightState> {
   return new Plugin<SuggestionHighlightState>({
     key: suggestionHighlightKey,
@@ -822,6 +1065,7 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
       init: () => ({
         specs: [],
         activeId: null,
+        drafting: false,
         decorations: DecorationSet.empty,
       }),
       apply(tr, value, _oldState, newState) {
@@ -830,10 +1074,12 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
           | undefined;
         let specs = value.specs;
         let activeId = value.activeId;
+        let drafting = value.drafting;
 
         if (meta) {
           if (meta.specs !== undefined) specs = meta.specs;
           if (meta.activeId !== undefined) activeId = meta.activeId;
+          if (meta.drafting !== undefined) drafting = meta.drafting;
         } else if (tr.docChanged) {
           // Collaboration redraws the whole Page when the editor's plugins
           // change; an identical Page keeps every highlight where it was.
@@ -845,19 +1091,26 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
                 value.decorations.find(),
               ),
             };
-          specs = specs
-            .map((spec) => ({
-              ...spec,
-              from: tr.mapping.map(spec.from, 1),
-              to: tr.mapping.map(spec.to, -1),
-            }))
-            .filter((spec) =>
-              spec.kind === "insert" ||
-              spec.kind === "add_block" ||
-              (spec.kind === "delete" && !!spec.deletedText)
-                ? true
-                : spec.to > spec.from,
-            );
+          specs =
+            drafting && isTyping(tr)
+              ? typedDraftSpecs(tr, specs)
+              : specs.flatMap((spec) => {
+                  const from = tr.mapping.mapResult(spec.from, 1);
+                  const to = tr.mapping.mapResult(spec.to, -1);
+                  // Live sync redraws the whole Page for a peer's edit. A
+                  // draft it ran through waits for the Page to draw it again,
+                  // rather than keep its struck-out words where it collapsed.
+                  if (spec.draft && (from.deletedAcross || to.deletedAcross))
+                    return [];
+                  return [{ ...spec, from: from.pos, to: to.pos }];
+                });
+          specs = specs.filter((spec) =>
+            spec.kind === "insert" ||
+            spec.kind === "add_block" ||
+            ((spec.kind === "delete" || spec.draft) && !!spec.deletedText)
+              ? true
+              : spec.to > spec.from,
+          );
         } else {
           return value;
         }
@@ -865,10 +1118,16 @@ export function createSuggestionHighlightPlugin(): Plugin<SuggestionHighlightSta
         return {
           specs,
           activeId,
+          drafting,
           decorations: buildDecorations(newState.doc, specs, activeId),
         };
       },
     },
+    filterTransaction: (transaction, state) =>
+      !editsSettlingSuggestion(
+        transaction,
+        suggestionHighlightKey.getState(state)?.specs ?? [],
+      ),
     props: {
       decorations(state) {
         return suggestionHighlightKey.getState(state)?.decorations ?? null;

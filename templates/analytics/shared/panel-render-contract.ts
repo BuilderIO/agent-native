@@ -1,5 +1,6 @@
 import { pivotRows } from "../app/pages/adhoc/sql-dashboard/pivot";
 import {
+  CHART_VALUE_FORMATTERS,
   PANEL_CHART_TYPES,
   type ChartType,
   type SqlPanel,
@@ -267,6 +268,12 @@ const STRING_ARRAY_SHAPE: ConfigValueShape = {
   expected: "an array of result column names",
 };
 
+const CHART_VALUE_FORMATTER_SHAPE: ConfigValueShape = {
+  valid: (value) =>
+    (CHART_VALUE_FORMATTERS as readonly unknown[]).includes(value),
+  expected: `one of ${CHART_VALUE_FORMATTERS.map((name) => `"${name}"`).join(", ")} ("duration" reads the value as seconds)`,
+};
+
 const FUNNEL_OUTCOME_FIELDS = [
   "completedKey",
   "leftKey",
@@ -277,6 +284,8 @@ const FUNNEL_OUTCOME_FIELDS = [
 const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
+  yFormatter: CHART_VALUE_FORMATTER_SHAPE,
+  rightYFormatter: CHART_VALUE_FORMATTER_SHAPE,
   barKeys: STRING_ARRAY_SHAPE,
   events: {
     valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),

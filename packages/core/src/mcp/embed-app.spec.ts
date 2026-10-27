@@ -9,6 +9,7 @@ import {
   mcpAppHostFillsContainer,
 } from "../shared/mcp-app-display.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
 describe("embedApp", () => {
   it("transplants app documents in ChatGPT and Claude MCP sandboxes", async () => {
@@ -299,6 +300,38 @@ describe("embedApp", () => {
         },
       ),
     ).toBe("https://canonical.example/target");
+  });
+
+  it("never picks the hidden-embed-URL placeholder as the open link", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "analytics" })
+        : resource.html;
+    const hiddenEmbedUrl = html.match(/const hiddenEmbedUrl = ("[^"]*");/)?.[1];
+    expect(hiddenEmbedUrl).toBe(JSON.stringify(HIDDEN_EMBED_URL));
+    const pickerSource = html.match(
+      /(function firstNonEmbedStartUrl\(values\) \{[\s\S]*?\n    \})/,
+    )?.[1];
+    expect(pickerSource).toBeDefined();
+
+    const firstNonEmbedStartUrl = new Function(
+      "hiddenEmbedUrl",
+      "isEmbedStartUrl",
+      `${pickerSource}; return firstNonEmbedStartUrl;`,
+    )(HIDDEN_EMBED_URL, (value: string) =>
+      value.includes("/_agent-native/embed/start"),
+    ) as (values: unknown[]) => string;
+
+    expect(
+      firstNonEmbedStartUrl([
+        "",
+        HIDDEN_EMBED_URL,
+        "/_agent-native/embed/start?ticket=x",
+        "/inbox/thread-1",
+      ]),
+    ).toBe("/inbox/thread-1");
+    expect(firstNonEmbedStartUrl([HIDDEN_EMBED_URL])).toBe("");
   });
 
   it("leaves dev runtime module URLs untokenized in transplanted app documents", () => {

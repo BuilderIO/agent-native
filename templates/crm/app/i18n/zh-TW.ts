@@ -599,12 +599,9 @@ const messages = {
     attachEvidence: "附加證據",
     automate: "自動化",
     reviewNewClipsCalls: "審查新的 Clips 通話",
-    reviewDescription:
-      "為此 CRM 記錄準備審查方案，但不複製 Clips 媒體或文字記錄。",
-    disabledAutomationDescription:
-      "此自動化一開始為停用狀態，並且始終連結至 {{name}}。明確啟用後，每個新片段只能將已檢查存取權的錄製頁面參照附加至此記錄。",
-    handoffDescription:
-      "交接只會保留不透明的片段 ID、持久的 {{path}} 頁面 URL 與擷取時間。它會拒絕活動 URL、媒體、存取權杖、文字記錄、推斷記錄與提供者寫入。",
+    reviewDescription: "目前尚不支援設定從 CRM 到 Clips 的通話自動化。",
+    disabledAutomationDescription: "所選 CRM 記錄：{{name}}。",
+    handoffDescription: "目前不支援自動附加 {{path}} 頁面連結。",
     manageAutomations: "管理自動化",
     configureWithAgent: "使用代理程式設定",
     editField: "編輯欄位",
