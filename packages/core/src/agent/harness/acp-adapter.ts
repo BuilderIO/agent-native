@@ -280,7 +280,7 @@ class AcpHarnessSession implements AgentHarnessSession {
     yield* queue;
   }
 
-  async approve(approval: AgentHarnessApproval): Promise<void> {
+  approve(approval: AgentHarnessApproval): Promise<void> {
     const pending = this.pendingPermissions.get(approval.id);
     if (!pending) {
       throw new Error(
@@ -291,6 +291,7 @@ class AcpHarnessSession implements AgentHarnessSession {
     pending.resolve(
       buildAcpPermissionResponse(pending.options, approval.approved),
     );
+    return Promise.resolve();
   }
 
   canResolveApproval(approval: AgentHarnessApproval): boolean {

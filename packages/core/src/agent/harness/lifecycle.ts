@@ -373,10 +373,10 @@ export async function resolveAgentHarnessApproval(input: {
         resolutionStarted.generation,
         input.approval.id,
         () => {
-          providerDispatchStarted = true;
           const liveSession = activeLive.session;
           if (liveSession.approve) {
             const result = liveSession.approve(input.approval);
+            providerDispatchStarted = true;
             void result.catch(() => {});
             return {
               kind: "approve" as const,
@@ -389,6 +389,7 @@ export async function resolveAgentHarnessApproval(input: {
           if (!stream) {
             throw new Error("Harness session cannot continue an approval.");
           }
+          providerDispatchStarted = true;
           const iterator = stream[Symbol.asyncIterator]();
           const firstNext = nextHarnessEvent(iterator, approvalAbort.signal);
           void firstNext.catch(() => {});

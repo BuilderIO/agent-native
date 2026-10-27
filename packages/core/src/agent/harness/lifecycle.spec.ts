@@ -807,6 +807,35 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain(approvalId);
   });
 
+  it("releases the approval claim after a synchronous local rejection", async () => {
+    const approvalId = "approval-sync-local-rejection";
+    const session = fakeSession();
+    session.canResolveApproval = vi.fn(() => true);
+    session.approve = vi.fn(() => {
+      throw new Error("approval is no longer pending in this process");
+    });
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("approval is no longer pending in this process");
+
+    expect(session.canResolveApproval).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalled();
+    expect(mocks.failApprovalResolution).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: approvalId },
+      approvalResolutionId: null,
+    });
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
   it("stops a rehydrated provider session when approval dispatch is refused", async () => {
     const approvalId = "approval-rehydrated-dispatch-refused";
     const session = fakeSession();
