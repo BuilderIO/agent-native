@@ -5594,11 +5594,17 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Same-turn recovery can outlive the run row, but unresolved steps only
-    // extend retention through their updated_at recovery window.
+    // Same-turn recovery can outlive the run row. The recovery window keeps
+    // retryable receipts; a dispatched never-replay receipt stays as the
+    // idempotency guard because an action can outlive its run and lease.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT (
+                s.status <> 'completed'
+                AND s.replay_policy = 'never'
+                AND (s.status <> 'prepared' OR s.dispatched_at IS NOT NULL)
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = s.thread_id

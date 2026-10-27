@@ -19,6 +19,9 @@
       "config": "checks/F3-policy-flip-forgets-dispatch.cfg"
     },
     {
+      "config": "checks/F2-late-effect-after-cutoff.cfg"
+    },
+    {
       "config": "sufficiency/fence-alone.cfg"
     },
     {
@@ -60,11 +63,16 @@
       "config": "mutations/h-prune-incomplete-step.cfg",
       "invariant": "P8",
       "breaks": "retention pruning a dispatched step while its old handler can still complete"
+    },
+    {
+      "config": "mutations/i-prune-after-recovery-cutoff.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning an unresolved never-replay receipt after the recovery cutoff while a late effect can still land"
     }
   ],
   "findings": [],
   "coverage": {
-    "syncCommit": "d58f9c8aeba61e1227fd54ed4cb723dd855d67bc",
+    "syncCommit": "ff17febc0faca2c7f58d6d9000d3ce3ce0d5518a",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -189,7 +197,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "pruneAndRollUpPrunedRunOutcomes",
-        "sha256": "1d4616a8ec7fc6f155b213dd197649cc2d4550b6c08407a235c2e74f4b08934f"
+        "sha256": "3975ca944159686d220a55daa7f1b244f2a311b5c9e69ab25e2002ec9fcf16b6"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",

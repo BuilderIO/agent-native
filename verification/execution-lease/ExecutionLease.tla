@@ -20,14 +20,14 @@ CONSTANTS
   Runs,           \* agent_runs ids that belong to this turn
   NoRun,          \* stands for an empty owner / run_id column
   PolicyChoices,  \* intent.replayPolicy values a run's deploy may use
-  Mutation,       \* "none" or one of "a".."g" (broken variants, see NOTES.md)
+  Mutation,       \* "none" or one of "a".."i" (broken variants, see NOTES.md)
   WithPrune,      \* include the retention prune (RS:5126-5258)
-  PruneWhileTurnActive \* the prune may reach a turn that can still see
-                       \* work: see PruneRun, PruneLease, InsertRun
+  PruneWhileTurnActive \* let pruning race in-window turn recovery; FALSE
+                       \* means the recovery cutoff passed
 
 ASSUME NoRun \notin Runs
 ASSUME PolicyChoices \subseteq {"never", "retry-safe", "read-only"}
-ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h"}
+ASSUME Mutation \in {"none", "a", "b", "c", "d", "e", "f", "g", "h", "i"}
 ASSUME WithPrune \in BOOLEAN
 ASSUME PruneWhileTurnActive \in BOOLEAN
 
@@ -471,24 +471,28 @@ TerminaliseUnclaimed(r) ==
 \* inserted inside the reaper tx that holds the predecessor row), a
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
-\* turn's rows were pruned; that case is PruneWhileTurnActive.
-\* In the F2 check, a continuation may arrive after pruning while the prior
-\* external effect is still in flight. A completed step with no pending effect
-\* ends the modeled turn; later submission after all rows age out is out of scope.
+\* turn's rows were pruned. The recovery cutoff is not evidence that a detached
+\* external effect has settled. After the cutoff, a same-turn retry can still
+\* arrive while an unresolved receipt remains. Mutation i also admits one
+\* after the receipt was incorrectly pruned while its handler is pending.
 EffectCanLand == \E q \in Runs : effectPending[q]
 InsertRun(r) ==
   /\ rstatus[r] = "absent"
   /\ (IF PruneWhileTurnActive
       THEN ((step.exists /\ step.status # "completed")
         \/ (~step.exists /\ EffectCanLand))
-      ELSE \E q \in Runs : rstatus[q] \in Present)
+      ELSE ((\E q \in Runs : rstatus[q] \in Present)
+        \/ ((\E q \in Runs : rstatus[q] = "pruned")
+          /\ ((step.exists /\ step.status # "completed")
+            \/ (Mutation = "i" /\ ~step.exists /\ EffectCanLand)))))
   /\ rstatus' = [rstatus EXCEPT ![r] = "running"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
 \* Retention prune, pruneAndRollUpPrunedRunOutcomes RS:5126-5258 (one tx,
-\* no lease lock). Ages are nondeterministic.
+\* no lease lock). The age cutoff is observable; the SQL cannot see whether a
+\* detached handler's external effect is still pending.
 \* DELETE agent_runs: terminal and older than the retention cutoff
 \* (RS:5143-5155). Retention is AGENT_RUN_RETENTION_MS (24 h by default, RM:226)
 \* or AGENT_ERRORED_RUN_RETENTION_MS (7 d, RM:228); both may be set to 0
@@ -496,28 +500,25 @@ InsertRun(r) ==
 \* (RS:5303-5305). The exact age is abstracted: PruneWhileTurnActive=FALSE
 \* models the recovery cutoff having passed; TRUE lets pruning race a same-turn
 \* recovery while the lease or an external effect is still active.
-WorkerGone(r) == wpc[r] \in {"idle", "done"} /\ ~effectPending[r]
 PruneRun(r) ==
   /\ WithPrune
   /\ rstatus[r] \in Terminal
-  /\ PruneWhileTurnActive \/ WorkerGone(r)
   /\ rstatus' = [rstatus EXCEPT ![r] = "pruned"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
 \* DELETE agent_execution_steps: older than the cutoff and no agent_runs row of
-\* the turn (RS:5166-5177). A live lease extends retention. After the recovery
-\* window, an unresolved row can be pruned once no external effect is pending.
-\* Mutation h drops the live-lease and in-window unresolved-row guards.
+\* the turn (RS:5166-5177). A live lease extends retention. The SQL cannot see
+\* a detached handler's pending effect, so keep an unresolved never-replay
+\* dispatch receipt even after the recovery window. Retry-safe/read-only receipts
+\* and known-undispatched prepared rows can expire.
 StepMayHaveEffect ==
   step.status \in {"dispatched", "unknown"}
   \/ (step.status = "prepared" /\ (step.dispatchedAt \/ step.wasDispatched))
 StepCanPrune ==
   step.status = "completed"
   \/ (step.status = "prepared" /\ ~step.dispatchedAt /\ ~step.wasDispatched)
-NoPendingEffects ==
-  \A q \in Runs : ~effectPending[q]
 PruneStep ==
   /\ WithPrune
   /\ step.exists
@@ -525,19 +526,23 @@ PruneStep ==
   /\ \/ /\ Mutation = "h"
        /\ PruneWhileTurnActive
        /\ StepMayHaveEffect
+     \/ /\ Mutation = "i"
+        /\ ~lease.live
+        /\ StepMayHaveEffect
      \/ /\ ~lease.live
         /\ (StepCanPrune \/ (~PruneWhileTurnActive
                               /\ StepMayHaveEffect
-                              /\ NoPendingEffects))
+                              /\ step.policy # "never"))
   /\ step' = NoStep
   /\ UNCHANGED <<policy, rstatus, wg, lease, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
 \* DELETE agent_execution_leases: updated_at older than the cutoff and no
-\* agent_runs row of the turn (RS:5178-5188). The lease must be expired and
-\* an unresolved step can pin it only through the recovery window. Mutation h
-\* drops both the lease and recent-step guards. The next claim restarts at gen 1.
+\* agent_runs row of the turn (RS:5178-5188). The lease must be expired; after
+\* the recovery window, the unresolved step receipt alone prevents an unsafe replay.
+\* Mutation h drops the live-lease and recent-step guards. The next claim
+\* restarts at gen 1.
 PruneLease ==
   /\ WithPrune
   /\ lease.exists
@@ -546,9 +551,6 @@ PruneLease ==
        /\ PruneWhileTurnActive
        /\ EffectCanLand
      \/ /\ ~lease.live
-        /\ (step.status = "none" \/ StepCanPrune
-            \/ (~PruneWhileTurnActive /\ StepMayHaveEffect
-                /\ NoPendingEffects))
   /\ lease' = NoLease
   /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>

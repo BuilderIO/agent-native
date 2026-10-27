@@ -775,7 +775,7 @@ describe("deterministic agent run simulation", () => {
     `);
   });
 
-  it("F2 prunes an unknown step after its recovery window expires", async () => {
+  it("F2 prunes a retry-safe unknown step after its recovery window expires", async () => {
     const trace = new TraceRecorder(START_MS);
     const threadId = "sim-f2-unknown-thread";
     const turnId = "sim-f2-unknown-turn";
@@ -790,7 +790,7 @@ describe("deterministic agent run simulation", () => {
       operationId: stepId,
       toolName: "write",
       inputJson: JSON.stringify({ argumentsHash: "unknown-result" }),
-      replayPolicy: "never" as const,
+      replayPolicy: "retry-safe" as const,
     };
     await withExecutionFence(fence, async () => {
       const admission = await beginAgentExecutionStep(intent);
@@ -805,7 +805,10 @@ describe("deterministic agent run simulation", () => {
     trace.add("run ended with no live worker");
 
     await pglite.db.query(
-      "UPDATE agent_runs SET completed_at = $1 WHERE id = $2",
+      `UPDATE agent_runs
+       SET status = 'aborted', completed_at = $1,
+           thread_projection_pending = FALSE
+       WHERE id = $2`,
       [START_MS - 30_000, runId],
     );
     await pglite.db.query(
@@ -863,6 +866,189 @@ describe("deterministic agent run simulation", () => {
       t=0ms run ended with no live worker
       t=15001ms lease expired; recovery window still retains unknown step and lease
       t=45002ms recovery window expired; unknown step and lease were pruned"
+    `);
+  });
+
+  it("retains a never-replay receipt while its late effect can still land", async () => {
+    const trace = new TraceRecorder(START_MS);
+    const effects: string[] = [];
+    let signalActionStarted: () => void = () => {};
+    let resolveSlowAction: () => void = () => {};
+    let signalActionSettled: () => void = () => {};
+    const actionStarted = new Promise<void>((resolve) => {
+      signalActionStarted = resolve;
+    });
+    const actionSettled = new Promise<void>((resolve) => {
+      signalActionSettled = resolve;
+    });
+    const threadId = "sim-late-effect-thread";
+    const turnId = "sim-late-effect-turn";
+    const firstRunId = "sim-late-effect-run-1";
+    const firstFence = await createAttempt({
+      runId: firstRunId,
+      threadId,
+      turnId,
+      trace,
+    });
+    const controller = new AbortController();
+    const firstLoop = runLoop({
+      fence: firstFence,
+      trace,
+      signal: controller.signal,
+      action: () => {
+        trace.add("slow tool started");
+        signalActionStarted();
+        return new Promise<string>((resolve) => {
+          resolveSlowAction = () => {
+            effects.push("sim:step-1");
+            trace.add("late tool sideEffect step=sim:step-1");
+            resolve("saved late");
+            signalActionSettled();
+          };
+        });
+      },
+    }).then(
+      () => {
+        throw new Error("The revoked run unexpectedly completed its tool call");
+      },
+      (error: unknown) => {
+        trace.add(
+          "old loop stopped error=" +
+            (error instanceof Error ? error.name : "unknown"),
+        );
+      },
+    );
+    await actionStarted;
+
+    const dispatchedStep = await pglite.db.query(
+      `SELECT input_json FROM agent_execution_steps
+       WHERE thread_id = $1 AND turn_id = $2 AND step_id = $3`,
+      [threadId, turnId, "sim:step-1"],
+    );
+    const dispatchedRow = dispatchedStep.rows[0];
+    if (
+      !isRecord(dispatchedRow) ||
+      typeof dispatchedRow.input_json !== "string"
+    ) {
+      throw new Error("The dispatched execution step has no input identity");
+    }
+    const firstIntent: AgentExecutionStepIntent = {
+      ...firstFence,
+      stepId: "sim:step-1",
+      operationId: "sim:step-1",
+      toolName: "write",
+      inputJson: dispatchedRow.input_json,
+      replayPolicy: "never",
+    };
+    await withExecutionFence(firstFence, () =>
+      markAgentExecutionStepUnknown(firstIntent),
+    );
+    trace.add("action result lost; step=sim:step-1 status=unknown");
+
+    const executor = getExecutor();
+    if (!executor.transaction) {
+      throw new Error(
+        "The late-effect simulation requires transaction support",
+      );
+    }
+    await executor.transaction(async (tx) => {
+      await lockTaskExecutionLease(tx, threadId, turnId);
+      await revokeTaskExecutionLease(tx, threadId, turnId);
+    });
+    trace.add("lease revoked while action remains in flight");
+    controller.abort(EXECUTION_LEASE_LOST_ABORT_REASON);
+    expect(controller.signal.reason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+    await firstLoop;
+    trace.add(
+      "lease lost -> abort reason=" + EXECUTION_LEASE_LOST_ABORT_REASON,
+    );
+
+    await pglite.db.query(
+      "UPDATE agent_runs SET status = 'aborted', completed_at = $1, thread_projection_pending = FALSE WHERE id = $2",
+      [START_MS - 30_000, firstRunId],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_steps SET updated_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3 AND step_id = $4`,
+      [START_MS - 30_000, threadId, turnId, "sim:step-1"],
+    );
+    await pglite.db.query(
+      `UPDATE agent_execution_leases
+       SET updated_at = to_timestamp($1 / 1000.0),
+           lease_expires_at = to_timestamp($1 / 1000.0)
+       WHERE thread_id = $2 AND turn_id = $3`,
+      [START_MS - 30_000, threadId, turnId],
+    );
+    await vi.advanceTimersByTimeAsync(30_001);
+    await cleanupOldRuns(30_000, 30_000);
+
+    const retainedReceipt = await pglite.db.query(
+      `SELECT status, input_json FROM agent_execution_steps
+       WHERE thread_id = $1 AND turn_id = $2 AND step_id = $3`,
+      [threadId, turnId, "sim:step-1"],
+    );
+    const prunedLease = await pglite.db.query(
+      `SELECT updated_at, lease_expires_at FROM agent_execution_leases
+       WHERE thread_id = $1 AND turn_id = $2`,
+      [threadId, turnId],
+    );
+    expect(retainedReceipt.rows).toHaveLength(1);
+    expect(
+      isRecord(retainedReceipt.rows[0])
+        ? retainedReceipt.rows[0].status
+        : undefined,
+    ).toBe("unknown");
+    expect(prunedLease.rows).toHaveLength(0);
+    trace.add(
+      "recovery window expired; lease pruned, unknown receipt retained",
+    );
+
+    const retainedRow = retainedReceipt.rows[0];
+    if (!isRecord(retainedRow) || typeof retainedRow.input_json !== "string") {
+      throw new Error("The retained execution receipt has no input identity");
+    }
+
+    const secondRunId = "sim-late-effect-run-2";
+    await insertRun(secondRunId, threadId, turnId);
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+    trace.add(
+      `lease acquired run=${secondRunId} gen=${secondFence.generation}`,
+    );
+    const secondIntent: AgentExecutionStepIntent = {
+      ...secondFence,
+      stepId: "sim:step-1",
+      operationId: "sim:step-1",
+      toolName: "write",
+      inputJson: retainedRow.input_json,
+      replayPolicy: "never",
+    };
+    const admission = await withExecutionFence(secondFence, () =>
+      beginAgentExecutionStep(secondIntent),
+    );
+    expect(admission.status).toBe("unknown");
+    trace.add("same-turn retry blocked by unknown never-replay receipt");
+
+    resolveSlowAction();
+    await actionSettled;
+    expect(effects).toEqual(["sim:step-1"]);
+    expect(trace.toString()).toMatchInlineSnapshot(`
+      "t=0ms lease acquired run=sim-late-effect-run-1 gen=1
+      t=0ms model request=1
+      t=0ms event tool_start tool=write
+      t=0ms slow tool started
+      t=0ms action result lost; step=sim:step-1 status=unknown
+      t=0ms lease revoked while action remains in flight
+      t=0ms event tool_done tool=write
+      t=0ms old loop stopped error=StaleExecutionFenceError
+      t=0ms lease lost -> abort reason=execution_lease_lost
+      t=30001ms recovery window expired; lease pruned, unknown receipt retained
+      t=30001ms lease acquired run=sim-late-effect-run-2 gen=1
+      t=30001ms same-turn retry blocked by unknown never-replay receipt
+      t=30001ms late tool sideEffect step=sim:step-1"
     `);
   });
 

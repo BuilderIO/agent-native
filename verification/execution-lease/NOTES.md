@@ -35,12 +35,13 @@ Helper invariants, checked in the same runs:
   action may be a zombie and its effect may still land.
 - A read-only cache hit may complete a dispatched step without entering the
   handler because it has no external effect.
-- `PruneWhileTurnActive = FALSE` in the main checks. The F2 regression check
-  sets it to TRUE so pruning can race recovery. `PruneStep` preserves a live
-  lease and recent unresolved receipts; once the recovery window has passed,
-  it can remove an unresolved step after no external effect remains pending.
-  An aged `prepared` row with no dispatch history can also be removed because
-  invocation only follows the committed dispatch marker.
+- `PruneWhileTurnActive = FALSE` in the main checks. The live-lease F2 check sets
+  it to TRUE to race pruning; the late-effect F2 check leaves it FALSE to model
+  an elapsed recovery cutoff. `PruneStep` preserves a live lease and recent
+  unresolved receipts. A dispatched `never` receipt stays
+  after the recovery cutoff because the handler may outlive both the run and
+  its lease; retry-safe/read-only unknown receipts and aged `prepared` rows with
+  no dispatch history can be removed.
 - This is a one-step turn model: after that step is completed, the modeled turn
   is over when no worker or effect remains in flight. The F2 check permits a
   same-turn continuation after an incorrect prune while the prior effect is
@@ -102,23 +103,25 @@ and `markTurnAborted` confirms that current-turn approval admission and
 completed-pause interruption use the cross-turn scope described above. They
 do not weaken step fencing or move an effect ahead of durable dispatch.
 
-## Results after the F2/F3 regression model update
+## Results after the F2/F3 retention regression update
 
-| Config                                                           | Result                          | Distinct states | Time   |
-| ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
-| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 43,211          | 1.7 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,274,034       | 37.7 s |
-| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 43,211          | 1.4 s  |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 68,110          | 1.7 s  |
-| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 151             | 0.7 s  |
-| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 20,216          | 1.0 s  |
-| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,585           | 0.8 s  |
-| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 0.9 s  |
-| `mutations/e` fence check commits before the write               | P1 violated                     | 148             | 0.7 s  |
-| `mutations/g` reset fallback without successor fence             | P1 violated                     | 334             | 0.7 s  |
-| `mutations/h` prune a live dispatched step before a late effect  | P8 violated                     | 67,070          | 2.2 s  |
-| `checks/F2` prune reaches a turn that still sees work            | pass                            | 72,909          | 2.3 s  |
-| `checks/F3` policy flip after a retry-safe dispatch              | pass                            | 2,274,034       | 33.1 s |
+| Config                                                       | Result                          | Distinct states | Time    |
+| ------------------------------------------------------------ | ------------------------------- | --------------- | ------- |
+| `ExecutionLease.cfg` (policy `never`, prune on)               | pass                            | 78,486          | 2.1 s   |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen)     | pass                            | 4,306,354       | 72.4 s  |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence  | P8 and P1 hold                  | 78,486          | 1.9 s   |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause| P8 holds                        | 124,746         | 3.2 s   |
+| `mutations/a` dispatch without the fence                      | P1 violated                     | 161             | 0.7 s   |
+| `mutations/b` begin replays a dispatched never step           | P8 violated                     | 26,727          | 1.1 s   |
+| `mutations/c` action starts before dispatch commits           | P8 violated                     | 2,564           | 0.8 s   |
+| `mutations/d` claim takes a live lease from a running owner    | ClaimRespectsLiveOwner violated | 16              | 0.7 s   |
+| `mutations/e` fence check commits before the write             | P1 violated                     | 158             | 0.7 s   |
+| `mutations/g` reset fallback lacks successor fence            | P1 violated                     | 361             | 0.7 s   |
+| `mutations/h` prune a live dispatched step before late effect  | P8 violated                     | 68,129          | 1.7 s   |
+| `mutations/i` prune unresolved never receipt after cutoff      | P8 violated                     | 67,603          | 1.7 s   |
+| `checks/F2-prune-under-live-lease.cfg` live-turn prune race    | pass                            | 78,486          | 2.5 s   |
+| `checks/F2-late-effect-after-cutoff.cfg` keep receipt, prune lease | pass                       | 78,486          | 2.0 s   |
+| `checks/F3-policy-flip-forgets-dispatch.cfg` retry-safe policy flip | pass                        | 4,306,354       | 64.3 s  |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass
@@ -129,6 +132,9 @@ fallback. The resulting stale journal write violates P1, confirming that the
 fallback's successor lease lock is required. Mutation h removes both active
 retention guards; the F2 regression check must keep P8, while that mutation
 lets a recovery attempt repeat an effect and violates P8.
+Mutation i removes the post-cutoff receipt guard while retaining the lease
+expiry check. The detached `never` handler can then land after the row is
+pruned, and a same-turn continuation can invoke the step again, violating P8.
 
 Observations:
 
@@ -155,13 +161,14 @@ loss scenario verifies the abort reason against that constant.
 Seed `20261026` prunes the terminal run while its lease is still live. The test
 proves the dispatched step is eligible by age, yet the prune removes neither
 its journal nor lease; after lease expiry, recovery reads the preserved
-`dispatched` record and refuses the `never` replay. Unresolved steps also pin
-their lease only through the longest configured recovery window. The F2
-unknown-step scenario observes that window, then advances past it and confirms
-both journal and lease rows are pruned. Mutation h removes the live and
-in-window guards; its late-continuation path finds two effects for the same
-`never` step. A separate scenario confirms aged `prepared` rows with no
-dispatch history are removed with their expired lease.
+`dispatched` record and refuses the `never` replay. The unknown-step scenario
+uses a retry-safe step, advances past the recovery window, and confirms both
+its journal and expired lease are pruned. A dispatched `never` step keeps its
+receipt after the same cutoff while its expired lease is pruned; the late-effect
+scenario proves a same-turn retry cannot repeat it. Aged `prepared` rows with
+no dispatch history also prune with their expired lease. Mutations h and i
+remove the active and post-cutoff receipt guards; each lets a late continuation
+repeat the same `never` step and violates P8.
 
 **F3, retry-safe adoption forgets dispatch — reproduced and fixed.** Seed
 `20261027` dispatches a retry-safe step, adopts and redispatches it in a second
@@ -211,7 +218,7 @@ with `AGENT_RUN_SIM_SEEDS`. A failing property includes fast-check's seed and
 the last compact event trace.
 
 The full default simulation file (24 property runs plus named scenarios and a
-concurrent-claim check) took 10.2 seconds locally. The property alone took
+concurrent-claim check) took 11.3 seconds locally. The property alone took
 63.6 seconds with 64 runs.
 
 ## Code to model map
