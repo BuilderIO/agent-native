@@ -3,13 +3,13 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { USE_CASES_BASE } from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
-import { useCaseRedirectTarget } from "../components/campaign/use-case-redirects";
+import { movedUseCaseSlug } from "../components/campaign/use-case-redirects";
 import {
   docsLocaleFromSegment,
   sitePathForLocale,
 } from "../components/docs-locale";
 import { redirectLocalizedCampaign } from "./localized-campaign-redirect";
-import { loader as englishLoader, useCasePageData } from "./use-cases.$slug";
+import { loader as englishLoader, pageDataFor } from "./use-cases.$slug";
 
 export { default, meta } from "./use-cases.$slug";
 
@@ -19,7 +19,7 @@ export { default, meta } from "./use-cases.$slug";
 export function loader(args: LoaderFunctionArgs) {
   const { params, request } = args;
   const locale = docsLocaleFromSegment(params.locale);
-  const moved = useCaseRedirectTarget(params.slug);
+  const moved = movedUseCaseSlug(params.slug);
   if (locale && moved) {
     return withSsrHtmlContentType(
       redirect(sitePathForLocale(`${USE_CASES_BASE}/${moved}/`, locale), 301),
@@ -30,7 +30,7 @@ export function loader(args: LoaderFunctionArgs) {
   );
   if (!entry) return englishLoader(args);
   const translation = locale ? entry.translations[locale] : undefined;
-  if (translation) return useCasePageData(entry, translation);
+  if (translation) return pageDataFor(entry, translation);
   return redirectLocalizedCampaign(
     request,
     params.locale,

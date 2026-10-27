@@ -15,7 +15,7 @@ export const USE_CASE_SLUG_REDIRECTS: Record<string, string> = {
   "spec-your-coding-agent-builds-from": "specs-for-coding-agents",
 };
 
-export function useCaseRedirectTarget(slug: string | undefined) {
+export function movedUseCaseSlug(slug: string | undefined) {
   return slug && Object.hasOwn(USE_CASE_SLUG_REDIRECTS, slug)
     ? USE_CASE_SLUG_REDIRECTS[slug]
     : undefined;

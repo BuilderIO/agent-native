@@ -13,7 +13,7 @@ import {
 } from "../../lib/campaign-content";
 import { loadCampaignContent } from "../../lib/campaign-content.server";
 import { UseCasePage } from "../components/campaign/use-case-page";
-import { useCaseRedirectTarget } from "../components/campaign/use-case-redirects";
+import { movedUseCaseSlug } from "../components/campaign/use-case-redirects";
 import {
   DEFAULT_DOCS_LOCALE,
   sitePathForLocale,
@@ -23,7 +23,7 @@ import { campaignMeta } from "../lib/campaign-seo";
 const SITE_URL = "https://www.agent-native.com";
 
 /** A use-case page in one language, and every language it exists in. */
-export function useCasePageData(entry: UseCaseEntry, page: UseCase) {
+export function pageDataFor(entry: UseCaseEntry, page: UseCase) {
   return {
     page,
     locales: [DEFAULT_DOCS_LOCALE, ...Object.keys(entry.translations)],
@@ -31,7 +31,7 @@ export function useCasePageData(entry: UseCaseEntry, page: UseCase) {
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
-  const moved = useCaseRedirectTarget(params.slug);
+  const moved = movedUseCaseSlug(params.slug);
   if (moved) {
     return withSsrHtmlContentType(redirect(`${USE_CASES_BASE}/${moved}/`, 301));
   }
@@ -39,7 +39,7 @@ export function loader({ params }: LoaderFunctionArgs) {
   const item = content.useCases.find((item) => item.slug === params.slug);
   if (!item) throw new Response(null, { status: 404 });
   const { translations: _translations, ...page } = item;
-  return useCasePageData(item, page);
+  return pageDataFor(item, page);
 }
 // A redirect never reaches meta, so it only sees a page's data.
 type UseCaseData = Exclude<ReturnType<typeof loader>, Response>;
