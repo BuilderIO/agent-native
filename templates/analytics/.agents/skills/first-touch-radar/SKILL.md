@@ -27,13 +27,13 @@ scope: dev
    day. Never send Slack or email.
 7. Keep recipient emails and prompt text out of logs, reports, Telegram, and
    commits. The campaign check reads its mode-0600 recipient file in memory and
-   emits aggregate counts only. With a BigQuery sink, the read-only query joins
-   against recipient email digests and returns aggregate counts only; query
-   caching is disabled. With a PostgreSQL sink, recipient identifiers are
-   parameters to the read-only query and caching is disabled. Unknown signup
-   campaign labels are grouped as `other`. Anonymous landings cannot be
-   assigned to a recipient; do not interpret identified counts as a complete
-   click total.
+   emits aggregate counts only. With a PostgreSQL sink, recipient identifiers
+   are parameters to the read-only query and caching is disabled. A BigQuery
+   sink cannot run campaign follow-up until a keyed recipient matching
+   function is configured; report it as incomplete rather than treating it as
+   zero. Unknown signup campaign labels are grouped as `other`. Anonymous
+   landings cannot be assigned to a recipient; do not interpret identified
+   counts as a complete click total.
 8. This radar changes scripts and skills only. Do not make user-visible UI
    changes. If UI work becomes necessary, stop that scope and request Steve's
    screenshot approval before implementing it.

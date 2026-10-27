@@ -5,8 +5,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  digestRadarCampaignRecipient: vi.fn(),
-  resolveRadarBigQueryEventsTable: vi.fn(),
   resolveRadarFirstPartyBackend: vi.fn(),
   runBigQuery: vi.fn(),
   runPostgresQuery: vi.fn(),
@@ -25,7 +23,6 @@ describe("campaign follow-up query privacy", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.digestRadarCampaignRecipient.mockResolvedValue("a".repeat(64));
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "radar-campaign-test-"));
     const sentFile = path.join(directory, "sent.jsonl");
     fs.writeFileSync(
@@ -45,22 +42,6 @@ describe("campaign follow-up query privacy", () => {
       sink: "bigquery",
       table: null,
     });
-    mocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
-      "`project_id.analytics.events_raw_query_range`",
-    );
-    mocks.runBigQuery.mockResolvedValue({
-      rows: [
-        {
-          period: "after_send",
-          recipient_app: "clips",
-          activity_app: "clips",
-          metric: "campaign_landing",
-          recipients_with_activity: "1",
-        },
-      ],
-      bytesProcessed: 10,
-      cacheHit: false,
-    });
   });
 
   afterEach(() => {
@@ -70,75 +51,66 @@ describe("campaign follow-up query privacy", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  it("matches BigQuery activity in memory without sending or returning emails", async () => {
-    const result = await runCampaignFollowup("org-1");
-
-    const [sql, options] = mocks.runBigQuery.mock.calls[0] as [
-      string,
-      {
-        params: Array<{ name: string; type: string; value: string }>;
-        fresh: boolean;
-        cache: boolean;
-      },
-    ];
-    expect(sql).toContain("to_hex(sha256(lower(trim(e.identity_email))))");
-    const outputSql = sql.slice(
-      sql.lastIndexOf("SELECT period, recipient_app"),
-    );
-    expect(outputSql).not.toContain("identity_email");
-    expect(outputSql).not.toMatch(/^SELECT[^\n]*email_hash/im);
-    expect(outputSql).toContain(
-      "count(DISTINCT email_hash) AS recipients_with_activity",
-    );
-    expect(options.params).toEqual([
-      { name: "start_date", type: "DATE", value: "2026-10-19" },
-      {
-        name: "end_date",
-        type: "DATE",
-        value: new Date().toISOString().slice(0, 10),
-      },
-      { name: "org_id", type: "STRING", value: "org-1" },
-      {
-        name: "recipients_json",
-        type: "STRING",
-        value: expect.any(String),
-      },
-      { name: "observed_at", type: "TIMESTAMP", value: expect.any(String) },
-    ]);
-    expect(JSON.stringify(options.params)).not.toContain(
-      "recipient@example.test",
-    );
-    const rosterJson = options.params.find(
-      (param) => param.name === "recipients_json",
-    )?.value;
-    expect(typeof rosterJson).toBe("string");
-    const roster = JSON.parse(String(rosterJson)) as Array<{
-      email_hash: string;
-      sent_at: string;
-      recipient_app: string;
-    }>;
-    expect(roster).toHaveLength(1);
-    expect(roster[0]).toMatchObject({
-      email_hash: "a".repeat(64),
-      sent_at: "2026-10-26T12:00:00.000Z",
-      recipient_app: "clips",
+  it("fails clearly on BigQuery until secure keyed campaign matching is configured", async () => {
+    await expect(runCampaignFollowup("org-1")).rejects.toMatchObject({
+      name: "RadarQueryError",
+      exitCode: 2,
+      message:
+        "Campaign follow-up is unavailable for the BigQuery sink until a keyed recipient matching function is configured.",
     });
-    expect(mocks.digestRadarCampaignRecipient).toHaveBeenCalledExactlyOnceWith(
-      "recipient@example.test",
-    );
-    expect(rosterJson).not.toContain("recipient@example.test");
-    expect(options).toMatchObject({ fresh: true, cache: false });
+    expect(mocks.runBigQuery).not.toHaveBeenCalled();
     expect(mocks.runPostgresQuery).not.toHaveBeenCalled();
-    expect(result.sentRecipients).toBe(1);
+  });
+
+  it("runs PostgreSQL campaign matching with uncached recipient parameters", async () => {
+    mocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "postgres",
+      table: null,
+    });
+    mocks.runPostgresQuery.mockResolvedValue({
+      rows: [
+        {
+          period: "after_send",
+          recipient_app: "clips",
+          activity_app: "clips",
+          metric: "any_visit",
+          recipients: 1,
+          recipients_with_activity: 1,
+        },
+      ],
+      bytesProcessed: null,
+      cacheHit: false,
+    });
+
+    const result = await runCampaignFollowup("org-1");
+    const [, params, options] = mocks.runPostgresQuery.mock.calls[0] as [
+      string,
+      Array<{
+        __radarJsonbParameter?: boolean;
+        value?: unknown;
+      }>,
+      { fresh: boolean; cache: boolean },
+    ];
+
+    expect(params[0]).toMatchObject({
+      __radarJsonbParameter: true,
+      value: [
+        {
+          email: "recipient@example.test",
+          sent_at: "2026-10-26T12:00:00.000Z",
+          app: "clips",
+        },
+      ],
+    });
+    expect(options).toMatchObject({ fresh: true, cache: false });
+    expect(mocks.runBigQuery).not.toHaveBeenCalled();
     expect(result.rows).toContainEqual(
       expect.objectContaining({
         period: "after_send",
-        recipient_app: "clips",
         activity_app: "clips",
-        metric: "campaign_landing",
+        metric: "any_visit",
         recipients_with_activity: 1,
       }),
     );
-    expect(JSON.stringify(result)).not.toContain("recipient@example.test");
   });
 });

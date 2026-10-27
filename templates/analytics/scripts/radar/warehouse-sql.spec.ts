@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
-  buildBigQueryCampaignActivitySql,
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
@@ -99,30 +98,6 @@ describe("first-party BigQuery radar SQL", () => {
     expect(upload).toContain("@start_date");
     expect(upload).toContain("@end_date");
     expect(upload).toContain("@org_id");
-  });
-
-  it("joins campaign activity to hashed recipients and returns aggregate counts only", () => {
-    const campaign = buildBigQueryCampaignActivitySql(range);
-    expect(campaign).toContain("JSON_QUERY_ARRAY(@recipients_json)");
-    expect(campaign).toContain(
-      "to_hex(sha256(lower(trim(e.identity_email)))) = r.email_hash",
-    );
-    expect(campaign).toContain(
-      "count(DISTINCT email_hash) AS recipients_with_activity",
-    );
-    expect(campaign).toContain("outage_recovery_20261026");
-    expect(campaign).toContain("@observed_at");
-    expect(campaign).toContain("@start_date");
-    expect(campaign).toContain("@end_date");
-    expect(campaign).toContain("@org_id");
-    const output = campaign.slice(
-      campaign.lastIndexOf("SELECT period, recipient_app"),
-    );
-    expect(output).not.toContain("identity_email");
-    expect(output).not.toMatch(/^SELECT[^\n]*email_hash/im);
-    expect(output).toContain(
-      "count(DISTINCT email_hash) AS recipients_with_activity",
-    );
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {

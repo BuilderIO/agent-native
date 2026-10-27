@@ -5,15 +5,11 @@ import path from "node:path";
 import {
   RadarQueryError,
   REPO_ROOT,
-  digestRadarCampaignRecipient,
   radarJsonbParam,
-  resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
-  runBigQuery,
   runPostgresQuery,
 } from "./query.ts";
 import { CAMPAIGN_APPS, buildCampaignFollowupSql } from "./sql.ts";
-import { buildBigQueryCampaignActivitySql } from "./warehouse-sql.ts";
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
@@ -114,97 +110,6 @@ export function campaignPostgresParams(
     app: recipient.app,
   }));
   return [radarJsonbParam(recipientRows), startDate, endDate, orgId];
-}
-
-interface BigQueryCampaignActivityRow extends Record<string, unknown> {
-  recipient_app: string;
-  activity_app: string;
-  period: string;
-  metric: string;
-  recipients_with_activity: number | string;
-}
-
-function campaignRowsFromBigQuery(
-  recipients: CampaignRecipient[],
-  activityRows: Record<string, unknown>[],
-): CampaignFollowupRow[] {
-  const recipientsByApp = new Map<string, number>();
-  const activityApps = new Set<string>(CAMPAIGN_APPS);
-  for (const recipient of recipients) {
-    recipientsByApp.set(
-      recipient.app,
-      (recipientsByApp.get(recipient.app) ?? 0) + 1,
-    );
-    activityApps.add(recipient.app);
-  }
-
-  const activityCounts = new Map<string, number>();
-  for (const rawRow of activityRows) {
-    const row = rawRow as Partial<BigQueryCampaignActivityRow>;
-    if (
-      typeof row.activity_app !== "string" ||
-      typeof row.recipient_app !== "string" ||
-      typeof row.period !== "string" ||
-      typeof row.metric !== "string"
-    ) {
-      throw new RadarQueryError(
-        "BigQuery campaign query returned malformed aggregate rows.",
-        1,
-      );
-    }
-    const activityApp = normalizeApp(row.activity_app);
-    const recipientApp = normalizeApp(row.recipient_app);
-    const period = campaignPeriod(row.period);
-    const metric = campaignMetric(row.metric);
-    const count = Number(row.recipients_with_activity);
-    const denominator = recipientsByApp.get(recipientApp);
-    if (
-      denominator === undefined ||
-      !Number.isSafeInteger(count) ||
-      count < 0 ||
-      count > denominator
-    ) {
-      throw new RadarQueryError(
-        "BigQuery campaign query returned an invalid aggregate count.",
-        1,
-      );
-    }
-    activityApps.add(activityApp);
-    const key = `${period}|${recipientApp}|${activityApp}|${metric}`;
-    if (activityCounts.has(key)) {
-      throw new RadarQueryError(
-        "BigQuery campaign query returned duplicate aggregate rows.",
-        1,
-      );
-    }
-    activityCounts.set(key, count);
-  }
-
-  const metrics: CampaignFollowupRow["metric"][] = [
-    "any_visit",
-    "campaign_landing",
-    "builder_connect_succeeded",
-    "first_output",
-  ];
-  const rows: CampaignFollowupRow[] = [];
-  for (const [recipientApp, count] of recipientsByApp) {
-    for (const activityApp of activityApps) {
-      for (const period of ["after_send", "prior_7_days"] as const) {
-        for (const metric of metrics) {
-          const key = `${period}|${recipientApp}|${activityApp}|${metric}`;
-          rows.push({
-            period,
-            recipient_app: recipientApp,
-            activity_app: activityApp,
-            metric,
-            recipients: count,
-            recipients_with_activity: activityCounts.get(key) ?? 0,
-          });
-        }
-      }
-    }
-  }
-  return rows;
 }
 
 function normalizeApp(value: string | undefined): string {
@@ -372,54 +277,17 @@ export async function runCampaignFollowup(
   const observedAt = new Date();
   const endDate = observedAt.toISOString().slice(0, 10);
   const backend = await resolveRadarFirstPartyBackend();
-  const rows =
-    backend.sink === "bigquery"
-      ? campaignRowsFromBigQuery(
-          recipients,
-          (
-            await runBigQuery(
-              buildBigQueryCampaignActivitySql(
-                await resolveRadarBigQueryEventsTable(),
-              ),
-              {
-                params: [
-                  { name: "start_date", type: "DATE", value: startDate },
-                  { name: "end_date", type: "DATE", value: endDate },
-                  { name: "org_id", type: "STRING", value: orgId },
-                  {
-                    name: "recipients_json",
-                    type: "STRING",
-                    value: JSON.stringify(
-                      await Promise.all(
-                        recipients.map(async (recipient) => ({
-                          email_hash: await digestRadarCampaignRecipient(
-                            recipient.email,
-                          ),
-                          sent_at: recipient.sent_at,
-                          recipient_app: recipient.app,
-                        })),
-                      ),
-                    ),
-                  },
-                  {
-                    name: "observed_at",
-                    type: "TIMESTAMP",
-                    value: observedAt.toISOString(),
-                  },
-                ],
-                fresh: true,
-                cache: false,
-              },
-            )
-          ).rows,
-        )
-      : (
-          await runPostgresQuery(
-            buildCampaignFollowupSql(),
-            campaignPostgresParams(recipients, startDate, endDate, orgId),
-            { fresh: true, cache: false },
-          )
-        ).rows;
+  if (backend.sink === "bigquery") {
+    throw new RadarQueryError(
+      "Campaign follow-up is unavailable for the BigQuery sink until a keyed recipient matching function is configured.",
+      2,
+    );
+  }
+  const { rows } = await runPostgresQuery(
+    buildCampaignFollowupSql(),
+    campaignPostgresParams(recipients, startDate, endDate, orgId),
+    { fresh: true, cache: false },
+  );
   const byRecipientApp: Record<string, number> = {};
   const aggregateRows = rows.map((row) => {
     const recipientApp = String(row.recipient_app ?? "unknown");
