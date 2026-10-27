@@ -2166,7 +2166,9 @@ function ModelSelector({
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
-  const connectionRequired = selectedModelNeedsConnection && !modelListLoading;
+  // Only a list with no connected provider at all means setup; a selected
+  // model on an unconnected provider still has others to fall back to.
+  const connectionRequired = onlyConnectPathAvailable && !modelListLoading;
   useEffect(() => {
     onConnectionRequiredChange?.(connectionRequired);
   }, [connectionRequired, onConnectionRequiredChange]);

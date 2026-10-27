@@ -33,10 +33,12 @@ function SetupCard({ bouncePulse }: { bouncePulse?: number }) {
 async function render({
   readiness,
   configured,
+  otherProviderConfigured = false,
   onModelConnectionRequiredChange,
 }: {
   readiness: ComposerAgentEngineState;
   configured: boolean;
+  otherProviderConfigured?: boolean;
   onModelConnectionRequiredChange?: (required: boolean) => void;
 }) {
   await act(async () => {
@@ -64,6 +66,16 @@ async function render({
               models: ["example-model"],
               configured,
             },
+            ...(otherProviderConfigured
+              ? [
+                  {
+                    engine: "openai",
+                    label: "OpenAI",
+                    models: ["other-model"],
+                    configured: true,
+                  },
+                ]
+              : []),
           ]}
           selectedModel="example-model"
           selectedEngine="anthropic"
@@ -111,6 +123,20 @@ describe("PromptComposer with no AI connected", () => {
 
     expect(card()).toBeNull();
     expect(editor()?.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("keeps the prompt open when only the selected model's provider is unconnected", async () => {
+    const onRequired = vi.fn();
+    await render({
+      readiness: "unknown",
+      configured: false,
+      otherProviderConfigured: true,
+      onModelConnectionRequiredChange: onRequired,
+    });
+
+    expect(card()).toBeNull();
+    expect(editor()?.getAttribute("contenteditable")).toBe("true");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
   });
 
   it("keeps the prompt open while the model list has a connected provider", async () => {
