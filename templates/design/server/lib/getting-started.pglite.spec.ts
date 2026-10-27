@@ -119,6 +119,27 @@ describe("Getting started completion", () => {
     ]);
   });
 
+  it("routes checklist actions to useful sections and hides template saving without a design", async () => {
+    const createDesign = GETTING_STARTED_STEPS.find(
+      (step) => step.id === "create-design",
+    );
+    const saveTemplate = GETTING_STARTED_STEPS.find(
+      (step) => step.id === "save-template",
+    );
+    expect(createDesign?.href).toBe("/home#design-home-composer");
+    expect(saveTemplate?.href).toBe(
+      "/home?gettingStarted=save-template#design-home-library",
+    );
+    expect(saveTemplate?.isAvailable).toBeTypeOf("function");
+    expect(await as(async () => await saveTemplate!.isAvailable!(ctx()))).toBe(
+      false,
+    );
+    await insert(`INSERT INTO designs (id, owner_email) VALUES ('d1', $1)`, ME);
+    expect(await as(async () => await saveTemplate!.isAvailable!(ctx()))).toBe(
+      true,
+    );
+  });
+
   it("counts only designs the user owns", async () => {
     expect(await as(() => hasOwnDesign(ctx()))).toBe(false);
     await insert(

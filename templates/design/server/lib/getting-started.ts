@@ -208,7 +208,7 @@ export const GETTING_STARTED_STEPS: GettingStartedStep[] = [
     order: 10,
     title: "Create your first design",
     description: "Describe what you want and let the agent build it.",
-    href: "/home",
+    href: "/home#design-home-composer",
     isComplete: hasOwnDesign,
   },
   {
@@ -249,7 +249,8 @@ export const GETTING_STARTED_STEPS: GettingStartedStep[] = [
     order: 60,
     title: "Save a design as a template",
     description: "Turn a finished design into something your team can reuse.",
-    href: "/home",
+    href: "/home?gettingStarted=save-template#design-home-library",
+    isAvailable: hasOwnDesign,
     isComplete: hasSavedTemplate,
   },
 ];

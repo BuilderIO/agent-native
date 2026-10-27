@@ -99,12 +99,8 @@ type FigImportPreview = PreparedFigImport["summary"] & {
   error?: string;
 };
 
-function defaultFigPageSelection(
-  summary: PreparedFigImport["summary"],
-): Set<string> {
-  return summary.frameCount <= MAX_BROWSER_FIG_FRAMES
-    ? new Set(summary.pages.map((page) => page.id))
-    : new Set();
+function defaultFigPageSelection(): Set<string> {
+  return new Set();
 }
 
 export interface DesignImportPanelHandle {
@@ -206,9 +202,7 @@ export const DesignImportPanel = forwardRef<
       pendingFigImportRef.current = prepared;
       setActiveMode("fig-upload");
       setFigImportSelection(
-        retry
-          ? new Set(retry.selection)
-          : defaultFigPageSelection(prepared.summary),
+        retry ? new Set(retry.selection) : defaultFigPageSelection(),
       );
       setFigImportPreview({
         ...prepared.summary,
@@ -390,7 +384,16 @@ export const DesignImportPanel = forwardRef<
             void finishImport(
               result as ImportResult,
               t("designEditor.import.htmlSuccess"),
-            );
+            )
+              .then(() => setHtmlText(""))
+              .catch((error: unknown) => {
+                toast.error(t("designEditor.import.errors.importFailed"), {
+                  description:
+                    error instanceof Error
+                      ? error.message
+                      : t("common.genericError"),
+                });
+              });
           },
           onError: (error: unknown) => {
             toast.error(t("designEditor.import.errors.importFailed"), {
@@ -504,8 +507,11 @@ export const DesignImportPanel = forwardRef<
     async (file: File | undefined) => {
       if (!file) return;
       setActiveMode("html");
+      setHtmlText("");
       try {
-        importHtmlString(await file.text(), file.name);
+        const content = await file.text();
+        setHtmlText(content);
+        importHtmlString(content, file.name);
       } finally {
         if (htmlFileInputRef.current) htmlFileInputRef.current.value = "";
       }
@@ -1109,6 +1115,10 @@ export const DesignImportPanel = forwardRef<
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-xs"
+                          disabled={
+                            figImportSelection.size ===
+                            figImportPreview.pages.length
+                          }
                           onClick={() =>
                             setFigImportSelection(
                               new Set(
@@ -1124,6 +1134,7 @@ export const DesignImportPanel = forwardRef<
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-xs"
+                          disabled={figImportSelection.size === 0}
                           onClick={() => setFigImportSelection(new Set())}
                         >
                           {t("designEditor.import.figImportClearAll")}

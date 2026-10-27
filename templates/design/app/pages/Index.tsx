@@ -56,7 +56,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, Link, useSearchParams } from "react-router";
+import { useLocation, useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -206,8 +206,11 @@ function isReadyHomeSuggestions(
 
 export default function Index() {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isSaveTemplateGettingStarted =
+    searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
@@ -221,10 +224,12 @@ export default function Index() {
   );
   const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
   const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    storedHasAccessibleDesigns.status === "available" &&
-      storedHasAccessibleDesigns.value === true
+    isSaveTemplateGettingStarted
       ? "recent"
-      : "templates",
+      : storedHasAccessibleDesigns.status === "available" &&
+          storedHasAccessibleDesigns.value === true
+        ? "recent"
+        : "templates",
   );
   const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
@@ -245,6 +250,20 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useEffect(() => {
+    if (isSaveTemplateGettingStarted) {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection("recent");
+    }
+
+    const targetId = location.hash.slice(1);
+    if (!targetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isSaveTemplateGettingStarted, location.hash]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
@@ -307,6 +326,12 @@ export default function Index() {
   }, []);
   useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
+    if (isSaveTemplateGettingStarted) {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection("recent");
+      return;
+    }
+
     if (
       !accessibleDesignsSummary.isSuccess ||
       accessibleDesignCount === undefined
@@ -328,6 +353,7 @@ export default function Index() {
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
+    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -1387,6 +1413,7 @@ export default function Index() {
         }
         composer={
           <div
+            id="design-home-composer"
             data-design-home-composer
             className={
               agentEngineMissing

@@ -15,6 +15,7 @@ import { DesignImportPanel } from "./DesignImportPanel";
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   import: vi.fn(),
+  importSourceMutate: vi.fn(),
   shouldWarn: vi.fn(),
   upload: vi.fn(),
   dispose: vi.fn(),
@@ -33,8 +34,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "tab-1",
-  useActionMutation: () => ({
-    mutate: vi.fn(),
+  useActionMutation: (action: string) => ({
+    mutate:
+      action === "import-design-source" ? mocks.importSourceMutate : vi.fn(),
     mutateAsync: vi.fn(),
     isPending: false,
   }),
@@ -121,6 +123,13 @@ async function click(label: string) {
   expect(button).toBeTruthy();
   await act(async () => button!.click());
 }
+async function selectPage(name: string) {
+  const checkbox = container.querySelector<HTMLButtonElement>(
+    `[role="checkbox"][aria-label="${name}"]`,
+  );
+  if (!checkbox) throw new Error(`Missing page checkbox: ${name}`);
+  await act(async () => checkbox.click());
+}
 async function remount() {
   await act(async () => root.unmount());
   root = createRoot(container);
@@ -134,6 +143,7 @@ beforeEach(() => {
   file = new File(["fixture"], "picked.fig");
   setPendingDesignImport("home-design", { kind: "file", file });
   mocks.shouldWarn.mockReturnValue(false);
+  mocks.importSourceMutate.mockReset();
   mocks.fileStorageStatus.isSuccess = true;
   mocks.fileStorageStatus.data = { configured: true };
   mocks.fileStorageStatus.refetch.mockReset();
@@ -254,11 +264,93 @@ describe("home-picked .fig handoff", () => {
       ),
     );
     expect(mocks.import).not.toHaveBeenCalled();
+    expect(button("designEditor.import.figImportSelected")?.disabled).toBe(
+      true,
+    );
+    const page = container.querySelector<HTMLButtonElement>(
+      '[role="checkbox"][aria-label="Page"]',
+    );
+    if (!page) throw new Error("Missing Page checkbox");
+    await act(async () => page.click());
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
     expect(mocks.import).toHaveBeenCalledWith(
       expect.objectContaining({ selection: new Set(["page-1"]), file }),
     );
+  });
+  it("replaces pasted HTML with the selected file and clears it after success", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) throw new Error("Missing HTML import field");
+    const setTextarea = async (value: string) =>
+      act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        setter?.call(textarea, value);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await setTextarea("<html><body>old source</body></html>");
+
+    const file = new File(
+      ["<!doctype html><html><body>new file source</body></html>"],
+      "selected.html",
+      { type: "text/html" },
+    );
+    const input = container.querySelector<HTMLInputElement>(
+      'input[type="file"][accept=".html,.htm"]',
+    );
+    if (!input) throw new Error("Missing HTML file picker");
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [file],
+    });
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+
+    await vi.waitFor(() => expect(textarea.value).toContain("new file source"));
+    expect(textarea.value).not.toContain("old source");
+    expect(mocks.importSourceMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: "html-string",
+        content: expect.stringContaining("new file source"),
+        originalName: "selected.html",
+      }),
+      expect.any(Object),
+    );
+    const options = mocks.importSourceMutate.mock.calls[
+      mocks.importSourceMutate.mock.calls.length - 1
+    ]?.[1] as {
+      onSuccess: (result: unknown) => void;
+    };
+    await act(async () =>
+      options.onSuccess({ designId: "home-design", files: [] }),
+    );
+    await vi.waitFor(() => expect(textarea.value).toBe(""));
+    expect(button("designEditor.import.importHtml")?.disabled).toBe(true);
+
+    await setTextarea("<html><body>pasted source</body></html>");
+    await click("designEditor.import.importHtml");
+    expect(mocks.importSourceMutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ originalName: "html-import.html" }),
+      expect.any(Object),
+    );
+    const pastedOptions = mocks.importSourceMutate.mock.calls[
+      mocks.importSourceMutate.mock.calls.length - 1
+    ]?.[1] as {
+      onSuccess: (result: unknown) => void;
+    };
+    await act(async () =>
+      pastedOptions.onSuccess({ designId: "home-design", files: [] }),
+    );
+    await vi.waitFor(() => expect(textarea.value).toBe(""));
   });
   it("picks pages and blocks a selection over the frame limit before converting", async () => {
     mocks.shouldWarn.mockReturnValue(true);
@@ -278,12 +370,18 @@ describe("home-picked .fig handoff", () => {
     );
 
     await click("designEditor.import.figImportSelectAll");
+    expect(button("designEditor.import.figImportSelectAll")?.disabled).toBe(
+      true,
+    );
     expect(container.textContent).toContain(
       "designEditor.import.figImportFrameLimit",
     );
     expect(button("designEditor.import.figImportAll")?.disabled).toBe(true);
 
     await click("designEditor.import.figImportClearAll");
+    expect(button("designEditor.import.figImportClearAll")?.disabled).toBe(
+      true,
+    );
     const brand = container.querySelector<HTMLButtonElement>(
       '[role="checkbox"][aria-label="Brand"]',
     );
@@ -334,6 +432,7 @@ describe("home-picked .fig handoff", () => {
         "designEditor.import.figImportWarningTitle",
       ),
     );
+    await selectPage("Page");
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() => expect(failRender).toBeTypeOf("function"));
     await act(async () => root.unmount());
@@ -373,6 +472,7 @@ describe("home-picked .fig handoff", () => {
     );
     expect(mocks.dispose).not.toHaveBeenCalled();
     expect(mocks.prepare).toHaveBeenCalledOnce();
+    await selectPage("Page");
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
   });
@@ -390,6 +490,7 @@ describe("home-picked .fig handoff", () => {
         "designEditor.import.figImportWarningTitle",
       ),
     );
+    await selectPage("Page");
     await click("designEditor.import.figImportAll");
     await vi.waitFor(() =>
       expect(container.textContent).toContain("Too much editable HTML."),

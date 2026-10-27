@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
+  queryString: "",
+  locationHash: "",
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -389,8 +391,12 @@ vi.mock("@agent-native/creative-context/client", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ hash: mocks.locationHash }),
   useNavigate: () => mocks.navigate,
-  useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
+  useSearchParams: () => [
+    new URLSearchParams(mocks.queryString),
+    mocks.setSearchParams,
+  ],
   Link: ({ children, to, ...props }: Record<string, any>) => (
     <a href={to} {...props}>
       {children}
@@ -527,6 +533,8 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.queryString = "";
+  mocks.locationHash = "";
   mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
@@ -1606,6 +1614,21 @@ describe("home library", () => {
     expect(renderToString(<Index />)).toContain(
       'aria-label="home.suggestedPrompts"',
     );
+  });
+
+  it("keeps Recent selected for the save-template checklist destination", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 0;
+    mocks.ownStatus = "success";
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
