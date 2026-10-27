@@ -271,7 +271,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       wrangler:
         specifier: ^4.80.0
         version: 4.81.0
@@ -524,7 +524,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/account-tiering:
     dependencies:
@@ -765,7 +765,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/call-follow-up-drafter:
     dependencies:
@@ -1006,7 +1006,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/churn-early-warning:
     dependencies:
@@ -1247,7 +1247,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/demo-clip-library:
     dependencies:
@@ -1488,7 +1488,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/linkedin-icp-prospect-tracker:
     dependencies:
@@ -1729,7 +1729,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/linkedin-signal-watch:
     dependencies:
@@ -1970,7 +1970,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/outbound-in-your-voice:
     dependencies:
@@ -2211,7 +2211,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   community-templates/win-loss-memo:
     dependencies:
@@ -2452,7 +2452,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   packages/agent-browser-extension:
     dependencies:
@@ -2502,7 +2502,7 @@ importers:
         version: 8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/agentkit:
     dependencies:
@@ -2518,7 +2518,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/browser-control-extension-core:
     devDependencies:
@@ -2530,7 +2530,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/code-agents-ui:
     dependencies:
@@ -2585,7 +2585,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/core:
     dependencies:
@@ -2949,7 +2949,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -2994,7 +2994,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
     optionalDependencies:
       '@sparticuz/chromium-min':
         specifier: 149.0.0
@@ -3110,7 +3110,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/dispatch:
     dependencies:
@@ -3285,7 +3285,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/docs:
     dependencies:
@@ -3418,7 +3418,7 @@ importers:
         version: 8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(happy-dom@21.0.4)(jsdom@29.1.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   packages/embedding:
     devDependencies:
@@ -3436,7 +3436,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/frame:
     dependencies:
@@ -3516,7 +3516,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/mobile-app:
     dependencies:
@@ -3703,7 +3703,7 @@ importers:
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/otel:
     dependencies:
@@ -3740,7 +3740,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: ^4.1.5
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/pinpoint:
     dependencies:
@@ -3798,7 +3798,7 @@ importers:
         version: 2.11.12(@testing-library/jest-dom@6.9.1)(solid-js@1.9.13)(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/recap-cli:
     devDependencies:
@@ -3813,7 +3813,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/scheduling:
     dependencies:
@@ -3862,7 +3862,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: ^4.1.5
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/shared-app-config:
     devDependencies:
@@ -3887,7 +3887,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/toolkit:
     dependencies:
@@ -4227,7 +4227,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   packages/vscode-extension:
     devDependencies:
@@ -4245,7 +4245,7 @@ importers:
         version: typescript@7.0.2
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   templates/analytics:
     dependencies:
@@ -4525,7 +4525,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/assets:
     dependencies:
@@ -4691,7 +4691,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/brain:
     dependencies:
@@ -4821,7 +4821,7 @@ importers:
         version: 8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   templates/calendar:
     dependencies:
@@ -5281,8 +5281,8 @@ importers:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.7)
       happy-dom:
-        specifier: 21.0.4
-        version: 21.0.4
+        specifier: 20.12.0
+        version: 20.12.0
       input-otp:
         specifier: ^1.4.2
         version: 1.4.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5324,7 +5324,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/clips:
     dependencies:
@@ -5559,7 +5559,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/clips/chrome-extension:
     dependencies:
@@ -5584,7 +5584,7 @@ importers:
         version: 8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/clips/desktop:
     dependencies:
@@ -5696,13 +5696,13 @@ importers:
         version: 8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   templates/community/qr:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(aae7bdb4f45fd612109a5e886a3ce79c)
+        version: 0.219.0(db5a6e3c9a5757968ba7dd445e75b2a6)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -6007,7 +6007,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   templates/crm:
     dependencies:
@@ -6134,7 +6134,7 @@ importers:
         version: 8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   templates/design:
     dependencies:
@@ -6447,7 +6447,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/dispatch:
     dependencies:
@@ -6550,7 +6550,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/factory:
     dependencies:
@@ -6785,7 +6785,7 @@ importers:
         version: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   templates/forms:
     dependencies:
@@ -7011,7 +7011,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
 
   templates/mail:
     dependencies:
@@ -7580,7 +7580,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/slides:
     dependencies:
@@ -8522,7 +8522,7 @@ importers:
         version: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
       vitest:
         specifier: 'catalog:'
-        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+        version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
   templates/videos: {}
 
@@ -12161,14 +12161,12 @@ packages:
   '@opentelemetry/sdk-trace-base@2.11.0':
     resolution: {integrity: sha512-H19x/TX/LZdqiYOjM7fqtSxwlplC5pgelavqbQdHbhdq0q/AI/TGkM2dfGuuynTXmJPeF2HoZVoPDu+TGoW78A==}
     engines: {node: ^18.19.0 || >=20.6.0}
-    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace-base@2.8.0':
     resolution: {integrity: sha512-mhU4jp+vW0mGbFRd+GeXHvmfA4aDqWjBjLC3pE5XMpLs0IE2ryYb019Ts2AQrOq67gaTF25D91+fgvEHDZEnuQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
-    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
@@ -17261,7 +17259,6 @@ packages:
 
   '@types/jszip@3.4.1':
     resolution: {integrity: sha512-TezXjmf3lj+zQ651r6hPqvSScqBLvyPI9FxdXBqpEwBijNGQ2NXpaFW/7joGzveYkKQUil7iiDHLo6LV71Pc0A==}
-    deprecated: This is a stub types definition. jszip provides its own type definitions, so you do not need this installed.
 
   '@types/katex@0.16.8':
     resolution: {integrity: sha512-trgaNyfU+Xh2Tc+ABIb44a5AYUpicB3uwirOioeOkNPPbmgRNtcWyDeeFRzjPZENO9Vq8gvVqfhaaXWLlevVwg==}
@@ -17767,7 +17764,6 @@ packages:
   '@xmldom/xmldom@0.9.10':
     resolution: {integrity: sha512-A9gOqLdi6cV4ibazAjcQufGj0B1y/vDqYrcuP6d/6x8P27gRS8643Dj9o1dEKtB6O7fwxb2FgBmJS2mX7gpvdw==}
     engines: {node: '>=14.6'}
-    deprecated: this version has critical issues, please update to the latest version
 
   '@xmldom/xmldom@0.9.12':
     resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
@@ -18320,7 +18316,6 @@ packages:
 
   boolean@3.2.0:
     resolution: {integrity: sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw==}
-    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
   botbuilder-stdlib@4.23.3-internal:
     resolution: {integrity: sha512-fwvIHnKU8sXo1gTww+m/k8wnuM5ktVBAV/3vWJ+ou40zapy1HYjWQuu6sVCRFgMUngpKwhdmoOQsTXsp58SNtA==}
@@ -20534,7 +20529,6 @@ packages:
 
   glob@10.5.0:
     resolution: {integrity: sha512-DfXN8DfhJ7NH3Oe7cFmu3NCu1wKbkReJ8TorzSAFbSKrlNaQSKfIzqYqVY8zlbs2NLBbWpRiU52GX2PbaBVNkg==}
-    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   glob@13.0.6:
@@ -20615,10 +20609,6 @@ packages:
 
   happy-dom@20.12.0:
     resolution: {integrity: sha512-7uMYJu2SEwwL8vVcKp0C0lnt6d2LSGGe+T+oY79PiCJNNSgFpbxW8n5KuzpDQvrU4mt+fYiK1+Jy7Z2v39YR6g==}
-    engines: {node: '>=20.0.0'}
-
-  happy-dom@21.0.4:
-    resolution: {integrity: sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw==}
     engines: {node: '>=20.0.0'}
 
   has-flag@3.0.0:
@@ -21545,7 +21535,6 @@ packages:
 
   lodash.isequal@4.5.0:
     resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
-    deprecated: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
 
   lodash.isinteger@4.0.4:
     resolution: {integrity: sha512-DBwtEWN2caHQ9/imiNeEA5ys1JoRtRfY3d7V9wkqtbycnAmTvRRmbHKDV4a0EYc678/dia0jrte4tjYwVBaZUA==}
@@ -23869,7 +23858,6 @@ packages:
 
   sliced@1.0.1:
     resolution: {integrity: sha512-VZBmZP8WU3sMOZm1bdgTadsQbcscK0UM8oKxKVBs4XAhUo2Xxzm/OFMGBkPusxw9xL3Uy8LrzEqGqJhclsr0yA==}
-    deprecated: Unsupported
 
   slugify@1.6.9:
     resolution: {integrity: sha512-vZ7rfeehZui7wQs438JXBckYLkIIdfHOXsaVEUMyS5fHo1483l1bMdo0EDSWYclY0yZKFOipDy4KHuKs6ssvdg==}
@@ -24679,7 +24667,6 @@ packages:
 
   uuid@10.0.0:
     resolution: {integrity: sha512-8XkAphELsDnEGrDxUOHB3RGvXz6TeuYSGEZBOjtTtPm2lwhGBjLgOzLHB63IUWfBpNucQjND6d3AOudO+H3RWQ==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   uuid@14.0.1:
@@ -24688,12 +24675,10 @@ packages:
 
   uuid@7.0.3:
     resolution: {integrity: sha512-DPSke0pXhTZgoF/d+WSt2QaKMCFSfx7QegxEWT+JOuHF5aWrKEn0G+ztjuJg/gG8/ItK+rbPCD/yNv8yyih6Cg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   uuid@8.3.2:
     resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   valibot@1.4.1:
@@ -25378,6 +25363,7 @@ snapshots:
   2g@1.0.1(typescript@7.0.2):
     optionalDependencies:
       typescript: 7.0.2
+    optional: true
 
   '@adobe/css-tools@4.5.0':
     optional: true
@@ -25394,7 +25380,7 @@ snapshots:
   '@agent-native/core-corpus@0.220.0':
     optional: true
 
-  '@agent-native/core@0.219.0(aae7bdb4f45fd612109a5e886a3ce79c)':
+  '@agent-native/core@0.219.0(db5a6e3c9a5757968ba7dd445e75b2a6)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25414,7 +25400,7 @@ snapshots:
       '@tanstack/query-persist-client-core': 5.101.2
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
-      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
+      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
       cron-parser: 5.6.0
       diff: 9.0.0
       diff-match-patch: 1.0.5
@@ -25458,8 +25444,8 @@ snapshots:
       '@ai-sdk/openai': 4.0.70(zod@4.6.7)
       '@amplitude/analytics-browser': 2.45.8
       '@anthropic-ai/tokenizer': 0.0.4
-      '@better-auth/scim': 1.7.6(0f779d6b6cca0e883f2118db3363ce15)
-      '@better-auth/sso': 1.7.6(0eaa064a8c338f25943238f28dd0c768)
+      '@better-auth/scim': 1.7.6(3483c4c145485db91380d11da474edbe)
+      '@better-auth/sso': 1.7.6(2c3277e24d9000faf1f0f108b877fb42)
       '@builder.io/ai-utils': 0.84.0
       '@electric-sql/pglite': 0.5.9
       '@launchdarkly/node-server-sdk': 9.13.6
@@ -26711,12 +26697,12 @@ snapshots:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/scim@1.7.6(0f779d6b6cca0e883f2118db3363ce15)':
+  '@better-auth/scim@1.7.6(3483c4c145485db91380d11da474edbe)':
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/utils': 0.5.0
       '@noble/hashes': 2.4.0
-      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
+      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
       better-call: 1.4.0(zod@4.6.7)
       zod: 4.6.5
     optional: true
@@ -26730,13 +26716,13 @@ snapshots:
       better-call: 1.4.0(zod@4.4.3)
       zod: 4.6.5
 
-  '@better-auth/sso@1.7.6(0eaa064a8c338f25943238f28dd0c768)':
+  '@better-auth/sso@1.7.6(2c3277e24d9000faf1f0f108b877fb42)':
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/utils': 0.5.0
       '@better-fetch/fetch': 1.3.2
       '@xmldom/xmldom': 0.9.12
-      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
+      better-auth: 1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)))
       better-call: 1.4.0(zod@4.6.7)
       fast-xml-parser: 5.11.1
       jose: 6.2.3
@@ -27950,6 +27936,89 @@ snapshots:
       - utf-8-validate
     optional: true
 
+  '@expo/cli@58.1.15(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)':
+    dependencies:
+      2g: 1.0.1(typescript@7.0.2)
+      '@expo/code-signing-certificates': 0.0.7
+      '@expo/config': 58.0.8(typescript@7.0.2)
+      '@expo/config-plugins': 58.0.10(typescript@7.0.2)
+      '@expo/devcert': 1.2.2
+      '@expo/env': 2.5.3
+      '@expo/image-utils': 0.12.5(typescript@7.0.2)
+      '@expo/inline-modules': 0.2.7(typescript@7.0.2)
+      '@expo/json-file': 11.2.1
+      '@expo/log-box': 58.0.13(@expo/dom-webview@58.0.2)(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      '@expo/log-box-utils': 58.0.2
+      '@expo/metro': 58.0.0
+      '@expo/metro-config': 58.0.17(expo@58.0.19)(typescript@7.0.2)
+      '@expo/metro-file-map': 58.0.5(typescript@7.0.2)
+      '@expo/osascript': 2.8.1
+      '@expo/package-manager': 1.14.2
+      '@expo/platforms': 58.0.1
+      '@expo/plist': 0.10.1
+      '@expo/prebuild-config': 58.0.16(typescript@7.0.2)
+      '@expo/require-utils': 58.0.4(typescript@7.0.2)
+      '@expo/router-server': 58.0.17(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo-server@58.0.6)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@expo/schema-utils': 58.0.2
+      '@expo/spawn-async': 1.8.0
+      '@expo/ws-tunnel': 2.0.1(ws@8.22.0)
+      '@expo/xcpretty': 4.4.7
+      '@react-native/asset-utils': 0.88.0
+      '@react-native/dev-middleware': 0.88.0
+      '@react-native/js-polyfills': 0.88.0
+      accepts: 1.3.8
+      agent-cli-detector: 0.1.7
+      arg: 5.0.2
+      bplist-creator: 0.1.0
+      bplist-parser: 0.3.2
+      chalk: 4.1.2
+      ci-info: 3.9.0
+      compression: 1.8.1
+      connect: 3.7.0
+      dnssd-advertise: 1.1.6
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.2.7(react@19.2.7))(react-native-web@0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+      expo-server: 58.0.6
+      fetch-nodeshim: 0.4.10
+      getenv: 2.0.0
+      glob: 13.0.6
+      lan-network: 0.2.1
+      multitars: 1.0.2
+      node-forge: 1.4.0
+      npm-package-arg: 11.0.3
+      ora: 3.4.0
+      picomatch: 4.0.7
+      pretty-format: 29.7.0
+      progress: 2.0.3
+      prompts: 2.4.2
+      resolve-from: 5.0.0
+      sandbox-cli-detector: 0.2.0
+      semver: 7.8.5
+      send: 0.19.2
+      slugify: 1.6.9
+      stacktrace-parser: 0.1.11
+      structured-headers: 0.4.1
+      terminal-link: 2.1.1
+      toqr: 0.1.1
+      wrap-ansi: 7.0.0
+      ws: 8.22.0
+      zod: 3.25.76
+    optionalDependencies:
+      expo-router: 58.0.26(5a714814c2e79cc244f05d85ccd65b38)
+      react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
+    transitivePeerDependencies:
+      - '@expo/dom-webview'
+      - '@expo/metro-runtime'
+      - bufferutil
+      - expo-constants
+      - expo-font
+      - react
+      - react-dom
+      - react-server-dom-webpack
+      - supports-color
+      - typescript
+      - utf-8-validate
+    optional: true
+
   '@expo/cli@58.1.15(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)':
     dependencies:
       2g: 1.0.1(typescript@7.0.2)
@@ -28031,6 +28100,7 @@ snapshots:
       - supports-color
       - typescript
       - utf-8-validate
+    optional: true
 
   '@expo/cli@58.1.15(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)':
     dependencies:
@@ -28173,6 +28243,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/config-types@55.0.6': {}
 
@@ -28227,6 +28298,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/devcert@1.2.2':
     dependencies:
@@ -28251,6 +28323,7 @@ snapshots:
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
+    optional: true
 
   '@expo/devtools@58.0.2(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -28272,6 +28345,7 @@ snapshots:
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
+    optional: true
 
   '@expo/dom-webview@58.0.2(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -28328,6 +28402,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/image-utils@0.8.15(typescript@6.0.3)':
     dependencies:
@@ -28355,6 +28430,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/json-file@10.0.16':
     dependencies:
@@ -28386,6 +28462,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/log-box-utils@58.0.2': {}
 
@@ -28411,6 +28488,7 @@ snapshots:
       stacktrace-parser: 0.1.11
     optionalDependencies:
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
+    optional: true
 
   '@expo/log-box@58.0.13(@expo/dom-webview@58.0.2)(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -28492,12 +28570,13 @@ snapshots:
       postcss: 8.5.28
       resolve-from: 5.0.0
     optionalDependencies:
-      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.2.7(react@19.2.7))(react-native-web@0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - typescript
       - utf-8-validate
+    optional: true
 
   '@expo/metro-file-map@58.0.5(typescript@6.0.3)':
     dependencies:
@@ -28522,6 +28601,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/metro-runtime@58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -28678,6 +28758,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   '@expo/require-utils@55.0.6(typescript@6.0.3)':
     dependencies:
@@ -28708,6 +28789,7 @@ snapshots:
       typescript: 7.0.2
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@expo/router-server@58.0.17(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo-server@58.0.6)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
@@ -28728,14 +28810,14 @@ snapshots:
   '@expo/router-server@58.0.17(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo-server@58.0.6)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       debug: 4.4.3
-      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
-      expo-constants: 58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(typescript@7.0.2)
-      expo-font: 58.0.10(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+      expo-constants: 58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(typescript@6.0.3)
+      expo-font: 58.0.10(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       expo-server: 58.0.6
       react: 19.3.0
     optionalDependencies:
-      '@expo/metro-runtime': 58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)
-      expo-router: 58.0.26(56b70a4de0e70de9d87108bb5cb4db82)
+      '@expo/metro-runtime': 58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
+      expo-router: 58.0.26(27b3d26f6e6c56235efaef7739fb8c07)
       react-dom: 19.3.0(react@19.3.0)
     transitivePeerDependencies:
       - supports-color
@@ -33111,6 +33193,7 @@ snapshots:
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
     optionalDependencies:
       '@types/react': 19.2.17
+    optional: true
 
   '@react-native/virtualized-lists@0.88.0(@types/react@19.3.0)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -35715,7 +35798,7 @@ snapshots:
       obug: 2.1.3
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+      vitest: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
 
   '@vitest/expect@4.1.10':
     dependencies:
@@ -36569,11 +36652,11 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
       solid-js: 1.9.13
-      vitest: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+      vitest: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
-  better-auth@1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))):
+  better-auth@1.7.6(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(solid-js@1.9.13)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))):
     dependencies:
       '@better-auth/core': 1.7.6(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0)
       '@better-auth/drizzle-adapter': 1.7.6(@better-auth/core@1.7.6(@better-auth/utils@0.5.0)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.3(@electric-sql/pglite@0.5.9)(@libsql/client@0.15.15)(@neondatabase/serverless@1.1.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(expo-sqlite@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(kysely@0.28.17)(pg@8.22.0)(postgres@3.4.9))
@@ -36599,7 +36682,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       solid-js: 1.9.13
-      vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
+      vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
@@ -38351,6 +38434,18 @@ snapshots:
       - typescript
     optional: true
 
+  expo-asset@58.0.18(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2):
+    dependencies:
+      '@expo/image-utils': 0.12.5(typescript@7.0.2)
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.2.7(react@19.2.7))(react-native-web@0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+      expo-constants: 58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(typescript@7.0.2)
+      react: 19.2.7
+      react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+    optional: true
+
   expo-asset@58.0.18(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2):
     dependencies:
       '@expo/image-utils': 0.12.5(typescript@7.0.2)
@@ -38361,6 +38456,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   expo-asset@58.0.18(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3):
     dependencies:
@@ -38426,6 +38522,17 @@ snapshots:
       - typescript
     optional: true
 
+  expo-constants@58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(typescript@7.0.2):
+    dependencies:
+      '@expo/env': 2.5.3
+      '@expo/require-utils': 58.0.4(typescript@7.0.2)
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.2.7(react@19.2.7))(react-native-web@0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+      react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+    optional: true
+
   expo-constants@58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(typescript@7.0.2):
     dependencies:
       '@expo/env': 2.5.3
@@ -38435,6 +38542,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   expo-constants@58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(typescript@6.0.3):
     dependencies:
@@ -38489,6 +38597,7 @@ snapshots:
     dependencies:
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
+    optional: true
 
   expo-file-system@58.0.11(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)):
     dependencies:
@@ -38507,6 +38616,7 @@ snapshots:
       expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
       react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
+    optional: true
 
   expo-font@58.0.10(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0):
     dependencies:
@@ -38557,7 +38667,7 @@ snapshots:
 
   expo-keep-awake@58.0.3(expo@58.0.19)(react@19.3.0):
     dependencies:
-      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
       react: 19.3.0
 
   expo-linking@58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3):
@@ -38621,6 +38731,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
       - typescript
+    optional: true
 
   expo-modules-cli@0.3.2:
     dependencies:
@@ -38647,6 +38758,7 @@ snapshots:
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
     optionalDependencies:
       react-native-worklets: 0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)
+    optional: true
 
   expo-modules-core@58.0.26(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0):
     dependencies:
@@ -38666,6 +38778,7 @@ snapshots:
   expo-modules-jsi@58.0.19(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)):
     dependencies:
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0)
+    optional: true
 
   expo-modules-jsi@58.0.19(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)):
     dependencies:
@@ -38974,6 +39087,52 @@ snapshots:
       - utf-8-validate
     optional: true
 
+  expo@58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.2.7(react@19.2.7))(react-native-web@0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2):
+    dependencies:
+      '@babel/runtime': 7.29.2
+      '@expo/cli': 58.1.15(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-constants@58.0.13)(expo-font@58.0.10)(expo-router@58.0.26)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+      '@expo/config': 58.0.8(typescript@7.0.2)
+      '@expo/config-plugins': 58.0.10(typescript@7.0.2)
+      '@expo/devtools': 58.0.2(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      '@expo/fingerprint': 0.21.6
+      '@expo/local-build-cache-provider': 58.0.8(typescript@7.0.2)
+      '@expo/log-box': 58.0.13(@expo/dom-webview@58.0.2)(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      '@expo/log-box-utils': 58.0.2
+      '@expo/metro': 58.0.0
+      '@expo/metro-config': 58.0.17(expo@58.0.19)(typescript@7.0.2)
+      '@ungap/structured-clone': 1.3.2
+      babel-preset-expo: 58.0.20(@babel/core@7.29.7)(@babel/runtime@7.29.2)(expo@58.0.19)(react-refresh@0.14.2)
+      expo-asset: 58.0.18(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+      expo-constants: 58.0.13(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(typescript@7.0.2)
+      expo-file-system: 58.0.11(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))
+      expo-font: 58.0.10(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      expo-keep-awake: 58.0.3(expo@58.0.19)(react@19.2.7)
+      expo-modules-autolinking: 58.0.15(typescript@7.0.2)
+      expo-modules-cli: 0.3.2
+      expo-modules-core: 58.0.26(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      pretty-format: 29.7.0
+      react: 19.2.7
+      react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
+      react-refresh: 0.14.2
+      whatwg-url-minimum: 0.2.0
+    optionalDependencies:
+      '@expo/dom-webview': 58.0.2(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      '@expo/metro-runtime': 58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.2.7(react@19.2.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+      react-dom: 19.2.7(react@19.2.7)
+      react-native-web: 0.21.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react-native-webview: 14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)
+    transitivePeerDependencies:
+      - '@babel/core'
+      - bufferutil
+      - expo-router
+      - expo-widgets
+      - react-native-worklets
+      - react-server-dom-webpack
+      - supports-color
+      - typescript
+      - utf-8-validate
+    optional: true
+
   expo@58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.3.0))(react@19.3.0)(typescript@7.0.2):
     dependencies:
       '@babel/runtime': 7.29.2
@@ -39018,6 +39177,7 @@ snapshots:
       - supports-color
       - typescript
       - utf-8-validate
+    optional: true
 
   expo@58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3):
     dependencies:
@@ -39602,19 +39762,6 @@ snapshots:
       - utf-8-validate
 
   happy-dom@20.12.0:
-    dependencies:
-      '@types/node': 25.9.3
-      '@types/whatwg-mimetype': 3.0.2
-      '@types/ws': 8.18.1
-      buffer-image-size: 0.6.4
-      entities: 7.0.1
-      whatwg-mimetype: 3.0.0
-      ws: 8.22.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  happy-dom@21.0.4:
     dependencies:
       '@types/node': 25.9.3
       '@types/whatwg-mimetype': 3.0.2
@@ -43306,6 +43453,7 @@ snapshots:
       - bufferutil
       - supports-color
       - utf-8-validate
+    optional: true
 
   react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0):
     dependencies:
@@ -45380,7 +45528,7 @@ snapshots:
     optionalDependencies:
       vite: 8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)
 
-  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45405,12 +45553,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.2
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45435,7 +45583,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.2
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
@@ -45470,7 +45618,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45495,12 +45643,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.5
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(happy-dom@21.0.4)(jsdom@29.1.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@22.20.0)(happy-dom@20.12.0)(jsdom@29.1.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -45525,12 +45673,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 22.20.0
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 29.1.1(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(@vitest/coverage-v8@4.1.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45556,7 +45704,7 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.2
       '@vitest/coverage-v8': 4.1.5(vitest@4.1.9)
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
@@ -45588,6 +45736,36 @@ snapshots:
       '@types/node': 24.13.2
       happy-dom: 20.10.6
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
+    dependencies:
+      '@vitest/expect': 4.1.9
+      '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.9
+      '@vitest/runner': 4.1.9
+      '@vitest/snapshot': 4.1.9
+      '@vitest/spy': 4.1.9
+      '@vitest/utils': 4.1.9
+      es-module-lexer: 2.1.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.3
+      pathe: 2.0.3
+      picomatch: 4.0.7
+      std-env: 4.1.0
+      tinybench: 2.9.0
+      tinyexec: 1.2.4
+      tinyglobby: 0.2.17
+      tinyrainbow: 3.1.0
+      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      '@types/node': 24.13.2
+      happy-dom: 20.12.0
+      jsdom: 30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
@@ -45651,97 +45829,7 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.9
-      '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.9
-      '@vitest/runner': 4.1.9
-      '@vitest/snapshot': 4.1.9
-      '@vitest/spy': 4.1.9
-      '@vitest/utils': 4.1.9
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.3
-      pathe: 2.0.3
-      picomatch: 4.0.7
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
-      '@types/node': 24.13.2
-      happy-dom: 21.0.4
-      jsdom: 30.1.2(@noble/hashes@2.3.0)(canvas@3.2.3)
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.9
-      '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.9
-      '@vitest/runner': 4.1.9
-      '@vitest/snapshot': 4.1.9
-      '@vitest/spy': 4.1.9
-      '@vitest/utils': 4.1.9
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.3
-      pathe: 2.0.3
-      picomatch: 4.0.7
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
-      '@types/node': 24.13.2
-      happy-dom: 21.0.4
-      jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)):
-    dependencies:
-      '@vitest/expect': 4.1.9
-      '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.9
-      '@vitest/runner': 4.1.9
-      '@vitest/snapshot': 4.1.9
-      '@vitest/spy': 4.1.9
-      '@vitest/utils': 4.1.9
-      es-module-lexer: 2.1.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.3
-      pathe: 2.0.3
-      picomatch: 4.0.7
-      std-env: 4.1.0
-      tinybench: 2.9.0
-      tinyexec: 1.2.4
-      tinyglobby: 0.2.17
-      tinyrainbow: 3.1.0
-      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
-      '@types/node': 24.13.2
-      happy-dom: 21.0.4
-      jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
-    transitivePeerDependencies:
-      - msw
-
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45766,12 +45854,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.2
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@24.13.2)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.5(@types/node@24.13.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45796,12 +45884,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.2
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.1)(yaml@2.9.0))
@@ -45826,12 +45914,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 25.9.3
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.5(@types/node@25.9.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45856,12 +45944,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 25.9.3
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.5(@types/node@26.1.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45886,12 +45974,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.1.1
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -45916,12 +46004,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.5
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.0(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -45946,12 +46034,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.5
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -45976,12 +46064,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.5
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
 
-  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@21.0.4)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
+  vitest@4.1.9(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(happy-dom@20.12.0)(jsdom@30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.9
       '@vitest/mocker': 4.1.9(vite@8.1.5(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.46.1)(tsx@4.23.15)(yaml@2.9.0))
@@ -46006,7 +46094,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.5
-      happy-dom: 21.0.4
+      happy-dom: 20.12.0
       jsdom: 30.1.2(@noble/hashes@2.4.0)(canvas@3.2.3)
     transitivePeerDependencies:
       - msw
