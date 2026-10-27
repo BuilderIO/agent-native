@@ -549,6 +549,10 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" is {{size}} MB - images over {{limit}} MB cannot be attached. Please use a smaller image.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" is {{megapixels}} megapixels - images over {{limit}} megapixels cannot be attached. Please use a smaller image.',
   "composer.fileTooLarge":
     "This file is larger than the {{size}} MB upload limit.",
   "composer.sessionExpired":

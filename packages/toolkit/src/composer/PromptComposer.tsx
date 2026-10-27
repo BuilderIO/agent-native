@@ -53,14 +53,17 @@ import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import {
   escapePromptAttachmentAttribute,
+  getUnshrinkableImageError,
   probeAgentPromptAttachment,
   type AgentPromptAttachmentReadError,
 } from "./prompt-attachments.js";
 import {
+  type ComposerTranslate,
   type EngineModelGroup,
   type ComposerAgentEngineState,
   type AgentChatContextItem,
   type ReasoningEffort,
+  fallbackTranslate,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
 import {
@@ -368,8 +371,19 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
   public override accept = IMAGE_ATTACHMENT_ACCEPT;
+  private readonly translate: ComposerTranslate;
+
+  constructor(translate: ComposerTranslate) {
+    super();
+    this.translate = translate;
+  }
 
   public override async add(state: { file: File }): Promise<PendingAttachment> {
+    const limitError = await getUnshrinkableImageError(
+      state.file,
+      this.translate,
+    );
+    if (limitError) throw new Error(limitError);
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 }
@@ -380,9 +394,11 @@ class ChatDocumentAttachmentAdapter extends BinaryDocumentAttachmentAdapter {
   public override accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 }
 
-export function createChatAttachmentAdapter(): AttachmentAdapter {
+export function createChatAttachmentAdapter(
+  translate: ComposerTranslate = fallbackTranslate,
+): AttachmentAdapter {
   return new CompositeAttachmentAdapter([
-    new RasterImageAttachmentAdapter(),
+    new RasterImageAttachmentAdapter(translate),
     new ChatDocumentAttachmentAdapter(),
     new TextAttachmentAdapter(),
   ]);
@@ -1257,17 +1273,17 @@ function PromptComposerInner({
  * without needing the outer chat to be mounted.
  */
 function PromptComposerRuntime(props: PromptComposerProps) {
-  const StaleIndexBoundary =
-    useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
+  const adapters = useComposerRuntimeAdapters();
+  const StaleIndexBoundary = adapters.agentChat.StaleIndexBoundary;
   const attachmentAdapter = useMemo(
     () =>
       props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
-        new RasterImageAttachmentAdapter(),
+        new RasterImageAttachmentAdapter(adapters.translate),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),
-    [props.attachmentAdapter],
+    [props.attachmentAdapter, adapters.translate],
   );
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },
