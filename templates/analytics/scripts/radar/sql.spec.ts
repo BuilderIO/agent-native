@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCampaignFollowupSql,
+  buildEventStatsSql,
   buildFirstTouchEventsCte,
   buildFunnelDailySql,
   buildTriageSql,
@@ -68,6 +69,23 @@ describe("first-touch SQL helpers", () => {
       referralSourceSql("e.properties::jsonb ->> 'referral_source'"),
     );
     expect(eventSql).toContain("lower(coalesce(e.hostname, ''))");
+  });
+
+  it("counts only non-null scalar connection source properties", () => {
+    const sql = buildEventStatsSql();
+    const scalarSource =
+      "jsonb_typeof(properties -> 'llm_connection_source') IN ('string', 'number', 'boolean')";
+    const scalarEnvVar =
+      "jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')";
+
+    expect(sql).toContain(`${scalarSource}\n        OR ${scalarEnvVar}`);
+    expect(sql).toContain("date_trunc($4, happened_at, 'UTC') AS period_start");
+    expect(sql.split(scalarSource).length - 1).toBe(2);
+    expect(sql.split(scalarEnvVar).length - 1).toBe(2);
+    expect(sql).toContain("AS new_user_source_events");
+    expect(sql).toContain("AS source_property_events");
+    expect(sql).not.toContain("properties ? 'llm_connection_source'");
+    expect(sql).not.toContain("properties ? 'llm_connection_env_var'");
   });
 
   it("returns recipient campaign counts without selecting recipient identities", () => {

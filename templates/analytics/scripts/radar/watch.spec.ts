@@ -154,6 +154,48 @@ describe("selected-period event coverage", () => {
 });
 
 describe("linked daily conversion checks", () => {
+  it("does not run daily linked conversion checks for an hourly watch", () => {
+    const checks = eventChecks(
+      [
+        {
+          period_start: "2026-10-26T12:00:00.000Z",
+          app: "slides",
+          event_name: "generation_started",
+          linked_slides_started_users: 10,
+          linked_slides_failed_started_users: 4,
+          linked_slides_unlinked_events: 0,
+        },
+        {
+          period_start: "2026-10-26T12:00:00.000Z",
+          app: "design",
+          event_name: "design_prompt_submitted",
+          users: 10,
+          linked_design_prompt_output_users: 4,
+          linked_design_unlinked_events: 0,
+        },
+        {
+          period_start: "2026-10-26T12:00:00.000Z",
+          app: "clips",
+          event_name: "recording_started",
+          linked_clips_started_attempts: 10,
+          linked_clips_ready_attempts: 4,
+          linked_clips_unlinked_events: 0,
+        },
+      ],
+      { window: "hourly", targetHour: "2026-10-26T12" },
+    );
+
+    expect(
+      checks.some((check) =>
+        [
+          "slides-generation-failure",
+          "design-prompt-output",
+          "clips-ready-rate",
+        ].includes(check.id),
+      ),
+    ).toBe(false);
+  });
+
   it("uses only same-user attempt-linked Slides failures", () => {
     const result = checkById(
       [

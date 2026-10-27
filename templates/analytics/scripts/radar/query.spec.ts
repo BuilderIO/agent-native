@@ -182,6 +182,24 @@ describe("radar query safety", () => {
     expect(isReadOnlySql("SELECT 1; SELECT 2")).toBe(false);
   });
 
+  it("rejects XML helpers that execute nested SQL", () => {
+    const queryFunctions = [
+      "query_to_xml",
+      "query_to_xmlschema",
+      "query_to_xml_and_xmlschema",
+    ];
+    for (const functionName of queryFunctions) {
+      for (const sql of [
+        `SELECT ${functionName}('SELECT 1', false, false, '')`,
+        `SELECT "${functionName}"('SELECT 1', false, false, '')`,
+        `SELECT pg_catalog.${functionName}('SELECT 1', false, false, '')`,
+        `SELECT "pg_catalog"."${functionName}"('SELECT 1', false, false, '')`,
+      ]) {
+        expect(isReadOnlySql(sql), sql).toBe(false);
+      }
+    }
+  });
+
   it("rejects large-object, remote-query, and server-admin side effects", () => {
     for (const sql of [
       "SELECT lo_import('/etc/passwd')",

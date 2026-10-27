@@ -29,7 +29,7 @@ function minWhen(dialect: Dialect, condition: string): string {
 function linkedMetricCtes(dialect: Dialect, bucket: Bucket): string {
   const periodStart =
     dialect === "postgres"
-      ? "date_trunc($4, happened_at)"
+      ? "date_trunc($4, happened_at, 'UTC')"
       : `timestamp_trunc(happened_at, ${bucket}, 'UTC')`;
   const generationAttemptId =
     dialect === "postgres"

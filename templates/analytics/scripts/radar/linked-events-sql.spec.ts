@@ -15,7 +15,8 @@ describe("linked event metrics SQL", () => {
     );
 
     expect(sql).toContain(", linked_events AS (");
-    expect(sql).toContain("date_trunc($4, happened_at) AS period_start");
+    const postgresPeriod = "date_trunc($4, happened_at, 'UTC') AS period_start";
+    expect(sql.split(postgresPeriod).length - 1).toBe(2);
     expect(sql).toContain("f.person_key = s.person_key");
     expect(sql).toContain("f.generation_attempt_id = s.generation_attempt_id");
     expect(sql).toContain("f.happened_at > s.started_at");

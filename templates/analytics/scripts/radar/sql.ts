@@ -227,7 +227,7 @@ new_signups AS (
 ),
 event_stats AS (
   SELECT
-    date_trunc($4, happened_at) AS period_start,
+    date_trunc($4, happened_at, 'UTC') AS period_start,
     app,
     event_name,
     count(*)::int AS events,
@@ -244,7 +244,8 @@ event_stats AS (
     count(*) FILTER (WHERE event_name IN ('generation_started', 'design_prompt_submitted')
       AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
         AND happened_at >= n.signup_at AND happened_at < n.signup_at + interval '7 days')
-      AND (properties ? 'llm_connection_source' OR properties ? 'llm_connection_env_var'))::int AS new_user_source_events,
+      AND (jsonb_typeof(properties -> 'llm_connection_source') IN ('string', 'number', 'boolean')
+        OR jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')))::int AS new_user_source_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'design_prompt_submitted')
       AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
         AND happened_at >= n.signup_at AND happened_at < n.signup_at + interval '7 days')
@@ -253,7 +254,8 @@ event_stats AS (
       AND (lower(coalesce(properties ->> 'llm_connection_source', '')) = 'env'
         OR nullif(properties ->> 'llm_connection_env_var', '') IS NOT NULL))::int AS env_source_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'generation_failed', 'design_prompt_submitted')
-      AND (properties ? 'llm_connection_source' OR properties ? 'llm_connection_env_var'))::int AS source_property_events,
+      AND (jsonb_typeof(properties -> 'llm_connection_source') IN ('string', 'number', 'boolean')
+        OR jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')))::int AS source_property_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'design_prompt_submitted')
       AND lower(coalesce(properties ->> 'llm_connection', '')) = 'none')::int AS no_connection_events,
     count(*) FILTER (WHERE event_name = 'integration_setup_exposed'
