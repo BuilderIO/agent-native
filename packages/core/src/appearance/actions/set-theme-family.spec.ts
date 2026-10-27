@@ -48,11 +48,11 @@ describe("set-theme-family action", () => {
   it("persists the app-specific user setting and syncs the open app state", async () => {
     const result = await action.run(
       { family: "original" },
-      { caller: "tool", userEmail: "steve@example.test", appId: "sample-app" },
+      { caller: "tool", userEmail: "steve@builder.io", appId: "sample-app" },
     );
 
     expect(deps.putUserSetting).toHaveBeenCalledWith(
-      "steve@example.test",
+      "steve@builder.io",
       "theme-family:sample-app",
       { family: "original" },
     );
@@ -66,11 +66,11 @@ describe("set-theme-family action", () => {
   it("uses the documented stable fallback only when appId is absent", async () => {
     await action.run(
       { family: "agent-native" },
-      { caller: "tool", userEmail: "steve@example.test" },
+      { caller: "tool", userEmail: "steve@builder.io" },
     );
 
     expect(deps.putUserSetting).toHaveBeenCalledWith(
-      "steve@example.test",
+      "steve@builder.io",
       "theme-family:__no_app_id__",
       { family: "agent-native" },
     );
@@ -87,7 +87,7 @@ describe("set-theme-family action", () => {
         { family: "original" },
         {
           caller: "tool",
-          userEmail: "steve@example.test",
+          userEmail: "steve@builder.io",
           appId: "sample-app",
         },
       ),
@@ -112,7 +112,7 @@ describe("set-theme-family action", () => {
         { family: "agent-native" },
         {
           caller: "tool",
-          userEmail: "steve@example.test",
+          userEmail: "steve@builder.io",
           appId: "sample-app",
         },
       ),
@@ -120,6 +120,25 @@ describe("set-theme-family action", () => {
       errorCode: "theme_family_not_enabled",
       statusCode: 400,
     });
+    expect(deps.putUserSetting).not.toHaveBeenCalled();
+    expect(deps.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-Builder users before writing the preference", async () => {
+    await expect(
+      action.run(
+        { family: "agent-native" },
+        {
+          caller: "tool",
+          userEmail: "steve@example.test",
+          appId: "sample-app",
+        },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "theme_family_builder_account_required",
+      statusCode: 403,
+    });
+
     expect(deps.putUserSetting).not.toHaveBeenCalled();
     expect(deps.writeAppState).not.toHaveBeenCalled();
   });
