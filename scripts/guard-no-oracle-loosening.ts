@@ -734,14 +734,11 @@ function pairSnapshots<T extends SnapshotExpectation>(
     }
   };
 
-  pairWhere(
-    (previous, current) =>
-      previous.key === current.key && previous.body === current.body,
-    false,
-  );
   pairWhere((previous, current) => previous.key === current.key, true);
   pairWhere((previous, current) => previous.body === current.body, false);
-  pairWhere(() => true, false);
+  // A renamed identity is only paired at its original source line; elsewhere
+  // an unmatched expectation is a new oracle with no baseline counterpart.
+  pairWhere((previous, current) => previous.line === current.line, false);
 
   return pairs;
 }
@@ -1059,7 +1056,27 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
         `${GUARD_NAME}: no snapshot sources for ${changed.path}; both sides of every changed test and snapshot file must be read`,
       );
     }
-    if (sources.next === null) continue;
+    if (sources.next === null) {
+      if (isSnapshot && sources.base !== null) {
+        const snapshots = externalSnapshots(changed.oldPath, sources.base);
+        const first = snapshots[0];
+        if (first !== undefined) {
+          const text = reportable(
+            `removed ${snapshots.length} existing snapshot(s) with deleted .snap file`,
+            deletedFileReason(changed.oldPath, changes.added),
+          );
+          if (text !== null) {
+            violations.push({
+              file: rel,
+              line: first.line,
+              rule: "snapshot-changed",
+              message: text,
+            });
+          }
+        }
+      }
+      continue;
+    }
 
     const file: ChangedFile = {
       source: sources.next.split("\n"),

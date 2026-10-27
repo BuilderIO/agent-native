@@ -765,6 +765,86 @@ describe("snapshot-changed", () => {
     );
   });
 
+  it("pairs a changed same-key body with the unchanged call after an inserted duplicate", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "existing trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = [
+      ...base.split("\n").slice(0, 2),
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "existing trace"',
+      "  `);",
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "changed trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2,0 +3,3 @@",
+      "+  expect(trace).toMatchInlineSnapshot(`",
+      '+    "existing trace"',
+      "+  `);",
+      "@@ -4 +7 @@",
+      '-    "existing trace"',
+      '+    "changed trace"',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [3, 4, 5, 7] } }, diff, {
+        [SPEC]: base,
+      }),
+      [`${SPEC}:6: snapshot-changed`],
+    );
+  });
+
+  it("leaves a new snapshot unpaired with a removed unrelated expectation", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      '  expect(oldTrace).toMatchInlineSnapshot(`"old trace"`);',
+      "});",
+    ].join("\n");
+    const source = [
+      `import { expect } from "${VITEST}";`,
+      "// Existing expectations above this line were removed.",
+      "// This is a separate, new case.",
+      "// Its output has no baseline counterpart.",
+      'it("adds an independent case", () => {',
+      '  expect(newTrace).toMatchInlineSnapshot(`"new trace"`);',
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2,3 +2,6 @@",
+      '-it("pins the output", () => {',
+      '-  expect(oldTrace).toMatchInlineSnapshot(`"old trace"`);',
+      "-});",
+      "+// Existing expectations above this line were removed.",
+      "+// This is a separate, new case.",
+      "+// Its output has no baseline counterpart.",
+      '+it("adds an independent case", () => {',
+      '+  expect(newTrace).toMatchInlineSnapshot(`"new trace"`);',
+      "+});",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [2, 3, 4, 5, 6, 7] } }, diff, {
+        [SPEC]: base,
+      }),
+      [],
+    );
+  });
+
   it("flags a changed body when the test title and receiver identity change", () => {
     const base = [
       `import { expect } from "${VITEST}";`,
@@ -1009,6 +1089,63 @@ describe("snapshot-changed", () => {
     assert.deepEqual(
       flagged({ [snap]: { source, added: [3, 4] } }, diff, { [snap]: base }),
       [`${snap}:3: snapshot-changed`],
+    );
+  });
+
+  it("flags deletion of a .snap file with existing expectations", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "completed",
+      "`;",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      "deleted file mode 100644",
+      `--- a/${snap}`,
+      "+++ /dev/null",
+      "@@ -1,5 +0,0 @@",
+      ...base.split("\n").map((line) => `-${line}`),
+    ].join("\n");
+
+    assert.deepEqual(flagged({}, diff, { [snap]: base }), [
+      `${snap}:3: snapshot-changed`,
+    ]);
+  });
+
+  it("accepts a deleted .snap file's path-scoped oracle-change reason", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const reasonFile = "packages/core/src/a2a/trace-reason.ts";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "completed",
+      "`;",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      "deleted file mode 100644",
+      `--- a/${snap}`,
+      "+++ /dev/null",
+      "@@ -1,5 +0,0 @@",
+      ...base.split("\n").map((line) => `-${line}`),
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged(
+        {
+          [reasonFile]: {
+            source: `// oracle-change(${snap}): traces moved into inline expectations`,
+            added: [1],
+          },
+        },
+        diff,
+        { [snap]: base },
+      ),
+      [],
     );
   });
 });
