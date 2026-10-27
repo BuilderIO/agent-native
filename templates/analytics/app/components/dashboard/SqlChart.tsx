@@ -175,6 +175,11 @@ import {
   useEventMarkerGroups,
 } from "./event-markers";
 import {
+  extensionPanelHeightKey,
+  initialExtensionPanelHeight,
+  rememberExtensionPanelHeight,
+} from "./extension-panel-height";
+import {
   useIsStaleResult,
   useRefreshConfirmation,
   type PanelFreshness,
@@ -1850,8 +1855,17 @@ export function SqlChart({
         </div>
       );
     }
+    const heightKey = extensionPanelHeightKey(
+      dashboardId,
+      panel.id,
+      extensionId,
+    );
+    // Keyed so a panel that switches dashboard or extension remounts at that
+    // extension's own starting height, not the previous one's.
     return (
       <DashboardExtensionPanel
+        key={heightKey}
+        heightKey={heightKey}
         extensionId={extensionId}
         panelId={panel.id}
         slotId={slotId}
@@ -2165,19 +2179,28 @@ function DashboardExtensionPanel({
   panelId,
   slotId,
   context,
+  heightKey,
 }: {
   extensionId?: string;
   panelId: string;
   slotId?: string;
   context?: Record<string, unknown> | null;
+  heightKey: string;
 }) {
   const t = useT();
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  // The full-screen view is wider, so its content wraps to a different height;
+  // it remembers its own rather than overwriting the card's.
+  const fullScreen = useContext(ChartFillHeightContext);
+  const storageKey = fullScreen ? `${heightKey}:full-screen` : heightKey;
+  const [initialHeight] = useState(() =>
+    initialExtensionPanelHeight(storageKey),
+  );
   const loadingSkeleton = !ready ? (
     <DashboardPanelSkeleton
       data-dashboard-extension-loading="true"
-      className="absolute inset-0 z-10 h-full min-h-[180px] w-full rounded-md"
+      className="absolute inset-0 z-10 h-full w-full rounded-md"
       aria-hidden="true"
     />
   ) : null;
@@ -2214,9 +2237,12 @@ function DashboardExtensionPanel({
     );
   }
 
+  // The panel is as tall as the height the iframe reports, even a single line;
+  // until then it holds its last reported height.
   return (
     <div
-      className="relative min-h-[180px] w-full"
+      className="relative w-full"
+      style={ready ? undefined : { minHeight: initialHeight }}
       aria-busy={!ready}
       data-dashboard-report-loading={ready ? undefined : "true"}
     >
@@ -2226,7 +2252,10 @@ function DashboardExtensionPanel({
         slotId={`dashboard-panel-${panelId}`}
         context={context}
         className={ready ? "w-full opacity-100" : "w-full opacity-0"}
-        initialHeight={180}
+        initialHeight={initialHeight}
+        onHeightChange={(height) =>
+          rememberExtensionPanelHeight(storageKey, height)
+        }
         onReady={() => setReady(true)}
         onUnavailable={() => {
           setReady(true);
