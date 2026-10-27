@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: Ihre Prompts diktieren statt tippen
 seo_title: KI-Diktat, das in jede App tippt
 meta_description: Sprechen Sie mit KI-Diktat in Claude Code, Slack oder ein Dokument und erhalten Sie sauberen Text am Cursor. Agent-Native Clips speichert jedes Diktat, damit Sie es später finden.

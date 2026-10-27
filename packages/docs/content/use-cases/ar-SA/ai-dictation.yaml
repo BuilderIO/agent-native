@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: "أملِ مطالباتك بدلًا من كتابتها"
 seo_title: "إملاء بالذكاء الاصطناعي يكتب في أي تطبيق"
 meta_description: "استخدم الإملاء بالذكاء الاصطناعي لتتحدث في Claude Code أو Slack أو مستند، واحصل على نص منقّح عند المؤشر. يحفظ Agent-Native Clips كل ما تمليه لتبحث فيه لاحقًا."

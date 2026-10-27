@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: プロンプトはタイプせず、話して入力
 seo_title: どのアプリにも入力できるAIディクテーション
 meta_description: AIディクテーションでClaude CodeやSlack、ドキュメントに話しかければ、整ったテキストがカーソル位置に入力されます。Agent-Native Clipsはすべてのディクテーションを保存し、後から検索できます。

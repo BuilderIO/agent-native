@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: 用說的輸入提示，不必再打字
 seo_title: 能在任何應用程式中輸入文字的 AI 聽寫
 meta_description: 用 AI 聽寫對 Claude Code、Slack 或文件說話，整理好的文字就會出現在你的游標處。Agent-Native Clips 會儲存每一次聽寫，方便日後搜尋。

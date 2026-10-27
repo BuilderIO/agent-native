@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: Dite seus prompts em vez de digitá-los
 seo_title: Ditado com IA que digita em qualquer app
 meta_description: Use ditado com IA para falar no Claude Code, no Slack ou em um doc e receber texto limpo no cursor. O Agent-Native Clips salva cada ditado para você pesquisar depois.

@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: 프롬프트를 타이핑 대신 말로 입력하세요
 seo_title: 어떤 앱에든 입력해 주는 AI 받아쓰기
 meta_description: "AI 받아쓰기로 Claude Code, Slack, 문서에 말하면 커서 위치에 깔끔한 텍스트가 입력돼요. Agent-Native Clips는 모든 받아쓰기를 저장해 나중에 검색할 수 있어요."

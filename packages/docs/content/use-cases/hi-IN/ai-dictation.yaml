@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: "अपने प्रॉम्प्ट टाइप करने के बजाय बोलकर लिखें"
 seo_title: "AI डिक्टेशन जो किसी भी ऐप में टाइप करता है"
 meta_description: "AI डिक्टेशन से Claude Code, Slack या किसी डॉक में बोलें और अपने कर्सर पर साफ़ टेक्स्ट पाएँ। Agent-Native Clips हर डिक्टेशन सेव करता है, ताकि आप उसे बाद में खोज सकें।"
