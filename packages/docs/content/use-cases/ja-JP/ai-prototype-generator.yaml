@@ -39,7 +39,7 @@ features:
   heading: ブリーフからプロトタイプまでに必要な機能がすべて揃っています
   items:
     - title: 最初からクリックできる
-      body: 選んだ方向性は、操作が実際に動くHTMLになり、デスクトップとモバイルのフレームで表示されます。**Design プレビュー**でブラウザーのタブに開けます。
+      body: 選んだ案は実際に動くHTMLになり、デスクトップとモバイルの枠で表示されます。**Design プレビュー**でブラウザーのタブに開けます。
     - title: ブリーフの言葉を守る
       body: エージェントはブリーフの用語と主張をそのまま使います。重要な選択がブリーフになければ、質問するか、置いた前提を伝えます。
     - title: 完成前にチェック
@@ -64,7 +64,7 @@ integrations:
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
         - name: Codex
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
-      body: プロトタイプのファイルとデザイントークン入りのプロンプトをコピーするか、DesignのMCPサーバー経由でコーディングエージェントにデザインを開かせます。
+      body: ファイルとデザイントークン入りのプロンプトをコピーするか、DesignのMCPサーバーでコーディングエージェントにデザインを開かせます。
     - title: MCPであらゆるツールと連携
       logos:
         - name: Notion
@@ -75,7 +75,7 @@ integrations:
 other_uses:
   heading: Agent-Native Designで作れるその他のもの
   cards:
-    - title: ローンチブリーフからランディングページのプロトタイプを作成
+    - title: ローンチブリーフからランディングページを試作
       url: https://www.agent-native.com/use-cases/landing-page-prototypes/
       body: ローンチブリーフから、並べて比べられるランディングページの案を複数作れます。
 faqs:

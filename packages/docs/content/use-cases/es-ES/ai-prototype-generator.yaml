@@ -39,7 +39,7 @@ features:
   heading: Todo lo que necesitas para pasar del briefing al prototipo
   items:
     - title: Interactivo desde el principio
-      body: La dirección que eliges se convierte en HTML con interacciones que funcionan, en marcos de escritorio y móvil. **Vista previa de Design** lo abre en una pestaña.
+      body: La dirección que eliges se convierte en HTML interactivo, en marcos de escritorio y móvil. **Vista previa de Design** lo abre en una pestaña.
     - title: Respeta las palabras del briefing
       body: El agente usa tus términos y tus afirmaciones. Si el briefing omite una decisión importante, te pregunta o explica lo que ha supuesto.
     - title: Revisado antes de estar listo
@@ -75,7 +75,7 @@ integrations:
 other_uses:
   heading: Otras cosas que puedes crear con Agent-Native Design
   cards:
-    - title: Convierte un briefing de lanzamiento en un prototipo de landing
+    - title: Convierte un briefing en un prototipo de landing
       url: https://www.agent-native.com/use-cases/landing-page-prototypes/
       body: Convierte un briefing de lanzamiento en varias versiones de landing page para compararlas lado a lado.
 faqs:

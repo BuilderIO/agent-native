@@ -39,7 +39,7 @@ features:
   heading: Tudo o que você precisa para ir do briefing ao protótipo
   items:
     - title: Clicável desde o início
-      body: A direção que você escolhe vira HTML com interações funcionais, em frames de desktop e de celular. A **Visualização do Design** abre tudo em uma aba do navegador.
+      body: A direção escolhida vira HTML com interações reais, em frames de desktop e celular. A **Visualização do Design** abre tudo numa aba.
     - title: Mantém as palavras do briefing
       body: O agente usa seus termos e suas afirmações. Quando o briefing deixa de fora uma escolha importante, ele pergunta ou diz o que presumiu.
     - title: Conferido antes de ficar pronto

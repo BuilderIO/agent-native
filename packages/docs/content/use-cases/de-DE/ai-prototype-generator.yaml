@@ -39,7 +39,7 @@ features:
   heading: Alles für den Weg vom Briefing zum Prototyp
   items:
     - title: Von Anfang an klickbar
-      body: Die gewählte Richtung wird HTML mit funktionierenden Interaktionen, in Desktop- und Mobil-Frames. **Design-Vorschau** öffnet sie in einem Browser-Tab.
+      body: Die gewählte Richtung wird HTML mit echten Interaktionen, in Desktop- und Mobil-Frames. **Design-Vorschau** öffnet sie im Browser-Tab.
     - title: Behält die Worte Ihres Briefings
       body: Der Agent nutzt Ihre Begriffe und Aussagen. Lässt das Briefing eine wichtige Entscheidung offen, fragt er nach oder nennt seine Annahme.
     - title: Geprüft, bevor es fertig ist
@@ -75,7 +75,7 @@ integrations:
 other_uses:
   heading: Was Sie sonst noch in Agent-Native Design machen können
   cards:
-    - title: Ein Launch-Briefing zum Landingpage-Prototyp machen
+    - title: Prototypen für Landingpages erstellen
       url: https://www.agent-native.com/use-cases/landing-page-prototypes/
       body: Machen Sie aus einem Launch-Briefing Landingpage-Versionen, die Sie nebeneinander vergleichen.
 faqs:
