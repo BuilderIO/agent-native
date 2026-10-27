@@ -4,7 +4,6 @@ import {
   allocateFrameBudgets,
   compareTrees,
   defaultSnapshotWeek,
-  mergeJourneyBands,
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
@@ -90,7 +89,7 @@ describe("weekly snapshot preset", () => {
     });
   });
 
-  it("keeps tree caches isolated by Analytics origin", () => {
+  it("keeps tree caches isolated by Analytics app URL", () => {
     const base = {
       app: "design",
       dateFrom: "2026-10-18",
@@ -100,10 +99,13 @@ describe("weekly snapshot preset", () => {
     expect(
       snapshotPresetHash({
         ...base,
-        sourceOrigin: "https://analytics.example",
+        sourceUrl: "https://analytics.example",
       }),
     ).not.toBe(
-      snapshotPresetHash({ ...base, sourceOrigin: "https://analytics.test" }),
+      snapshotPresetHash({
+        ...base,
+        sourceUrl: "https://analytics.example/team",
+      }),
     );
   });
 });
@@ -170,7 +172,7 @@ describe("snapshot tree planning", () => {
     expect(budgets.has("empty")).toBe(false);
   });
 
-  it("preserves independent fork roots and parent-relative branch counts", () => {
+  it("preserves parent-relative branch counts", () => {
     const source = tree([
       node("signup", "Signup", null, 1, 10),
       node("signup > choice", "Setup choice", "signup", 2, 10),
@@ -191,20 +193,6 @@ describe("snapshot tree planning", () => {
         dropoffPct: 10,
       },
     ]);
-
-    const merged = mergeJourneyBands([
-      { key: "control", tree: source },
-      { key: "credits", tree: tree([node("signup", "Signup", null, 1, 3)], 3) },
-    ]);
-    expect(merged).toMatchObject({
-      app: "all",
-      rootN: 13,
-      appRootN: { control: 10, credits: 3 },
-    });
-    expect(merged.nodes[1]).toMatchObject({
-      key: "control::signup > choice",
-      parentKey: "control::signup",
-    });
   });
 
   it("diffs direct-parent conversions and omits Clips recording attempts", () => {

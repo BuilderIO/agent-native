@@ -576,7 +576,7 @@ async function getTreeResult(input: {
     dateTo: input.dateTo,
     ...(input.experimentId ? { experimentId: input.experimentId } : {}),
     splitDesignFirstTouch: input.app === "design",
-    sourceOrigin: new URL(input.analyticsUrl).origin,
+    sourceUrl: input.analyticsUrl,
   });
   const cachePath = path.join(
     input.outRoot,
@@ -589,13 +589,13 @@ async function getTreeResult(input: {
   if (!input.refresh) {
     const cached = await readJson<{
       presetHash?: string;
-      sourceOrigin?: string;
+      sourceUrl?: string;
       result?: unknown;
     }>(cachePath);
     if (
       cached &&
       cached.presetHash === presetHash &&
-      cached.sourceOrigin === new URL(input.analyticsUrl).origin
+      cached.sourceUrl === input.analyticsUrl
     ) {
       if (!("result" in cached)) {
         throw checkFailure(`${input.app} tree cache has no result.`);
@@ -617,7 +617,7 @@ async function getTreeResult(input: {
   if (!cacheHit) {
     await writeJson(cachePath, {
       presetHash,
-      sourceOrigin: new URL(input.analyticsUrl).origin,
+      sourceUrl: input.analyticsUrl,
       request,
       result,
     });
@@ -795,20 +795,20 @@ async function publishCanvas(args: {
     maxExamplesPerNode: SNAPSHOT_PRESET.examplesPerNode,
     includeScreenshotless: false,
   };
-  const designOrigin = new URL(args.designUrl).origin;
+  const designUrl = args.designUrl;
   const canvasCachePath = path.join(
     args.bandDir,
-    `canvas-${pathHash(designOrigin)}.json`,
+    `canvas-${pathHash(designUrl)}.json`,
   );
   const savedCanvas = await readJson<{
-    designOrigin?: string;
+    designUrl?: string;
     inputHash?: string;
     result?: ReturnType<typeof actionCanvasResult>;
   }>(canvasCachePath);
-  const inputHash = pathHash(JSON.stringify({ designOrigin, canvasInput }));
-  const cacheMatchesOrigin = savedCanvas?.designOrigin === designOrigin;
+  const inputHash = pathHash(JSON.stringify({ designUrl, canvasInput }));
+  const cacheMatchesUrl = savedCanvas?.designUrl === designUrl;
   let canvas =
-    cacheMatchesOrigin && savedCanvas?.inputHash === inputHash && !args.refresh
+    cacheMatchesUrl && savedCanvas?.inputHash === inputHash && !args.refresh
       ? actionCanvasResult(savedCanvas.result)
       : null;
   if (canvas) {
@@ -822,7 +822,7 @@ async function publishCanvas(args: {
       "create-journey-canvas",
       {
         ...canvasInput,
-        ...(cacheMatchesOrigin && savedCanvas?.result?.designId
+        ...(cacheMatchesUrl && savedCanvas?.result?.designId
           ? { designId: savedCanvas.result.designId }
           : {}),
       },
@@ -835,7 +835,7 @@ async function publishCanvas(args: {
       attempt += 1
     ) {
       await writeJson(canvasCachePath, {
-        designOrigin,
+        designUrl,
         inputHash,
         result: canvas,
       });
@@ -857,7 +857,7 @@ async function publishCanvas(args: {
       );
     }
     await writeJson(canvasCachePath, {
-      designOrigin,
+      designUrl,
       inputHash,
       result: canvas,
     });
@@ -1248,14 +1248,14 @@ async function main(argv: string[]): Promise<number> {
       dateTo: window.dateTo,
       ...(values.experiment ? { experimentId: values.experiment } : {}),
     }),
-    analyticsOrigin: new URL(analyticsUrl).origin,
+    analyticsUrl,
     presetHash: snapshotPresetHash({
       app,
       dateFrom: window.dateFrom,
       dateTo: window.dateTo,
       ...(values.experiment ? { experimentId: values.experiment } : {}),
       splitDesignFirstTouch: app === "design",
-      sourceOrigin: new URL(analyticsUrl).origin,
+      sourceUrl: analyticsUrl,
     }),
   }));
   if (values["dry-run"]) {

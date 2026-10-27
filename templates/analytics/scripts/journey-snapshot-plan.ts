@@ -109,7 +109,7 @@ export function snapshotPresetHash(input: {
   dateTo: string;
   experimentId?: string;
   splitDesignFirstTouch: boolean;
-  sourceOrigin?: string;
+  sourceUrl?: string;
 }): string {
   const canonical = JSON.stringify({
     snapshotFormatVersion: 2,
@@ -307,55 +307,6 @@ export function allocateFrameBudgets(
     remainder -= 1;
   }
   return budgets;
-}
-
-export function mergeJourneyBands(
-  bands: readonly SnapshotBand[],
-): SnapshotTree & { appRootN: Record<string, number> } {
-  const appRootN: Record<string, number> = {};
-  const nodes: SnapshotNode[] = [];
-  let rootN = 0;
-  let sessionsWithReplay = 0;
-  let sessionsWithEvents = 0;
-  let truncated = false;
-  let paginationConsistency: "stable" | "may_have_shifted" = "stable";
-  for (const band of bands) {
-    if (!band.tree.nodes.length || band.tree.rootN < 1) continue;
-    appRootN[band.key] = band.tree.rootN;
-    rootN += band.tree.rootN;
-    sessionsWithEvents += band.tree.coverage.sessionsWithEvents;
-    sessionsWithReplay += band.tree.coverage.sessionsWithReplay ?? 0;
-    truncated ||= band.tree.coverage.truncated;
-    if (band.tree.coverage.paginationConsistency === "may_have_shifted") {
-      paginationConsistency = "may_have_shifted";
-    }
-    for (const node of band.tree.nodes) {
-      nodes.push({
-        ...node,
-        key: `${band.key}::${node.key}`,
-        parentKey: node.parentKey ? `${band.key}::${node.parentKey}` : null,
-        pctOfRoot: Math.round((node.n / band.tree.rootN) * 1000) / 10,
-      });
-    }
-  }
-  if (!nodes.length)
-    throw new Error("No screenshot-backed cohort bands remain.");
-  const firstBand = bands[0];
-  if (!firstBand) throw new Error("No source journey band remains.");
-  const first = firstBand.tree;
-  return {
-    window: first.window,
-    app: "all",
-    rootN,
-    appRootN,
-    coverage: {
-      sessionsWithEvents,
-      sessionsWithReplay,
-      truncated,
-      paginationConsistency,
-    },
-    nodes,
-  };
 }
 
 export function treeTopForks(
