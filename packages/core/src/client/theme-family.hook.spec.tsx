@@ -86,6 +86,10 @@ describe("useThemeFamily", () => {
     };
     deps.returnFreshConfig = false;
     deps.query.refetch.mockReset();
+    deps.query.refetch.mockResolvedValue({
+      data: deps.query.data,
+      isError: true,
+    });
     deps.mutation.mutateAsync.mockReset();
     deps.appStateVersion = 0;
     deps.readClientAppState.mockReset();
@@ -372,6 +376,60 @@ describe("useThemeFamily", () => {
     expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
       "original",
     );
+  });
+
+  it("releases the saved-family guard after refresh so later server changes apply", async () => {
+    deps.query.data = {
+      family: "agent-native",
+      source: "user-setting",
+      appId: "sample-app",
+    };
+    deps.mutation.mutateAsync.mockResolvedValue({
+      family: "original",
+      appId: "sample-app",
+    });
+    let resolveRefetch!: (value: unknown) => void;
+    deps.query.refetch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRefetch = resolve;
+        }),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    await act(async () => {
+      await current?.setFamily("original");
+    });
+    expect(current?.family).toBe("original");
+
+    // A stale query result must not undo the successful selection while the
+    // post-mutation refresh is still pending.
+    deps.query.data = {
+      family: "agent-native",
+      source: "user-setting",
+      appId: "sample-app",
+    };
+    await act(async () => root?.render(<Probe />));
+    expect(current?.family).toBe("original");
+
+    // Another tab's saved value can differ from this selection while still
+    // matching the cached query data. Once the refresh completes, accept it.
+    await act(async () => {
+      resolveRefetch({ data: deps.query.data, isError: false });
+      await Promise.resolve();
+    });
+    expect(current?.family).toBe("agent-native");
+
+    deps.query.data = {
+      family: "original",
+      source: "user-setting",
+      appId: "sample-app",
+    };
+    await act(async () => root?.render(<Probe />));
+    expect(current?.family).toBe("original");
   });
 
   it("tracks a URL pin when navigation keeps the selected family unchanged", async () => {

@@ -413,6 +413,8 @@ export function useThemeFamily(): ThemeFamilyHook {
     () => readStoredThemeFamily(appId).status,
   );
   const [mutationError, setMutationError] = useState<Error>();
+  const [savedPreferenceRefreshVersion, setSavedPreferenceRefreshVersion] =
+    useState(0);
   const mutationPending = useRef(false);
   const lastSavedPreference = useRef<{
     appId: string | null;
@@ -486,7 +488,14 @@ export function useThemeFamily(): ThemeFamilyHook {
     const applied = applyThemeFamily(selectedFamily, query.data.appId);
     setStorageStatus(storageStatusForApply(applied));
     setMutationError(undefined);
-  }, [defaultFamily, families, mutationPending, query.data, urlOverride]);
+  }, [
+    defaultFamily,
+    families,
+    mutationPending,
+    query.data,
+    savedPreferenceRefreshVersion,
+    urlOverride,
+  ]);
 
   useEffect(() => {
     if (urlOverride || appStateVersion === 0) return;
@@ -569,7 +578,20 @@ export function useThemeFamily(): ThemeFamilyHook {
         mutationPending.current = false;
         const applied = applyThemeFamily(result.family, result.appId);
         setStorageStatus(storageStatusForApply(applied));
-        void refetchThemeFamily();
+        const savedPreference = lastSavedPreference.current;
+        if (savedPreference) {
+          void refetchThemeFamily().then(
+            (refreshed) => {
+              if (lastSavedPreference.current !== savedPreference) return;
+              if (refreshed.isError) return;
+              lastSavedPreference.current = null;
+              setSavedPreferenceRefreshVersion((version) => version + 1);
+            },
+            () => undefined,
+          );
+        } else {
+          void refetchThemeFamily();
+        }
         return result.family;
       } catch (error) {
         const normalized = asError(error);
@@ -619,6 +641,7 @@ export function useThemeFamily(): ThemeFamilyHook {
       mutation,
       queryData,
       refetchThemeFamily,
+      setSavedPreferenceRefreshVersion,
       urlOverride,
     ],
   );
