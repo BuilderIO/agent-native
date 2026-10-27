@@ -1058,7 +1058,8 @@ function collectLatestAgentNativeDependencies(
     const read = readJsonFile(file);
     if (!read.ok) continue;
     for (const section of PINNABLE_SECTIONS) {
-      for (const [name, version] of Object.entries(read.value[section] ?? {})) {
+      const dependencies = read.value[section] ?? {};
+      for (const [name, version] of Object.entries(dependencies)) {
         if (
           isAgentNativePackageName(name) &&
           version.trim() === PINNABLE_VERSION

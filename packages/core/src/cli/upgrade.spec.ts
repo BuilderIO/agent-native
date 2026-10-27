@@ -1358,7 +1358,7 @@ describe("runUpgrade", () => {
     );
   });
 
-  it("refreshes packages already using latest before installing", async () => {
+  it("refreshes floating latest specs before install", async () => {
     const root = makeTempProject({
       kind: "workspace",
       rootPkg: { name: "ws", packageManager: "pnpm@10.29.0" },
@@ -1405,9 +1405,8 @@ describe("runUpgrade", () => {
       },
     });
 
-    expect(
-      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
-    ).toBe(0);
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    expect(await runUpgrade(args, io)).toBe(0);
 
     expect(spawnCalls.slice(0, 2)).toEqual([
       {
@@ -1435,7 +1434,7 @@ describe("runUpgrade", () => {
     );
   });
 
-  it("rejects invalid package names before mutating manifests", async () => {
+  it("rejects invalid package names before manifest edits", async () => {
     const root = makeTempProject({
       kind: "workspace",
       rootPkg: {
@@ -1467,9 +1466,8 @@ describe("runUpgrade", () => {
       },
     });
 
-    expect(
-      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
-    ).toBe(1);
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    expect(await runUpgrade(args, io)).toBe(1);
     expect(spawnCalls).toEqual([]);
     expect(err.join("\n")).toContain("invalid @agent-native package name");
     expect(fs.readFileSync(manifestPath, "utf-8")).toBe(originalManifest);
@@ -1514,9 +1512,8 @@ describe("runUpgrade", () => {
       },
     });
 
-    expect(
-      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
-    ).toBe(0);
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    expect(await runUpgrade(args, io)).toBe(0);
 
     expect(spawnCalls.slice(0, 2)).toEqual([
       {

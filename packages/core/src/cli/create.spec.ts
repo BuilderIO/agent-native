@@ -868,7 +868,9 @@ describe("template archive downloads", () => {
       expect(
         fs.readFileSync(path.join(destDir, "template.txt"), "utf8"),
       ).toBe("template contents\n");
-      expect(fs.existsSync(path.join(destDir, ".download.tar.gz"))).toBe(false);
+      expect(
+        fs.existsSync(path.join(destDir, ".download.tar.gz")),
+      ).toBe(false);
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -876,7 +878,7 @@ describe("template archive downloads", () => {
     }
   });
 
-  it("stops unknown-length archive downloads at the size limit", async () => {
+  it("rejects oversized unknown-length archives", async () => {
     const server = createServer((_request, response) => {
       response.write("12345678");
       response.end("12345678");
