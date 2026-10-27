@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: 코딩 에이전트가 읽을 수 있는 스펙을 작성하세요
 seo_title: Claude Code, Codex, Cursor를 위한 스펙 작성
 meta_description: "Agent-Native Content는 스펙을 Claude Code, Codex, Cursor가 MCP로 읽는 페이지 하나에 담아, 에이전트가 팀이 편집 중인 버전으로 만들게 해 줘요."

@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: "اكتب مواصفات يقرؤها وكيل البرمجة"
 seo_title: "مواصفات لـ Claude Code وCodex وCursor"
 meta_description: "يحفظ Agent-Native Content مواصفاتك في صفحة واحدة يقرؤها Claude Code أو Codex أو Cursor عبر MCP، فيبني وكيلك من النسخة التي يعدّلها فريقك الآن."

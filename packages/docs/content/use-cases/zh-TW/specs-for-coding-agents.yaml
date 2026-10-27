@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: 撰寫程式開發 agent 讀得懂的規格
 seo_title: 給 Claude Code、Codex 和 Cursor 的規格文件
 meta_description: Agent-Native Content 把規格放在同一個頁面，Claude Code、Codex 或 Cursor 透過 MCP 讀取，讓 agent 依照團隊正在編輯的版本開發。

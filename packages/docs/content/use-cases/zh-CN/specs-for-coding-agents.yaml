@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: 写出编码 agent 读得懂的规格文档
 seo_title: 写给 Claude Code、Codex 和 Cursor 的规格文档
 meta_description: Agent-Native Content 把规格文档放在同一个页面上，Claude Code、Codex 或 Cursor 通过 MCP 读取，让 agent 按团队正在编辑的版本来构建。

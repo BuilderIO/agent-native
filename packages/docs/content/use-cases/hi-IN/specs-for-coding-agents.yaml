@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: "ऐसे स्पेक्स लिखें जो आपका कोडिंग एजेंट पढ़ सके"
 seo_title: "Claude Code, Codex और Cursor के लिए स्पेक्स"
 meta_description: "Agent-Native Content आपके स्पेक को एक पेज पर रखता है जिसे Claude Code, Codex या Cursor MCP से पढ़ते हैं, ताकि एजेंट उसी वर्ज़न से बनाए जिसे आपकी टीम एडिट कर रही है।"

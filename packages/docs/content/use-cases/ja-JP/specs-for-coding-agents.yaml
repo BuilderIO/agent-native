@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: コーディングエージェントが読める仕様書を作成
 seo_title: Claude Code・Codex・Cursor向けの仕様書
 meta_description: Agent-Native Contentは仕様書を1つのページにまとめ、Claude Code、Codex、CursorがMCP経由で読めるようにします。エージェントはチームが編集中の版をもとに開発します。

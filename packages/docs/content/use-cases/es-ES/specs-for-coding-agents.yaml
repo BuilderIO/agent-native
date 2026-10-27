@@ -1,6 +1,9 @@
 template: v2
 slug: specs-for-coding-agents
 app: content
+roles:
+  - engineering
+  - product
 title: Escribe especificaciones que tu agente pueda leer
 seo_title: Especificaciones para Claude Code, Codex y Cursor
 meta_description: Agent-Native Content guarda tu especificación en una página que Claude Code, Codex o Cursor leen por MCP, y tu agente trabaja con la versión que edita tu equipo.
