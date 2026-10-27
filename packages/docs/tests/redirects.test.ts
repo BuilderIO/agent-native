@@ -124,7 +124,7 @@ describe("moved use-case pages", () => {
 
   it("redirects only to pages that exist, and never from one", () => {
     const content = loadCampaignContent();
-    const live = new Set(content.useCasePages.map((page) => page.slug));
+    const live = new Set(content.useCases.map((page) => page.slug));
     for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
       expect(live.has(to), to).toBe(true);
       expect(live.has(from), from).toBe(false);

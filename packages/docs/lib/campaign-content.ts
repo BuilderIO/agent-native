@@ -69,17 +69,6 @@ const date = z.preprocess(
       );
     }, "Expected a valid ISO calendar date"),
 );
-const common = {
-  slug,
-  job_id: text,
-  title: text,
-  meta_description: text,
-  app_cta_url: appUrl,
-  cta_label: text,
-  screenshot_alt: text,
-  cta_band_heading: text,
-  cta_band_subhead: text,
-};
 // Who a page is for; the use-cases index filters by it.
 const role = z.enum([
   "engineering",
@@ -92,71 +81,17 @@ const role = z.enum([
   "finance",
   "everyone",
 ]);
-const useCaseSchema = z.object({
-  ...common,
-  app,
-  subhead: text,
-  secondary_cta_label: text,
-  old_way: z.object({ heading: text, body: text }),
-  replaces: z.array(text).optional(),
-  new_way: z.object({ heading: text, steps: z.array(text).min(1) }),
-  todays_stack: z
-    .object({
-      heading: text,
-      items: z.array(z.object({ text })),
-      in_app: text,
-    })
-    .optional(),
-  recipes: z
-    .array(
-      z.object({
-        id: slug,
-        title: text,
-        when: text,
-        steps: z.array(text).min(1).max(4),
-        prompt: text.optional(),
-        result: text,
-        tip: text.optional(),
-        how_often: text,
-      }),
-    )
-    .optional(),
-  next_jobs: z.array(slug).optional(),
-  connects_to: z.array(text).optional(),
-  frequency: z
-    .enum(["daily", "weekly", "per-project", "occasional"])
-    .optional(),
-  how_often_label: text.optional(),
-  roles: z.array(role).optional(),
-  angles: z
-    .array(
-      z.object({
-        id: slug,
-        audience: text,
-        title: text,
-        subhead: text,
-        old_way_body: text.optional(),
-      }),
-    )
-    .optional(),
-  story: z
-    .object({
-      quote: text,
-      name: text,
-      role: text,
-      used_before: z
-        .union([text, z.array(text)])
-        .transform((value) => (typeof value === "string" ? [value] : value)),
-    })
-    .nullish()
-    .transform((value) => value ?? undefined),
-  faqs: z.array(z.object({ q: text, a: text })),
-  updated: date,
-});
 const articleSchema = z.object({
-  ...common,
-  use_case: slug.optional(),
+  slug,
+  job_id: text,
+  title: text,
+  meta_description: text,
+  app_cta_url: appUrl,
+  cta_label: text,
   screenshot_alt: text.optional(),
+  cta_band_heading: text,
+  cta_band_subhead: text,
+  use_case: slug.optional(),
   topic,
   apps: z.array(app).optional(),
   published: date,
@@ -169,10 +104,8 @@ const articleSchema = z.object({
   body: text,
 });
 const themedImage = z.object({ dark: safeUrl, light: safeUrl, alt: text });
-// Pages written by Content Factory. A use-case file opts in with
-// `template: v2`; files without it keep the original schema and template.
-const useCasePageSchema = z.object({
-  template: z.literal("v2"),
+// Use-case pages, written by Content Factory.
+const useCaseSchema = z.object({
   slug,
   app,
   roles: z.array(role).min(1).optional(),
@@ -239,21 +172,19 @@ const useCasePageSchema = z.object({
       .max(6),
   }),
 });
-export type PublicUseCase = z.infer<typeof useCaseSchema>;
-export type UseCasePageV2 = z.infer<typeof useCasePageSchema>;
-/** A new-style page in English, with its translations keyed by locale ("de-DE"). */
-export type UseCasePageEntry = UseCasePageV2 & {
-  translations: Partial<Record<string, UseCasePageV2>>;
+export type UseCase = z.infer<typeof useCaseSchema>;
+/** A use-case page in English, with its translations keyed by locale ("de-DE"). */
+export type UseCaseEntry = UseCase & {
+  translations: Partial<Record<string, UseCase>>;
 };
 export type PublicArticle = z.infer<typeof articleSchema>;
 export type CampaignContent = {
-  useCases: PublicUseCase[];
-  useCasePages: UseCasePageEntry[];
+  useCases: UseCaseEntry[];
   articles: PublicArticle[];
 };
 export type CampaignSources = {
   useCases: Record<string, string>;
-  /** content/use-cases/<locale>/<slug>.yaml: translations of new-style pages. */
+  /** content/use-cases/<locale>/<slug>.yaml: translations of the pages. */
   useCaseTranslations?: Record<string, string>;
   articles: Record<string, string>;
 };
@@ -299,24 +230,18 @@ function parseFiles<T extends { slug: string }>(
 export function parseCampaignContent(
   sources: CampaignSources,
 ): CampaignContent {
-  const isV2 = (raw: string) => /^template:\s*["']?v2["']?\s*$/m.test(raw);
-  const pick = (v2: boolean) =>
-    Object.fromEntries(
-      Object.entries(sources.useCases).filter(([, raw]) => isV2(raw) === v2),
-    );
-  const useCases = parseFiles(pick(false), useCaseSchema, false);
   const translations = parseFiles(
     sources.useCaseTranslations ?? {},
-    useCasePageSchema,
+    useCaseSchema,
     false,
   );
   const translationFiles = Object.keys(sources.useCaseTranslations ?? {}).sort(
     (a, b) => a.localeCompare(b),
   );
-  const useCasePages = parseFiles(pick(true), useCasePageSchema, false).map(
-    (page): UseCasePageEntry => ({ ...page, translations: {} }),
+  const useCases = parseFiles(sources.useCases, useCaseSchema, false).map(
+    (page): UseCaseEntry => ({ ...page, translations: {} }),
   );
-  const pagesBySlug = new Map(useCasePages.map((page) => [page.slug, page]));
+  const pagesBySlug = new Map(useCases.map((page) => [page.slug, page]));
   translations.forEach((translation, index) => {
     const file = translationFiles[index]!;
     const locale = LOCALE_FOLDER.exec(file)?.[1];
@@ -327,23 +252,11 @@ export function parseCampaignContent(
       );
     page.translations[locale] = translation;
   });
-  const bySlug = new Map(useCases.map((item) => [item.slug, item]));
-  const articles = parseFiles(sources.articles, articleSchema, true)
-    .map((article) => {
-      const linked = article.use_case
-        ? bySlug.get(article.use_case)
-        : undefined;
-      if (linked && linked.job_id !== article.job_id)
-        throw new Error(
-          `[campaign-content] ${article.slug}: invalid content (job_id does not match use_case)`,
-        );
-      return article;
-    })
-    .sort(
-      (a, b) =>
-        b.published.localeCompare(a.published) || a.slug.localeCompare(b.slug),
-    );
-  return { useCases, useCasePages, articles };
+  const articles = parseFiles(sources.articles, articleSchema, true).sort(
+    (a, b) =>
+      b.published.localeCompare(a.published) || a.slug.localeCompare(b.slug),
+  );
+  return { useCases, articles };
 }
 
 export function articleMarkdown(article: PublicArticle): string {

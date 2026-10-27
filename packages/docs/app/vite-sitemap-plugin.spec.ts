@@ -187,7 +187,6 @@ describe("docs agent web generation", () => {
   it("omits configured topic pages when no articles are present", () => {
     const pages = buildCampaignPages({
       useCases: [],
-      useCasePages: [],
       articles: [],
     });
     expect(pages.some((page) => /\/(topic|category)\//.test(page.path))).toBe(
@@ -215,7 +214,6 @@ describe("docs agent web generation", () => {
     ];
     const pages = buildCampaignPages({
       useCases: [],
-      useCasePages: [],
       articles,
     });
     const topic = pages.find(

@@ -194,7 +194,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
 }
 
 export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
-  const { useCases, useCasePages, articles } = content;
+  const { useCases, articles } = content;
   const latestDate = (dates: string[]): Date | undefined => {
     const latest = dates.sort().at(-1);
     return latest ? new Date(`${latest}T00:00:00Z`) : undefined;
@@ -225,28 +225,10 @@ export function buildCampaignPages(content: CampaignContent): AgentWebPage[] {
     {
       path: `${USE_CASES_BASE}/`,
       title: "Use cases",
-      markdown: `# Use cases\n\n${[...useCases, ...useCasePages].map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
-      lastmod: latestDate(
-        [...useCases, ...useCasePages].map((item) => item.updated),
-      ),
+      markdown: `# Use cases\n\n${useCases.map((item) => `- [${item.title}](${USE_CASES_BASE}/${item.slug}/)`).join("\n")}\n`,
+      lastmod: latestDate(useCases.map((item) => item.updated)),
     },
-    ...useCases.map((item) => ({
-      path: `${USE_CASES_BASE}/${item.slug}/`,
-      title: item.title,
-      description: item.meta_description,
-      lastmod: new Date(`${item.updated}T00:00:00Z`),
-      markdown:
-        [
-          `# ${item.title}`,
-          item.subhead,
-          `## ${item.old_way.heading}`,
-          item.old_way.body,
-          `## ${item.new_way.heading}`,
-          ...item.new_way.steps.map((step) => `- ${step}`),
-          ...item.faqs.flatMap((faq) => [`## ${faq.q}`, faq.a]),
-        ].join("\n\n") + "\n",
-    })),
-    ...useCasePages
+    ...useCases
       .flatMap((entry) => [
         { page: entry, locale: DEFAULT_LOCALE },
         ...Object.entries(entry.translations).flatMap(([locale, page]) =>

@@ -29,53 +29,69 @@ const common = {
   cta_band_heading: "Try the workflow",
   cta_band_subhead: "Start here",
 };
+const image = {
+  dark: "https://example.com/dark.png",
+  light: "https://example.com/light.png",
+  alt: "Sample image",
+};
 const useCase = {
-  ...common,
+  slug: "sample",
   app: "clips",
-  subhead: "Sample workflow",
-  secondary_cta_label: "Read",
-  old_way: {
-    heading: "Before",
-    body: "Manual work",
+  title: "Sample",
+  seo_title: "Sample search title",
+  meta_description: "Sample description",
+  updated: "2026-09-01",
+  hero: {
+    body: "Sample workflow",
+    button: { label: "Try", url: "https://example.com/app?existing=1" },
+    image,
     internal: "PRIVATE-NESTED",
   },
-  new_way: { heading: "After", steps: ["Start"] },
-  faqs: [{ q: "Why?", a: "Time" }],
-  updated: "2026-09-01",
+  how_to: {
+    heading: "How it works",
+    steps: [1, 2, 3].map((step) => ({
+      title: `Step ${step}`,
+      body: "Start",
+      image,
+    })),
+  },
+  features: {
+    heading: "Features",
+    items: Array.from({ length: 6 }, (_, index) => ({
+      title: `Feature ${index + 1}`,
+      body: "Saves time",
+    })),
+  },
+  integrations: {
+    heading: "Integrations",
+    cards: Array.from({ length: 3 }, (_, index) => ({
+      title: `Card ${index + 1}`,
+      logos: [{ name: "Slack" }, { name: "Linear" }],
+      body: "Connects",
+    })),
+  },
+  faqs: {
+    heading: "FAQs",
+    items: [
+      { q: "Why?", a: "Time" },
+      { q: "How?", a: "Ask" },
+      { q: "When?", a: "Weekly" },
+    ],
+  },
   audience: "PRIVATE-AUDIENCE",
   internal: { strategy: "PRIVATE-STRATEGY" },
 };
-const todaysStack = {
-  heading: "Tools today",
-  items: [{ text: "**A doc** keeps notes, but they get lost." }],
-  in_app: "Keep the notes together.",
-};
-const recipe = {
-  id: "sample-recipe",
-  title: "Draft a summary",
-  when: "After a meeting",
-  steps: ["Open the meeting", "Ask for a summary"],
-  prompt: "Summarize the meeting",
-  result: "A summary",
-  tip: "Keep the summary",
-  how_often: "Every meeting",
-};
-const angle = {
-  id: "engineering",
-  audience: "Engineers",
-  title: "Engineering workflow",
-  subhead: "Share the technical details",
-  old_way_body: "Manual engineering notes",
-};
-const optionalFields = {
-  recipes: [recipe],
-  connects_to: ["Calendar", "CRM"],
-  next_jobs: ["next-job"],
-  frequency: "weekly",
-  how_often_label: "Every week",
-  roles: ["engineering", "everyone"],
-  angles: [angle],
-};
+const roles = [
+  "engineering",
+  "product",
+  "design",
+  "marketing",
+  "revops",
+  "sales",
+  "founders",
+  "finance",
+  "everyone",
+];
 const article = {
   ...common,
   use_case: "sample",
@@ -115,266 +131,28 @@ describe("campaign content", () => {
     );
   });
 
-  it("accepts missing or valid todays_stack without adding defaults", () => {
+  it("accepts absent roles without inventing a default, and every configured role", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const absent = parseCampaignContent(sources()).useCases[0];
-    expect(absent).toBeDefined();
-    expect(absent).not.toHaveProperty("todays_stack");
-    for (const stack of [todaysStack, { ...todaysStack, items: [] }]) {
-      const content = parseCampaignContent(
-        sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
-      );
-      expect(content.useCases).toHaveLength(1);
-      expect(content.useCases[0].todays_stack).toEqual(stack);
-    }
+    expect(parseCampaignContent(sources()).useCases[0]).not.toHaveProperty(
+      "roles",
+    );
+    const content = parseCampaignContent(
+      sources({ "sample.yaml": yaml({ ...useCase, roles }) }),
+    );
+    expect(content.useCases[0].roles).toEqual(roles);
+    expect(JSON.stringify(content)).not.toContain("PRIVATE");
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("strips unknown fields from todays_stack and its items", () => {
-    const content = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({
-          ...useCase,
-          todays_stack: {
-            ...todaysStack,
-            internal: "PRIVATE-STACK",
-            items: todaysStack.items.map((item) => ({
-              ...item,
-              tool: "PRIVATE-OLD-TOOL",
-              used_for: "PRIVATE-OLD-USE",
-              breaks: "PRIVATE-OLD-BREAKS",
-              unknown: "PRIVATE-UNKNOWN",
-              internal: { strategy: "PRIVATE-TOOL" },
-            })),
-          },
-        }),
-      }),
-    );
-    expect(content.useCases).toHaveLength(1);
-    expect(content.useCases[0].todays_stack).toEqual(todaysStack);
-    expect(JSON.stringify(content)).not.toContain("PRIVATE");
-  });
-
-  it.each([
-    null,
-    "Tools",
-    {},
-    { ...todaysStack, heading: undefined },
-    { ...todaysStack, heading: "   " },
-    { ...todaysStack, heading: 1 },
-    { ...todaysStack, in_app: undefined },
-    { ...todaysStack, in_app: "" },
-    { ...todaysStack, in_app: false },
-    { ...todaysStack, items: undefined },
-    { ...todaysStack, items: "A doc" },
-    { ...todaysStack, items: [null] },
-    ...[undefined, "", " \t ", null, 1, false, {}, []].map((text) => ({
-      ...todaysStack,
-      items: [{ text }],
-    })),
-    { ...todaysStack, items: ["A doc"] },
-    { ...todaysStack, items: [{ tool: "A doc" }] },
-    {
-      ...todaysStack,
-      items: [
-        { tool: "A doc", used_for: "Taking notes", breaks: "Notes get lost" },
-      ],
-    },
-  ])("throws on malformed todays_stack explicitly (%#)", (stack) => {
-    expect(() =>
-      parseCampaignContent(
-        sources({ "sample.yaml": yaml({ ...useCase, todays_stack: stack }) }),
-      ),
-    ).toThrow(/sample\.yaml: invalid content \(todays_stack/);
-  });
-
-  it("accepts absent and populated optional workflow fields without inventing defaults", () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const absent = parseCampaignContent(sources()).useCases[0];
-    for (const key of Object.keys(optionalFields))
-      expect(absent).not.toHaveProperty(key);
-    const populated = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({ ...useCase, ...optionalFields }),
-      }),
-    ).useCases[0];
-    expect(populated).toMatchObject(optionalFields);
-    const { prompt: _prompt, tip: _tip, ...minimalRecipe } = recipe;
-    const { old_way_body: _oldWay, ...minimalAngle } = angle;
-    const minimal = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({
-          ...useCase,
-          recipes: [minimalRecipe],
-          angles: [minimalAngle],
-        }),
-      }),
-    ).useCases[0];
-    expect(minimal.recipes).toEqual([minimalRecipe]);
-    expect(minimal.angles).toEqual([minimalAngle]);
-    const emptyArrays = {
-      recipes: [],
-      connects_to: [],
-      next_jobs: [],
-      roles: [],
-      angles: [],
-    };
-    expect(
-      parseCampaignContent(
-        sources({
-          "sample.yaml": yaml({ ...useCase, ...emptyArrays }),
-        }),
-      ).useCases[0],
-    ).toMatchObject(emptyArrays);
-    expect(error).not.toHaveBeenCalled();
-  });
-
-  it.each([1, 2, 3, 4])("accepts recipes with %i nonempty steps", (count) => {
-    const steps = Array.from(
-      { length: count },
-      (_, index) => ` Step ${index + 1} `,
-    );
-    const content = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({ ...useCase, recipes: [{ ...recipe, steps }] }),
-      }),
-    );
-    expect(content.useCases).toHaveLength(1);
-    expect(content.useCases[0].recipes).toEqual([{ ...recipe, steps }]);
-  });
-
-  it.each(["daily", "weekly", "per-project", "occasional"])(
-    "accepts frequency %s",
-    (frequency) => {
-      expect(
-        parseCampaignContent(
-          sources({
-            "sample.yaml": yaml({ ...useCase, frequency }),
-          }),
-        ).useCases[0].frequency,
-      ).toBe(frequency);
-    },
-  );
-
-  it("accepts every configured role and strips private nested recipe and angle properties", () => {
-    const roles = [
-      "engineering",
-      "product",
-      "design",
-      "marketing",
-      "revops",
-      "sales",
-      "founders",
-      "finance",
-      "everyone",
-    ];
-    const content = parseCampaignContent(
-      sources({
-        "sample.yaml": yaml({
-          ...useCase,
-          ...optionalFields,
-          roles,
-          recipes: [
-            {
-              ...recipe,
-              internal: "PRIVATE-RECIPE",
-              audience: "PRIVATE-RECIPE-AUDIENCE",
-              do: "PRIVATE-LEGACY-ACTION",
-              you_get: "PRIVATE-LEGACY-RESULT",
-              save: "PRIVATE-LEGACY-SAVE",
-            },
-          ],
-          angles: [
-            {
-              ...angle,
-              internal: "PRIVATE-ANGLE",
-              strategy: "PRIVATE-STRATEGY",
-            },
-          ],
-        }),
-      }),
-    );
-    expect(content.useCases[0]).toMatchObject({ ...optionalFields, roles });
-    expect(content.useCases[0].recipes).toEqual([recipe]);
-    expect(content.useCases[0].angles).toEqual([angle]);
-    expect(JSON.stringify(content)).not.toContain("PRIVATE");
-  });
-
-  it.each([
-    ...Object.keys(optionalFields).flatMap((field) =>
-      [null, 42, {}].map((value) => ({ field, value })),
-    ),
-    { field: "recipes", value: "recipe" },
-    ...["id", "title", "when", "result", "how_often"].flatMap((key) =>
-      [undefined, "  ", 3].map((value) => ({
-        field: "recipes",
-        value: [{ ...recipe, [key]: value }],
-      })),
-    ),
-    ...["prompt", "tip"].flatMap((key) =>
-      [" ", null, 3].map((value) => ({
-        field: "recipes",
-        value: [{ ...recipe, [key]: value }],
-      })),
-    ),
-    ...[
-      undefined,
-      null,
-      "Ask for a summary",
-      {},
-      [],
-      Array.from({ length: 5 }, () => "A step"),
-      ...[undefined, "", " \t ", null, 3, false, {}, []].map((step) => [step]),
-      ["Valid step", " "],
-    ].map((steps) => ({
-      field: "recipes",
-      value: [{ ...recipe, steps }],
-    })),
-    {
-      field: "recipes",
-      value: [
-        {
-          ...recipe,
-          steps: undefined,
-          result: undefined,
-          do: "Legacy action",
-          you_get: "Legacy output",
-          save: "Legacy artifact",
-        },
-      ],
-    },
-    { field: "recipes", value: [{ ...recipe, id: "Invalid ID" }] },
-    { field: "recipes", value: [null] },
-    { field: "connects_to", value: [""] },
-    { field: "connects_to", value: [1] },
-    { field: "next_jobs", value: ["Invalid job"] },
-    { field: "next_jobs", value: [1] },
-    { field: "frequency", value: "monthly" },
-    { field: "frequency", value: "" },
-    { field: "how_often_label", value: " " },
-    { field: "roles", value: ["admin"] },
-    { field: "roles", value: [1] },
-    { field: "angles", value: [null] },
-    ...["id", "audience", "title", "subhead"].flatMap((key) =>
-      [undefined, " ", 3].map((value) => ({
-        field: "angles",
-        value: [{ ...angle, [key]: value }],
-      })),
-    ),
-    { field: "angles", value: [{ ...angle, id: "Invalid ID" }] },
-    ...[" ", null, 3].map((value) => ({
-      field: "angles",
-      value: [{ ...angle, old_way_body: value }],
-    })),
-  ])(
-    "throws on malformed $field (%#) even alongside valid siblings",
-    ({ field, value }) => {
+  it.each([null, 42, {}, ["admin"], [1]])(
+    "throws on malformed roles (%j) even alongside valid siblings",
+    (value) => {
       let message = "";
       try {
         parseCampaignContent(
           sources(
             {
-              "sample.yaml": yaml({ ...useCase, [field]: value }),
+              "sample.yaml": yaml({ ...useCase, roles: value }),
               "valid.yaml": yaml({ ...useCase, slug: "valid" }),
             },
             {},
@@ -383,7 +161,7 @@ describe("campaign content", () => {
       } catch (error) {
         message = (error as Error).message;
       }
-      expect(message).toContain(`sample.yaml: invalid content (${field}`);
+      expect(message).toContain("sample.yaml: invalid content (roles");
       expect(message).not.toContain("PRIVATE");
     },
   );
@@ -541,33 +319,6 @@ describe("campaign content", () => {
     }
   });
 
-  it("accepts null stories as absent and normalizes used_before strings to lists", () => {
-    const absent = parseCampaignContent(
-      sources({ "sample.yaml": yaml({ ...useCase, story: null }) }),
-    ).useCases[0];
-    expect(absent).toBeDefined();
-    expect(absent.story).toBeUndefined();
-    expect(JSON.parse(JSON.stringify(absent))).not.toHaveProperty("story");
-    for (const used_before of ["Manual notes", ["Manual notes"]]) {
-      const item = parseCampaignContent(
-        sources({
-          "sample.yaml": yaml({
-            ...useCase,
-            story: {
-              quote: "Useful",
-              name: "Writer",
-              role: "Founder",
-              used_before,
-              internal: "PRIVATE-STORY",
-            },
-          }),
-        }),
-      ).useCases[0];
-      expect(item.story?.used_before).toEqual(["Manual notes"]);
-      expect(JSON.stringify(item)).not.toContain("PRIVATE");
-    }
-  });
-
   it("does not validate or project removed screenshot fields and preserves original public text", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -586,8 +337,8 @@ describe("campaign content", () => {
     for (const item of [...content.useCases, ...content.articles]) {
       expect(item).not.toHaveProperty("screenshot_url");
       expect(item).not.toHaveProperty("screenshot_brief");
-      expect(item.screenshot_alt).toBe("Sample image");
     }
+    expect(content.articles[0].screenshot_alt).toBe("Sample image");
     expect(JSON.stringify(content)).not.toContain("PRIVATE-SCREENSHOT");
     expect(content.useCases[0].title).toBe(" Sample ");
     expect(content.articles[0].body).toBe("\nPublic article body.");
@@ -602,9 +353,7 @@ describe("campaign content", () => {
     const disk = loadCampaignContentFromDisk(
       fileURLToPath(new URL("..", import.meta.url)),
     );
-    // Every old-template page was replaced by a new-style page, which its old address redirects to.
-    expect(bundled.useCases).toEqual([]);
-    expect(bundled.useCasePages.map((page) => page.slug).sort()).toEqual([
+    expect(bundled.useCases.map((page) => page.slug).sort()).toEqual([
       "ai-bug-reporting-tool",
       "ai-dictation",
       "ai-funnel-analysis",
@@ -700,7 +449,7 @@ describe("campaign content", () => {
     for (const item of bundled.articles) {
       if (!item.use_case) continue;
       expect(
-        bundled.useCasePages.map((page) => page.slug),
+        bundled.useCases.map((page) => page.slug),
         item.slug,
       ).toContain(item.use_case);
     }
@@ -716,9 +465,6 @@ describe("campaign content", () => {
     for (const item of [...bundled.useCases, ...bundled.articles]) {
       expect(item).not.toHaveProperty("audience");
     }
-    expect(bundled.useCases.every((item) => item.story === undefined)).toBe(
-      true,
-    );
   });
 
   it("normalizes YAML dates and rejects impossible dates", () => {
@@ -738,7 +484,7 @@ describe("campaign content", () => {
     ).toThrow(/sample\.yaml: invalid content \(updated/);
   });
 
-  it("throws on invalid files, filename mismatches, unsafe URLs and mismatched jobs without leaking input", () => {
+  it("throws on invalid files, filename mismatches and unsafe URLs without leaking input", () => {
     expect(() =>
       parseCampaignContent(sources({ "wrong.yaml": yaml(useCase) })),
     ).toThrow("wrong.yaml: invalid content (slug must match filename wrong)");
@@ -759,17 +505,26 @@ describe("campaign content", () => {
     expect(() =>
       parseCampaignContent(
         sources({
-          "sample.yaml": yaml({ ...useCase, app_cta_url: "javascript:evil()" }),
+          "sample.yaml": yaml({
+            ...useCase,
+            hero: {
+              ...useCase.hero,
+              button: { label: "Try", url: "javascript:evil()" },
+            },
+          }),
         }),
       ),
-    ).toThrow(/sample\.yaml: invalid content \(app_cta_url/);
+    ).toThrow(/sample\.yaml: invalid content \(hero\.button\.url/);
     expect(() =>
       parseCampaignContent(
         sources(undefined, {
-          "sample.md": markdown({ ...article, job_id: "wrong" }),
+          "sample.md": markdown({
+            ...article,
+            app_cta_url: "javascript:evil()",
+          }),
         }),
       ),
-    ).toThrow("sample: invalid content (job_id does not match use_case)");
+    ).toThrow(/sample\.md: invalid content \(app_cta_url/);
   });
 
   it("allows an absent matching use case and valid content without screenshot warnings", () => {
@@ -798,7 +553,6 @@ describe("campaign content", () => {
       fs.mkdirSync(path.join(root, "content", "articles"));
       expect(loadCampaignContentFromDisk(root)).toEqual({
         useCases: [],
-        useCasePages: [],
         articles: [],
       });
       fs.writeFileSync(

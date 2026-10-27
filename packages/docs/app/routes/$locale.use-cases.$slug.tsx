@@ -23,12 +23,12 @@ export function loader({ params, request }: LoaderFunctionArgs) {
       redirect(sitePathForLocale(`${USE_CASES_BASE}/${moved}/`, locale), 301),
     );
   }
-  const content = loadCampaignContent();
-  const entry = content.useCasePages.find((item) => item.slug === params.slug);
-  const translation = locale ? entry?.translations[locale] : undefined;
-  if (entry && translation) return useCasePageData(entry, translation);
-  if (!entry && !content.useCases.some((item) => item.slug === params.slug))
-    throw new Response(null, { status: 404 });
+  const entry = loadCampaignContent().useCases.find(
+    (item) => item.slug === params.slug,
+  );
+  if (!entry) throw new Response(null, { status: 404 });
+  const translation = locale ? entry.translations[locale] : undefined;
+  if (translation) return useCasePageData(entry, translation);
   return redirectLocalizedCampaign(
     request,
     params.locale,

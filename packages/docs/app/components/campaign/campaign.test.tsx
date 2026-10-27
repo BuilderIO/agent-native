@@ -5,7 +5,6 @@ import {
   fireEvent,
   render,
   waitFor,
-  within,
 } from "@testing-library/react";
 // @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
@@ -22,6 +21,7 @@ import {
   USE_CASES_BASE,
   CATEGORY_NAMES,
   categories,
+  type UseCaseEntry,
 } from "../../../lib/campaign-content";
 import { loadCampaignContent } from "../../../lib/campaign-content.server";
 import enUS from "../../i18n/en-US";
@@ -57,10 +57,8 @@ import { parseArticle, sanitizedMarkdown } from "./markdown";
 import {
   newestArticles,
   publicArticle,
-  publicUseCase,
   safeHref,
   type Article,
-  type UseCase,
 } from "./public-content";
 import {
   CampaignCta,
@@ -68,7 +66,7 @@ import {
   CampaignView,
   CopyControl,
 } from "./shared";
-import { UseCasePage, UseCasesIndex } from "./use-cases";
+import { UseCasesIndex, type UseCaseIndexItem } from "./use-cases";
 
 const currentLocale = vi.hoisted(() => ({ locale: "en-US" }));
 
@@ -118,32 +116,61 @@ vi.mock("../../../lib/campaign-content.server", () => ({
   loadCampaignContent: vi.fn(),
 }));
 
-const useCase: UseCase = {
+const image = {
+  dark: "https://example.com/test-dark.png",
+  light: "https://example.com/test-light.png",
+  alt: "Test screenshot",
+};
+const useCase: UseCaseEntry = {
   slug: "test-job",
-  job_id: "test-job",
   app: "clips",
   title: "Test use case",
-  subhead: "Test subhead.",
+  seo_title: "Test use case search title",
   meta_description: "Test description.",
-  cta_label: "Test app",
-  secondary_cta_label: "Test steps",
-  app_cta_url: "https://example.com/app",
-  screenshot_alt: "Test screenshot",
-
-  old_way: { heading: "Test old heading", body: "Test old body." },
-  replaces: ["Test tool A", "Test tool B"],
-  story: undefined,
-  new_way: {
-    heading: "Test new heading",
-    steps: ["Test first step.", "Test second step."],
-  },
-  faqs: [
-    { q: "Test question one?", a: "Test answer one." },
-    { q: "Test question two?", a: "Test answer two." },
-  ],
-  cta_band_heading: "Test band",
-  cta_band_subhead: "Test band subhead.",
   updated: "2026-01-01",
+  hero: {
+    body: "Test subhead.",
+    button: { label: "Test app", url: "https://example.com/app" },
+    image,
+  },
+  how_to: {
+    heading: "Test how-to heading",
+    steps: ["first", "second", "third"].map((step) => ({
+      title: `Test ${step} step`,
+      body: `Test ${step} step body.`,
+      image,
+    })),
+  },
+  features: {
+    heading: "Test features heading",
+    items: Array.from({ length: 6 }, (_, index) => ({
+      title: `Test feature ${index + 1}`,
+      body: `Test feature ${index + 1} body.`,
+    })),
+  },
+  integrations: {
+    heading: "Test integrations heading",
+    cards: Array.from({ length: 3 }, (_, index) => ({
+      title: `Test integration ${index + 1}`,
+      logos: [{ name: "Test tool A" }, { name: "Test tool B" }],
+      body: `Test integration ${index + 1} body.`,
+    })),
+  },
+  faqs: {
+    heading: "Test FAQ heading",
+    items: [
+      { q: "Test question one?", a: "Test answer one." },
+      { q: "Test question two?", a: "Test answer two." },
+      { q: "Test question three?", a: "Test answer three." },
+    ],
+  },
+  translations: {},
+};
+const indexItem: UseCaseIndexItem = {
+  slug: useCase.slug,
+  app: useCase.app,
+  title: useCase.title,
+  subhead: useCase.hero.body,
 };
 const article: Article = {
   slug: "test-article",
@@ -163,23 +190,6 @@ const article: Article = {
   cta_band_subhead: "Test band subhead.",
   related_resources: [],
   body: "## Test heading\n\nTest **bold** paragraph with [safe](https://example.com) and [unsafe](javascript:alert(1)).\n\n### Test subheading\n\n1. Test step\n2. Test next step\n\n| Test column | Test value |\n| --- | --- |\n| A | B |\n\n```text\nTest code\n```\n\n<!-- screenshot -->\n\n<!-- try-it -->\n\n## Frequently asked questions\n\n### Test FAQ one?\n\nTest **answer** one.\n\n### Test FAQ two?\n\nTest answer two.\n\n## Test ending\n\nTest final paragraph.",
-};
-const recipe: NonNullable<UseCase["recipes"]>[number] = {
-  id: "test-recipe",
-  title: "Test recipe",
-  when: "Test when",
-  steps: ["Test first action", "Test second action"],
-  prompt: "  Test prompt\n  ",
-  result: "Test output",
-  tip: "Test next-time tip",
-  how_often: "Test frequency",
-};
-const angle: NonNullable<UseCase["angles"]>[number] = {
-  id: "engineering",
-  audience: "Test engineers",
-  title: "Test engineering title",
-  subhead: "Test engineering subhead",
-  old_way_body: "Test engineering old body",
 };
 function markup(node: React.ReactNode, entry = "/") {
   return renderToStaticMarkup(
@@ -208,266 +218,13 @@ function renderCampaign(node: React.ReactNode, entry = "/") {
 function dom(html: string) {
   return new DOMParser().parseFromString(html, "text/html");
 }
-function expectRecipeSlots(
-  content: Element,
-  recipe: NonNullable<UseCase["recipes"]>[number],
-) {
-  const slots = [
-    ["campaign-recipe-when", "P"],
-    ["campaign-recipe-steps", "OL"],
-    ...(recipe.prompt ? [["campaign-recipe-prompt", "DIV"]] : []),
-    ["campaign-recipe-result", "P"],
-    ...(recipe.tip ? [["campaign-recipe-tip", "P"]] : []),
-  ];
-  expect([...content.children].map((node) => node.tagName)).toEqual(
-    slots.map(([, tag]) => tag),
-  );
-  for (const [index, [className]] of slots.entries())
-    expect(content.children[index].classList.contains(className)).toBe(true);
-  expect(content.querySelector(".campaign-recipe-when")?.textContent).toBe(
-    recipe.when,
-  );
-  const steps = content.querySelector(".campaign-recipe-steps")!;
-  expect([...steps.children].map((node) => node.tagName)).toEqual(
-    recipe.steps.map(() => "LI"),
-  );
-  expect([...steps.children].map((node) => node.textContent)).toEqual(
-    recipe.steps,
-  );
-  expect(content.querySelector(".campaign-recipe-result")?.textContent).toBe(
-    recipe.result,
-  );
-  expect(
-    content.querySelectorAll(":scope > .campaign-recipe-prompt"),
-  ).toHaveLength(recipe.prompt ? 1 : 0);
-  if (recipe.prompt) {
-    expect(
-      content.querySelector(".campaign-recipe-prompt pre code")?.textContent,
-    ).toBe(recipe.prompt.trim());
-    expect(content.querySelectorAll(".code-block")).toHaveLength(1);
-  } else {
-    expect(content.querySelector("pre, code, button, .code-block")).toBeNull();
-  }
-  expect(
-    content.querySelectorAll(":scope > .campaign-recipe-tip"),
-  ).toHaveLength(recipe.tip ? 1 : 0);
-  const tip = content.querySelector(".campaign-recipe-tip");
-  if (recipe.tip) {
-    expect(tip?.querySelector("strong")?.textContent).toBe("Next time:");
-    expect(tip?.textContent).toBe(`Next time: ${recipe.tip}`);
-  } else {
-    expect(content.textContent).not.toContain("Next time:");
-  }
-  expect(
-    content.querySelector("dl, dt, dd, .campaign-recipe-empty"),
-  ).toBeNull();
-  expect(content.querySelector(":scope > [aria-hidden]")).toBeNull();
-}
-function expectRecipeAccordion(
-  document: Document,
-  recipes: NonNullable<UseCase["recipes"]>,
-) {
-  const section = document.querySelector(".campaign-faq.campaign-recipes")!;
-  expect(section).not.toBeNull();
-  expect(section.querySelector("h2")?.id).toBe("use-case-recipes-heading");
-  expect(section.firstElementChild?.classList.contains("flex-col")).toBe(true);
-  expect(section.firstElementChild?.classList.contains("lg:flex-row")).toBe(
-    false,
-  );
-  expect(
-    section.querySelectorAll(".campaign-recipes-grid, .campaign-recipe-card"),
-  ).toHaveLength(0);
-  const triggers = [...section.querySelectorAll("button[aria-expanded]")];
-  expect(triggers).toHaveLength(recipes.length);
-  for (const [index, recipe] of recipes.entries()) {
-    const trigger = triggers[index];
-    expect(trigger.id).toBe(`use-case-recipes-${recipe.id}-trigger`);
-    expect(trigger.getAttribute("aria-expanded")).toBe(String(index === 0));
-    const tag = trigger.querySelector(".campaign-frequency-tag")!;
-    expect(tag.textContent).toBe(recipe.how_often);
-    expect(tag.getAttribute("aria-label")).toBe(
-      `How often: ${recipe.how_often}`,
-    );
-    const title = trigger.firstElementChild!;
-    expect(title.textContent).toBe(recipe.title);
-    expect(trigger.contains(tag)).toBe(true);
-    expect(
-      title.compareDocumentPosition(tag) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    const panelId = `use-case-recipes-${recipe.id}-panel`;
-    expect(trigger.getAttribute("aria-controls")).toBe(panelId);
-    const panel = document.getElementById(panelId)!;
-    expect(panel.getAttribute("role")).toBe("region");
-    expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
-    expect(panel.getAttribute("aria-hidden")).toBe(String(index !== 0));
-    expectRecipeSlots(panel.querySelector(".campaign-recipe-content")!, recipe);
-  }
-  return section;
-}
-
-// The route also serves new-style (template v2) pages; these tests cover the original ones.
-function originalUseCase(data: ReturnType<typeof useCaseLoader>) {
-  if (data.version !== "v1")
-    throw new Error("Expected an original use-case page");
-  return data;
-}
 
 describe("public campaign frontend", () => {
-  const stack = {
-    heading: "Test tools you use today",
-    items: [
-      { text: "**Test recorder + editor** captures & trims <clips>." },
-      { text: "**Test notes** save the exact wording, but lose the source." },
-    ],
-    in_app: "Keep the recording, transcript, and next action in one app.",
-  };
-
-  it("SSR renders the verbatim replacement stack between old/new and story/FAQs", () => {
-    const document = dom(
-      markup(
-        <UseCasePage
-          item={{
-            ...useCase,
-            todays_stack: stack,
-            story: {
-              quote: "Test story",
-              name: "Test person",
-              role: "Test role",
-              used_before: ["Test tool"],
-            },
-          }}
-          articles={[]}
-        />,
-      ),
-    );
-    const list = [...document.querySelectorAll("section > ul")].find(
-      (node) =>
-        node.closest("section")?.querySelector("h2")?.textContent ===
-        stack.heading,
-    )!;
-    expect(list).toBeDefined();
-    const section = list.closest("section")!;
-    expect(section.classList.contains("campaign-stack-section")).toBe(true);
-    expect(list.classList.contains("campaign-stack-list")).toBe(true);
-    expect(list.classList.contains("list-disc")).toBe(true);
-    expect(section.querySelector("h2")?.textContent).toBe(stack.heading);
-    expect(section.textContent).toContain("What it replaces");
-    expect(document.querySelector("table, thead, tbody, th, td")).toBeNull();
-    expect([...list.children].map((node) => node.tagName)).toEqual([
-      "LI",
-      "LI",
-    ]);
-    expect([...list.children].map((node) => node.textContent)).toEqual(
-      stack.items.map(({ text }) => text.replaceAll("**", "")),
-    );
-    expect(
-      [...list.querySelectorAll("strong")].map((node) => node.textContent),
-    ).toEqual(["Test recorder + editor", "Test notes"]);
-    for (const heading of ["What you use", "For", "Where it breaks"])
-      expect(section.textContent).not.toContain(heading);
-    expect(section.querySelectorAll(":scope > p")).toHaveLength(1);
-    expect(section.querySelector(":scope > p")?.textContent).toBe(stack.in_app);
-    for (const panel of [
-      document.querySelector("#how-it-works")!,
-      [...document.querySelectorAll("h2")]
-        .find((node) => node.textContent === useCase.old_way.heading)!
-        .closest(".campaign-section")!,
-    ]) {
-      for (const className of ["flex", "flex-col", "gap-[var(--spacing-6)]"])
-        expect(panel.classList.contains(className)).toBe(true);
-      expect(
-        [...panel.classList].some((name) => name.startsWith("space-y-")),
-      ).toBe(false);
-    }
-    expect(
-      section.previousElementSibling?.querySelector("#how-it-works"),
-    ).not.toBeNull();
-    expect(section.nextElementSibling?.tagName).toBe("FIGURE");
-    expect(
-      section.nextElementSibling?.nextElementSibling?.textContent,
-    ).toContain("Test question one?");
-    expect(document.querySelector("time")).toBeNull();
-  });
-
-  it("interprets only paired bold spans and keeps all other stack markup literal", () => {
-    const literal =
-      "<" +
-      'img src=x onerror="alert(1)"> <script>alert(1)</script> <a href="https://example.com">HTML link</a> [Markdown link](javascript:alert(1)) <em>HTML emphasis</em> *emphasis* <code>HTML code</code> `code` <https://example.com> **unterminated';
-    const bold =
-      "<script>bold is still text</script> [bold link](https://example.com)";
-    const document = dom(
-      markup(
-        <UseCasePage
-          item={{
-            ...useCase,
-            todays_stack: {
-              ...stack,
-              items: [
-                {
-                  text: `Before **first** between **${bold}** after ${literal}`,
-                },
-              ],
-            },
-          }}
-          articles={[]}
-        />,
-      ),
-    );
-    const item = document.querySelector("section > ul > li")!;
-    expect(item.textContent).toBe(
-      `Before first between ${bold} after ${literal}`,
-    );
-    expect([...item.children].map((node) => node.tagName)).toEqual([
-      "STRONG",
-      "STRONG",
-    ]);
-    expect(
-      [...item.querySelectorAll("strong")].map((node) => node.textContent),
-    ).toEqual(["first", bold]);
-    expect(item.querySelector("a, img, script, em, code")).toBeNull();
-    expect(item.innerHTML).toContain("&lt;script&gt;");
-    expect(item.innerHTML).toContain("&lt;img");
-  });
-
-  it("does not invent a replacement section when the optional stack is absent", () => {
-    const document = dom(markup(<UseCasePage item={useCase} articles={[]} />));
-    expect(document.querySelector("table")).toBeNull();
-    expect(document.body.textContent).not.toContain("What it replaces");
-  });
-
-  it("allowlists every nested replacement stack field in public loader data", () => {
-    const contaminated = {
-      ...useCase,
-      todays_stack: {
-        ...stack,
-        internal: "PRIVATE",
-        items: stack.items.map((item) => ({
-          ...item,
-          tool: "PRIVATE-OLD-TOOL",
-          used_for: "PRIVATE-OLD-USE",
-          breaks: "PRIVATE-OLD-BREAKS",
-          unknown: "PRIVATE-UNKNOWN",
-          internal: "PRIVATE",
-        })),
-      },
-    };
-    expect(publicUseCase(contaminated).todays_stack).toEqual(stack);
-    vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
-      useCases: [contaminated],
-      articles: [],
-    });
-    const data = originalUseCase(useCaseLoader(args({ slug: useCase.slug })));
-    expect(data.item.todays_stack).toEqual(stack);
-    expect(JSON.stringify(data)).not.toContain("PRIVATE");
-    expect(publicUseCase(useCase).todays_stack).toBeUndefined();
-  });
-
   it.each(DOCS_LOCALES)(
     "SSR renders a single intro paragraph with only articles linked for %s",
     (locale) => {
       currentLocale.locale = locale;
-      const document = dom(markup(<UseCasesIndex items={[useCase]} />));
+      const document = dom(markup(<UseCasesIndex items={[indexItem]} />));
       const header = document.querySelector("h1")!.parentElement!;
       expect(header.querySelectorAll("h1 ~ p")).toHaveLength(1);
       const intro = header.querySelector("h1 + p")!;
@@ -599,7 +356,6 @@ describe("public campaign frontend", () => {
     expect(newestArticles(fixtures).map((item) => item.slug)).toEqual(expected);
     expect(fixtures.map((item) => item.slug)).toEqual(sourceOrder);
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [useCase],
       articles: fixtures,
     });
@@ -629,21 +385,15 @@ describe("public campaign frontend", () => {
       }
     }
     expect(
-      originalUseCase(useCaseLoader(args({ slug: useCase.slug }))).articles.map(
-        (item) => item.slug,
-      ),
-    ).toEqual(expected);
-    expect(
       articleLoader(args({ slug: fixtures[0].slug })).more.map(
         (item) => item.slug,
       ),
     ).toEqual(expected.slice(0, 2));
   });
 
-  it("renders only real cards in incomplete use-case, topic, go-deeper and more-article grids", () => {
+  it("renders only real cards in incomplete use-case and more-article grids", () => {
     const pages = [
-      [<UseCasesIndex items={[useCase]} />, 1],
-      [<UseCasePage item={useCase} articles={[article]} />, 1],
+      [<UseCasesIndex items={[indexItem]} />, 1],
       [
         <ArticlePage
           article={article}
@@ -676,35 +426,6 @@ describe("public campaign frontend", () => {
     );
     const entry =
       "/?utm_source=test&utm_content=existing&audience=PRIVATE&internal=PRIVATE";
-    const caseView = renderCampaign(
-      <>
-        <CampaignView item={useCase} />
-        <CampaignCta item={useCase} location="hero" />
-      </>,
-      entry,
-    );
-    const link = caseView.getByRole("link", { name: "Test app" });
-    const url = new URL(link.getAttribute("href")!);
-    expect(url.searchParams.get("job")).toBe("test-job");
-    expect(url.searchParams.get("utm_source")).toBe("test");
-    expect(url.searchParams.get("utm_content")).toBe("existing");
-    expect(url.searchParams.has("audience")).toBe(false);
-    link.addEventListener("click", (event) => event.preventDefault());
-    fireEvent.click(link);
-    expect(trackEvent).toHaveBeenCalledWith("use_case_view", {
-      slug: "test-job",
-      job_id: "test-job",
-      app: "clips",
-      angle: "base",
-    });
-    expect(trackEvent).toHaveBeenCalledWith("use_case_cta_click", {
-      slug: "test-job",
-      job_id: "test-job",
-      app: "clips",
-      location: "hero",
-      angle: "base",
-    });
-    caseView.unmount();
     const articleView = renderCampaign(
       <>
         <CampaignView item={article} />
@@ -713,6 +434,11 @@ describe("public campaign frontend", () => {
       entry,
     );
     const articleLink = articleView.getByRole("link", { name: "Test app" });
+    const url = new URL(articleLink.getAttribute("href")!);
+    expect(url.searchParams.get("job")).toBe("test-job");
+    expect(url.searchParams.get("utm_source")).toBe("test");
+    expect(url.searchParams.get("utm_content")).toBe("existing");
+    expect(url.searchParams.has("audience")).toBe(false);
     articleLink.addEventListener("click", (event) => event.preventDefault());
     fireEvent.click(articleLink);
     expect(trackEvent).toHaveBeenCalledWith("article_view", {
@@ -746,7 +472,6 @@ describe("public campaign frontend", () => {
       published: `2026-01-${String(index + 1).padStart(2, "0")}`,
     }));
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [{ ...useCase, app: "clips" }],
       articles,
     });
@@ -823,7 +548,6 @@ describe("public campaign frontend", () => {
       },
     ];
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [],
       articles: fixtures,
     });
@@ -859,7 +583,6 @@ describe("public campaign frontend", () => {
     "uses configured topic metadata and canonical for %s",
     (locale) => {
       vi.mocked(loadCampaignContent).mockReturnValue({
-        useCasePages: [],
         useCases: [],
         articles: [article],
       });
@@ -897,7 +620,6 @@ describe("public campaign frontend", () => {
       published: "2025-01-01",
     });
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [],
       articles,
     });
@@ -917,7 +639,6 @@ describe("public campaign frontend", () => {
     ) as (keyof typeof ARTICLE_TOPICS)[]) {
       const item = { ...article, topic };
       vi.mocked(loadCampaignContent).mockReturnValue({
-        useCasePages: [],
         useCases: [],
         articles: [item],
       });
@@ -953,7 +674,6 @@ describe("public campaign frontend", () => {
       published: "2026-01-02",
     };
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [privateCase],
       articles: [privateArticle, other],
     });
@@ -968,9 +688,6 @@ describe("public campaign frontend", () => {
       for (const item of list.articles)
         expect(item).not.toHaveProperty("category");
     }
-    expect(
-      JSON.stringify(useCaseLoader(args({ slug: useCase.slug }))),
-    ).not.toContain("PRIVATE");
     const metadata = articleMeta({ loaderData: data });
     expect(metadata).toContainEqual({
       tagName: "link",
@@ -988,13 +705,7 @@ describe("public campaign frontend", () => {
       content: "article",
     });
   });
-  it("projects only the declared public fields including nested values", () => {
-    const contaminatedCase = {
-      ...useCase,
-      audience: "PRIVATE",
-      internal: "PRIVATE",
-      old_way: { ...useCase.old_way, internal: "PRIVATE" },
-    };
+  it("projects only the declared public article fields including nested values", () => {
     const contaminatedArticle = {
       ...article,
       audience: "PRIVATE",
@@ -1004,49 +715,11 @@ describe("public campaign frontend", () => {
         { label: "Test link", url: "/docs", internal: "PRIVATE" },
       ],
     };
-    const projectedCase = publicUseCase(contaminatedCase);
     const projectedArticle = publicArticle(contaminatedArticle);
     expect(projectedArticle.topic).toBe(article.topic);
     expect(projectedArticle.apps).toEqual(article.apps);
     expect(projectedArticle).not.toHaveProperty("category");
-    expect(JSON.stringify([projectedCase, projectedArticle])).not.toContain(
-      "PRIVATE",
-    );
-  });
-
-  it("SSR renders every use-case answer and exactly matching FAQ schema", () => {
-    const document = dom(markup(<UseCasePage item={useCase} articles={[]} />));
-    const schemas = [
-      ...document.querySelectorAll('script[type="application/ld+json"]'),
-    ].map((node) => JSON.parse(node.textContent!));
-    expect(schemas[0]).toMatchObject({
-      "@type": "WebPage",
-      name: useCase.title,
-      dateModified: useCase.updated,
-    });
-    expect(
-      schemas[1].mainEntity.map(
-        (entry: { name: string; acceptedAnswer: { text: string } }) => ({
-          q: entry.name,
-          a: entry.acceptedAnswer.text,
-        }),
-      ),
-    ).toEqual(useCase.faqs);
-    for (const { q, a } of useCase.faqs) {
-      expect(document.body.textContent).toContain(q);
-      expect(document.body.textContent).toContain(a);
-    }
-    expect(document.querySelector("#how-it-works ol")?.textContent).toBe(
-      "Test first step.Test second step.",
-    );
-    expect(document.querySelector(".theme-img-dark")?.getAttribute("src")).toBe(
-      TEMPLATE_SCREENSHOTS.clips.dark,
-    );
-    expect(document.body.textContent).not.toContain("Go deeper");
-    const cta = document.querySelector('a[href^="https://example.com/app"]')!;
-    expect(new URL(cta.getAttribute("href")!).searchParams.get("job")).toBe(
-      "test-job",
-    );
+    expect(JSON.stringify(projectedArticle)).not.toContain("PRIVATE");
   });
 
   it("renders semantic markdown, markers and matching article FAQ schema without executable HTML", () => {
@@ -1250,7 +923,6 @@ describe("public campaign frontend", () => {
 
   it("does not list configured topics that have no articles or create routes for them", () => {
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [],
       articles: [],
     });
@@ -1372,36 +1044,30 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("SSR renders identical compact left-aligned closing CTA blocks for articles and use cases", () => {
-    const pages = [
-      [<ArticlePage article={article} useCase={null} more={[]} />, article],
-      [<UseCasePage item={useCase} articles={[]} />, useCase],
-    ] as const;
-    const bands = pages.map(([page, item]) => {
-      const document = dom(markup(page));
-      const band = [...document.querySelectorAll("section")].at(-1)!;
-      const content = band.firstElementChild!;
-      const stack = content.firstElementChild!;
-      expect(content.classList.contains("campaign-section")).toBe(true);
-      expect(content.classList.contains("pb-16")).toBe(false);
-      expect(stack.classList.contains("flex-col")).toBe(true);
-      expect(stack.classList.contains("items-start")).toBe(true);
-      expect(stack.classList.contains("text-start")).toBe(true);
-      expect([...stack.children].map((element) => element.tagName)).toEqual([
-        "DIV",
-        "P",
-        "A",
-      ]);
-      expect(stack.children[0].querySelector("h2")?.textContent).toBe(
-        item.cta_band_heading,
-      );
-      expect(stack.children[1].textContent).toBe(item.cta_band_subhead);
-      expect(stack.children[2].textContent).toBe(item.cta_label);
-      expect(band.querySelectorAll("a")).toHaveLength(1);
-      expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
-      return band;
-    });
-    expect(bands[0].outerHTML).toBe(bands[1].outerHTML);
+  it("SSR renders a compact left-aligned closing CTA block for articles", () => {
+    const document = dom(
+      markup(<ArticlePage article={article} useCase={null} more={[]} />),
+    );
+    const band = [...document.querySelectorAll("section")].at(-1)!;
+    const content = band.firstElementChild!;
+    const stack = content.firstElementChild!;
+    expect(content.classList.contains("campaign-section")).toBe(true);
+    expect(content.classList.contains("pb-16")).toBe(false);
+    expect(stack.classList.contains("flex-col")).toBe(true);
+    expect(stack.classList.contains("items-start")).toBe(true);
+    expect(stack.classList.contains("text-start")).toBe(true);
+    expect([...stack.children].map((element) => element.tagName)).toEqual([
+      "DIV",
+      "P",
+      "A",
+    ]);
+    expect(stack.children[0].querySelector("h2")?.textContent).toBe(
+      article.cta_band_heading,
+    );
+    expect(stack.children[1].textContent).toBe(article.cta_band_subhead);
+    expect(stack.children[2].textContent).toBe(article.cta_label);
+    expect(band.querySelectorAll("a")).toHaveLength(1);
+    expect(band.querySelector(".template-detail-cta-actions")).toBeNull();
   });
 
   it("scopes tables before, within and after article FAQs without changing semantic headers", () => {
@@ -1430,13 +1096,10 @@ describe("public campaign frontend", () => {
   });
 
   it.each([...categories, "content"] as const)(
-    "uses existing dark/light %s app screenshots with fixed framing in heroes and inline markers",
+    "uses existing dark/light %s app screenshots with fixed framing in article heroes and inline markers",
     (app) => {
       const appKey = app === "plans" ? "plan" : app;
-      for (const item of [
-        { ...useCase, app },
-        { ...article, apps: [app] },
-      ]) {
+      for (const item of [{ ...article, apps: [app] }]) {
         const document = dom(markup(<CampaignScreenshot item={item} />));
         const frame = document.querySelector(".docs-image-frame")!;
         expect(frame.classList.contains("relative")).toBe(true);
@@ -1534,8 +1197,7 @@ describe("public campaign frontend", () => {
       currentLocale.locale = locale;
       const related = { ...article, slug: "test-related" };
       const nodes = [
-        <UseCasesIndex items={[useCase]} />,
-        <UseCasePage item={useCase} articles={[article]} />,
+        <UseCasesIndex items={[indexItem]} />,
         <ArticlesList articles={[article]} page={1} hasMore />,
         <ArticlePage
           article={{
@@ -1556,9 +1218,8 @@ describe("public campaign frontend", () => {
       const path = (value: string) => sitePathForLocale(value, locale);
       for (const [index, hrefs] of [
         [0, [path(`${USE_CASES_BASE}/${useCase.slug}`)]],
-        [1, [path(`${ARTICLES_BASE}/${article.slug}`)]],
         [
-          2,
+          1,
           [
             path(`${ARTICLES_BASE}/${article.slug}`),
             path(`${ARTICLES_BASE}/page/2`),
@@ -1567,7 +1228,7 @@ describe("public campaign frontend", () => {
           ],
         ],
         [
-          3,
+          2,
           [
             path(ARTICLES_BASE),
             path(`${ARTICLES_BASE}/topic/${article.topic}`),
@@ -1584,14 +1245,14 @@ describe("public campaign frontend", () => {
             `surface ${index}: ${href}`,
           ).not.toBeNull();
       }
-      expect(documents[3].querySelector("nav a:last-child")?.textContent).toBe(
+      expect(documents[2].querySelector("nav a:last-child")?.textContent).toBe(
         ARTICLE_TOPICS[article.topic].name,
       );
       expect(
-        documents[3].querySelector("nav a:last-child")?.getAttribute("href"),
+        documents[2].querySelector("nav a:last-child")?.getAttribute("href"),
       ).toBe(path(`${ARTICLES_BASE}/topic/${article.topic}`));
-      expect(documents[3].querySelector("h1")?.textContent).toBe(article.title);
-      expect(documents[3].body.textContent).toContain("Test final paragraph.");
+      expect(documents[2].querySelector("h1")?.textContent).toBe(article.title);
+      expect(documents[2].body.textContent).toContain("Test final paragraph.");
       const metadata = articleMeta({
         loaderData: { article, useCase: null, more: [] },
         params: { locale: locale.toLowerCase() },
@@ -1619,328 +1280,10 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("projects all new workflow fields and strips nested private data from the item and next-job loader data", () => {
-    const fields = {
-      recipes: [recipe],
-      connects_to: ["Test calendar"],
-      next_jobs: ["test-next"],
-      frequency: "weekly" as const,
-      how_often_label: "Every week",
-      roles: ["engineering" as const],
-      angles: [angle],
-    };
-    const contaminated = {
-      ...useCase,
-      ...fields,
-      internal: "PRIVATE",
-      recipes: [
-        {
-          ...recipe,
-          internal: "PRIVATE",
-          audience: "PRIVATE",
-          do: "PRIVATE-LEGACY-ACTION",
-          you_get: "PRIVATE-LEGACY-RESULT",
-          save: "PRIVATE-LEGACY-SAVE",
-        },
-      ],
-      angles: [{ ...angle, internal: "PRIVATE", strategy: "PRIVATE" }],
-    };
-    const next = {
-      ...contaminated,
-      slug: "test-next",
-      job_id: "test-next-job",
-    };
-    expect(publicUseCase(contaminated)).toMatchObject(fields);
-    expect(publicUseCase(contaminated).recipes).toEqual([recipe]);
-    expect(publicUseCase(contaminated).angles).toEqual([angle]);
-    expect(JSON.stringify(publicUseCase(contaminated))).not.toContain(
-      "PRIVATE",
-    );
-    vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
-      useCases: [contaminated, next, { ...useCase, slug: "unrelated" }],
-      articles: [],
-    });
-    const data = originalUseCase(useCaseLoader(args({ slug: useCase.slug })));
-    expect(data.item).toEqual(publicUseCase(contaminated));
-    expect(data.useCases).toEqual([publicUseCase(next)]);
-    expect(JSON.stringify(data)).not.toContain("PRIVATE");
-    for (const field of Object.keys(fields)) {
-      expect(publicUseCase(useCase)[field as keyof UseCase]).toBeUndefined();
-    }
-  });
-
-  it.each([
-    { query: "engineering", expected: angle },
-    { query: "unknown", expected: undefined },
-    { query: undefined, expected: undefined },
-  ])(
-    "SSR selects angle $query while keeping base metadata, schema and canonical",
-    ({ query, expected }) => {
-      const item = { ...useCase, angles: [angle] };
-      vi.mocked(loadCampaignContent).mockReturnValue({
-        useCasePages: [],
-        useCases: [item],
-        articles: [],
-      });
-      const entry = `/use-cases/${item.slug}?utm_source=router&utm_source=second&utm_content=visitor&gclid=click&internal=PRIVATE${query ? `&angle=${query}` : ""}`;
-      const data = originalUseCase(
-        useCaseLoader({
-          ...args({ slug: item.slug }),
-          request: new Request(`https://example.com${entry}`),
-        }),
-      );
-      window.history.replaceState(null, "", "/?utm_source=window&angle=window");
-      const document = dom(markup(<UseCasePage {...data} />, entry));
-      expect(document.querySelector("h1")?.textContent).toBe(
-        expected?.title ?? item.title,
-      );
-      expect(document.body.textContent).toContain(
-        expected?.subhead ?? item.subhead,
-      );
-      expect(document.body.textContent).toContain(
-        expected?.old_way_body ?? item.old_way.body,
-      );
-      if (expected) {
-        expect(document.body.textContent).not.toContain(item.subhead);
-        expect(document.body.textContent).not.toContain(item.old_way.body);
-      } else {
-        expect(document.body.textContent).not.toContain(angle.subhead);
-        expect(document.body.textContent).not.toContain(angle.old_way_body);
-      }
-      const schema = JSON.parse(
-        document.querySelector('script[type="application/ld+json"]')!
-          .textContent!,
-      );
-      expect(schema).toMatchObject({
-        name: item.title,
-        description: item.meta_description,
-      });
-      const meta = campaignRoute1.meta({ loaderData: data });
-      expect(meta).toContainEqual({ title: `${item.title} | Agent-Native` });
-      expect(meta).toContainEqual({
-        name: "description",
-        content: item.meta_description,
-      });
-      expect(meta).toContainEqual({
-        tagName: "link",
-        rel: "canonical",
-        href: `https://www.agent-native.com/use-cases/${item.slug}/`,
-      });
-      expect(meta).toContainEqual({
-        property: "og:title",
-        content: item.title,
-      });
-      const ctas = document.querySelectorAll(
-        'a[href^="https://example.com/app"]',
-      );
-      expect(ctas).toHaveLength(2);
-      for (const cta of ctas) {
-        const params = new URL(cta.getAttribute("href")!).searchParams;
-        expect(params.get("job")).toBe(item.job_id);
-        expect(params.get("angle")).toBe(expected?.id ?? null);
-        expect(params.getAll("utm_source")).toEqual(["router", "second"]);
-        expect(params.get("utm_content")).toBe("visitor");
-        expect(params.get("gclid")).toBe("click");
-        expect(params.has("internal")).toBe(false);
-      }
-      expect(trackEvent).not.toHaveBeenCalled();
-    },
-  );
-
-  it("falls back to the base old-way body when a valid angle omits its optional override", () => {
-    const { old_way_body: _body, ...minimalAngle } = angle;
-    const document = dom(
-      markup(
-        <UseCasePage
-          item={{ ...useCase, angles: [minimalAngle] }}
-          articles={[]}
-        />,
-        "/?angle=engineering",
-      ),
-    );
-    expect(document.querySelector("h1")?.textContent).toBe(angle.title);
-    expect(document.body.textContent).toContain(angle.subhead);
-    expect(document.body.textContent).toContain(useCase.old_way.body);
-  });
-
-  it.each(["engineering", "unknown", ""])(
-    "tracks only a validated angle or base for views and CTA clicks (%s)",
-    (query) => {
-      const item = { ...useCase, angles: [angle] };
-      const view = renderCampaign(
-        <>
-          <CampaignView item={item} />
-          <CampaignCta item={item} location="hero" />
-        </>,
-        `/?angle=${query}&audience=PRIVATE`,
-      );
-      const link = view.getByRole("link", { name: item.cta_label });
-      link.addEventListener("click", (event) => event.preventDefault());
-      fireEvent.click(link);
-      const selected = query === angle.id ? angle.id : "base";
-      expect(trackEvent).toHaveBeenCalledTimes(2);
-      expect(trackEvent).toHaveBeenNthCalledWith(1, "use_case_view", {
-        slug: item.slug,
-        job_id: item.job_id,
-        app: item.app,
-        angle: selected,
-      });
-      expect(trackEvent).toHaveBeenNthCalledWith(2, "use_case_cta_click", {
-        slug: item.slug,
-        job_id: item.job_id,
-        app: item.app,
-        angle: selected,
-        location: "hero",
-      });
-      expect(
-        new URL(link.getAttribute("href")!).searchParams.get("angle"),
-      ).toBe(selected === "base" ? null : selected);
-      expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain(
-        "PRIVATE",
-      );
-    },
-  );
-
-  it("renders ordered recipe answers with optional prompt/tip and connections without inventing absent sections", () => {
-    const { prompt: _prompt, tip: _tip, ...minimalRecipe } = recipe;
-    const second = { ...minimalRecipe, id: "second", title: "Second recipe" };
-    const third = { ...minimalRecipe, id: "third", title: "Third recipe" };
-    const recipes = [recipe, second, third];
-    const document = dom(
-      markup(
-        <UseCasePage
-          item={{
-            ...useCase,
-            recipes,
-            connects_to: ["Test calendar", "Test CRM"],
-          }}
-          articles={[]}
-        />,
-      ),
-    );
-    expectRecipeAccordion(document, recipes);
-    expect(document.querySelector("#how-it-works")?.textContent).toContain(
-      "Works with: Test calendar, Test CRM",
-    );
-    const absent = dom(
-      markup(
-        <UseCasePage
-          item={{
-            ...useCase,
-            recipes: [],
-            connects_to: [],
-            next_jobs: ["unknown"],
-          }}
-          articles={[]}
-        />,
-      ),
-    );
-    expect(absent.querySelector(".campaign-recipes")).toBeNull();
-    expect(absent.querySelectorAll("article")).toHaveLength(0);
-    expect(absent.body.textContent).not.toContain("Ways to use");
-    expect(absent.body.textContent).not.toContain("Works with:");
-    expect(absent.body.textContent).not.toContain("What to do next");
-    expect(
-      dom(markup(<UseCasePage item={useCase} articles={[]} />)).querySelector(
-        ".campaign-recipes",
-      ),
-    ).toBeNull();
-  });
-
-  it.each([
-    { prompt: recipe.prompt, tip: undefined },
-    { prompt: undefined, tip: recipe.tip },
-    { prompt: recipe.prompt, tip: recipe.tip },
-    { prompt: undefined, tip: undefined },
-  ])(
-    "renders recipe prompt and next-time tip independently (%#)",
-    ({ prompt, tip }) => {
-      const item = { ...recipe, prompt, tip };
-      const document = dom(
-        markup(
-          <UseCasePage item={{ ...useCase, recipes: [item] }} articles={[]} />,
-        ),
-      );
-      expectRecipeAccordion(document, [item]);
-      const content = document.querySelector(".campaign-recipe-content")!;
-      expect(content.children).toHaveLength(
-        3 + Number(!!prompt) + Number(!!tip),
-      );
-      if (!tip) expect(content.textContent).not.toContain(recipe.tip);
-    },
-  );
-
-  it("opens, closes and reopens recipe panels and tracks only user openings", () => {
-    const recipes = [
-      recipe,
-      { ...recipe, id: "second", title: "Second recipe" },
-      { ...recipe, id: "third", title: "Third recipe" },
-    ];
-    const view = renderCampaign(
-      <UseCasePage item={{ ...useCase, recipes }} articles={[]} />,
-    );
-    const section =
-      view.container.querySelector<HTMLElement>(".campaign-recipes")!;
-    const triggers = within(section)
-      .getAllByRole("button")
-      .filter((button) => button.hasAttribute("aria-expanded"));
-    expect(triggers).toHaveLength(3);
-    const recipeEvents = () =>
-      vi
-        .mocked(trackEvent)
-        .mock.calls.filter(([name]) => name === "recipe_open");
-    const expectOpen = (openIndex: number | null) => {
-      for (const [index, trigger] of triggers.entries()) {
-        expect(trigger.getAttribute("aria-expanded")).toBe(
-          String(index === openIndex),
-        );
-        const panel = view.container.querySelector(
-          `#${trigger.getAttribute("aria-controls")}`,
-        )!;
-        expect(panel.getAttribute("aria-hidden")).toBe(
-          String(index !== openIndex),
-        );
-        expectRecipeSlots(
-          panel.querySelector(".campaign-recipe-content")!,
-          recipes[index],
-        );
-      }
-    };
-    expectOpen(0);
-    expect(recipeEvents()).toEqual([]);
-    fireEvent.click(triggers[0]);
-    expectOpen(null);
-    expect(recipeEvents()).toEqual([]);
-    fireEvent.click(triggers[1]);
-    expectOpen(1);
-    expect(recipeEvents()).toEqual([
-      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
-    ]);
-    fireEvent.click(triggers[1]);
-    expectOpen(null);
-    expect(recipeEvents()).toHaveLength(1);
-    fireEvent.click(triggers[1]);
-    expectOpen(1);
-    expect(recipeEvents()).toEqual([
-      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
-      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
-    ]);
-    fireEvent.click(triggers[2]);
-    expectOpen(2);
-    fireEvent.click(triggers[0]);
-    expectOpen(0);
-    expect(recipeEvents()).toEqual([
-      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
-      ["recipe_open", { slug: useCase.slug, recipe_id: "second" }],
-      ["recipe_open", { slug: useCase.slug, recipe_id: "third" }],
-      ["recipe_open", { slug: useCase.slug, recipe_id: recipe.id }],
-    ]);
-  });
-
   it.each([true, false])(
     "CodeBlock calls onCopySuccess only after copyText succeeds (%s)",
     async (success) => {
+      const prompt = "  Test prompt\n  ";
       let resolveCopy!: (value: boolean) => void;
       vi.mocked(copyText).mockReturnValue(
         new Promise<boolean>((resolve) => {
@@ -1949,14 +1292,10 @@ describe("public campaign frontend", () => {
       );
       const onCopySuccess = vi.fn();
       const view = renderCampaign(
-        <CodeBlock
-          code={recipe.prompt!}
-          lang="text"
-          onCopySuccess={onCopySuccess}
-        />,
+        <CodeBlock code={prompt} lang="text" onCopySuccess={onCopySuccess} />,
       );
       fireEvent.click(view.getByRole("button", { name: "Copy code" }));
-      expect(copyText).toHaveBeenCalledExactlyOnceWith(recipe.prompt!.trim());
+      expect(copyText).toHaveBeenCalledExactlyOnceWith(prompt.trim());
       expect(onCopySuccess).not.toHaveBeenCalled();
       expect(trackEvent).not.toHaveBeenCalled();
       await act(async () => {
@@ -1966,237 +1305,45 @@ describe("public campaign frontend", () => {
       if (success)
         expect(trackEvent).toHaveBeenCalledExactlyOnceWith("copy code block", {
           lang: "text",
-          snippet: recipe.prompt!.trim(),
+          snippet: prompt.trim(),
         });
       else expect(trackEvent).not.toHaveBeenCalled();
     },
   );
 
-  it.each([true, false])(
-    "emits recipe_copy only for successful prompt copies (%s)",
-    async (success) => {
-      vi.mocked(copyText).mockResolvedValue(success);
-      const { prompt: _prompt, ...withoutPrompt } = recipe;
-      const view = renderCampaign(
-        <UseCasePage
-          item={{
-            ...useCase,
-            recipes: [{ ...withoutPrompt, id: "first" }, recipe],
-          }}
-          articles={[]}
-        />,
-      );
-      expect(view.queryByRole("button", { name: "Copy code" })).toBeNull();
-      const trigger = view.container.querySelector<HTMLButtonElement>(
-        `#use-case-recipes-${recipe.id}-trigger`,
-      )!;
-      expect(trigger.getAttribute("aria-expanded")).toBe("false");
-      fireEvent.click(trigger);
-      expect(trigger.getAttribute("aria-expanded")).toBe("true");
-      vi.mocked(trackEvent).mockClear();
-      await act(async () => {
-        fireEvent.click(view.getByRole("button", { name: "Copy code" }));
-      });
-      expect(copyText).toHaveBeenCalledExactlyOnceWith(recipe.prompt!.trim());
-      const recipeEvents = vi
-        .mocked(trackEvent)
-        .mock.calls.filter(([name]) => name === "recipe_copy");
-      expect(recipeEvents).toEqual(
-        success
-          ? [
-              [
-                "recipe_copy",
-                {
-                  slug: useCase.slug,
-                  job_id: useCase.job_id,
-                  recipe_id: recipe.id,
-                },
-              ],
-            ]
-          : [],
-      );
-      if (!success) expect(trackEvent).not.toHaveBeenCalled();
-    },
-  );
-
-  it("SSR uses the same accessible clock tag above index titles, in the hero and after recipe titles", () => {
-    const item = {
-      ...useCase,
-      how_often_label: "Every week",
-      recipes: [recipe],
-    };
-    const index = dom(
-      markup(
-        <UseCasesIndex items={[item, { ...useCase, slug: "untagged" }]} />,
-      ),
-    );
-    const page = dom(markup(<UseCasePage item={item} articles={[]} />));
-    const card = index.querySelector(".grid a")!;
-    const indexTag = card.querySelector(".campaign-frequency-tag")!;
-    const pageTags = [...page.querySelectorAll(".campaign-frequency-tag")];
-    expect(index.querySelectorAll(".campaign-frequency-tag")).toHaveLength(1);
-    expect(pageTags).toHaveLength(2);
-    const [heroTag, recipeTag] = pageTags;
-    for (const [tag, text] of [
-      [indexTag, item.how_often_label],
-      [heroTag, item.how_often_label],
-      [recipeTag, recipe.how_often],
-    ] as const) {
-      expect(tag.tagName).toBe("SPAN");
-      expect(tag.textContent).toBe(text);
-      expect(tag.getAttribute("aria-label")).toBe(`How often: ${text}`);
-      expect(tag.querySelectorAll("svg")).toHaveLength(1);
-      const icon = tag.querySelector("svg")!;
-      expect(icon.classList.contains("tabler-icon-clock")).toBe(true);
-      expect(icon.getAttribute("aria-hidden")).toBe("true");
-      expect(icon.getAttribute("width")).toBe("14");
-      expect(icon.getAttribute("height")).toBe("14");
-    }
-    expect(indexTag.outerHTML).toBe(heroTag.outerHTML);
-    expect(indexTag.parentElement?.nextElementSibling?.tagName).toBe("H3");
-    expect(card.querySelector("h3")?.textContent).toBe(item.title);
-    expect(heroTag.closest("article")).toBeNull();
-    expect(
-      heroTag.compareDocumentPosition(page.querySelector("h1")!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    const trigger = recipeTag.closest("button[aria-expanded]")!;
-    expect(trigger.id).toBe(`use-case-recipes-${recipe.id}-trigger`);
-    const title = trigger.firstElementChild!;
-    expect(title.textContent).toBe(recipe.title);
-    expect(trigger.contains(recipeTag)).toBe(true);
-    expect(
-      title.compareDocumentPosition(recipeTag) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    const absent = dom(markup(<UseCasePage item={useCase} articles={[]} />));
-    expect(absent.querySelector(".campaign-frequency-tag")).toBeNull();
-  });
-
-  it("SSR labels Next and Articles sections and keeps next-job and deeper-article descriptions verbatim", () => {
-    const next = {
-      ...useCase,
-      slug: "test-next",
-      title: "Test next job",
-      subhead: "Test next-job description, kept verbatim.",
-    };
-    const document = dom(
-      markup(
-        <UseCasePage
-          item={{ ...useCase, next_jobs: [next.slug] }}
-          articles={[article]}
-          useCases={[next]}
-        />,
-      ),
-    );
-    for (const [eyebrow, heading, title, description, href] of [
-      [
-        "Next",
-        "What to do next",
-        next.title,
-        next.subhead,
-        `${USE_CASES_BASE}/${next.slug}`,
-      ],
-      [
-        "Articles",
-        "Go deeper",
-        article.title,
-        article.meta_description,
-        `${ARTICLES_BASE}/${article.slug}`,
-      ],
-    ]) {
-      const h2 = [...document.querySelectorAll("h2")].find(
-        (node) => node.textContent === heading,
-      )!;
-      expect(h2.previousElementSibling?.textContent).toBe(eyebrow);
-      const section = h2.closest("section")!;
-      expect(section.querySelectorAll("h2")).toHaveLength(1);
-      expect(
-        h2.parentElement?.parentElement?.classList.contains("campaign-section"),
-      ).toBe(true);
-      const card = section.querySelector("a")!;
-      expect(card.getAttribute("href")).toBe(sitePathForLocale(href));
-      expect(card.querySelector("h3")?.textContent).toBe(title);
-      expect(card.querySelector("h3 + div")?.textContent).toBe(description);
-    }
-  });
-
-  it("resolves next jobs in declared order, skips unknown jobs, localizes links and tracks clicks", () => {
-    currentLocale.locale = "fr-FR";
-    const first = { ...useCase, slug: "test-first", title: "First next job" };
-    const second = {
-      ...useCase,
-      slug: "test-second",
-      title: "Second next job",
-    };
-    const view = renderCampaign(
-      <UseCasePage
-        item={{ ...useCase, next_jobs: [second.slug, "unknown", first.slug] }}
-        articles={[]}
-        useCases={[first, second, { ...useCase, slug: "unrelated" }]}
-      />,
-    );
-    const heading = view.getByRole("heading", { name: "What to do next" });
-    const section = heading.closest("section")!;
-    const links = within(section).getAllByRole("link");
-    expect(links.map((link) => link.querySelector("h3")?.textContent)).toEqual([
-      second.title,
-      first.title,
-    ]);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual(
-      [second, first].map((item) =>
-        sitePathForLocale(`${USE_CASES_BASE}/${item.slug}`, "fr-FR"),
-      ),
-    );
-    expect(section.textContent).not.toContain("unknown");
-    vi.mocked(trackEvent).mockClear();
-    links[0].addEventListener("click", (event) => event.preventDefault());
-    fireEvent.click(links[0]);
-    expect(trackEvent).toHaveBeenCalledExactlyOnceWith("next_job_click", {
-      from_slug: useCase.slug,
-      to_slug: second.slug,
-    });
-  });
-
-  const filterItems: UseCase[] = [
+  const filterItems: UseCaseIndexItem[] = [
     {
-      ...useCase,
+      ...indexItem,
       slug: "engineering-weekly",
       title: "Engineering weekly",
       roles: ["engineering"],
-      frequency: "weekly",
-      how_often_label: "Every engineering week",
     },
     {
-      ...useCase,
+      ...indexItem,
       slug: "engineering-daily",
       title: "Engineering daily",
       roles: ["engineering"],
-      frequency: "daily",
     },
     {
-      ...useCase,
+      ...indexItem,
       slug: "everyone-weekly",
       title: "Everyone weekly",
       roles: ["everyone"],
-      frequency: "weekly",
     },
     {
-      ...useCase,
+      ...indexItem,
       slug: "everyone-daily",
       title: "Everyone daily",
       roles: ["everyone"],
-      frequency: "daily",
     },
     {
-      ...useCase,
+      ...indexItem,
       app: "content",
       slug: "marketing-weekly",
       title: "Marketing weekly",
       roles: ["marketing"],
-      frequency: "weekly",
     },
-    { ...useCase, slug: "untagged", title: "Untagged" },
+    { ...indexItem, slug: "untagged", title: "Untagged" },
   ];
   const visibleCardTitles = (view: ReturnType<typeof renderCampaign>) =>
     view.getAllByRole("link").flatMap((link) => {
@@ -2217,7 +1364,6 @@ describe("public campaign frontend", () => {
       "Everyone weekly",
       "Everyone daily",
     ]);
-    expect(view.getByText("Every engineering week")).toBeDefined();
     expect(trackEvent).not.toHaveBeenCalled();
     fireEvent.click(view.getByLabelText("Role"));
     fireEvent.click(view.getByRole("option", { name: "Marketing" }));
@@ -2326,13 +1472,13 @@ describe("public campaign frontend", () => {
     },
   );
 
-  it("links an article to its new-style use-case page", async () => {
+  it("links an article to its use-case page", async () => {
     const actual = await vi.importActual<
       typeof import("../../../lib/campaign-content.server")
     >("../../../lib/campaign-content.server");
     const content = actual.loadCampaignContent();
     vi.mocked(loadCampaignContent).mockReturnValue(content);
-    const page = content.useCasePages.find(
+    const page = content.useCases.find(
       (item) => item.slug === "ai-meeting-notes",
     )!;
     const data = articleLoader(
@@ -2410,7 +1556,6 @@ describe("public campaign frontend", () => {
       slug: `test-article-${index}`,
     }));
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [useCase],
       articles,
     });
@@ -2475,28 +1620,35 @@ describe("public campaign frontend", () => {
     }
   });
 
-  it("serves a translated new-style use-case page and redirects languages it lacks", () => {
+  it("serves a translated use-case page and redirects languages it lacks", () => {
+    const { translations: _translations, ...english } = useCase;
     const german = {
+      ...english,
       slug: "translated-page",
-      app: "slides",
+      app: "slides" as const,
       title: "Auf Deutsch",
     };
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [
+      useCases: [
         {
           ...german,
           title: "In English",
           translations: { "de-DE": german },
-        } as never,
+        },
       ],
-      useCases: [],
       articles: [],
     });
     const translated = localizedCampaignRoute1.loader(
       args({ locale: "de-de", slug: "translated-page" }),
-    ) as { version: string; page: { title: string }; locales: string[] };
+    ) as { page: { title: string }; locales: string[] };
     expect(translated.page.title).toBe("Auf Deutsch");
     expect(translated.locales).toEqual(["en-US", "de-DE"]);
+    const original = useCaseLoader(args({ slug: "translated-page" }));
+    expect(original.page).toEqual({ ...german, title: "In English" });
+    expect(original.locales).toEqual(["en-US", "de-DE"]);
+    expect(() => useCaseLoader(args({ slug: "missing-use-case" }))).toThrow(
+      expect.objectContaining({ status: 404 }),
+    );
     const untranslated = localizedCampaignRoute1.loader(
       args({ locale: "fr-fr", slug: "translated-page" }),
     ) as Response;
@@ -2508,7 +1660,6 @@ describe("public campaign frontend", () => {
 
   it("returns 404 for invalid localized campaign routes or locale tags", () => {
     vi.mocked(loadCampaignContent).mockReturnValue({
-      useCasePages: [],
       useCases: [useCase],
       articles: [article],
     });
@@ -2559,12 +1710,7 @@ describe("public campaign frontend", () => {
       [
         campaignRoute1.meta({
           params,
-          loaderData: {
-            version: "v1" as const,
-            item: useCase,
-            articles: [],
-            useCases: [],
-          },
+          loaderData: { page: useCase, locales: ["en-US"] },
         }),
         `${USE_CASES_BASE}/${useCase.slug}/`,
       ],

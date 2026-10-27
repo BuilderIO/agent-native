@@ -20,7 +20,7 @@ import { Link } from "react-router";
 
 import {
   CATEGORY_NAMES,
-  type UseCasePageV2 as Page,
+  type UseCase as Page,
 } from "../../../lib/campaign-content";
 import { BuilderImage } from "../builder-image";
 import { firstPartyAppUrl } from "../deployment-links";
@@ -208,7 +208,7 @@ function SectionHead({ heading }: { heading: string }) {
   );
 }
 
-export function UseCasePageV2({ page }: { page: Page }) {
+export function UseCasePage({ page }: { page: Page }) {
   const { locale } = useLocale();
   const appId = page.app === "plans" ? "plan" : page.app;
   const AppIcon = APP_ICONS[page.app];
