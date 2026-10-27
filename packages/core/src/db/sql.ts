@@ -82,8 +82,9 @@ function parameterOffsets(value: object): readonly number[] | undefined {
   return offsets;
 }
 
+// raw-sql-ok: the private builder composes only validated fragments and fixed text.
 function makeFragment(
-  sqlText: string, // raw-sql-ok: the private builder composes only validated fragments and fixed text.
+  sqlText: string,
   args: readonly unknown[],
   offsets: readonly number[],
 ): SqlFragment {

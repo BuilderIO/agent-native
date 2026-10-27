@@ -530,8 +530,9 @@ function drizzleTransactionExec(
   transaction: any,
   queryQueue = createDrizzleTransactionQueryQueue(),
 ): DbExec {
+  // raw-sql-ok: bind fragment values before adapter execution.
   const executeStatement = async (
-    statement: DbExecInput, // raw-sql-ok: bind fragment values before adapter execution.
+    statement: DbExecInput,
     remainingMs: () => number,
     timedOut: () => boolean,
   ) => {
@@ -596,9 +597,8 @@ function drizzleTransactionExec(
     return queryResult;
   };
 
-  const execute = async (
-    statement: DbExecInput, // raw-sql-ok: this is the typed-fragment execution boundary.
-  ) => {
+  // raw-sql-ok: this is the typed-fragment execution boundary.
+  const execute = async (statement: DbExecInput) => {
     const query = typeof statement === "string" ? statement : statement.sql;
     const { timeoutMs } = dbExecQueryBudget(statement);
     const startedAt = Date.now();

@@ -955,9 +955,8 @@ export function toPostgresParams(
   return out;
 }
 
-function sqlAndArgs(
-  sql: DbExecInput, // raw-sql-ok: unwrap fragments at the database adapter boundary.
-): {
+// raw-sql-ok: unwrap fragments at the database adapter boundary.
+function sqlAndArgs(sql: DbExecInput): {
   rawSql: string;
   args: unknown[];
 } {

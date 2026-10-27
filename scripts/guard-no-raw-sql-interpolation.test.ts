@@ -1,12 +1,15 @@
 import { resolve } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  addChangedSqlExecuteWrapperModules,
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
   findChangedSqlHelperExports,
   resolveImportedSourceFile,
+  type RawSqlGuardSource,
 } from "./guard-no-raw-sql-interpolation.js";
 
 const FILE = "packages/core/src/example.ts";
@@ -150,6 +153,24 @@ describe("raw SQL interpolation guard", () => {
     expect(
       findRawSqlInterpolationViolations(FILE, unrelated, new Set([2])),
     ).toEqual([]);
+  });
+
+  it("recognizes optional execute calls from the scoped DbExec factory", () => {
+    const text = source([
+      'import { getScopedDbExec } from "./db/client.js";',
+      "getScopedDbExec()?.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 2,
+          snippet:
+            "getScopedDbExec()?.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+        },
+      ],
+    );
   });
 
   it("recognizes bound and call-wrapped DbExec execute methods", () => {
@@ -622,6 +643,44 @@ describe("raw SQL interpolation guard", () => {
         file: storeFile,
         line: 2,
         snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
+  it("traces a template assigned before an unchanged imported wrapper call", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "const query = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "runQuery(query);",
+    ].join("\n");
+    const sources = new Map<string, RawSqlGuardSource>([
+      [storeFile, { source: store, addedLines: new Set([2]) }],
+    ]);
+    const wrapperSource = ts.createSourceFile(
+      wrapperFile,
+      wrapper,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    addChangedSqlExecuteWrapperModules(sources, () => wrapperSource);
+
+    expect(sources.has(resolve(wrapperFile))).toBe(true);
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet:
+          "const query = `SELECT * FROM records WHERE id = ${recordId}`;",
       },
     ]);
   });
@@ -1329,7 +1388,7 @@ describe("raw SQL interpolation guard", () => {
     ).toEqual([]);
   });
 
-  it("accepts a reasoned pragma above, on, or inside the property", () => {
+  it("accepts a reasoned pragma adjacent to the sink statement", () => {
     const examples = [
       source([
         "// raw-sql-ok: supports reviewed legacy filter clauses",
@@ -1342,13 +1401,6 @@ describe("raw SQL interpolation guard", () => {
       source([
         "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` }; // raw-sql-ok: compatibility query",
       ]),
-      source([
-        "const query = {",
-        "  sql: `SELECT * FROM records",
-        "-- raw-sql-ok: fixed operator list is reviewed",
-        "    WHERE id = ${recordId}`",
-        "};",
-      ]),
     ];
 
     for (const text of examples) {
@@ -1359,7 +1411,31 @@ describe("raw SQL interpolation guard", () => {
     }
   });
 
-  it("accepts a pragma after an object property separator", () => {
+  it("does not accept a pragma marker inside SQL text or a nested callback", () => {
+    const sqlText = source([
+      "const query = {",
+      "  sql: `SELECT * FROM records WHERE id = ${recordId}",
+      "    -- raw-sql-ok: this is SQL text, not a code comment",
+      "  `,",
+      "};",
+    ]);
+    const callback = source([
+      "const database = getDbExec();",
+      "database.execute(`SELECT * FROM records WHERE id = ${recordId}`, () => {",
+      "  // raw-sql-ok: this callback comment is not attached to the SQL sink",
+      "  return true;",
+      "});",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, sqlText, new Set([2, 3, 4])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, callback, new Set([2, 3, 4])),
+    ).toHaveLength(1);
+  });
+
+  it("does not treat a property-level pragma as a statement opt-out", () => {
     const text = source([
       "const query = {",
       "  sql: `SELECT ${recordId}`, // raw-sql-ok: reviewed adapter boundary",
@@ -1369,8 +1445,13 @@ describe("raw SQL interpolation guard", () => {
     ]);
 
     expect(
-      findRawSqlInterpolationViolations(FILE, text, new Set([2, 5])),
-    ).toEqual([]);
+      findRawSqlInterpolationViolations(FILE, text, new Set([2])),
+    ).toContainEqual({
+      file: FILE,
+      line: 2,
+      snippet:
+        "sql: `SELECT ${recordId}`, // raw-sql-ok: reviewed adapter boundary",
+    });
   });
 
   it("scopes a same-line pragma to the statement it follows", () => {

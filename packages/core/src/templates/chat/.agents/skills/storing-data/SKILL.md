@@ -40,10 +40,12 @@ or nested fragments for composition. The tag rejects plain string interpolation
 at compile time; do not build `{ sql: `...${value}...` }` or pass interpolated
 templates directly to `execute()`. The diff-scoped guard checks new
 interpolated SQL reaching `getDbExec().execute()` through the helper and wrapper
-paths it analyzes; reviewed exceptions require `// raw-sql-ok: <reason>`. It
-does not audit Drizzle `sql.raw()` or raw adapter `query()` calls, so use bound
-Drizzle fragments or the typed kernel instead of interpolating dynamic values
-through those APIs.
+paths it analyzes. A reviewed exception needs `// raw-sql-ok: <reason>` as
+a standalone comment immediately before the sink statement or after it on the
+same line. Markers inside SQL text, callbacks, and object properties do not opt
+out. The guard does not audit Drizzle `sql.raw()` or raw adapter `query()` calls,
+so use bound Drizzle fragments or the typed kernel instead of interpolating
+dynamic values through those APIs.
 
 ### Schema and migration ownership
 

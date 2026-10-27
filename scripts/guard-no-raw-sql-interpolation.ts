@@ -196,6 +196,10 @@ function isCoreDbExecModule(moduleName: string, file: string): boolean {
   );
 }
 
+function isDbExecFactoryName(name: string): boolean {
+  return name === "getDbExec" || name === "getScopedDbExec";
+}
+
 function isCoreStateMachineModule(moduleName: string, file: string): boolean {
   if (moduleName === "@agent-native/core/state-machine") return true;
   if (!moduleName.startsWith(".")) return false;
@@ -350,7 +354,7 @@ function isImportedDbExecNamespaceFactory(
 ): boolean {
   if (
     ts.isPropertyAccessExpression(expression) &&
-    expression.name.text === "getDbExec"
+    isDbExecFactoryName(expression.name.text)
   ) {
     return isImportedDbExecNamespaceExpression(
       expression.expression,
@@ -360,7 +364,9 @@ function isImportedDbExecNamespaceFactory(
   }
   return (
     ts.isElementAccessExpression(expression) &&
-    staticStringPropertyName(expression.argumentExpression) === "getDbExec" &&
+    isDbExecFactoryName(
+      staticStringPropertyName(expression.argumentExpression) ?? "",
+    ) &&
     isImportedDbExecNamespaceExpression(
       expression.expression,
       checker,
@@ -405,7 +411,7 @@ function isImportedDbExecFactory(
     symbol?.declarations?.some((declaration) => {
       if (ts.isImportSpecifier(declaration)) {
         const importedName = declaration.propertyName ?? declaration.name;
-        if (importedName.text !== "getDbExec") return false;
+        if (!isDbExecFactoryName(importedName.text)) return false;
         const importClause = declaration.parent.parent;
         if (!ts.isImportClause(importClause)) return false;
         const importDeclaration = importClause.parent;
@@ -423,7 +429,7 @@ function isImportedDbExecFactory(
         const variable = declaration.parent.parent;
         return (
           (ts.isIdentifier(importedName) || ts.isStringLiteral(importedName)) &&
-          importedName.text === "getDbExec" &&
+          isDbExecFactoryName(importedName.text) &&
           ts.isVariableDeclaration(variable) &&
           variable.initializer !== undefined &&
           isDynamicDbExecImport(variable.initializer, sourceFile)
@@ -2162,64 +2168,34 @@ function executeWrapperArgumentIndexes(
 function hasPragma(node: ts.Node): boolean {
   const sourceFile = node.getSourceFile();
   const text = sourceFile.text;
-  const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
-  const endLine = lineNumberAt(sourceFile, node.end);
-  const lines = text.split(/\r?\n/);
-  const previousLine = lines[startLine - 2] ?? "";
-  const trimmedPreviousLine = previousLine.trim();
-  const previousLineIsComment =
-    trimmedPreviousLine.startsWith("//") ||
-    trimmedPreviousLine.startsWith("--") ||
-    (trimmedPreviousLine.startsWith("/*") &&
-      trimmedPreviousLine.endsWith("*/")) ||
-    (trimmedPreviousLine.startsWith("*") &&
-      (!trimmedPreviousLine.includes("*/") ||
-        trimmedPreviousLine.endsWith("*/")));
-  if (previousLineIsComment && pragma.test(previousLine)) return true;
-
   const hasPragmaComment = (
     ranges: readonly ts.CommentRange[] | undefined,
-    expectedLine: number,
+    expectedEndLine: number,
   ) =>
     ranges?.some(
       (range) =>
-        lineNumberAt(sourceFile, range.pos) === expectedLine &&
+        lineNumberAt(sourceFile, range.end - 1) === expectedEndLine &&
         pragma.test(text.slice(range.pos, range.end)),
     ) ?? false;
-
-  if (pragma.test(text.slice(node.getStart(sourceFile), node.end))) return true;
-  const lineEnd = text.indexOf("\n", node.end);
-  const endOfLine = lineEnd === -1 ? text.length : lineEnd;
-  const trailingLine = text.slice(node.end, endOfLine);
-  const commentPrefix = /^\s*,?\s*(\/\/|--|\/\*)/.exec(trailingLine);
-  if (commentPrefix?.[1]) {
-    const commentStart = commentPrefix[0].length - commentPrefix[1].length;
-    const comment = trailingLine.slice(commentStart);
-    const closeIndex = comment.startsWith("/*") ? comment.indexOf("*/") : -1;
-    const blockCommentEnd = closeIndex === -1 ? comment.length : closeIndex + 2;
-    if (pragma.test(comment.slice(0, blockCommentEnd))) return true;
-  }
-  if (
-    hasPragmaComment(
-      ts.getLeadingCommentRanges(text, node.getFullStart()),
-      startLine,
-    )
-  ) {
-    return true;
-  }
-  if (hasPragmaComment(ts.getTrailingCommentRanges(text, node.end), endLine)) {
-    return true;
-  }
 
   let statement: ts.Node = node;
   while (statement.parent && !ts.isStatement(statement)) {
     statement = statement.parent;
   }
+  if (!ts.isStatement(statement)) return false;
+  const statementStartLine = lineNumberAt(
+    sourceFile,
+    statement.getStart(sourceFile),
+  );
+  const statementEndLine = lineNumberAt(sourceFile, statement.end);
   return (
-    ts.isStatement(statement) &&
+    hasPragmaComment(
+      ts.getLeadingCommentRanges(text, statement.getFullStart()),
+      statementStartLine - 1,
+    ) ||
     hasPragmaComment(
       ts.getTrailingCommentRanges(text, statement.end),
-      lineNumberAt(sourceFile, statement.end),
+      statementEndLine,
     )
   );
 }
@@ -2413,7 +2389,6 @@ export function findRawSqlInterpolationViolationsInSources(
       }
       if (
         ts.isCallExpression(node) &&
-        touchesAddedLines(node) &&
         !isExecuteCall(
           node.expression,
           checker,
@@ -2421,9 +2396,24 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        for (const index of executeWrapperArgumentIndexes(node, analysis)) {
-          const argument = node.arguments[index];
-          if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        const hasAddedSqlSource =
+          touchesAddedLines(node) ||
+          node.arguments.some((argument) =>
+            [
+              ...findUnsafeSqlSources(
+                argument,
+                analysis,
+                new Set(),
+                new Set(),
+                true,
+              ),
+            ].some(touchesAddedLines),
+          );
+        if (hasAddedSqlSource) {
+          for (const index of executeWrapperArgumentIndexes(node, analysis)) {
+            const argument = node.arguments[index];
+            if (argument) reportUnsafeSqlValue(analysis, node, argument);
+          }
         }
       }
       if (
@@ -2783,36 +2773,40 @@ function gitGrepMatches(names: readonly string[]): string[] {
   }
 }
 
-function hasInterpolatedTemplate(node: ts.Node): boolean {
-  let found = false;
-  const visit = (current: ts.Node) => {
-    if (ts.isTemplateExpression(current)) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(current, visit);
-  };
-  visit(node);
-  return found;
+function hasInterpolatedTemplate(
+  expression: ts.Expression,
+  analysis: SqlAnalysis,
+): boolean {
+  return [
+    ...findUnsafeSqlSources(expression, analysis, new Set(), new Set(), true),
+  ].some(
+    (source) =>
+      ts.isTemplateExpression(source) || ts.isTaggedTemplateExpression(source),
+  );
 }
 
-function addChangedSqlExecuteWrapperModules(
+export function addChangedSqlExecuteWrapperModules(
   sources: Map<string, RawSqlGuardSource>,
+  resolveSourceFile = resolveImportedSourceFile,
 ): void {
   for (const [file, input] of [...sources]) {
     if (input.addedLines.size === 0) continue;
     const sourceFile = ts.createSourceFile(
-      file,
+      path.resolve(file),
       input.source,
       ts.ScriptTarget.Latest,
       true,
       scriptKind(file),
     );
+    const checker = createChecker(sourceFile);
+    const analysis = buildSqlAnalysis(sourceFile, checker);
     const calledNames = new Set<string>();
     const collectCalls = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
-        node.arguments.some(hasInterpolatedTemplate)
+        node.arguments.some((argument) =>
+          hasInterpolatedTemplate(argument, analysis),
+        )
       ) {
         if (ts.isIdentifier(node.expression)) {
           calledNames.add(node.expression.text);
@@ -2851,7 +2845,7 @@ function addChangedSqlExecuteWrapperModules(
         (namespaceName && calledNames.has(namespaceName)) ||
         hasMatchingNamedImport
       ) {
-        const moduleSource = resolveImportedSourceFile(
+        const moduleSource = resolveSourceFile(
           statement.moduleSpecifier.text,
           sourceFile.fileName,
         );
@@ -2966,7 +2960,7 @@ function main() {
     console.error(`  ${finding.file}:${finding.line} — ${finding.snippet}`);
   }
   console.error(
-    "Compose SQL with sql fragments and bound values. Reviewed exceptions need a reason: // raw-sql-ok: <reason>",
+    "Compose SQL with sql fragments and bound values. Reviewed exceptions need a statement-level comment: // raw-sql-ok: <reason>",
   );
   process.exit(1);
 }
