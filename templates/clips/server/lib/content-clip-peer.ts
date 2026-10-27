@@ -153,12 +153,14 @@ async function verifyPeer(
   if (peerSecret.refused) {
     return json(peerSecret.refused.body, peerSecret.refused.status);
   }
-  const match = BEARER.exec(getRequestHeader(event, "authorization") ?? "");
-  if (!match) return unauthorized();
+  const token = BEARER.exec(
+    getRequestHeader(event, "authorization") ?? "",
+  )?.[1];
+  if (!token) return unauthorized();
 
   let verified: Awaited<ReturnType<typeof verifyA2AToken>>;
   try {
-    verified = await verifyA2AToken(match[1]!, event, {
+    verified = await verifyA2AToken(token, event, {
       routePrefix: CONTENT_CLIP_AUDIENCE_PATH,
       verificationSecret: peerSecret.secret,
       includeClaims: true,
@@ -287,9 +289,9 @@ async function withOpenedClip(
   const open = () =>
     runWithRequestContext(
       {
-        userEmail: peer.viewerEmail ?? undefined,
-        userName: peer.viewerName ?? undefined,
-        orgId,
+        ...(peer.viewerEmail !== null ? { userEmail: peer.viewerEmail } : {}),
+        ...(peer.viewerName !== null ? { userName: peer.viewerName } : {}),
+        ...(orgId !== undefined ? { orgId } : {}),
       },
       async () => {
         const access = await resolveAccess("recording", peer.recordingId);
@@ -534,7 +536,8 @@ export async function handleContentClipCommentWrite(
   try {
     body = await readBodyWithSizeLimit(event, MAX_BODY_BYTES);
   } catch (error) {
-    const tooLarge = (error as { statusCode?: number })?.statusCode === 413;
+    const tooLarge =
+      (error as { statusCode?: number } | null)?.statusCode === 413;
     return errorResponse(
       tooLarge ? 413 : 400,
       tooLarge ? "Request body too large" : "Invalid request body",

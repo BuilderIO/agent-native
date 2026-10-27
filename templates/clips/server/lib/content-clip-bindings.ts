@@ -11,7 +11,7 @@ export async function findContentBinding(input: {
   contentApp: string;
   documentId: string;
 }): Promise<ContentClipBinding | null> {
-  const [binding] = await getDb()
+  const [binding = null] = await getDb()
     .select()
     .from(schema.recordingContentBindings)
     .where(
@@ -22,18 +22,18 @@ export async function findContentBinding(input: {
       ),
     )
     .limit(1);
-  return binding ?? null;
+  return binding;
 }
 
 export async function readContentBinding(
   id: string,
 ): Promise<ContentClipBinding | null> {
-  const [binding] = await getDb()
+  const [binding = null] = await getDb()
     .select()
     .from(schema.recordingContentBindings)
     .where(eq(schema.recordingContentBindings.id, id))
     .limit(1);
-  return binding ?? null;
+  return binding;
 }
 
 export function contentDocGrantFor(
