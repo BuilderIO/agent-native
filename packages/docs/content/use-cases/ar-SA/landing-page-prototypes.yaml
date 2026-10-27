@@ -1,0 +1,98 @@
+template: v2
+slug: landing-page-prototypes
+app: design
+title: "حوّل موجز الإطلاق إلى نموذج أولي لصفحة هبوط"
+seo_title: "نماذج صفحات هبوط أولية بالذكاء الاصطناعي لإطلاقك"
+meta_description: "أعطِ Agent-Native Design موجز الإطلاق، واحصل على عدة نسخ من صفحة الهبوط بهوية علامتك لتتنقل فيها وتقارن بينها وتصدّرها HTML. مجاني ومفتوح المصدر."
+updated: 2026-10-27
+hero:
+  body: "يبني Agent-Native Design عدة نسخ جنبًا إلى جنب، بهوية علامتك. عدّل ما تختاره بيدك أو بالطلب، ثم نزّله كملف HTML لتضيفه إلى موقعك."
+  button:
+    label: "صمّم صفحتك"
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: "محرر Design مع نسخة Product-first من صفحة إطلاق لميزة الدفع للمتعاقدين في اليوم نفسه من Ledgerlane، في إطاري سطح المكتب والجوال. وتعرض محادثة الوكيل على اليسار موجز الإطلاق، والنسخ الثلاث التي اقترحها مع اختيار Product-first، وملاحظته بأن الصفحة اكتمل بناؤها."
+how_to:
+  heading: "كيف تصنع نموذجًا أوليًا لصفحة هبوط بالذكاء الاصطناعي"
+  steps:
+    - title: "صِف إطلاقك"
+      body: "في الشاشة الرئيسية لـ Design، الصق موجز الإطلاق في مربع **تصميم جديد**: [العرض، ولمن هو، والدعوة إلى الإجراء](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/). أو أرفق الموجز كملف، واختر نظام تصميم علامتك أسفل المربع."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: "لقطة مقرّبة لمربع New design في الشاشة الرئيسية لـ Design. فيه موجز إطلاق لميزة الدفع في اليوم نفسه من Ledgerlane، وملف PDF للموجز مرفق، ونظام التصميم Ledgerlane Brand مختار."
+    - title: "قارن بين عدة نسخ"
+      body: "اطلب من الوكيل «ثلاث نسخ». تظهر كل نسخة كشاشة مستقلة، جنبًا إلى جنب على اللوحة. اختر واحدة في المحادثة، فيحوّلها الوكيل إلى الصفحة الكاملة ويزيل البقية."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: "ثلاث نسخ من صفحة إطلاق الدفع في اليوم نفسه، Product-first وEditorial وProof-led، جنبًا إلى جنب على اللوحة. وتسأل محادثة الوكيل أيها يبني، مع زر لكل منها."
+    - title: "صدّر HTML الصفحة"
+      body: "من قائمة المحرر، اختر **ملف** ثم **تصدير**. يعطيك **تنزيل HTML** ملفًا واحدًا يفتح في أي متصفح. ويعطي **نسخ مطالبة الوكيل** وكيل البرمجة ما يحتاجه لبناء الصفحة في موقعك."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: "لقطة مقرّبة لقائمة المحرر وفيها File وExport مفتوحتان فوق صفحة الإطلاق Product-first. ومن الخيارات Download HTML وDownload ZIP وDownload for Figma (SVG) وCopy agent prompt."
+features:
+  heading: "كل ما تحتاجه لتصميم صفحة إطلاقك"
+  items:
+    - title: "من الموجز إلى صفحة الهبوط"
+      body: "يبني الوكيل من الادعاءات الموجودة في موجزك بدلًا من اختلاق ادعاءات جديدة. وعندما يترك الموجز خيارًا مفتوحًا، يسأل أو يذكر ما افترضه."
+    - title: "تعديل بالذكاء الاصطناعي وبصريًا"
+      body: "غيّر العنوان أو اللون أو المسافات بنفسك، أو اطلب من الوكيل إعادة صياغة قسم. أنتما تعدّلان الصفحة نفسها."
+    - title: "نسخ جنبًا إلى جنب"
+      body: "لكل نسخة مظهرها الخاص وتخطيط للجوال، فيقارن فريقك بين اتجاهات حقيقية قبل أن يُطلق أي شيء."
+    - title: "كل إطلاق بهوية علامتك"
+      body: "أنشئ نظام تصميم من ملف Figma أو موقعك أو الكود مرة واحدة. وكل صفحة إطلاق جديدة تستخدم ألوانك وخطوطك وأنماطك."
+    - title: "ملاحظات مثبّتة على الصفحة"
+      body: "يثبّت المراجعون تعليقاتهم على العنوان أو الزر بالضبط. أرسل أحدها إلى الوكيل: فيُجري التغيير، أو يطلب منك أن تقرر."
+    - title: "تسليم الكود للمطوّر"
+      body: "تحمل مطالبة الوكيل رموز التصميم وملفات الصفحة والتعليمات التي يحتاجها وكيل البرمجة لبنائها في موقعك."
+integrations:
+  heading: "اربط Design بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "ابدأ من علامتك"
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: "أنشئ نظام التصميم من ملف Figma أو من كود موقعك على GitHub، فتبدأ كل صفحة إطلاق بهوية علامتك."
+    - title: "سلّمه لوكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: "الصق مطالبة الوكيل في Claude Code أو Codex أو Cursor، فيحوّل الصفحة إلى كود لموقعك."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Design"
+  cards:
+    - title: "حوّل موجزك إلى نموذج أولي قابل للنقر"
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: "اصنع نموذجًا أوليًا لشاشة جديدة أو مسار منتج من موجز التصميم، ثم تنقّل فيه مع فريقك."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Design مجاني؟"
+      a: "نعم، Agent-Native Design مجاني ومفتوح المصدر. يحتاج بناء الصفحة إلى اتصال بالذكاء الاصطناعي، إما عبر أرصدة Builder.io للذكاء الاصطناعي أو مفتاح الذكاء الاصطناعي الخاص بك، فاستخدام الذكاء الاصطناعي ليس بلا حدود. لا يزال Design في مرحلة ألفا، فتوقّع تغييرات مع تطوّره."
+    - q: "هل ينشر Design صفحة الهبوط أو يستضيفها؟"
+      a: "لا. يصنع Design صفحة الهبوط ويصدّرها، وتنشرها أنت بالأدوات التي تستخدمها اليوم. نزّل HTML أو ملف ZIP بالملفات، أو انسخ مطالبة يستخدمها وكيل البرمجة لإضافة الصفحة إلى موقعك."
+    - q: "هل يمكنني استخدام هوية علامتي؟"
+      a: "نعم. أنشئ نظام تصميم من ملف Figma أو موقعك أو مستودع GitHub أو ملفات ترفعها، واختره عند بدء صفحة. ويحافظ الوكيل على ألوانه وخطوطه وأنماطه في كل نسخة يصنعها."
+    - q: "هل يمكنني تعديل صفحة الهبوط بعد أن يصنعها الذكاء الاصطناعي؟"
+      a: "نعم. غيّر النصوص والألوان والمسافات والتخطيط بيدك على الصفحة، أو اطلب من الوكيل تغيير قسم. ويمكنك استعادة نسخة سابقة من **سجل الإصدارات** في أي وقت."
+    - q: "ماذا أحصل عليه عند تصدير صفحة الهبوط؟"
+      a: "يعطيك **تنزيل HTML** ملفًا واحدًا يفتح في أي متصفح ويحمّل أنماطه عبر الإنترنت. ويضم **تنزيل ZIP** كل ملفات الصفحة، ويعطيك **تنزيل لـ Figma ‏(SVG)** طبقات يمكنك تعديلها في Figma. وتسرد الوثائق [كل خيارات التصدير](https://www.agent-native.com/docs/template-design-features/#export)."
+    - q: "كيف يختلف Design عن طلب صفحة هبوط من روبوت محادثة؟"
+      a: "يعطيك روبوت المحادثة كودًا تلصقه في مكان ما قبل أن ترى الصفحة. أما في Design، فيبني الوكيل الصفحة في محرر تراه وتنقر فيه، وبعدة نسخ. وتغيّرها بيدك أو بالطلب، على الصفحة نفسها. وهذا [تطبيق وكيلي](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

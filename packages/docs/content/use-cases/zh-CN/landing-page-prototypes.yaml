@@ -1,0 +1,98 @@
+template: v2
+slug: landing-page-prototypes
+app: design
+title: 把发布简报变成落地页原型
+seo_title: 为你的发布打造 AI 落地页原型
+meta_description: 把发布简报交给 Agent-Native Design，就能得到几版符合品牌的落地页，可以点击试用、比较，并导出为 HTML。免费且开源。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design 会按你的品牌并排生成几个版本。手动或通过提问编辑你选中的那版，再下载成 HTML 文件添加到你的网站。
+  button:
+    label: 设计你的页面
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: Design 编辑器中打开的 Product-first 版本，这是 Ledgerlane 当日承包商付款功能的发布页面，显示在桌面端和移动端画框中。左侧的 agent 聊天里显示发布简报、它提供的三个版本（选中了 Product-first），以及页面已经完成的说明。
+how_to:
+  heading: 如何用 AI 制作落地页原型
+  steps:
+    - title: 描述你的发布
+      body: 在 Design 首页，把发布简报粘贴到 **新设计** 框里：写清[卖点、目标人群和行动号召](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/)。也可以把简报作为文件附上，并在框下方选择你品牌的设计系统。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: Design 首页 New design 框的特写。框里输入了 Ledgerlane 当日付款功能的发布简报，附上了简报 PDF，并选中了 Ledgerlane Brand 设计系统。
+    - title: 比较几个版本
+      body: 让 agent 给出“三个版本”。每个版本都是一个独立的界面，并排放在画板上。在聊天中选定一个，agent 就会把它做成完整页面，并清除其他版本。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: 当日付款发布页面的三个版本 Product-first、Editorial 和 Proof-led 并排放在画板上。agent 聊天询问要完善哪一个，每个版本各有一个按钮。
+    - title: 导出页面 HTML
+      body: 在编辑器菜单中选择 **文件**，然后选 **导出**。**下载 HTML** 会生成一个可以在任何浏览器中打开的文件。**复制 agent 提示词** 会把编码 agent 需要的内容交给它，用来把页面接入你的网站。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: 编辑器菜单的特写，在 Product-first 发布页面上展开了 File 和 Export。选项包括 Download HTML、Download ZIP、Download for Figma (SVG) 和 Copy agent prompt。
+features:
+  heading: 设计发布页面所需的一切
+  items:
+    - title: 从简报到落地页
+      body: agent 依据简报里的表述来搭建页面，不会自己编造新的说法。简报没定的选择，它会问你，或说明它的假设。
+    - title: AI 编辑与可视化编辑
+      body: 标题、颜色或间距你可以自己改，也可以让 agent 重做某个区块。你们编辑的是同一个页面。
+    - title: 多个版本并排比较
+      body: 每个版本都有自己的风格和移动端布局，团队可以在上线前比较真正不同的方向。
+    - title: 每次发布都符合品牌
+      body: 用 Figma 文件、你的网站或代码建立一次设计系统，之后每个新的发布页面都会使用你的配色、字体和样式。
+    - title: 固定在页面上的反馈
+      body: 审阅者可以把评论固定在具体的标题或按钮上。把评论发给 agent，它会做出修改，或请你来决定。
+    - title: 交给开发者的代码交接
+      body: agent 提示词包含你的设计令牌、页面文件，以及编码 agent 把页面接入网站所需的说明。
+integrations:
+  heading: 把 Design 连接到你已经在用的工具
+  cards:
+    - title: 从你的品牌出发
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: 用 Figma 文件或 GitHub 上的网站代码建立设计系统，让每个发布页面从一开始就符合品牌。
+    - title: 交给你的编码 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: 把 agent 提示词粘贴到 Claude Code、Codex 或 Cursor 中，它就会把页面变成你网站的代码。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Design 还能做的其他事
+  cards:
+    - title: 把需求简报变成可点击的原型
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: 根据设计简报为新界面或产品流程制作原型，然后和团队一起点击试用。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Design 免费吗？
+      a: 是的，Agent-Native Design 免费且开源。生成页面需要 AI 连接，可以使用 Builder.io AI 额度，也可以用你自己的 AI 密钥，所以 AI 用量不是无限的。Design 目前处于 alpha 阶段，随着发展还会有变化。
+    - q: Design 会发布或托管我的落地页吗？
+      a: 不会。Design 负责制作并导出落地页，部署用你现在的工具完成。你可以下载 HTML 或包含所有文件的 ZIP，也可以复制一段提示词，让编码 agent 把页面添加到你的网站。
+    - q: 可以使用我自己的品牌吗？
+      a: 可以。用 Figma 文件、你的网站、GitHub 仓库或上传的文件建立设计系统，开始做页面时选中它。agent 生成的每个版本都会保留它的配色、字体和样式。
+    - q: AI 生成落地页之后，我还能编辑吗？
+      a: 可以。直接在页面上手动修改文字、颜色、间距和布局，或者让 agent 修改某个区块。你随时可以通过 **版本历史** 恢复之前的版本。
+    - q: 导出落地页时会得到什么？
+      a: "**下载 HTML** 会生成一个可以在任何浏览器中打开的文件，样式通过网络加载。**下载 ZIP** 包含页面的所有文件，**下载用于 Figma 的 SVG** 会生成可以在 Figma 中编辑的图层。文档列出了[所有导出选项](https://www.agent-native.com/docs/template-design-features/#export)。"
+    - q: Design 和让聊天机器人生成落地页有什么不同？
+      a: 聊天机器人给你一段代码，你得先把它粘贴到别处才能看到页面。在 Design 中，agent 会在一个看得见、点得动的编辑器里生成页面，而且有好几个版本。你可以手动修改，也可以通过提问修改，改的都是同一个页面。这就是[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。

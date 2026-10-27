@@ -1,0 +1,98 @@
+template: v2
+slug: landing-page-prototypes
+app: design
+title: 把上市企劃變成到達頁原型
+seo_title: 為產品上市打造的 AI 到達頁原型
+meta_description: 把上市企劃交給 Agent-Native Design，就能得到幾個符合品牌的到達頁版本，可以點擊操作、互相比較，並匯出為 HTML。免費且開源。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design 會以你的品牌風格並排做出幾個版本。手動或透過提問編輯你選中的那一個，再下載成 HTML 檔案放上你的網站。
+  button:
+    label: 設計你的頁面
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: Design 編輯器中，Ledgerlane 承包商當日付款上市頁面的 Product-first 版本，顯示在桌面版和行動版畫框中。左側的 agent 對話顯示上市企劃、它提出的三個版本（已選 Product-first），以及頁面已完成的說明。
+how_to:
+  heading: 如何用 AI 製作到達頁原型
+  steps:
+    - title: 描述你的上市內容
+      body: 在 Design 首頁把上市企劃貼到 **新設計** 框中：寫明[優惠內容、目標對象和行動呼籲](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/)。也可以把企劃附為檔案，並在框的下方選擇品牌的設計系統。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: Design 首頁「新設計」框的特寫。已輸入 Ledgerlane 當日付款的上市企劃，附上企劃的 PDF，並選了 Ledgerlane Brand 設計系統。
+    - title: 比較幾個版本
+      body: 請 agent 提出「三個版本」。每個版本都會以獨立畫面並排出現在看板上。在對話中選一個，agent 就會把它做成完整頁面，並清掉其他版本。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: 當日付款上市頁面的三個版本 Product-first、Editorial 和 Proof-led 並排在看板上。agent 對話詢問要完成哪一個，每個版本各有一個按鈕。
+    - title: 匯出頁面的 HTML
+      body: 在編輯器的選單中選擇 **檔案**，再選 **匯出**。**下載 HTML** 會給你一個在任何瀏覽器都能開啟的檔案。**複製代理提示** 則提供程式開發 agent 把頁面做進你網站所需的一切。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: 編輯器選單的特寫，「檔案」和「匯出」在 Product-first 上市頁面上方展開。選項包括「下載 HTML」、「下載 ZIP」、「下載用於 Figma 的 SVG」和「複製代理提示」。
+features:
+  heading: 設計上市頁面所需的一切
+  items:
+    - title: 從企劃到到達頁
+      body: agent 依照企劃中的主張製作，不會自創新的說法。企劃留下未決的選擇時，它會問你，或說明它的假設。
+    - title: AI 與視覺化編輯
+      body: 自己改標題、顏色或間距，或請 agent 重做某個區塊。你們編輯的是同一個頁面。
+    - title: 版本並排比較
+      body: 每個版本都有自己的外觀和行動版版面，讓團隊在上線前比較真正的設計方向。
+    - title: 每次上市都符合品牌
+      body: 從 Figma 檔案、網站或程式碼建立一次設計系統，之後每個新的上市頁面都會使用你的顏色、字型和樣式。
+    - title: 釘在頁面上的意見
+      body: 審查者把留言釘在確切的標題或按鈕上。把留言傳給 agent，它會做出那項修改，或請你決定。
+    - title: 交給開發者的程式碼
+      body: agent 提示附有你的設計權杖、頁面檔案，以及程式開發 agent 把它做進網站所需的指示。
+integrations:
+  heading: 將 Design 連接到你已在用的工具
+  cards:
+    - title: 從你的品牌開始
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: 從 Figma 檔案或網站在 GitHub 上的程式碼建立設計系統，讓每個上市頁面一開始就符合品牌。
+    - title: 交給你的程式開發 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: 把 agent 提示貼到 Claude Code、Codex 或 Cursor，它就會把頁面轉成你網站的程式碼。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Design 做的其他事
+  cards:
+    - title: 把需求說明變成可點擊的原型
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: 根據設計需求說明，為新畫面或產品流程做出原型，再和團隊一起點擊試用。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Design 是免費的嗎？
+      a: 是的，Agent-Native Design 免費且開源。製作頁面需要 AI 連線，可以透過 Builder.io AI 點數或你自己的 AI 金鑰，所以 AI 用量並非無限。Design 目前是 alpha 版，功能會隨著發展持續調整。
+    - q: Design 會發布或託管我的到達頁嗎？
+      a: 不會。Design 負責製作並匯出到達頁，你再用現有的工具部署。下載 HTML 或檔案的 ZIP，或複製一段提示，讓你的程式開發 agent 把頁面加到網站上。
+    - q: 我可以使用自己的品牌嗎？
+      a: 可以。從 Figma 檔案、你的網站、GitHub repo 或上傳的檔案建立設計系統，開始製作頁面時選擇它。agent 做的每個版本都會沿用它的顏色、字型和樣式。
+    - q: AI 做好到達頁之後，我還能編輯嗎？
+      a: 可以。在頁面上手動修改文字、顏色、間距和版面，或請 agent 修改某個區塊。你隨時都能從 **版本記錄** 還原較早的版本。
+    - q: 匯出到達頁時會得到什麼？
+      a: "**下載 HTML** 會給你一個在任何瀏覽器都能開啟、透過網路載入樣式的檔案。**下載 ZIP** 包含頁面的所有檔案，**下載用於 Figma 的 SVG** 則提供可在 Figma 中編輯的圖層。文件中列出了[所有匯出選項](https://www.agent-native.com/docs/template-design-features/#export)。"
+    - q: Design 和請聊天機器人做到達頁有什麼不同？
+      a: 聊天機器人給你的是程式碼，得先貼到某個地方才看得到頁面。在 Design 中，agent 在你看得到、點得到的編輯器裡做出頁面，而且有好幾個版本。你可以手動修改或透過提問修改，都在同一個頁面上。這就是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：擁有 agent 的智慧，也有應用程式的直覺易用。
