@@ -2210,6 +2210,19 @@ export default {
       added: "Tela adicionada",
       addFailed: "Não foi possível adicionar a tela",
     },
+    localhostConsent: {
+      approvedTitle: "Aprovado — execute a edição novamente",
+      approvedDescription:
+        "A gravação de arquivos está permitida por 8 horas. A edição que pediu acesso não foi salva.",
+      retryInChat: "Executar novamente no chat",
+      retryPrompt:
+        "A gravação de arquivos foi aprovada para {{rootPath}}. Execute novamente a edição que precisava dela.",
+      unavailableTitle: "Esta solicitação de gravação não está mais pendente",
+      unavailableDescription: "Execute a edição novamente para pedir acesso.",
+      close: "Fechar",
+      prepareSignInError:
+        "Não foi possível salvar esta solicitação antes de entrar. Tente novamente.",
+    },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",
       send: "Enviar",
