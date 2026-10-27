@@ -28,6 +28,7 @@ import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
 import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import { resolveAccess, assertAccess } from "../sharing/access.js";
+import { roleSatisfies } from "../sharing/schema.js";
 import { getSession } from "./auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "./core-routes-plugin.js";
 import { getH3App, awaitBootstrap } from "./framework-request-handler.js";
@@ -529,6 +530,7 @@ export function createCollabPlugin(
             event.context._collabMaxPayloadBytes = maxPayloadBytes;
           }
 
+          let canEdit = true;
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
@@ -586,6 +588,7 @@ export function createCollabPlugin(
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
               }
+              canEdit = roleSatisfies(access.role, "editor");
               const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
@@ -602,6 +605,8 @@ export function createCollabPlugin(
               }
             }
           }
+
+          if (event.context) event.context._collabAwarenessCanEdit = canEdit;
 
           if (isWriteAction) {
             const contentLength = Number(
