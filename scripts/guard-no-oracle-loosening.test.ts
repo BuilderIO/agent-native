@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  FIX_HINT,
   findDisabledTests,
   findOracleLoosening,
   isTestFile,
@@ -1910,6 +1911,16 @@ describe("assertions-removed", () => {
 });
 
 describe("guard command", () => {
+  it("explains the path-scoped reason required for removed snapshots", () => {
+    assert.equal(
+      FIX_HINT,
+      "  fix: restore the removed assertion or test, or add `oracle-change: <reason>` " +
+        "(10+ characters) on the flagged line or the line above, naming the " +
+        "behaviour that changed; removed snapshots and deleted files require " +
+        "`oracle-change(<old-path>): <reason>`",
+    );
+  });
+
   it("exits 2, not 0, when it cannot determine the added lines", () => {
     const result = spawnSync(
       process.execPath,

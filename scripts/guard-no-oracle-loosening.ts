@@ -72,6 +72,11 @@ import {
 } from "./lib/changed-lines.mjs";
 
 const GUARD_NAME = "guard:no-oracle-loosening";
+export const FIX_HINT =
+  "  fix: restore the removed assertion or test, or add `oracle-change: <reason>` " +
+  "(10+ characters) on the flagged line or the line above, naming the " +
+  "behaviour that changed; removed snapshots and deleted files require " +
+  "`oracle-change(<old-path>): <reason>`";
 const rootDir = path.resolve(import.meta.dirname, "..");
 
 const MIN_REASON_LENGTH = 10;
@@ -1352,11 +1357,7 @@ function main() {
       `${violation.file}:${violation.line}: ${violation.rule} — ${violation.message}`,
     );
   }
-  console.error(
-    "  fix: restore the removed assertion or test, or add `oracle-change: <reason>` " +
-      "(10+ characters) in a comment on the flagged line or the line above, naming the " +
-      "behaviour that changed; a deleted file takes `oracle-change(<path>): <reason>`",
-  );
+  console.error(FIX_HINT);
   process.exit(1);
 }
 
