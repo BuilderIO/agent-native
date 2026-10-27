@@ -16,6 +16,7 @@ import {
   claimLease,
   isLeaseHeld,
   releaseLease,
+  renewLease,
   type RecordingLease,
 } from "./recording-leases.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
@@ -125,10 +126,12 @@ function loadFrameRows(recordingId: string) {
 const fillsInFlight = new Map<string, Promise<void>>();
 
 // A clip's fill is also held as a SQL lease, so requests on other server
-// instances see it: the Map above only knows this process. Longer than a fill
-// should take; one that outlives it is duplicated, never wrong, because every
-// write is checked under the recording lock.
-const FILL_LEASE_MS = 3 * 60 * 1000;
+// instances see it: the Map above only knows this process. The fill renews it
+// as it works, so it only has to outlast one step: an instance that dies
+// mid-fill frees the clip within this long, and one slow step that outlives
+// it is duplicated, never wrong, because every write is checked under the
+// recording lock.
+const FILL_LEASE_MS = 60 * 1000;
 // How long a request waits for another instance's fill before it serves on
 // demand, and how often it looks.
 const OTHER_FILL_WAIT_MS = 10_000;
@@ -222,10 +225,10 @@ export type StoredAgentFrameLookup =
  * The stored frame for `atMs`, or the claim to fill the clip's frames. A miss
  * for a recommended timestamp while another request, here or on another
  * instance, is filling waits for that fill once and reads again, so a burst of
- * cold requests shares one video download. No claim means the store cannot
- * help and the request is served on demand: the timestamp is not one a fill
- * stores, so waiting would only queue it behind a download that cannot answer
- * it; the fill it waited for did not store its frame, so taking over would
+ * cold requests shares one video download. No claim means the request is
+ * served on demand, and stores its own frame afterwards: the timestamp is not
+ * one a fill stores, so waiting would only queue it behind a download that
+ * cannot answer it; the fill it waited for did not store its frame, so taking over would
  * repeat that whole fill once per waiter; or the store could not be read,
  * which is logged and must not turn into a queue of video downloads.
  */
@@ -483,6 +486,7 @@ async function runFill(
   mediaKey: string,
   extract: (atMs: number) => Promise<Uint8Array>,
   known: { atMs: number; frame: Uint8Array } | undefined,
+  onProgress: () => Promise<void>,
 ): Promise<void> {
   try {
     await runWithRequestContext(
@@ -496,7 +500,12 @@ async function runFill(
           loadFrameRows(recording.id),
         ]);
         const rowsByAtMs = new Map(rows.map((row) => [row.atMs, row]));
-        for (const atMs of times) {
+        await onProgress();
+        // Every recommended frame, and the requested one even when it is not:
+        // whatever an agent asks for is stored.
+        const targets =
+          known && !times.includes(known.atMs) ? [...times, known.atMs] : times;
+        for (const atMs of targets) {
           const existing = rowsByAtMs.get(atMs);
           // The requested frame reaches here only after its stored copy was
           // missed, so a current row for it points at an unreadable object.
@@ -523,22 +532,60 @@ async function runFill(
             frame,
             existing ?? null,
           );
+          await onProgress();
         }
-        // An edit or a new transcript changes which timestamps are
-        // recommended; frames at the others would otherwise stay in storage,
-        // and in the hosted quota, until the recording is deleted. Only while
-        // this fill's media is still the recording's, so a stale fill never
-        // prunes what a newer one recorded.
+        // An edit changes the media key, so frames cut before it are never
+        // served again; they would otherwise stay in storage, and in the
+        // hosted quota, until the recording is deleted. Only while this
+        // fill's media is still the recording's, so a stale fill never prunes
+        // what a newer one recorded. Frames just replaced above are skipped.
         if (!(await isMediaCurrent(recording, mediaKey))) return;
-        const wanted = new Set(times);
+        const filled = new Set(targets);
         for (const row of rows) {
-          if (!wanted.has(row.atMs)) await deleteFrameRow(recording, row);
+          if (row.mediaKey !== mediaKey && !filled.has(row.atMs)) {
+            await deleteFrameRow(recording, row);
+          }
         }
       },
     );
   } catch (error) {
     console.warn("[agent-frame-store] frame fill skipped", {
       recordingId: recording.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Stores a frame a request cut on demand, for a request that holds no claim:
+ * its timestamp is not one a fill stores, or another fill is running. Runs as
+ * the clip's owner and never rejects: the caller already has the frame to
+ * serve.
+ */
+export async function storeRequestedAgentFrame(
+  recording: PublicAgentRecording,
+  atMs: number,
+  frame: Uint8Array,
+): Promise<void> {
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail,
+        ...(recording.orgId ? { orgId: recording.orgId } : {}),
+      },
+      () =>
+        storeAgentFrame(
+          recording,
+          agentFrameMediaKey(recording),
+          atMs,
+          frame,
+          null,
+        ),
+    );
+  } catch (error) {
+    console.warn("[agent-frame-store] requested frame not stored", {
+      recordingId: recording.id,
+      atMs,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -571,11 +618,23 @@ function claimFill(
       });
     }
   };
+  const renew = async () => {
+    if (!lease) return;
+    try {
+      await renewLease(lease, FILL_LEASE_MS);
+    } catch (error) {
+      // Only costs other instances the chance to see this fill.
+      console.warn("[agent-frame-store] fill lease not renewed", {
+        recordingId: recording.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   return {
     claim: {
       fill: async (extract, known) => {
         try {
-          await runFill(recording, mediaKey, extract, known);
+          await runFill(recording, mediaKey, extract, known, renew);
         } finally {
           await release();
         }

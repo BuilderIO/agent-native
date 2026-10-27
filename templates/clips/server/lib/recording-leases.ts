@@ -42,6 +42,24 @@ export async function releaseLease(lease: RecordingLease): Promise<void> {
   });
 }
 
+/**
+ * Push our own lease's expiry out. False when it is no longer ours: it
+ * expired and was retaken, which a long-running holder may carry on through.
+ */
+export async function renewLease(
+  lease: RecordingLease,
+  ttlMs: number,
+): Promise<boolean> {
+  const now = Date.now();
+  const result = await getDbExec().execute({
+    sql: `UPDATE ${TABLE} SET expires_at = $1
+      WHERE lease_key = $2 AND holder = $3 AND expires_at > $4
+      RETURNING holder`,
+    args: [now + ttlMs, lease.key, lease.token, now],
+  });
+  return result.rows.length > 0;
+}
+
 /** Whether anyone holds the lease right now; an expired lease is not held. */
 export async function isLeaseHeld(key: string): Promise<boolean> {
   const result = await getDbExec().execute({

@@ -26,6 +26,7 @@ import {
 import {
   clampAgentFrameAtMs,
   loadStoredAgentFrame,
+  storeRequestedAgentFrame,
 } from "../../lib/agent-frame-store.js";
 import {
   ensureRecordingThumbnail,
@@ -297,11 +298,18 @@ export default defineEventHandler(async (event: H3Event) => {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
-      await claim?.fill(
-        (frameAtMs) =>
-          extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
-        { atMs, frame: resolved.frame },
-      );
+      if (claim) {
+        await claim.fill(
+          (frameAtMs) =>
+            extractJpegFrameFromFile({
+              mediaPath: media.path,
+              atMs: frameAtMs,
+            }),
+          { atMs, frame: resolved.frame },
+        );
+      } else {
+        await storeRequestedAgentFrame(recording, atMs, resolved.frame);
+      }
       applyFrameHeaders(event);
       const buffer = Buffer.from(resolved.frame);
       if (cacheable) setCachedFrame(key, buffer);

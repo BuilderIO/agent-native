@@ -32,6 +32,7 @@ import {
   countAttempt,
   isLeaseHeld,
   releaseLease,
+  renewLease,
 } from "./recording-leases.js";
 
 beforeAll(async () => {
@@ -147,6 +148,28 @@ describe("recording leases", () => {
       await claimLease("k", -1);
 
       expect(await isLeaseHeld("k")).toBe(false);
+    });
+  });
+
+  describe("renewLease", () => {
+    it("extends a lease we still hold", async () => {
+      const lease = await claimLease("k", 1_000);
+      if (!lease) throw new Error("expected the lease to be free");
+      const before = Number((await rows())[0]?.expires_at);
+
+      expect(await renewLease(lease, 60_000)).toBe(true);
+
+      expect(Number((await rows())[0]?.expires_at)).toBeGreaterThan(before);
+    });
+
+    it("does not touch a lease that expired and was retaken", async () => {
+      const stale = await claimLease("k", -1);
+      if (!stale) throw new Error("expected the lease to be free");
+      const taken = await claimLease("k", 60_000);
+      if (!taken) throw new Error("expected the expired lease to be free");
+
+      expect(await renewLease(stale, 60_000)).toBe(false);
+      expect((await rows())[0]?.holder).toBe(taken.token);
     });
   });
 });
