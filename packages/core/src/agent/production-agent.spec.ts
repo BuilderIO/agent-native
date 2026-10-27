@@ -11021,7 +11021,7 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("fails repeated partial action-input continuations instead of completing", async () => {
+  it("preserves usage when partial action-input continuations exhaust the limit", async () => {
     const events: AgentChatEvent[] = [];
     const run = vi.fn(async () => "should not execute");
     let streamCalls = 0;
@@ -11037,8 +11037,9 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        opts.onModelDispatchStarted?.();
         yield {
           type: "tool-input-start",
           id: `tool-edit-${streamCalls}`,
@@ -11048,6 +11049,13 @@ describe("runAgentLoop", () => {
           type: "tool-input-delta",
           id: `tool-edit-${streamCalls}`,
           text: '{"designId":"design-1"',
+        };
+        yield {
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
         };
       },
     };
@@ -11070,8 +11078,17 @@ describe("runAgentLoop", () => {
         maxContinuations: 3,
       }),
     ).rejects.toMatchObject({
-      errorCode: "agent_run_no_output",
+      errorCode: "run_budget_exhausted",
       providerRetryable: false,
+      message: expect.stringContaining("continuation limit"),
+      usage: {
+        inputTokens: 30,
+        outputTokens: 6,
+        cacheReadTokens: 9,
+        cacheWriteTokens: 3,
+        model: "test-model",
+        usageReported: true,
+      },
     });
 
     expect(streamCalls).toBe(3);

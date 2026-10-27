@@ -1228,6 +1228,9 @@ export async function resolveMcpOAuthCredentialAccess(options: {
                 ? { refresh_token: credentials.tokens.refresh_token }
                 : {}),
           };
+          if (refreshed.expires_in === undefined) {
+            delete nextTokens.expires_in;
+          }
           const expiresAt = tokenExpiresAt(nextTokens);
           const next: McpOAuthCredentialAccessBundle = {
             ...credentials,

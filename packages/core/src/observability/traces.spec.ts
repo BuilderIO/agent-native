@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { observabilityConfig } from "../app-config/observability.js";
 import {
@@ -385,6 +386,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generation!.properties?.status).toBe("success");
     expect(generation!.properties?.["$ai_is_error"]).toBe(false);
     expect(generation!.properties).not.toHaveProperty("terminal_state");
+  });
+
+  it("finalizes run-level trace usage carried by incomplete-run errors", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    const usage = {
+      inputTokens: 24,
+      outputTokens: 8,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 1,
+      model: "claude-test",
+      llmCalls: 2,
+      usageReported: true,
+    };
+    const error = new IncompleteAgentRunError(
+      {
+        code: "run_budget_exhausted",
+        message:
+          "This run reached its continuation limit before it could finish.",
+      },
+      usage,
+    );
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async () => {
+          throw error;
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-incomplete-usage",
+        threadId: "thread-incomplete-usage",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      }),
+    ).rejects.toBe(error);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      spans.find((span) => span.name === "invoke_agent")?.attributes,
+    ).toMatchObject({
+      "agent.llm_calls": 2,
+      "gen_ai.usage.input_tokens": 24,
+      "gen_ai.usage.output_tokens": 8,
+    });
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties,
+    ).toMatchObject({
+      input_tokens: 24,
+      output_tokens: 8,
+      llm_calls: 2,
+    });
   });
 
   it.each([

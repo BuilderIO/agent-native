@@ -8,6 +8,7 @@ import type {
   AgentLoopOutcome,
   AgentLoopUsage,
 } from "../agent/production-agent.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { captureError } from "../server/capture-error.js";
@@ -1285,6 +1286,7 @@ export async function instrumentAgentLoop(opts: {
       }),
     );
   } catch (err: any) {
+    if (err instanceof IncompleteAgentRunError) usage = err.usage;
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
     errorMessage = redactCapturedError(

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const analyticsMock = vi.hoisted(() => ({ trackEvent: vi.fn() }));
+const analyticsMock = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
+  isTrackingContentCaptureEnabled: vi.fn(() => true),
+}));
 vi.mock("../analytics.js", () => analyticsMock);
 
 import {
@@ -9,7 +12,10 @@ import {
   setAnalyticsSessionId,
 } from "../analytics-session.js";
 import { buildSafePromptMetadata } from "./prompt-metadata.js";
-import { trackTurnSubmitted } from "./turn-submitted-telemetry.js";
+import {
+  trackRoutedTurnSubmitted,
+  trackTurnSubmitted,
+} from "./turn-submitted-telemetry.js";
 import {
   acceptedPromptForMetadata,
   TURN_SUBMITTED_EVENT,
@@ -29,6 +35,10 @@ beforeEach(() => {
   vi.stubGlobal("window", { localStorage: createMemoryStorage() });
   vi.stubGlobal("document", { cookie: "" });
   vi.stubGlobal("sessionStorage", createMemoryStorage());
+  analyticsMock.isTrackingContentCaptureEnabled
+    .mockReset()
+    .mockReturnValue(true);
+  analyticsMock.trackEvent.mockReset();
 });
 
 afterEach(() => {
@@ -148,6 +158,93 @@ describe("safe prompt metadata", () => {
       }),
     );
     expect(JSON.stringify(send.mock.calls)).not.toContain(prompt);
+  });
+
+  it("omits prompt metadata and hashes when content capture is disabled", async () => {
+    const send = vi.fn();
+    const prompt = "Create a private local plan";
+    analyticsMock.isTrackingContentCaptureEnabled.mockReturnValue(false);
+
+    await trackTurnSubmitted(
+      {
+        turnId: "turn-private",
+        surface: "chat",
+        initiator: "user",
+        promptForMetadata: prompt,
+      },
+      send,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      TURN_SUBMITTED_EVENT,
+      expect.objectContaining({ turn_id: "turn-private" }),
+    );
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("prompt_category");
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("prompt_length_bucket");
+    expect(send).not.toHaveBeenCalledWith(
+      "agent_prompt_hash_recorded",
+      expect.anything(),
+    );
+    expect(JSON.stringify(send.mock.calls)).not.toContain(prompt);
+  });
+
+  it("omits routed prompt metadata and hashes when content capture is disabled", async () => {
+    const send = vi.fn();
+    const prompt = "Create a private local plan";
+    analyticsMock.isTrackingContentCaptureEnabled.mockReturnValue(false);
+
+    await trackRoutedTurnSubmitted(
+      {
+        routedTo: "builder",
+        surface: "chat",
+        promptForMetadata: prompt,
+      },
+      send,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      TURN_SUBMITTED_EVENT,
+      expect.objectContaining({ routed_to: "builder" }),
+    );
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("prompt_category");
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("prompt_length_bucket");
+    expect(send).not.toHaveBeenCalledWith(
+      "agent_prompt_hash_recorded",
+      expect.anything(),
+    );
+    expect(JSON.stringify(send.mock.calls)).not.toContain(prompt);
+  });
+
+  it("drops a prompt hash if content capture is disabled while hashing", async () => {
+    const send = vi.fn();
+    setAnalyticsSessionId("session-private-route-transition");
+    analyticsMock.isTrackingContentCaptureEnabled
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+
+    await trackTurnSubmitted(
+      {
+        turnId: "turn-route-transition",
+        surface: "chat",
+        initiator: "user",
+        promptForMetadata: "Create a plan before navigating to local plans",
+      },
+      send,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[1]).toMatchObject({
+      prompt_category: "create",
+      prompt_length_bucket: "1-50",
+    });
+    expect(send).not.toHaveBeenCalledWith(
+      "agent_prompt_hash_recorded",
+      expect.anything(),
+    );
   });
 
   it("does not classify or hash system continuations", async () => {

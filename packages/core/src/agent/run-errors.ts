@@ -6,6 +6,10 @@ export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I ran out of time before finishing this step. " +
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
+export const RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE =
+  "This run reached its continuation limit before it could finish. " +
+  "I stopped rather than keep retrying silently. " +
+  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
 export const AGENT_RUN_NO_OUTPUT_ERROR_CODE = "agent_run_no_output";
 export const AGENT_RUN_NO_OUTPUT_MESSAGE =
@@ -15,6 +19,7 @@ export function incompleteAgentRunFailure(input: {
   dispatchedModelCalls: number;
   hasVisibleText: boolean;
   hasSuccessfulToolOutput: boolean;
+  reason?: "continuation_limit";
 }): { code: string; message: string } {
   const hasNoOutput =
     input.dispatchedModelCalls === 0 &&
@@ -27,7 +32,10 @@ export function incompleteAgentRunFailure(input: {
       }
     : {
         code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+        message:
+          input.reason === "continuation_limit"
+            ? RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE
+            : RUN_BUDGET_EXHAUSTED_MESSAGE,
       };
 }
 

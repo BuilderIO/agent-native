@@ -15,6 +15,7 @@ import {
 export {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
+  RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
 } from "./run-errors.js";
 import {
   runAgentLoop,
@@ -679,6 +680,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       hasSuccessfulToolOutput: localTurnEvents.some(
         (event) => event.type === "tool_done" && event.isError !== true,
       ),
+      reason: "continuation_limit",
     });
     reportFinalOutcome({
       state: "failed",

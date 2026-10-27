@@ -387,7 +387,10 @@ import {
   type Processor,
 } from "./processors.js";
 import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
-import { incompleteAgentRunFailure } from "./run-errors.js";
+import {
+  IncompleteAgentRunError,
+  incompleteAgentRunFailure,
+} from "./run-errors.js";
 import {
   startRun,
   subscribeToRun,
@@ -11944,6 +11947,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       dispatchedModelCalls,
       hasVisibleText: turnHasVisibleText(localTurnEvents),
       hasSuccessfulToolOutput: producedToolOutput,
+      reason: "continuation_limit",
     });
     try {
       opts.onOutcome?.({
@@ -11957,10 +11961,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       // coercion-ok: outcome observers cannot change run completion.
       // Outcome observers are telemetry/protocol adapters and cannot alter the run.
     }
-    throw new EngineError(failure.message, {
-      errorCode: failure.code,
-      providerRetryable: false,
-    });
+    throw new IncompleteAgentRunError(failure, usage);
   }
   return usage;
 }

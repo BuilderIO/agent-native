@@ -29,6 +29,7 @@ import {
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
+  RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";
 import {
   AgentRunJournalUnreadableError,
@@ -851,7 +852,10 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         ),
         60_000,
       ),
-    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
+    ).rejects.toMatchObject({
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+    });
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
@@ -1266,7 +1270,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         state: "failed",
         code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
         retryable: false,
-        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+        message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
       },
     ]);
   });
@@ -1421,6 +1425,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(error).toBeInstanceOf(IncompleteAgentRunError);
     expect(error).toMatchObject({
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
       usage: {
         inputTokens: 2 * MAX_RUN_LOOP_CONTINUATIONS,
         outputTokens: 1 * MAX_RUN_LOOP_CONTINUATIONS,

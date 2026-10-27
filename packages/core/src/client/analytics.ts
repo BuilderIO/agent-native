@@ -1856,6 +1856,10 @@ export function setTrackingContentCaptureEnabled(enabled: boolean): void {
   }
 }
 
+export function isTrackingContentCaptureEnabled(): boolean {
+  return _trackingContentCaptureEnabled;
+}
+
 function syncTrackingContentCaptureForLocation(): void {
   if (!_contentCaptureForPath) return;
   setTrackingContentCaptureEnabled(

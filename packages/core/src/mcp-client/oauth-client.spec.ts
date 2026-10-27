@@ -759,6 +759,9 @@ describe("MCP OAuth client", () => {
       tokens: { access_token: "<NEW_ACCESS_TOKEN>" },
       tokenExpiresAt: undefined,
     });
+    expect(
+      (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.expires_in,
+    ).toBeUndefined();
   });
 
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {

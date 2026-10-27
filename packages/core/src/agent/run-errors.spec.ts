@@ -5,6 +5,7 @@ import {
   AGENT_RUN_NO_OUTPUT_MESSAGE,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
+  RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
   incompleteAgentRunFailure,
 } from "./run-errors.js";
 
@@ -47,4 +48,18 @@ describe("incompleteAgentRunFailure", () => {
       });
     },
   );
+
+  it("reports continuation-count exhaustion without claiming time ran out", () => {
+    expect(
+      incompleteAgentRunFailure({
+        dispatchedModelCalls: 1,
+        hasVisibleText: true,
+        hasSuccessfulToolOutput: false,
+        reason: "continuation_limit",
+      }),
+    ).toEqual({
+      code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      message: RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+    });
+  });
 });

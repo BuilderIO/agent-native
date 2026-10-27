@@ -2730,13 +2730,15 @@ describe("browser analytics pageviews", () => {
       session: { email: "dev@example.com", userId: "user-1" },
     });
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
-    const { configureTracking } = await freshAnalytics();
+    const { configureTracking, isTrackingContentCaptureEnabled } =
+      await freshAnalytics();
 
     configureTracking({
       contentCaptureForPath: (pathname) =>
         !pathname.startsWith("/local-plans/"),
       sessionReplay: true,
     });
+    expect(isTrackingContentCaptureEnabled()).toBe(true);
     await tick();
 
     history.pushState(
@@ -2744,8 +2746,10 @@ describe("browser analytics pageviews", () => {
       "",
       "/local-plans/local#bridge=http%3A%2F%2F127.0.0.1%3A60166%2Flocal-plan.json%3Ftoken%3Dprivate-token",
     );
+    expect(isTrackingContentCaptureEnabled()).toBe(false);
     await tick();
     history.pushState({}, "", "/plans");
+    expect(isTrackingContentCaptureEnabled()).toBe(true);
     await tick();
 
     const events = analyticsCalls.map(([, init]) =>

@@ -1,4 +1,4 @@
-import { trackEvent } from "../analytics.js";
+import { isTrackingContentCaptureEnabled, trackEvent } from "../analytics.js";
 import { buildSafePromptHash, summarizePrompt } from "./prompt-metadata.js";
 import {
   TURN_SUBMITTED_EVENT,
@@ -11,7 +11,9 @@ export async function trackTurnSubmitted(
   send: typeof trackEvent = trackEvent,
 ): Promise<void> {
   const prompt =
-    typeof window !== "undefined" && report.initiator !== "system"
+    typeof window !== "undefined" &&
+    report.initiator !== "system" &&
+    isTrackingContentCaptureEnabled()
       ? report.promptForMetadata?.trim()
       : undefined;
   const promptSummary = prompt ? summarizePrompt(prompt) : undefined;
@@ -37,10 +39,10 @@ export async function trackTurnSubmitted(
     return;
   }
 
-  if (!prompt) return;
+  if (!prompt || !isTrackingContentCaptureEnabled()) return;
   try {
     const promptHash = await buildSafePromptHash(prompt);
-    if (!promptHash) return;
+    if (!promptHash || !isTrackingContentCaptureEnabled()) return;
     send("agent_prompt_hash_recorded", {
       prompt_hash: promptHash,
       turn_id: report.turnId,
@@ -62,7 +64,7 @@ export async function trackRoutedTurnSubmitted(
   send: typeof trackEvent = trackEvent,
 ): Promise<void> {
   const prompt =
-    typeof window !== "undefined"
+    typeof window !== "undefined" && isTrackingContentCaptureEnabled()
       ? report.promptForMetadata?.trim()
       : undefined;
   const promptSummary = prompt ? summarizePrompt(prompt) : undefined;
@@ -83,10 +85,10 @@ export async function trackRoutedTurnSubmitted(
     return;
   }
 
-  if (!prompt) return;
+  if (!prompt || !isTrackingContentCaptureEnabled()) return;
   try {
     const promptHash = await buildSafePromptHash(prompt);
-    if (!promptHash) return;
+    if (!promptHash || !isTrackingContentCaptureEnabled()) return;
     send("agent_prompt_hash_recorded", {
       prompt_hash: promptHash,
       routed_to: report.routedTo,
