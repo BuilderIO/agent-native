@@ -852,6 +852,76 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(_collabDocRegistrySizeForTests()).toBe(0);
   });
 
+  it.each([200, 503])(
+    "publishes presence after same-page reauthentication before an old clear settles with %s",
+    async (status) => {
+      const { mock } = makeFetchMock();
+      const originalFetch = mock.getMockImplementation()!;
+      let finishClear!: (response: Response) => void;
+      const pendingUpdates: Array<(response: Response) => void> = [];
+      mock.mockImplementation((input, init) => {
+        if (String(input).endsWith("/update"))
+          return new Promise<Response>((resolve) => {
+            pendingUpdates.push(resolve);
+          });
+        if (
+          String(input).endsWith("/awareness") &&
+          init?.body &&
+          JSON.parse(String(init.body)).state === null
+        )
+          return new Promise<Response>((resolve) => {
+            finishClear = resolve;
+          });
+        return originalFetch(input, init);
+      });
+      vi.stubGlobal("fetch", mock);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { root, result } = await mountPresence();
+      const originalClient = result.ydoc!.clientID;
+      result.ydoc!.getText("pending-return").insert(0, "kept edit");
+      act(() =>
+        root.render(<Probe docId="page-lifecycle" onResult={() => {}} />),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const before = awarenessPosts(mock).length;
+      let restored: UseCollaborativeDocResult | undefined;
+      act(() =>
+        root.render(
+          <Probe
+            docId="page-lifecycle"
+            user={{ name: "Ada", email: "ada@example.test", color: "blue" }}
+            onResult={(next) => {
+              restored = next;
+            }}
+          />,
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const returned = awarenessPosts(mock)
+        .slice(before)
+        .filter((post) => post.state !== null);
+      expect(returned.length).toBeGreaterThan(0);
+      expect(returned.at(-1)!.clientId).not.toBe(originalClient);
+      expect(JSON.parse(returned.at(-1)!.state).user.email).toBe(
+        "ada@example.test",
+      );
+      expect(restored?.ydoc?.getText("pending-return").toString()).toBe(
+        "kept edit",
+      );
+      await act(async () => {
+        for (const resolve of pendingUpdates)
+          resolve(new Response("{}", { status: 200 }));
+        finishClear(new Response("{}", { status }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(error.mock.calls.length).toBe(status === 503 ? 1 : 0);
+    },
+  );
+
   it("creates a new awareness client identity when the authenticated user changes", async () => {
     const { mock } = makeFetchMock();
     vi.stubGlobal("fetch", mock);

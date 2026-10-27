@@ -466,18 +466,11 @@ class CollabDocConnection {
     this.stopSync();
     const clear = this.clearPresence();
     this.awareness.setLocalState(null);
+    this.dispose();
     if (!clear) return;
-    try {
-      const response = await clear;
-      if (!response.ok) {
-        throw new Error(`Awareness clear returned HTTP ${response.status}`);
-      }
-    } finally {
-      forgetAwarenessClientSequence(
-        this.baseUrl,
-        this.docId,
-        this.ydoc.clientID,
-      );
+    const response = await clear;
+    if (!response.ok) {
+      throw new Error(`Awareness clear returned HTTP ${response.status}`);
     }
   }
 
