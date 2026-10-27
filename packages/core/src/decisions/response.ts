@@ -5,6 +5,8 @@ import type {
   DecisionQuestion,
 } from "./types.js";
 
+const SCORE_PROBABILITY_SUM_TOLERANCE = 1e-6;
+
 export class DecisionResponseError extends Error {
   constructor(readonly reason: "invalid_response" | "refusal") {
     super(`Decision provider returned ${reason}.`);
@@ -77,6 +79,9 @@ function parseJevScoreProbabilities(
     throw new DecisionResponseError("invalid_response");
   }
 
+  const usesIndexKeys = question.levels.every((_, index) =>
+    Object.hasOwn(probabilitiesValue, String(index)),
+  );
   const probabilitiesByLevel = new Map<number, number>();
   for (const key of keys) {
     const legend = legendValue[key];
@@ -85,25 +90,30 @@ function parseJevScoreProbabilities(
       throw new DecisionResponseError("invalid_response");
     }
 
-    const matchingLevels = new Set<number>();
-    const addMatchingLevel = (value: string): void => {
-      const index = question.levels.findIndex(
-        ({ label, description }) =>
-          value === label || value === `${label}: ${description}`,
-      );
-      if (index >= 0) matchingLevels.add(index);
-    };
-    addMatchingLevel(legend);
+    let index: number;
+    if (usesIndexKeys) {
+      index = Number(key);
+    } else {
+      const matchingLevels = new Set<number>();
+      const addMatchingLevel = (value: string): void => {
+        const matchingIndex = question.levels.findIndex(
+          ({ label, description }) =>
+            value === label || value === `${label}: ${description}`,
+        );
+        if (matchingIndex >= 0) matchingLevels.add(matchingIndex);
+      };
+      addMatchingLevel(legend);
 
-    if (matchingLevels.size !== 1) {
-      throw new DecisionResponseError("invalid_response");
+      if (matchingLevels.size !== 1) {
+        throw new DecisionResponseError("invalid_response");
+      }
+      const matchingLevel = matchingLevels.values().next();
+      if (matchingLevel.done) {
+        throw new DecisionResponseError("invalid_response");
+      }
+      index = matchingLevel.value;
     }
-    const matchingLevel = matchingLevels.values().next();
-    if (matchingLevel.done) {
-      throw new DecisionResponseError("invalid_response");
-    }
-    const { value: index } = matchingLevel;
-    if (probabilitiesByLevel.has(index)) {
+    if (index >= question.levels.length || probabilitiesByLevel.has(index)) {
       throw new DecisionResponseError("invalid_response");
     }
     probabilitiesByLevel.set(index, p);
@@ -117,13 +127,29 @@ function parseJevScoreProbabilities(
   if (probabilities.every(({ probability: p }) => p === 0)) {
     throw new DecisionResponseError("invalid_response");
   }
+  const totalProbability = probabilities.reduce(
+    (total, { probability: p }) => total + p,
+    0,
+  );
+  if (
+    !Number.isFinite(totalProbability) ||
+    Math.abs(totalProbability - 1) > SCORE_PROBABILITY_SUM_TOLERANCE
+  ) {
+    throw new DecisionResponseError("invalid_response");
+  }
+  const normalizedProbabilities = probabilities.map(
+    ({ value, probability: p }) => ({
+      value,
+      probability: p / totalProbability,
+    }),
+  );
 
   return {
-    score: probabilities.reduce(
+    score: normalizedProbabilities.reduce(
       (expectedIndex, { value, probability: p }) => expectedIndex + value * p,
       0,
     ),
-    probabilities,
+    probabilities: normalizedProbabilities,
   };
 }
 
