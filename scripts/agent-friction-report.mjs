@@ -4326,7 +4326,7 @@ const PATTERNS = [
     key: "feedback-eyes-missed",
     label: "Had to demand correct 👀 ownership and release",
     fixedBy:
-      ".agents/skills/review-latest-feedback + feedback:inventory-check exact-root and owned-mark reconciliation (2026-10-16)",
+      ".agents/skills/review-latest-feedback (every 👀 closes with ✅ or 🎫 plus a reply in the same run, 2026-10-26)",
     re: FEEDBACK_EYES_RE,
   },
   {
@@ -4334,7 +4334,7 @@ const PATTERNS = [
     label:
       "Had to ask for checkmark/ticket reactions matching feedback outcomes",
     fixedBy:
-      ".agents/skills/review-latest-feedback + feedback:inventory-check per-scope ✅, owned-mark, completed-handoff, and exact status checks (2026-10-16)",
+      ".agents/skills/review-latest-feedback (reaction contract table, 2026-10-26)",
     re: FEEDBACK_STATUS_REACTIONS_RE,
   },
   {
@@ -4361,7 +4361,7 @@ const PATTERNS = [
     key: "e2e-issue-fanout",
     label: "Had to stop per-test E2E issue creation",
     fixedBy:
-      ".agents/skills/review-latest-feedback/references/ci-red-report.md (2026-10-08)",
+      ".agents/skills/review-latest-feedback (one grouped #qa-agent-native message per run, 2026-10-26)",
     re: E2E_ISSUE_FANOUT_RE,
     lineSensitive: true,
   },
@@ -4369,21 +4369,21 @@ const PATTERNS = [
     key: "feedback-channel-coverage",
     label: "Had to ask for feedback-channel or parent-report coverage",
     fixedBy:
-      "feedback:inventory-check required independent source-receipt parity + review-latest-feedback channel-inventory procedure (2026-10-17)",
+      ".agents/skills/review-latest-feedback (open 👀 items first, then each channel read to the window start, 2026-10-26)",
     re: FEEDBACK_CHANNEL_COVERAGE_RE,
   },
   {
     key: "feedback-sweep-unbounded",
     label: "Had to stop an open-ended feedback sweep",
     fixedBy:
-      ".agents/skills/review-latest-feedback/references/channel-inventory.md + feedback:inventory-check fixed window and bounded retry (2026-10-20)",
+      ".agents/skills/review-latest-feedback (5-day window, 15-minute collect budget, 2026-10-26)",
     re: FEEDBACK_SWEEP_LIFETIME_RE,
   },
   {
     key: "feedback-attachment-coverage",
     label: "Had to ask the feedback sweep to preserve attachment-only evidence",
     fixedBy:
-      "feedback:inventory-check thread attachment metadata + review-latest-feedback attachment inspection guidance (2026-10-16)",
+      ".agents/skills/review-latest-feedback (open screenshots and attachments first, 2026-10-26)",
     re: FEEDBACK_ATTACHMENT_COVERAGE_RE,
   },
   {
