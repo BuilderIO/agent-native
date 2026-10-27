@@ -102,7 +102,7 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  const row = rows[0];
+  const row = rows.values().next().value;
   if (!row) return null;
   const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
   if (
