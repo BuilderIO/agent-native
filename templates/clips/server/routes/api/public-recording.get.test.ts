@@ -959,6 +959,7 @@ describe("/api/public-recording route", () => {
     "12:30:00",
     "123",
     "2030-01-01T00:00:00+23:00",
+    "2030-01-01T00:00:00.1234567Z",
   ])(
     "refuses unavailable expiry %s before exposing counts",
     async (expiresAt) => {
@@ -992,37 +993,39 @@ describe("/api/public-recording route", () => {
     },
   );
 
-  it.each(["2020-01-01T00:00:00.000Z", "not-a-date", "2030-02-30T12:00:00Z"])(
-    "keeps owner previews available for expiry %s",
-    async (expiresAt) => {
-      const event = { setCookies: [] as unknown[] };
-      mockGetSession.mockResolvedValue({
-        email: "OWNER@example.com",
-        orgId: "org-1",
-      });
-      mockResolveAccess.mockResolvedValue({
-        role: "owner",
-        resource: makeRecording({ expiresAt }),
-      });
-      mockGetDb.mockReturnValue(
-        createDbWithSelectResults([
-          [makeRecording({ expiresAt })],
-          [],
-          [],
-          [],
-          [],
-        ]),
-      );
+  it.each([
+    "2020-01-01T00:00:00.000Z",
+    "not-a-date",
+    "2030-02-30T12:00:00Z",
+    "2030-01-01T00:00:00.1234567Z",
+  ])("keeps owner previews available for expiry %s", async (expiresAt) => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetSession.mockResolvedValue({
+      email: "OWNER@example.com",
+      orgId: "org-1",
+    });
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: makeRecording({ expiresAt }),
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ expiresAt })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
 
-      const result = await handler(
-        event as unknown as Parameters<typeof handler>[0],
-      );
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
 
-      expect(result).toMatchObject({
-        recording: { id: "rec-1" },
-        viewer: { role: "owner", canOpenDashboard: true },
-      });
-      expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
-    },
-  );
+    expect(result).toMatchObject({
+      recording: { id: "rec-1" },
+      viewer: { role: "owner", canOpenDashboard: true },
+    });
+    expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+  });
 });

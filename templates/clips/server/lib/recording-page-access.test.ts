@@ -16,6 +16,8 @@ describe("isRecordingExpired", () => {
 
   it.each([
     "2026-07-15T12:00:00.001Z",
+    "2026-07-16T12:00:00.1Z",
+    "2026-07-16T12:00:00.123456Z",
     "2026-07-16",
     "2026-07-16T12:00:00",
     "2026-07-15T11:00:00-02:00",
@@ -40,6 +42,7 @@ describe("isRecordingExpiredForViewer", () => {
     "12:30:00",
     "123",
     "2030-01-01T00:00:00+23:00",
+    "2030-01-01T00:00:00.1234567Z",
   ])(
     "withholds malformed expiry %s from viewers while preserving owner previews",
     (expiresAt) => {

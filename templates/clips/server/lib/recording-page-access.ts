@@ -1,8 +1,11 @@
 import { z } from "zod";
 
-// PostgreSQL datetime offsets stop at 15:59; legacy reads must agree with search.
+// SQL/JSON datetime supports at most six fractional digits and 15:59 offsets.
+const expiryDate = z.regexes.date.source.slice(1, -1);
+const expiryTime = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d{1,6})?)?";
+const expiryZone = "(?:Z|[+-](?:0\\d|1[0-5]):[0-5]\\d)?";
 export const RECORDING_EXPIRY_PATTERN = new RegExp(
-  `^(?!.*[+-](?:1[6-9]|2[0-3]):[0-5]\\d$)(?:${z.regexes.date.source}|${z.regexes.datetime({ offset: true, local: true }).source})$(?![\\s\\S])`,
+  `^${expiryDate}(?:T${expiryTime}${expiryZone})?$(?![\\s\\S])`,
 );
 
 export type RecordingPageAccessRole =

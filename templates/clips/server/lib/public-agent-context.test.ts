@@ -316,6 +316,7 @@ describe("public agent context access", () => {
     "12:30:00",
     "123",
     "2030-01-01T00:00:00+23:00",
+    "2030-01-01T00:00:00.1234567Z",
   ])(
     "withholds public agent reads with malformed expiry %s",
     async (expiresAt) => {

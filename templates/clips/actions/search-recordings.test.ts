@@ -137,6 +137,11 @@ describe("recording search with PostgreSQL queries", () => {
         { email: "viewer@example.test", expiresAt: now, visible: true },
         {
           email: "viewer@example.test",
+          expiresAt: "2026-07-16T12:00:00.123456Z",
+          visible: true,
+        },
+        {
+          email: "viewer@example.test",
           expiresAt: "2026-07-16",
           visible: true,
         },
@@ -196,6 +201,7 @@ describe("recording search with PostgreSQL queries", () => {
         "2030-02-30T12:00:00Z",
         "12:30:00",
         "2030-01-01T00:00:00+23:00",
+        "2030-01-01T00:00:00.1234567Z",
       ])(
         "keeps valid matches available beside malformed expiry %s",
         async (expiresAt) => {
