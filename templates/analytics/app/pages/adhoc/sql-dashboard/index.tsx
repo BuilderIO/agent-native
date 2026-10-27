@@ -118,6 +118,8 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useDashboardChatContext,
+  useDashboardPanelSelectable,
+  type DashboardChatContextResult,
   type DashboardPanelChatContextArgs,
   type SelectDashboardPanelOptions,
 } from "@/hooks/use-dashboard-chat-context";
@@ -336,6 +338,7 @@ const PanelCell = memo(function PanelCell({
   selectedForChat,
   highlighted,
   selectPanelForChat,
+  panelSelectionTarget,
   onRemovePanel,
   onEditPanel,
   onSaveSql,
@@ -359,6 +362,7 @@ const PanelCell = memo(function PanelCell({
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
   ) => void;
+  panelSelectionTarget: DashboardChatContextResult["panelSelectionTarget"];
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSaveSql: (panelId: string, sql: string) => Promise<void>;
@@ -459,28 +463,33 @@ const PanelCell = memo(function PanelCell({
       ),
     [panel.sql, effectiveVars],
   );
+  const panelArgs = useMemo<DashboardPanelChatContextArgs>(
+    () => ({
+      panelId: panel.id,
+      panelTitle: panel.title,
+      panelKind:
+        panel.chartType === "table"
+          ? "table"
+          : panel.chartType === "extension"
+            ? "extension"
+            : "chart",
+      chartType: panel.chartType,
+      source: panel.source,
+      extensionId:
+        panel.chartType === "extension" ? panel.config?.extensionId : undefined,
+    }),
+    [panel],
+  );
+  useDashboardPanelSelectable(
+    panelSelectionTarget,
+    panelArgs,
+    () => cellRef.current,
+  );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
-      const extensionId =
-        panel.chartType === "extension" ? panel.config?.extensionId : undefined;
-      selectPanelForChat(
-        {
-          panelId: panel.id,
-          panelTitle: panel.title,
-          panelKind:
-            panel.chartType === "table"
-              ? "table"
-              : panel.chartType === "extension"
-                ? "extension"
-                : "chart",
-          chartType: panel.chartType,
-          source: panel.source,
-          extensionId,
-        },
-        options,
-      );
+      selectPanelForChat(panelArgs, options);
     },
-    [panel, selectPanelForChat],
+    [panelArgs, selectPanelForChat],
   );
 
   const measuredHeight = () =>
@@ -1056,14 +1065,15 @@ function SqlDashboardPageContent({
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
-  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
-    id: reportScreenshot ? null : dashboardId,
-    kind: "sql",
-    title: dashboard?.name,
-    panelCount: dashboard?.panels.length,
-    canEdit,
-    editing,
-  });
+  const { selectedPanelIds, selectPanelForChat, panelSelectionTarget } =
+    useDashboardChatContext({
+      id: reportScreenshot ? null : dashboardId,
+      kind: "sql",
+      title: dashboard?.name,
+      panelCount: dashboard?.panels.length,
+      canEdit,
+      editing,
+    });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -3489,9 +3499,12 @@ function SqlDashboardPageContent({
                                 eagerLoad={reportScreenshot}
                                 reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
-                                selectedForChat={selectedPanelId === panel.id}
+                                selectedForChat={selectedPanelIds.includes(
+                                  panel.id,
+                                )}
                                 highlighted={highlightedTileId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
+                                panelSelectionTarget={panelSelectionTarget}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSaveSql={handleSaveSql}

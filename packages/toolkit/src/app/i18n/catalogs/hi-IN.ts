@@ -515,6 +515,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "दोहराया जाने वाला कार्य बनाएँ: ",
   "composer.selectedReferences": "चुने गए संदर्भ",
   "composer.sendMessage": "संदेश भेजें",
+  "composer.select": "चुनें",
+  "composer.selectContextFull":
+    "संदर्भ भर गया है। दूसरा आइटम चुनने से पहले एक आइटम हटाएँ।",
+  "composer.selectContextTooLarge":
+    "यह ऑब्जेक्ट संदर्भ के रूप में जोड़ने के लिए बहुत बड़ा है।",
   "composer.skill.added": 'स्किल "{{name}}" जोड़ दी गई',
   "composer.skill.back": "वापस",
   "composer.skill.content": "सामग्री",

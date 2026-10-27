@@ -5079,6 +5079,49 @@ describe("server/auth", () => {
       );
     });
 
+    it("renders the sign-in page for the request that shows it, not at mount", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const renderSignInPage = vi.fn(() => '<main data-qa="sign-in"></main>');
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        marketing: {
+          appName: "Calendar",
+          tagline: "Coordinate your calendar.",
+        },
+        renderSignInPage,
+      });
+
+      expect(renderSignInPage).not.toHaveBeenCalled();
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      expect(await (result as Response).text()).toContain(
+        '<main data-qa="sign-in"></main>',
+      );
+      expect(renderSignInPage).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps the cached login document independent of workspace mount", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
@@ -5630,6 +5673,103 @@ describe("server/auth", () => {
       expect(warnSpy).not.toHaveBeenCalled();
 
       warnSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    it("leaves the auto dev account for the first browser after probes and AUTH_DISABLED review", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => ({}));
+      const signInEmail = vi.fn(async () => ({ token: "dev-token" }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail,
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        loginHtml: "<!doctype html><title>QA login</title>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const createLoopbackEvent = (
+        path: string,
+        headers: Record<string, string>,
+      ) => {
+        const event = createMockEvent({ path, headers });
+        const socket = { remoteAddress: "127.0.0.1" };
+        event.req.context = { clientAddress: "127.0.0.1" };
+        event.req.ip = "127.0.0.1";
+        event.node.req.socket = socket;
+        event.node.req.connection = socket;
+        return event;
+      };
+
+      const browserHeaders = {
+        accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+        "sec-fetch-dest": "document",
+      };
+
+      // A review browser while AUTH_DISABLED is on already runs as the dev
+      // account and must not create it.
+      vi.stubEnv("AUTH_DISABLED", "1");
+      expect(
+        await guard(createLoopbackEvent("/dispatch/overview", browserHeaders)),
+      ).toBeUndefined();
+      expect(signUpEmail).not.toHaveBeenCalled();
+      vi.stubEnv("AUTH_DISABLED", "");
+
+      // `curl -sL` sends `Accept: */*` and no Sec-Fetch headers.
+      const probe = { accept: "*/*" };
+      expect(
+        await guard(createLoopbackEvent("/dispatch/overview", probe)),
+      ).toBeUndefined();
+      const probedSignIn = await guard(
+        createLoopbackEvent(
+          "/dispatch/_agent-native/sign-in?return=%2Fdispatch%2Foverview",
+          probe,
+        ),
+      );
+      expect((probedSignIn as Response).status).toBe(200);
+      expect(await (probedSignIn as Response).text()).toContain("QA login");
+      expect(signUpEmail).not.toHaveBeenCalled();
+
+      const browser = await guard(
+        createLoopbackEvent("/dispatch/overview", browserHeaders),
+      );
+      expect((browser as Response).status).toBe(302);
+      expect((browser as Response).headers.get("location")).toBe(
+        "/dispatch/overview",
+      );
+      expect(signUpEmail).toHaveBeenCalledTimes(1);
+      expect(signInEmail).toHaveBeenCalledTimes(1);
+
       logSpy.mockRestore();
     });
 

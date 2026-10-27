@@ -30,6 +30,8 @@ export interface VoiceButtonProps {
   disabled?: boolean;
   /** Overrides for the trigger, such as the larger primary-slot size. */
   className?: string;
+  /** Show a live voice-chat session's controls in this slot (default: true). */
+  voiceChat?: boolean;
 }
 
 /**
@@ -42,11 +44,12 @@ export function VoiceButton({
   isMac,
   disabled,
   className,
+  voiceChat = true,
 }: VoiceButtonProps) {
   const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
 
-  if (realtimeVoice?.active) {
+  if (voiceChat && realtimeVoice?.active) {
     return <ActiveVoiceChatControls voice={realtimeVoice} />;
   }
   if (!voice.supported) return null;
