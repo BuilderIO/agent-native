@@ -2804,10 +2804,18 @@ describe("ownership history adapter", () => {
       });
     let hideStatus: number;
     let hideBodies: unknown[];
+    let hideScopes: (string | null)[];
+    const undo = () => {
+      const [, options] = toasts.toast.mock.calls[0]!;
+      act(() => {
+        (options as { action: { onClick: () => void } }).action.onClick();
+      });
+    };
 
     beforeEach(() => {
       hideStatus = 200;
       hideBodies = [];
+      hideScopes = [];
       toasts.toast.mockClear();
       toasts.toast.error.mockClear();
       toasts.toast.dismiss.mockClear();
@@ -2817,6 +2825,7 @@ describe("ownership history adapter", () => {
         if (!hide) return pageResponse(urlValue);
         const { hidden } = JSON.parse(String(init?.body));
         hideBodies.push({ id: hide[1], hidden });
+        hideScopes.push(url.searchParams.get("scopeId"));
         if (hideStatus !== 200)
           return new Response("refused", { status: hideStatus });
         shared = hidden
@@ -2951,6 +2960,93 @@ describe("ownership history adapter", () => {
         { id: "hidden", hidden: false },
       ]);
       expect(ids("shared")).toEqual(["beta-match"]);
+    });
+
+    it("sends Undo to the scope the chat was hidden from", async () => {
+      shared = [row("hidden", { accessBasis: "organization" })];
+      sharedBeforeHide = shared;
+      await render({
+        apiUrl: "/test-chat",
+        scope: { type: "project", id: "a" },
+      });
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await render({
+        apiUrl: "/test-chat",
+        scope: { type: "project", id: "b" },
+      });
+      await settle();
+
+      undo();
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      expect(hideScopes).toEqual(["a", "a"]);
+      expect(toasts.toast.error).not.toHaveBeenCalled();
+    });
+
+    it("still brings a chat back when Undo comes after the list closes", async () => {
+      shared = [row("hidden", { accessBasis: "organization" })];
+      sharedBeforeHide = shared;
+      await render({ apiUrl: "/test-chat" });
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await act(async () => {
+        root.render(null);
+      });
+
+      undo();
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      expect(toasts.toast.error).not.toHaveBeenCalled();
+      await render({ apiUrl: "/test-chat" });
+      expect(ids("shared")).toEqual(["hidden"]);
+    });
+
+    it("shows a chat brought back while its view was hidden", async () => {
+      shared = [row("hidden", { accessBasis: "organization" })];
+      sharedBeforeHide = shared;
+      await renderActivity({ apiUrl: "/test-chat" }, "visible");
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await renderActivity({ apiUrl: "/test-chat" }, "hidden");
+
+      undo();
+      await settle();
+      expect(hideBodies).toEqual([
+        { id: "hidden", hidden: true },
+        { id: "hidden", hidden: false },
+      ]);
+      await renderActivity({ apiUrl: "/test-chat" }, "visible");
+      await settle();
+      expect(ids("shared")).toEqual(["hidden"]);
+    });
+
+    it("says so when Undo fails after the list closes", async () => {
+      shared = [row("hidden", { accessBasis: "organization" })];
+      sharedBeforeHide = shared;
+      await render({ apiUrl: "/test-chat" });
+      await act(async () => {
+        expect(await latest.listProps.onHide!("hidden")).toBe(true);
+      });
+      await act(async () => {
+        root.render(null);
+      });
+
+      hideStatus = 500;
+      undo();
+      await settle();
+      expect(toasts.toast.error).toHaveBeenCalledWith(
+        "Couldn't bring the chat back",
+      );
     });
 
     it("puts a shared chat back and says so when hiding fails", async () => {

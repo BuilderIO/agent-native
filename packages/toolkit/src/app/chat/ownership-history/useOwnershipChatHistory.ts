@@ -2,6 +2,7 @@ import {
   hideChatThread,
   useChatThreadList,
   type ChatThreadListRow,
+  type ChatThreadScope,
   type UseChatThreadListOptions,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -106,6 +107,11 @@ interface FieldState<Value> {
   inFlight: ReadonlyMap<number, FieldIntent<Value>>;
   // A reconciled success remains a watermark until older writes finish.
   successful?: { intent: FieldIntent<Value>; reconciled: boolean };
+}
+
+interface HideTarget {
+  apiUrl: string;
+  scope?: ChatThreadScope;
 }
 
 type OverrideField = keyof OverrideValues;
@@ -296,7 +302,9 @@ export function useOwnershipChatHistory(
   const hiddenShared = useRef(
     new Map<string, { row: ChatThreadListRow; index: number; view: string }>(),
   );
-  const unhideRef = useRef<(id: string) => Promise<boolean>>(async () => false);
+  const unhideRef = useRef<
+    (id: string, target: HideTarget) => Promise<boolean>
+  >(async () => false);
   const latest = useRef({ mine, shared, options });
   latest.current = { mine, shared, options };
 
@@ -595,6 +603,7 @@ export function useOwnershipChatHistory(
   const setHidden = (
     id: string,
     hidden: boolean,
+    target: HideTarget,
     failed: (...cause: [] | [unknown]) => void,
   ) =>
     mutate(
@@ -602,17 +611,26 @@ export function useOwnershipChatHistory(
       id,
       "hidden",
       hidden,
-      () =>
-        hideChatThread(id, hidden, {
-          apiUrl: endpoint,
-          ...(scope ? { scope } : {}),
-        }),
+      () => hideChatThread(id, hidden, target),
       failed,
     );
-  unhideRef.current = (id) =>
-    setHidden(id, false, () =>
-      toast.error(t("agentChat.history.unhideFailed")),
-    );
+  // Undo goes to the scope that hid the chat, and its toast outlives this
+  // view, so a closed view sends the request itself.
+  unhideRef.current = async (id, target) => {
+    const failed = () => toast.error(t("agentChat.history.unhideFailed"));
+    if (current()) return setHidden(id, false, target, failed);
+    let unhidden: boolean;
+    try {
+      unhidden = await persistInOrder(
+        JSON.stringify([target.apiUrl, id, "hidden"]),
+        () => hideChatThread(id, false, target),
+      );
+    } catch {
+      unhidden = false;
+    }
+    if (!unhidden) failed();
+    return unhidden;
+  };
   listProps.onHide = (id) => {
     const row = findShared(id);
     if (!row) return Promise.resolve(false);
@@ -621,13 +639,14 @@ export function useOwnershipChatHistory(
       index: sharedRows.indexOf(row),
       view: scopeKey,
     });
+    const target = { apiUrl: endpoint, ...(scope ? { scope } : {}) };
     const notice = toast(t("agentChat.history.hidden"), {
       action: {
         label: t("agentChat.history.undo"),
-        onClick: () => void unhideRef.current(id),
+        onClick: () => void unhideRef.current(id, target),
       },
     });
-    return setHidden(id, true, () => {
+    return setHidden(id, true, target, () => {
       toast.dismiss(notice);
       toast.error(t("agentChat.history.hideFailed"));
     });
