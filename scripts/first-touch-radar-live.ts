@@ -9,6 +9,7 @@ import {
 } from "../templates/analytics/scripts/radar/ab.ts";
 import {
   formatRadarBacktest,
+  parseRadarBacktestArgs,
   runRadarBacktest,
 } from "../templates/analytics/scripts/radar/backtest.ts";
 import { liveDatabaseUrlFromEnv } from "../templates/analytics/scripts/radar/live.ts";
@@ -54,7 +55,7 @@ async function main(): Promise<void> {
     const [command, ...args] = process.argv.slice(2);
     if (!command || !["watch", "report", "ab", "backtest"].includes(command)) {
       throw new RadarQueryError(
-        "Usage: radar:live-watch [watch options], radar:live-report [report options], radar:live-ab [A/B options], or radar:backtest.",
+        "Usage: radar:live-watch [watch options], radar:live-report [report options], radar:live-ab [A/B options], or radar:backtest [--max-total-gb N].",
         2,
       );
     }
@@ -88,9 +89,7 @@ async function main(): Promise<void> {
       console.log(formatAbMarkdown(result));
       console.log(JSON.stringify(result));
     } else {
-      if (args.length)
-        throw new RadarQueryError("radar:backtest takes no options.", 2);
-      const result = await runRadarBacktest();
+      const result = await runRadarBacktest(parseRadarBacktestArgs(args));
       console.log(formatRadarBacktest(result));
     }
   } catch (error) {

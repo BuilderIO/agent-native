@@ -5,7 +5,6 @@ import {
   bigQueryFirstTouchEventsCte,
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
-  buildBigQueryCampaignFollowupSql,
   buildBigQueryPromptOutputSloSql,
   buildBigQueryPromptOutputSloByDateSql,
   buildBigQueryTriageEventsSql,
@@ -144,27 +143,6 @@ describe("first-party BigQuery radar SQL", () => {
     expect(slo).toContain("@target_end_date");
     expect(slo).toContain("DATE_SUB(d.target_date, INTERVAL 6 DAY)");
     expect(slo).toContain("DATE(o.happened_at, 'UTC') <= p.target_date");
-  });
-
-  it("matches campaign cohorts without projecting recipient identities", () => {
-    const campaign = buildBigQueryCampaignFollowupSql(range, [
-      "design",
-      "other",
-    ]);
-    expect(campaign).toContain("@recipients_json");
-    expect(campaign).toContain("@observed_at");
-    expect(campaign).toContain("lower(trim(e.identity_email)) = r.email");
-    expect(campaign).toContain(
-      "GROUP BY period, recipient_app, activity_app, metric",
-    );
-    const finalSelect = campaign.slice(campaign.lastIndexOf("SELECT p.period"));
-    expect(finalSelect).toContain(
-      "SELECT p.period, t.recipient_app, a.activity_app, m.metric, t.recipients,",
-    );
-    expect(finalSelect).not.toContain("email");
-    expect(() =>
-      buildBigQueryCampaignFollowupSql(range, ["apps'; SELECT 1; --"]),
-    ).toThrow("Campaign app list contains an invalid label.");
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {

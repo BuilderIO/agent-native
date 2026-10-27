@@ -3,7 +3,9 @@ import {
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
+  getRadarBigQueryScanBudget,
   runBigQuery,
+  setRadarBigQueryScanBudget,
 } from "./query.ts";
 import {
   buildBigQueryEventStatsSql,
@@ -35,7 +37,15 @@ export interface RadarBacktestResult {
   incident: BacktestWindow;
   clean: BacktestWindow;
   observations: Observation[];
+  scanEstimateGb: number;
+  maxTotalGb: number;
 }
+
+export interface RadarBacktestOptions {
+  maxTotalGb?: number;
+}
+
+export const DEFAULT_BACKTEST_MAX_TOTAL_GB = 100;
 
 const INCIDENT: BacktestWindow = {
   start: "2026-10-09",
@@ -88,6 +98,24 @@ export function backtestHourOf(value: unknown): string {
   if (value instanceof Date) return value.toISOString().slice(0, 13);
   const text = String(value ?? "").replace(" ", "T");
   return text.slice(0, 13);
+}
+
+export function parseRadarBacktestArgs(args: readonly string[]): {
+  maxTotalGb: number;
+} {
+  let maxTotalGb = DEFAULT_BACKTEST_MAX_TOTAL_GB;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] !== "--max-total-gb") {
+      throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
+    }
+    const value = Number(args[index + 1]);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new RadarQueryError("--max-total-gb must be positive.", 2);
+    }
+    maxTotalGb = value;
+    index += 1;
+  }
+  return { maxTotalGb };
 }
 
 function aggregateDailyRows(
@@ -168,7 +196,10 @@ function observation(
   };
 }
 
-export async function runRadarBacktest(): Promise<RadarBacktestResult> {
+export async function runRadarBacktest(
+  options: RadarBacktestOptions = {},
+): Promise<RadarBacktestResult> {
+  const maxTotalGb = options.maxTotalGb ?? DEFAULT_BACKTEST_MAX_TOTAL_GB;
   const backend = await resolveRadarFirstPartyBackend();
   if (backend.sink !== "bigquery") {
     throw new RadarQueryError(
@@ -179,143 +210,200 @@ export async function runRadarBacktest(): Promise<RadarBacktestResult> {
   const orgId = await resolveRadarOrganizationId();
   const table = await resolveRadarBigQueryEventsTable();
   const eventStart = addDays(CLEAN.start, -7);
-  const hourly = await runBigQuery(
-    buildBigQueryEventStatsSql(table, "HOUR", BACKTEST_EVENT_NAMES),
-    {
-      maxGb: 100,
-      params: [
-        { name: "start_date", type: "DATE", value: eventStart },
-        { name: "end_date", type: "DATE", value: INCIDENT.end },
-        { name: "org_id", type: "STRING", value: orgId },
-      ],
-    },
-  );
-  const hourlyRows = hourly.rows;
-  const dailyRows = aggregateDailyRows(hourlyRows);
-  const observations: Observation[] = [];
-
-  for (const [label, window] of [
-    ["clean", CLEAN],
-    ["incident", INCIDENT],
-  ] as const) {
-    for (const hour of hourKeys(window)) {
-      const targetDate = hour.slice(0, 10);
-      const hourOfDay = hour.slice(11, 13);
-      const baselineStart = addDays(targetDate, -7);
-      const relevantHourlyRows = hourlyRows.filter((row) => {
-        const period = backtestHourOf(row.period_start);
-        const rowDate = dateOf(row.period_start);
-        return (
-          period.slice(11, 13) === hourOfDay &&
-          rowDate >= baselineStart &&
-          rowDate <= targetDate
-        );
-      });
-      const checks = createEventChecks(
-        relevantHourlyRows,
-        [],
-        [],
-        [],
-        [],
-        hour.slice(0, 10),
-        hour.slice(0, 10),
-        hour,
-        "hourly",
-      ).checks;
-      for (const check of checks) {
-        if (
-          check.id === "builder-connect-success" &&
-          (check.status === "fired" || check.status === "unavailable")
-        ) {
-          observations.push(
-            observation(check.id, check.app, `${label}:${hour}`, check),
-          );
-        }
-      }
-    }
-    for (const date of datesBetween(window)) {
-      const relevantDailyRows = dailyRows.filter(
-        (row) => dateOf(row.period_start) === date,
-      );
-      const checks = createEventChecks(
-        relevantDailyRows,
-        [],
-        [],
-        [],
-        [],
-        date,
-        date,
-        `${date}T00`,
-        "daily",
-      ).checks;
-      for (const check of checks) {
-        if (
-          (check.id === "env-key-share" || check.id === "ai-connection-none") &&
-          (check.id !== "ai-connection-none" || check.app === "slides") &&
-          (check.status === "fired" || check.status === "unavailable")
-        ) {
-          observations.push(
-            observation(check.id, check.app, `${label}:${date}`, check),
-          );
-        }
-      }
-    }
-  }
-
-  const rejectionResult = await runBigQuery(
-    buildBigQueryUploadRejectionSql(table),
-    {
-      maxGb: 100,
-      fresh: true,
-      cache: false,
-      params: [
-        { name: "start_date", type: "DATE", value: CLEAN.start },
-        { name: "end_date", type: "DATE", value: INCIDENT.end },
-        { name: "org_id", type: "STRING", value: orgId },
-      ],
-    },
-  );
-  const rejectionRows = rejectionResult.rows;
-  const rejectionDates = [
-    ...new Set(rejectionRows.map((row) => dateOf(row.event_date))),
-  ].sort();
-  for (const date of rejectionDates) {
-    const rows = await loadUploadRejectionRows(
-      backend,
-      date,
-      orgId,
-      rejectionRows,
+  setRadarBigQueryScanBudget(maxTotalGb);
+  try {
+    const hourly = await runBigQuery(
+      buildBigQueryEventStatsSql(table, "HOUR", BACKTEST_EVENT_NAMES),
+      {
+        maxGb: 100,
+        fresh: true,
+        cache: false,
+        params: [
+          { name: "start_date", type: "DATE", value: eventStart },
+          { name: "end_date", type: "DATE", value: INCIDENT.end },
+          { name: "org_id", type: "STRING", value: orgId },
+        ],
+      },
     );
-    for (const row of rows) {
-      const check = uploadRejectionCheck(row);
-      if (
-        check &&
-        (check.status === "fired" || check.status === "unavailable")
-      ) {
-        const label = date >= INCIDENT.start ? "incident" : "clean";
-        observations.push(
-          observation(check.id, check.app, `${label}:${date}`, check),
+    const hourlyRows = hourly.rows;
+    const dailyRows = aggregateDailyRows(hourlyRows);
+    const observations: Observation[] = [];
+
+    for (const [label, window] of [
+      ["clean", CLEAN],
+      ["incident", INCIDENT],
+    ] as const) {
+      for (const hour of hourKeys(window)) {
+        const targetDate = hour.slice(0, 10);
+        const hourOfDay = hour.slice(11, 13);
+        const baselineStart = addDays(targetDate, -7);
+        const relevantHourlyRows = hourlyRows.filter((row) => {
+          const period = backtestHourOf(row.period_start);
+          const rowDate = dateOf(row.period_start);
+          return (
+            period.slice(11, 13) === hourOfDay &&
+            rowDate >= baselineStart &&
+            rowDate <= targetDate
+          );
+        });
+        const checks = createEventChecks(
+          relevantHourlyRows,
+          [],
+          [],
+          [],
+          [],
+          hour.slice(0, 10),
+          hour.slice(0, 10),
+          hour,
+          "hourly",
+        ).checks;
+        for (const check of checks) {
+          if (check.id === "builder-connect-success") {
+            observations.push(
+              observation(check.id, check.app, `${label}:${hour}`, check),
+            );
+          }
+        }
+      }
+      for (const date of datesBetween(window)) {
+        const relevantDailyRows = dailyRows.filter(
+          (row) => dateOf(row.period_start) === date,
         );
+        const checks = createEventChecks(
+          relevantDailyRows,
+          [],
+          [],
+          [],
+          [],
+          date,
+          date,
+          `${date}T00`,
+          "daily",
+        ).checks;
+        for (const check of checks) {
+          if (
+            (check.id === "env-key-share" ||
+              check.id === "ai-connection-none") &&
+            (check.id !== "ai-connection-none" || check.app === "slides")
+          ) {
+            observations.push(
+              observation(check.id, check.app, `${label}:${date}`, check),
+            );
+          }
+        }
       }
     }
-  }
 
-  return { incident: INCIDENT, clean: CLEAN, observations };
+    const rejectionResult = await runBigQuery(
+      buildBigQueryUploadRejectionSql(table),
+      {
+        maxGb: 100,
+        fresh: true,
+        cache: false,
+        params: [
+          { name: "start_date", type: "DATE", value: CLEAN.start },
+          { name: "end_date", type: "DATE", value: INCIDENT.end },
+          { name: "org_id", type: "STRING", value: orgId },
+        ],
+      },
+    );
+    const rejectionRows = rejectionResult.rows;
+    for (const window of [CLEAN, INCIDENT]) {
+      for (const date of datesBetween(window)) {
+        const rowsForDate = rejectionRows.filter(
+          (row) => dateOf(row.event_date) === date,
+        );
+        const rows = rowsForDate.length
+          ? await loadUploadRejectionRows(backend, date, orgId, rejectionRows)
+          : [];
+        const checkedApps = new Set<string>();
+        for (const row of rows) {
+          const check = uploadRejectionCheck(row);
+          if (check) {
+            checkedApps.add(check.app);
+            const label = date >= INCIDENT.start ? "incident" : "clean";
+            observations.push(
+              observation(check.id, check.app, `${label}:${date}`, check),
+            );
+          }
+        }
+        const hasEventCoverage =
+          rowsForDate.length > 0 ||
+          dailyRows.some((row) => dateOf(row.period_start) === date);
+        for (const app of ["design", "slides", "clips"]) {
+          if (checkedApps.has(app)) continue;
+          const label = date >= INCIDENT.start ? "incident" : "clean";
+          observations.push({
+            check: "replay-upload-rejection",
+            app,
+            period: `${label}:${date}`,
+            status: hasEventCoverage ? "clear" : "insufficient",
+            numerator: 0,
+            denominator: null,
+            value: null,
+            detail: hasEventCoverage
+              ? `No replay upload rejection events for ${app} on ${date}; other event data was available.`
+              : `No event data was available to establish replay rejection coverage for ${app} on ${date}.`,
+          });
+        }
+      }
+    }
+
+    const scanEstimateGb =
+      (getRadarBigQueryScanBudget()?.reservedBytes ?? 0) / 1_000_000_000;
+    return {
+      incident: INCIDENT,
+      clean: CLEAN,
+      observations,
+      scanEstimateGb,
+      maxTotalGb,
+    };
+  } finally {
+    setRadarBigQueryScanBudget(undefined);
+  }
 }
 
 export function formatRadarBacktest(result: RadarBacktestResult): string {
   const lines = [
-    "| Check | Window | App | Fired periods | Unavailable periods | Evidence |",
-    "| --- | --- | --- | ---: | ---: | --- |",
+    "| Check | Window | App | Fired periods | Quiet periods | Unavailable periods | Insufficient periods | Evidence |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
   ];
   for (const check of TRACKED_CHECKS) {
     for (const window of ["clean", "incident"] as const) {
       const rows = result.observations.filter(
         (row) => row.check === check && row.period.startsWith(`${window}:`),
       );
-      const apps = [...new Set(rows.map((row) => row.app))].sort();
-      const fired = rows.filter((row) => row.status === "fired");
-      const unavailable = rows.filter((row) => row.status === "unavailable");
+      const periodRows = new Map<string, Observation>();
+      const statusPriority: Record<string, number> = {
+        clear: 1,
+        observed: 1,
+        insufficient: 2,
+        unavailable: 3,
+        fired: 4,
+      };
+      for (const row of rows) {
+        const key = `${row.period}|${row.app}`;
+        const current = periodRows.get(key);
+        if (
+          !current ||
+          (statusPriority[row.status] ?? 0) >
+            (statusPriority[current.status] ?? 0)
+        ) {
+          periodRows.set(key, row);
+        }
+      }
+      const evaluated = [...periodRows.values()];
+      const apps = [...new Set(evaluated.map((row) => row.app))].sort();
+      const fired = evaluated.filter((row) => row.status === "fired");
+      const unavailable = evaluated.filter(
+        (row) => row.status === "unavailable",
+      );
+      const quiet = evaluated.filter(
+        (row) => row.status === "clear" || row.status === "observed",
+      );
+      const insufficient = evaluated.filter(
+        (row) => row.status === "insufficient",
+      );
       const evidence = [...fired]
         .sort((left, right) => (right.numerator ?? 0) - (left.numerator ?? 0))
         .slice(0, 3)
@@ -325,13 +413,14 @@ export function formatRadarBacktest(result: RadarBacktestResult): string {
         )
         .join("; ");
       lines.push(
-        `| ${check} | ${window} | ${apps.join(", ") || "-"} | ${fired.length} | ${unavailable.length} | ${evidence || "-"} |`,
+        `| ${check} | ${window} | ${apps.join(", ") || "-"} | ${fired.length} | ${quiet.length} | ${unavailable.length} | ${insufficient.length} | ${evidence || "-"} |`,
       );
     }
   }
   lines.push(
     "",
     `Incident: ${result.incident.start} through ${result.incident.end}; clean baseline: ${result.clean.start} through ${result.clean.end}.`,
+    `BigQuery dry-run estimate: ${result.scanEstimateGb.toFixed(2)} GB / ${result.maxTotalGb} GB.`,
   );
   return lines.join("\n");
 }
