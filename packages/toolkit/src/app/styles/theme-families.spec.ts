@@ -55,6 +55,21 @@ describe("theme families", () => {
     );
   });
 
+  it("keeps the light family palette radius at twelve pixels", () => {
+    const blocks = [
+      ...css.matchAll(
+        /([^{}]*data-theme-family="agent-native"[^{}]*)\{([^{}]*)\}/g,
+      ),
+    ];
+    const lightPalette = blocks.find(
+      ([, selectors, declarations]) =>
+        selectors.includes(":root[data-theme-family=") &&
+        declarations.includes("--background:"),
+    );
+
+    expect(lightPalette?.[2]).toMatch(/--radius:\s*0\.75rem/);
+  });
+
   it("uses the code dark-palette composer elevation in dark mode", () => {
     expect(css).toContain(
       '.dark[data-theme-family="agent-native"][data-appearance]',
