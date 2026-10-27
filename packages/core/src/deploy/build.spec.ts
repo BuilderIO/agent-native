@@ -1624,9 +1624,16 @@ const corePackageRoot = path.resolve(
 );
 
 function linkCorePackageForWorker(dir: string): void {
+  // Stryker's nested sandbox omits dist, but the plain Node worker resolves package exports.
+  const packageRootForWorker = [
+    corePackageRoot,
+    path.resolve(corePackageRoot, "../.."),
+  ].find((candidate) =>
+    fs.existsSync(path.join(candidate, "dist/db/request-pool-context.js")),
+  );
   const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
   fs.mkdirSync(path.dirname(packageLink), { recursive: true });
-  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+  fs.symlinkSync(packageRootForWorker ?? corePackageRoot, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
