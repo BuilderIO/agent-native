@@ -281,7 +281,9 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useHomeSearchShortcut: vi.fn(),
+  useHomeSuggestionRole: () => null,
   useSetPageTitle: () => {},
+  writeHomeSuggestionRole: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -442,6 +444,7 @@ function installLocalStorage() {
 beforeEach(async () => {
   installLocalStorage();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -933,6 +936,16 @@ describe("Index skip to editor", () => {
         position: 1,
       }),
     );
+
+    const editedPrompt = `${prompt} with a mobile version`;
+    await act(async () => {
+      mocks.promptProps?.onPromptTextChange?.(editedPrompt);
+      await mocks.promptProps?.onSubmit(editedPrompt, [], {});
+    });
+    const submitEvent = mocks.trackDesignRelay.mock.calls.find(
+      ([name]) => name === "design_prompt_submitted",
+    );
+    expect(submitEvent?.[1]).toMatchObject({ prompt_source: "composer" });
   });
 
   it("uses general prompts when the profile cannot be read", async () => {
@@ -1771,7 +1784,7 @@ describe("home funnel tracking", () => {
       expect.objectContaining({
         app_id: "design",
         role: "design",
-        suggestion_id: expect.stringMatching(/^design-design-/),
+        suggestion_id: expect.stringMatching(/^design-suggestion-/),
         position: 1,
       }),
     );

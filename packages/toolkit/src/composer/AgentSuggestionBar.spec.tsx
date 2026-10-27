@@ -110,6 +110,11 @@ describe("AgentSuggestionBar", () => {
     });
 
     const buttons = container.querySelectorAll("button");
+    expect(
+      container
+        .querySelector('[data-agent-suggestion-bar="true"]')
+        ?.getAttribute("data-home-suggestion-app-id"),
+    ).toBe("design");
     expect(buttons[1]?.getAttribute("data-agent-suggestion-position")).toBe(
       "2",
     );

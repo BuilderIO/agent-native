@@ -6162,6 +6162,8 @@ export default function DeckEditor() {
       {!widgetEmbed && (
         <FirstOutputNextStepBar
           appId="slides"
+          positionTargetSelector="[data-slide-editor-viewport]"
+          bottomOffset={77}
           {...(session && (session.userId ?? session.email)
             ? { userScope: session.userId ?? session.email }
             : {})}

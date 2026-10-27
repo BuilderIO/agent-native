@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
 import { IconHome } from "@tabler/icons-react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -74,6 +76,7 @@ describe("AppShellSkeleton home layout", () => {
       recentLabel: "Recent",
       browseAllLabel: "Browse all",
       skipPromptLabel: "Skip prompt",
+      suggestionRole: "design",
       suggestionSeed: 123,
       reserveConnectionBar: true,
       suggestions: [
@@ -100,6 +103,9 @@ describe("AppShellSkeleton home layout", () => {
     )!;
 
     expect(shell.getAttribute("role")).toBeNull();
+    expect(
+      shell.querySelector("main.agent-native-app-main .agent-prompt-home-hero"),
+    ).not.toBeNull();
     expect(shell.querySelector("textarea")?.placeholder).toBe(
       "Describe your design",
     );
@@ -109,6 +115,11 @@ describe("AppShellSkeleton home layout", () => {
         .querySelector("[data-agent-suggestion-bar]")
         ?.getAttribute("data-home-suggestion-seed"),
     ).toBe("123");
+    expect(
+      shell
+        .querySelector("[data-agent-suggestion-bar]")
+        ?.getAttribute("data-home-suggestion-shell-role"),
+    ).toBe("design");
     expect(
       shell.querySelectorAll("[data-agent-native-skeleton-block]"),
     ).not.toHaveLength(0);
@@ -125,5 +136,75 @@ describe("AppShellSkeleton home layout", () => {
     expect(
       shell.querySelector("[data-prompt-home-connection-skeleton]"),
     ).not.toBeNull();
+  });
+
+  it("localizes shell prompts from the active app catalog", async () => {
+    const originalLocale = document.documentElement.dataset.locale;
+    document.documentElement.dataset.locale = "fr-FR";
+    const firstPaintHome: AppShellFirstPaintHome = {
+      appId: "design",
+      appName: "Design",
+      pageTitle: "Home",
+      promptTitle: "What would you like to design?",
+      promptPlaceholder: "Describe your design",
+      suggestedPromptsLabel: "Suggested prompts",
+      sidebarItems: [{ label: "Home", to: "/home", icon: IconHome }],
+      templatesLabel: "Templates",
+      recentLabel: "Recent",
+      browseAllLabel: "Browse all",
+      suggestions: [
+        {
+          id: "one",
+          label: "Build a portfolio",
+          prompt: "Build a portfolio",
+          messageKey: "home.suggestions.general.one",
+        },
+        {
+          id: "two",
+          label: "Create a dashboard",
+          prompt: "Create a dashboard",
+        },
+        { id: "three", label: "Design a shop", prompt: "Design a shop" },
+      ],
+      loadSuggestionMessages: async () => ({
+        home: {
+          suggestions: {
+            general: { one: "Créer un portfolio" },
+          },
+        },
+      }),
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <AppShellSkeleton
+              layout="prompt-library"
+              firstPaintHome={firstPaintHome}
+            />
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain("Créer un portfolio");
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          '[data-home-suggestion-id="one"]',
+        )?.textContent,
+      ).toBe("Créer un portfolio");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      if (originalLocale === undefined) {
+        delete document.documentElement.dataset.locale;
+      } else {
+        document.documentElement.dataset.locale = originalLocale;
+      }
+    }
   });
 });

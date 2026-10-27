@@ -27,10 +27,12 @@ import {
   TemplateLibraryGrid,
   createHomeSuggestionRandom,
   pickHomeSuggestions,
+  useHomeSuggestionRole,
   useHomeSuggestionSeed,
   useFirstPaintPromptDraft,
   useHomeSearchShortcut,
   useSetPageTitle,
+  writeHomeSuggestionRole,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
@@ -59,7 +61,14 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+} from "react";
 import {
   useLocation,
   useNavigate,
@@ -133,6 +142,14 @@ import {
 } from "@/lib/pending-generation";
 import { cn } from "@/lib/utils";
 
+import {
+  clearDesignHomeLibraryTabSelection,
+  readDesignHomeLibraryInitialState,
+  readHomeLibraryHasRecents,
+  subscribeToDesignHomeLibraryTab,
+  writeHomeLibraryHasRecents,
+} from "../home-library-state";
+
 type ProjectType = "prototype" | "other";
 interface Design {
   id: string;
@@ -159,40 +176,6 @@ interface DesignListResult {
 
 const DESIGN_PAGE_SIZE = 50;
 const HOME_TEMPLATE_LIMIT = 8;
-const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
-
-function readHomeLibraryHasRecents():
-  | { status: "available"; value: boolean | null }
-  | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-
-  try {
-    const value = window.localStorage.getItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-    );
-    return {
-      status: "available",
-      value: value === "true" ? true : value === "false" ? false : null,
-    };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-function writeHomeLibraryHasRecents(
-  value: boolean,
-): { status: "available" } | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-  try {
-    window.localStorage.setItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-      String(value),
-    );
-    return { status: "available" };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
 
 export default function Index() {
   const t = useT();
@@ -213,16 +196,15 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
-  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    isSaveTemplateGettingStarted
-      ? "recent"
-      : storedHasAccessibleDesigns.status === "available" &&
-          storedHasAccessibleDesigns.value === true
-        ? "recent"
-        : "templates",
+  const [initialHomeLibraryState] = useState(() =>
+    readDesignHomeLibraryInitialState(isSaveTemplateGettingStarted),
   );
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    initialHomeLibraryState.tab,
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    initialHomeLibraryState.userSelected,
+  );
   const checklistSearch = searchParams.toString();
   const previousChecklistLocationRef = useRef({
     isSaveTemplateGettingStarted,
@@ -246,6 +228,21 @@ export default function Index() {
   const homeSuggestionPromptSourceRef = useRef(
     firstPaintPrompt?.source === "home_suggestion",
   );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const handleHomePromptTextChange = useCallback((text: string) => {
+    if (
+      homeSuggestionPromptSourceRef.current &&
+      homeSuggestionPromptTextRef.current !== null &&
+      homeSuggestionPromptTextRef.current !== text
+    ) {
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
+    }
+  }, []);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
@@ -262,6 +259,16 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useLayoutEffect(() => {
+    const unsubscribe = subscribeToDesignHomeLibraryTab((tab) => {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection(tab);
+      clearDesignHomeLibraryTabSelection();
+    });
+    clearDesignHomeLibraryTabSelection();
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const previousLocation = previousChecklistLocationRef.current;
@@ -435,6 +442,7 @@ export default function Index() {
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
   const homeSuggestionSeed = useHomeSuggestionSeed();
+  const shellSuggestionRole = useHomeSuggestionRole();
   const homeSuggestionsProfile = useActionQuery<{
     onboardingRole?: string | null;
   }>(
@@ -445,18 +453,25 @@ export default function Index() {
       staleTime: 0,
     },
   );
+  const homeSuggestionRole =
+    shellSuggestionRole ??
+    homeSuggestionsProfile.data?.onboardingRole ??
+    "general";
+  useEffect(() => {
+    if (homeSuggestionsProfile.data === undefined) return;
+    writeHomeSuggestionRole(
+      "design",
+      homeSuggestionsProfile.data.onboardingRole,
+    );
+  }, [homeSuggestionsProfile.data]);
   const selectedHomeSuggestionKeys = useMemo(
     () =>
       pickHomeSuggestions(
         DESIGN_HOME_SUGGESTION_POOLS,
-        homeSuggestionsProfile.data?.onboardingRole,
+        homeSuggestionRole,
         createHomeSuggestionRandom(homeSuggestionSeed),
       ),
-    [
-      homeSuggestionsIdentityScope,
-      homeSuggestionsProfile.data?.onboardingRole,
-      homeSuggestionSeed,
-    ],
+    [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
   );
   const homeSuggestions = selectedHomeSuggestionKeys.map(({ id, label }) => {
     const prompt = t(label);
@@ -1032,6 +1047,7 @@ export default function Index() {
 
       reportPromptSubmitted(id);
       homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1338,6 +1354,7 @@ export default function Index() {
               draftScope="design:new:0"
               initialText={homePromptInitialText}
               initialTextKey={homePromptInitialTextKey}
+              onPromptTextChange={handleHomePromptTextChange}
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {
@@ -1402,9 +1419,7 @@ export default function Index() {
               layout="single-line"
               homeTracking={{
                 appId: "design",
-                ...(homeSuggestionsProfile.data?.onboardingRole !== undefined
-                  ? { role: homeSuggestionsProfile.data.onboardingRole }
-                  : {}),
+                role: homeSuggestionRole,
                 seed: homeSuggestionSeed,
               }}
               onHomeSuggestionClick={trackDesignHomeSuggestionClick}
@@ -1419,6 +1434,7 @@ export default function Index() {
                 if (!quickActionsEnabled) {
                   homeSuggestionPromptSourceRef.current = true;
                   const prompt = agentSuggestionPrompt(suggestion);
+                  homeSuggestionPromptTextRef.current = prompt;
                   setHomePromptInitialText(prompt);
                   setHomePromptInitialTextKey(Date.now());
                   composerRef.current.setText(prompt);
@@ -1481,6 +1497,7 @@ export default function Index() {
             onValueChange={(value) => {
               homeLibraryTabWasSelectedRef.current = true;
               setHomeSection(value);
+              clearDesignHomeLibraryTabSelection();
             }}
             labels={{
               templates: t("navigation.templates"),

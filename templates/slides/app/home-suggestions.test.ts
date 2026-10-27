@@ -35,8 +35,26 @@ describe("Slides home suggestion pools", () => {
 
     expect(selected).toHaveLength(3);
     expect(new Set(selected.map(({ id }) => id)).size).toBe(3);
-    expect(selected.every(({ id }) => id.startsWith("slides-design-"))).toBe(
-      true,
+    expect(
+      selected.every(({ id }) => id.startsWith("slides-suggestion-")),
+    ).toBe(true);
+  });
+
+  it("keeps selected slots when role-specific copy hydrates", () => {
+    const shell = pickHomeSuggestions(
+      slidesHomeSuggestionPools,
+      "general",
+      () => 0.25,
+    );
+    const hydrated = pickHomeSuggestions(
+      slidesHomeSuggestionPools,
+      "design",
+      () => 0.25,
+    );
+
+    expect(hydrated.map(({ id }) => id)).toEqual(shell.map(({ id }) => id));
+    expect(hydrated.map(({ key }) => key)).not.toEqual(
+      shell.map(({ key }) => key),
     );
   });
 
@@ -49,9 +67,9 @@ describe("Slides home suggestion pools", () => {
       );
 
       expect(selected).toHaveLength(3);
-      expect(selected.every(({ id }) => id.startsWith("slides-general-"))).toBe(
-        true,
-      );
+      expect(
+        selected.every(({ id }) => id.startsWith("slides-suggestion-")),
+      ).toBe(true);
     }
   });
 
@@ -59,7 +77,7 @@ describe("Slides home suggestion pools", () => {
     trackSlidesHomeSuggestionClick({
       appId: "slides",
       role: "developer",
-      suggestionId: "slides-developer-api",
+      suggestionId: "slides-suggestion-2",
       position: 1,
     });
 
@@ -68,7 +86,7 @@ describe("Slides home suggestion pools", () => {
       {
         app_id: "slides",
         role: "developer",
-        suggestion_id: "slides-developer-api",
+        suggestion_id: "slides-suggestion-2",
         position: 1,
       },
     );

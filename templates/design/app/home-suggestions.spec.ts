@@ -28,7 +28,10 @@ describe("Design home suggestion pools", () => {
     expect(pool).toHaveLength(8);
     expect(new Set(pool.map(({ id }) => id)).size).toBe(8);
     expect(
-      pool.every(({ id, label }) => id.startsWith(`design-${role}-`) && label),
+      pool.every(
+        ({ id, label }, index) =>
+          id === `design-suggestion-${index + 1}` && Boolean(label),
+      ),
     ).toBe(true);
   });
 
@@ -39,7 +42,7 @@ describe("Design home suggestion pools", () => {
     expect(
       pickHomeSuggestions(DESIGN_HOME_SUGGESTION_POOLS, "sales", () => 0.999)
         .map(({ id }) => id)
-        .every((id) => id.startsWith("design-sales-")),
+        .every((id) => id.startsWith("design-suggestion-")),
     ).toBe(true);
     expect(
       pickHomeSuggestions(
@@ -48,15 +51,33 @@ describe("Design home suggestion pools", () => {
         () => 0.999,
       )
         .map(({ id }) => id)
-        .every((id) => id.startsWith("design-general-")),
+        .every((id) => id.startsWith("design-suggestion-")),
     ).toBe(true);
+  });
+
+  it("keeps the selected slot ids when role-specific copy hydrates", () => {
+    const shell = pickHomeSuggestions(
+      DESIGN_HOME_SUGGESTION_POOLS,
+      "general",
+      () => 0.42,
+    );
+    const hydrated = pickHomeSuggestions(
+      DESIGN_HOME_SUGGESTION_POOLS,
+      "design",
+      () => 0.42,
+    );
+
+    expect(hydrated.map(({ id }) => id)).toEqual(shell.map(({ id }) => id));
+    expect(hydrated.map(({ label }) => label)).not.toEqual(
+      shell.map(({ label }) => label),
+    );
   });
 
   it("tracks a selected prompt with its role, id, and position", () => {
     trackDesignHomeSuggestionClick({
       appId: "design",
       role: "marketing",
-      suggestionId: "design-marketing-campaignLanding",
+      suggestionId: "design-suggestion-1",
       position: 2,
     });
 
@@ -65,7 +86,7 @@ describe("Design home suggestion pools", () => {
       {
         app_id: "design",
         role: "marketing",
-        suggestion_id: "design-marketing-campaignLanding",
+        suggestion_id: "design-suggestion-1",
         position: 2,
       },
     );

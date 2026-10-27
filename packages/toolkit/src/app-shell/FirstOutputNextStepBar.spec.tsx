@@ -20,6 +20,7 @@ const labels: FirstOutputNextStepLabels = {
 
 describe("FirstOutputNextStepBar", () => {
   let container: HTMLDivElement;
+  let target: HTMLDivElement;
   let root: Root;
   const onTrack = vi.fn();
 
@@ -29,12 +30,17 @@ describe("FirstOutputNextStepBar", () => {
     onTrack.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
+    target = document.createElement("div");
+    target.setAttribute("data-next-step-target", "true");
+    target.getBoundingClientRect = () => new DOMRect(375, 48, 825, 624);
+    document.body.appendChild(target);
     root = createRoot(container);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    target.remove();
     vi.unstubAllGlobals();
   });
 
@@ -51,6 +57,8 @@ describe("FirstOutputNextStepBar", () => {
           userScope="user-1"
           outputId="design-1"
           ready={ready}
+          positionTargetSelector="[data-next-step-target]"
+          bottomOffset={96}
           labels={labels}
           onRefine={vi.fn()}
           onExport={vi.fn()}
@@ -63,12 +71,19 @@ describe("FirstOutputNextStepBar", () => {
 
   it("appears only when the output is ready and tracks its first impression", () => {
     render(false);
-    expect(container.querySelector("[data-first-output-next-step]")).toBeNull();
+    expect(
+      document.body.querySelector("[data-first-output-next-step]"),
+    ).toBeNull();
 
     render(true);
-    expect(
-      container.querySelector("[data-first-output-next-step]"),
-    ).not.toBeNull();
+    const bar = document.body.querySelector<HTMLElement>(
+      "[data-first-output-next-step]",
+    );
+    expect(bar).not.toBeNull();
+    expect(bar?.parentElement).toBe(document.body);
+    expect(bar?.className).toContain("fixed");
+    expect(bar?.style.left).toBe("787.5px");
+    expect(bar?.style.bottom).toBe("192px");
     expect(onTrack).toHaveBeenCalledWith("first_output_next_step_shown", {
       app_id: "design",
       output_id: "design-1",
@@ -80,9 +95,12 @@ describe("FirstOutputNextStepBar", () => {
     const onExport = vi.fn();
     const onShareLink = vi.fn();
     render(true, { onRefine, onExport, onShareLink });
+    const bar = document.body.querySelector<HTMLElement>(
+      "[data-first-output-next-step]",
+    );
 
     act(() => {
-      container
+      bar
         .querySelector<HTMLButtonElement>('button:not([aria-label="Dismiss"])')
         ?.click();
     });
@@ -93,11 +111,11 @@ describe("FirstOutputNextStepBar", () => {
     );
 
     act(() => {
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')
-        ?.click();
+      bar.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')?.click();
     });
-    expect(container.querySelector("[data-first-output-next-step]")).toBeNull();
+    expect(
+      document.body.querySelector("[data-first-output-next-step]"),
+    ).toBeNull();
     expect(onTrack).toHaveBeenCalledWith(
       "first_output_next_step_dismissed",
       expect.objectContaining({ app_id: "design", output_id: "design-1" }),
@@ -115,7 +133,9 @@ describe("FirstOutputNextStepBar", () => {
     root = createRoot(container);
     render(true);
 
-    expect(container.querySelector("[data-first-output-next-step]")).toBeNull();
+    expect(
+      document.body.querySelector("[data-first-output-next-step]"),
+    ).toBeNull();
     expect(onTrack).toHaveBeenCalledTimes(1);
   });
 });

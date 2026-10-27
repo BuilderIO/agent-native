@@ -11,12 +11,18 @@ import {
   isEmbedAuthActive,
   setAgentNativeApiDisabled,
 } from "@agent-native/core/client/host";
-import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  getLocaleInitScript,
+  useT,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
+  createHomeSuggestionOrder,
   createHomeSuggestionRandom,
   HomeSuggestionSeedProvider,
   pickHomeSuggestions,
+  readHomeSuggestionRole,
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
@@ -39,7 +45,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Links,
   Meta,
@@ -77,12 +83,20 @@ import {
 
 import changelog from "../CHANGELOG.md?raw";
 import { getDesignGenerationPageviewProvenanceFromProperties } from "../shared/generation-provenance.js";
+import {
+  DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
+  readDesignHomeLibraryInitialState,
+  setDesignHomeLibraryTab,
+} from "./home-library-state";
 import { i18nCatalog } from "./i18n";
 import designEnglish from "./i18n/en-US";
 import { OpenVisualEditWebMcp } from "./OpenVisualEditWebMcp";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
+
+const loadFirstPaintSuggestionMessages = (locale: string) =>
+  i18nCatalog.loadMessages(locale as LocaleCode);
 
 if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
@@ -115,26 +129,45 @@ export const links: LinksFunction = () => [
 const THEME_INIT_SCRIPT = getThemeInitScript();
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 const DESIGN_WEBMCP_EXCLUDED_ACTIONS = ["open-visual-edit"] as const;
-function designFirstPaintSuggestions(seed: number) {
+function designFirstPaintSuggestions(
+  seed: number,
+  order: readonly number[],
+  role: string,
+) {
   return pickHomeSuggestions(
     DESIGN_HOME_SUGGESTION_POOLS,
-    "general",
+    role,
     createHomeSuggestionRandom(seed),
+    order,
   ).map(({ id, label }) => {
-    const promptKey = label.slice(
-      label.lastIndexOf(".") + 1,
-    ) as keyof typeof designEnglish.home.suggestions.general;
-    const prompt = designEnglish.home.suggestions.general[promptKey];
-    return { id, label: prompt, prompt };
+    const [, , roleKey, promptKey] = label.split(".");
+    const rolePrompts = designEnglish.home.suggestions as Record<
+      string,
+      Record<string, string>
+    >;
+    const prompt =
+      roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
+    if (!prompt) throw new Error(`Missing Design home prompt: ${label}`);
+    return { id, label: prompt, prompt, messageKey: label };
   });
 }
 
 function DesignFirstPaintLibrary() {
-  const [value, setValue] = useState<DesignHomeLibraryTab>("templates");
+  const location = useLocation();
+  const [value, setValue] = useState<DesignHomeLibraryTab>(
+    () =>
+      readDesignHomeLibraryInitialState(
+        new URLSearchParams(location.search).get("gettingStarted") ===
+          "save-template",
+      ).tab,
+  );
   return (
     <DesignHomeLibrary
       value={value}
-      onValueChange={setValue}
+      onValueChange={(nextValue) => {
+        setValue(nextValue);
+        setDesignHomeLibraryTab(nextValue);
+      }}
       labels={{
         templates: designEnglish.navigation.templates,
         recent: designEnglish.home.recent,
@@ -222,6 +255,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-locale-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
+        />
+        <script
+          data-design-home-library-tab-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: DESIGN_HOME_LIBRARY_TAB_HANDOFF_INIT_SCRIPT,
+          }}
         />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -415,9 +455,32 @@ export default function Root() {
   const location = useLocation();
   const homeSuggestionSeed = useHomeSuggestionSeedForHome(
     location.pathname === "/" || location.pathname === "/home",
+    "design",
   );
+  const homeSuggestionRole = useMemo(
+    () => readHomeSuggestionRole("design"),
+    [location.pathname],
+  );
+  const homeSuggestionOrder = useMemo(() => {
+    const rolePool = DESIGN_HOME_SUGGESTION_POOLS[homeSuggestionRole];
+    const pool = rolePool?.length
+      ? rolePool
+      : DESIGN_HOME_SUGGESTION_POOLS.general;
+    return createHomeSuggestionOrder(
+      pool.length,
+      createHomeSuggestionRandom(homeSuggestionSeed),
+    );
+  }, [homeSuggestionRole, homeSuggestionSeed]);
   const sessionBypass = computeSessionBypass(location.pathname);
-  const firstPaintSuggestions = designFirstPaintSuggestions(homeSuggestionSeed);
+  const firstPaintSuggestions = useMemo(
+    () =>
+      designFirstPaintSuggestions(
+        homeSuggestionSeed,
+        homeSuggestionOrder,
+        homeSuggestionRole,
+      ),
+    [homeSuggestionOrder, homeSuggestionRole, homeSuggestionSeed],
+  );
   const firstPaintHome =
     location.pathname === "/" || location.pathname === "/home" ? (
       <AppShellSkeleton
@@ -425,13 +488,18 @@ export default function Root() {
         firstPaintHome={{
           ...designFirstPaintHome,
           suggestions: firstPaintSuggestions,
+          suggestionRole: homeSuggestionRole,
           suggestionSeed: homeSuggestionSeed,
+          loadSuggestionMessages: loadFirstPaintSuggestionMessages,
           onHomeSuggestionClick: trackDesignHomeSuggestionClick,
         }}
       />
     ) : undefined;
   return (
-    <HomeSuggestionSeedProvider seed={homeSuggestionSeed}>
+    <HomeSuggestionSeedProvider
+      seed={homeSuggestionSeed}
+      role={homeSuggestionRole}
+    >
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}

@@ -1,9 +1,14 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 
 import {
   createHomeSuggestionRandom,
+  createHomeSuggestionOrder,
   normalizeHomeSuggestionRole,
   pickHomeSuggestions,
+  readHomeSuggestionRole,
+  writeHomeSuggestionRole,
   type HomeSuggestionPools,
   type HomeSuggestionPrompt,
 } from "./home-suggestions.js";
@@ -27,6 +32,19 @@ const pools: HomeSuggestionPools<HomeSuggestionPrompt> = {
 };
 
 describe("home suggestion selection", () => {
+  it("uses the shell role through hydration and persists it for the next visit", () => {
+    const shell = document.createElement("div");
+    shell.dataset.homeSuggestionAppId = "design";
+    shell.dataset.homeSuggestionShellRole = "design";
+    document.body.append(shell);
+    writeHomeSuggestionRole("design", "marketing");
+
+    expect(readHomeSuggestionRole("design")).toBe("design");
+
+    shell.remove();
+    expect(readHomeSuggestionRole("design")).toBe("marketing");
+  });
+
   it("selects from the matching role pool", () => {
     expect(
       pickHomeSuggestions(pools, "design", () => 0.999).map(({ id }) => id),
@@ -39,19 +57,28 @@ describe("home suggestion selection", () => {
     expect(new Set(suggestions.map(({ id }) => id)).size).toBe(3);
   });
 
-  it("keeps the same suggestions and order when the shell hydrates", () => {
+  it("keeps the same role pool and order when the shell hydrates", () => {
+    const role = "design";
+    const order = createHomeSuggestionOrder(
+      pools[role].length,
+      createHomeSuggestionRandom(123456),
+    );
     const shellSelection = pickHomeSuggestions(
       pools,
-      "general",
+      role,
       createHomeSuggestionRandom(123456),
+      order,
     );
     const hydratedSelection = pickHomeSuggestions(
       pools,
-      "general",
+      role,
       createHomeSuggestionRandom(123456),
+      order,
     );
 
-    expect(hydratedSelection).toEqual(shellSelection);
+    expect(hydratedSelection.map(({ id }) => id)).toEqual(
+      shellSelection.map(({ id }) => id),
+    );
   });
 
   it("uses the general pool when no role is known", () => {

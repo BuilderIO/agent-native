@@ -288,6 +288,7 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/toolkit/app-shell")>();
   return {
     ...appShell,
+    useHomeSuggestionRole: () => null,
     useHeaderActions: () => headerActions.current,
     useHeaderTitle: () => pageTitle.current,
     useSetHeaderActions: (actions: ReactNode) => {
@@ -306,6 +307,7 @@ vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => {
         };
       }, [title]);
     },
+    writeHomeSuggestionRole: vi.fn(),
   };
 });
 vi.mock("@/context/DeckContext", () => ({
@@ -520,6 +522,7 @@ function renderHome(
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   vi.clearAllMocks();
   vi.mocked(deckIdFromPathname).mockReset();
   homeSuggestionSubmit.invokeSubmit = false;
@@ -2394,7 +2397,7 @@ describe("Slides prompt-led home", () => {
       expect.objectContaining({
         app_id: "slides",
         role: "design",
-        suggestion_id: expect.stringMatching(/^slides-design-/),
+        suggestion_id: expect.stringMatching(/^slides-suggestion-/),
         position: Number(
           suggestion.getAttribute("data-agent-suggestion-position"),
         ),
@@ -2512,7 +2515,7 @@ describe("Slides prompt-led home", () => {
       expect.objectContaining({
         app_id: "slides",
         role: "design",
-        suggestion_id: expect.stringMatching(/^slides-design-/),
+        suggestion_id: expect.stringMatching(/^slides-suggestion-/),
         position: 1,
       }),
     );

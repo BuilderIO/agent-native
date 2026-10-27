@@ -1,5 +1,6 @@
 import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "../ui/button.js";
 import { cn } from "../utils.js";
@@ -21,6 +22,8 @@ export interface FirstOutputNextStepBarProps {
   onRefine: () => void;
   onExport: () => void;
   onShareLink: () => void;
+  positionTargetSelector?: string;
+  bottomOffset?: number;
   onTrack: (
     event:
       | "first_output_next_step_shown"
@@ -58,10 +61,16 @@ export function FirstOutputNextStepBar({
   onRefine,
   onExport,
   onShareLink,
+  positionTargetSelector,
+  bottomOffset = 96,
   onTrack,
   className,
 }: FirstOutputNextStepBarProps) {
   const [visible, setVisible] = useState(false);
+  const [position, setPosition] = useState<{
+    left: number;
+    bottom: number;
+  } | null>(null);
   const shownRef = useRef(false);
   const storageKey = nextStepStorageKey(appId, userScope);
 
@@ -86,6 +95,38 @@ export function FirstOutputNextStepBar({
     setVisible(true);
   }, [appId, onTrack, outputId, ready, storageKey]);
 
+  useEffect(() => {
+    if (!visible) return;
+
+    const target = positionTargetSelector
+      ? document.querySelector<HTMLElement>(positionTargetSelector)
+      : null;
+    const updatePosition = () => {
+      const rect = target?.getBoundingClientRect();
+      setPosition({
+        left: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+        bottom: rect
+          ? Math.max(24, window.innerHeight - rect.bottom + bottomOffset)
+          : bottomOffset,
+      });
+    };
+
+    updatePosition();
+    const resizeObserver =
+      target && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updatePosition)
+        : null;
+    if (target) resizeObserver?.observe(target);
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [bottomOffset, positionTargetSelector, visible]);
+
   if (!visible) return null;
 
   const trackClick = (action: "refine" | "export" | "share_link") => {
@@ -96,14 +137,19 @@ export function FirstOutputNextStepBar({
     });
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  if (!position) return null;
+
+  return createPortal(
     <section
       aria-label={labels.ariaLabel}
       data-first-output-next-step="true"
       className={cn(
-        "flex min-h-12 flex-wrap items-center gap-2 border-t border-border bg-background px-3 py-2",
+        "fixed z-40 flex min-h-10 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-full border border-border bg-background px-2 py-1 shadow-lg",
         className,
       )}
+      style={{ left: position.left, bottom: position.bottom }}
     >
       <Button
         type="button"
@@ -155,6 +201,7 @@ export function FirstOutputNextStepBar({
       >
         <IconX aria-hidden="true" className="size-4" />
       </Button>
-    </section>
+    </section>,
+    document.body,
   );
 }

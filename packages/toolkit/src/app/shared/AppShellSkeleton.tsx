@@ -3,6 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useEffect,
+  useState,
   type CSSProperties,
   type ComponentType,
   type ReactNode,
@@ -64,7 +65,9 @@ export interface AppShellFirstPaintHome {
     id: string;
     label: string;
     prompt: string;
+    messageKey?: string;
   }[];
+  loadSuggestionMessages?: (locale: string) => Promise<unknown>;
 }
 
 function Block({
@@ -275,7 +278,13 @@ function Frame({
           ? { actionWidths: firstPaintHome.headerActionWidths }
           : {})}
       />
-      {children}
+      {firstPaintHome ? (
+        <main className="agent-native-app-main min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </main>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -425,6 +434,56 @@ function FirstPaintPromptLibrary({
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sourceRef = useRef<"composer" | "home_suggestion">("composer");
+  const [suggestions, setSuggestions] = useState(config.suggestions);
+
+  useEffect(() => {
+    if (!config.loadSuggestionMessages) return;
+    let active = true;
+    const applyLocale = () => {
+      const locale = document.documentElement.dataset.locale ?? "en-US";
+      if (locale === "en-US") {
+        setSuggestions(config.suggestions);
+        return;
+      }
+      void config
+        .loadSuggestionMessages?.(locale)
+        .then((messages) => {
+          if (!active || !messages || typeof messages !== "object") return;
+          setSuggestions(
+            config.suggestions.map((suggestion) => {
+              if (!suggestion.messageKey) return suggestion;
+              let message: unknown = messages;
+              for (const key of suggestion.messageKey.split(".")) {
+                if (!message || typeof message !== "object") break;
+                message = (message as Record<string, unknown>)[key];
+              }
+              return typeof message === "string"
+                ? { ...suggestion, label: message, prompt: message }
+                : suggestion;
+            }),
+          );
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            console.error(
+              `[agent-native] Could not localize ${config.appId} home suggestions`,
+              error,
+            );
+          }
+        });
+    };
+
+    applyLocale();
+    const observer = new MutationObserver(applyLocale);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-locale"],
+    });
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [config.appId, config.loadSuggestionMessages, config.suggestions]);
 
   useBrowserLayoutEffect(() => {
     const text = inputRef.current?.value ?? "";
@@ -447,6 +506,7 @@ function FirstPaintPromptLibrary({
         placeholder={config.promptPlaceholder}
         rows={2}
         onChange={(event) => {
+          sourceRef.current = "composer";
           writeFirstPaintPromptDraft(
             config.appId,
             event.currentTarget.value,
@@ -466,7 +526,7 @@ function FirstPaintPromptLibrary({
   );
   const suggestionBar = (
     <AgentSuggestionBar
-      suggestions={config.suggestions}
+      suggestions={suggestions}
       ariaLabel={config.suggestedPromptsLabel}
       homeTracking={{
         appId: config.appId,
@@ -476,6 +536,7 @@ function FirstPaintPromptLibrary({
         ...(config.suggestionSeed !== undefined
           ? { seed: config.suggestionSeed }
           : {}),
+        shellHandoff: true,
       }}
       {...(config.onHomeSuggestionClick
         ? { onHomeSuggestionClick: config.onHomeSuggestionClick }

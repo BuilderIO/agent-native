@@ -11,13 +11,18 @@ import {
   getEmbedAuthToken,
   isEmbedAuthActive,
 } from "@agent-native/core/client/host";
-import { useT } from "@agent-native/core/client/i18n";
-import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  getLocaleInitScript,
+  useT,
+  type LocaleCode,
+} from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
+  createHomeSuggestionOrder,
   createHomeSuggestionRandom,
   HomeSuggestionSeedProvider,
   pickHomeSuggestions,
+  readHomeSuggestionRole,
   TemplateLibraryGrid,
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
@@ -39,7 +44,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Links,
   Meta,
@@ -79,6 +84,9 @@ import slidesEnglish from "./i18n/en-US";
 
 import stylesheet from "./global.css?url";
 
+const loadFirstPaintSuggestionMessages = (locale: string) =>
+  i18nCatalog.loadMessages(locale as LocaleCode);
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -90,17 +98,26 @@ configureTracking({
 
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
-function slidesFirstPaintSuggestions(seed: number) {
+function slidesFirstPaintSuggestions(
+  seed: number,
+  order: readonly number[],
+  role: string,
+) {
   return pickHomeSuggestions(
     slidesHomeSuggestionPools,
-    "general",
+    role,
     createHomeSuggestionRandom(seed),
+    order,
   ).map(({ id, key }) => {
-    const promptKey = key.slice(
-      key.lastIndexOf(".") + 1,
-    ) as keyof typeof slidesEnglish.home.suggestionPrompts.general;
-    const prompt = slidesEnglish.home.suggestionPrompts.general[promptKey];
-    return { id, label: prompt, prompt };
+    const [, , roleKey, promptKey] = key.split(".");
+    const rolePrompts = slidesEnglish.home.suggestionPrompts as Record<
+      string,
+      Record<string, string>
+    >;
+    const prompt =
+      roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
+    if (!prompt) throw new Error(`Missing Slides home prompt: ${key}`);
+    return { id, label: prompt, prompt, messageKey: key };
   });
 }
 
@@ -478,9 +495,29 @@ export default function Root() {
   const location = useLocation();
   const homeSuggestionSeed = useHomeSuggestionSeedForHome(
     location.pathname === "/" || location.pathname === "/home",
+    "slides",
   );
+  const homeSuggestionRole = useMemo(
+    () => readHomeSuggestionRole("slides"),
+    [location.pathname],
+  );
+  const homeSuggestionOrder = useMemo(() => {
+    const pool = slidesHomeSuggestionPools[homeSuggestionRole];
+    return createHomeSuggestionOrder(
+      pool.length,
+      createHomeSuggestionRandom(homeSuggestionSeed),
+    );
+  }, [homeSuggestionRole, homeSuggestionSeed]);
   const sessionBypass = computeSessionBypass(location.pathname);
-  const firstPaintSuggestions = slidesFirstPaintSuggestions(homeSuggestionSeed);
+  const firstPaintSuggestions = useMemo(
+    () =>
+      slidesFirstPaintSuggestions(
+        homeSuggestionSeed,
+        homeSuggestionOrder,
+        homeSuggestionRole,
+      ),
+    [homeSuggestionOrder, homeSuggestionRole, homeSuggestionSeed],
+  );
   const firstPaintHome =
     location.pathname === "/" || location.pathname === "/home" ? (
       <AppShellSkeleton
@@ -488,7 +525,9 @@ export default function Root() {
         firstPaintHome={{
           ...slidesFirstPaintHome,
           suggestions: firstPaintSuggestions,
+          suggestionRole: homeSuggestionRole,
           suggestionSeed: homeSuggestionSeed,
+          loadSuggestionMessages: loadFirstPaintSuggestionMessages,
           onHomeSuggestionClick: trackSlidesHomeSuggestionClick,
         }}
       />
@@ -499,7 +538,10 @@ export default function Root() {
   }
 
   return (
-    <HomeSuggestionSeedProvider seed={homeSuggestionSeed}>
+    <HomeSuggestionSeedProvider
+      seed={homeSuggestionSeed}
+      role={homeSuggestionRole}
+    >
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}

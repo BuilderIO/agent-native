@@ -191,6 +191,7 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
+  onPromptTextChange?: (text: string) => void;
   /** Restore a model choice when a prompt is replayed after auth or setup recovery. */
   initialModelSelection?: PromptModelSelection;
   onBeforeUpload?: (
@@ -232,6 +233,7 @@ export default function PromptPopover({
   draftScope,
   initialText,
   initialTextKey,
+  onPromptTextChange,
   initialModelSelection,
   onBeforeUpload,
   onRetainedAttachmentsAbandoned,
@@ -837,7 +839,10 @@ export default function PromptPopover({
                 onSubmit={handleSubmit}
                 onBeforeSubmit={onBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
-                onTextChange={setPromptText}
+                onTextChange={(text) => {
+                  setPromptText(text);
+                  onPromptTextChange?.(text);
+                }}
                 draftScope={draftScope}
                 initialText={initialText}
                 initialTextKey={initialTextKey}

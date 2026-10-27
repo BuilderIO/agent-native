@@ -1340,6 +1340,15 @@ export function renderDesignEditorView({
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
+  const firstOutputActionsAvailable =
+    !hostEmbeddedEditor &&
+    (widgetEmbed
+      ? shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      : canRenderAuthenticatedShare);
   const nextStepShareActionEvent = "design:first-output-next-step-share";
   const renderShareControl = (dense: boolean, actionEvent?: string) => {
     if (hostEmbeddedEditor) return null;
@@ -2366,6 +2375,7 @@ export function renderDesignEditorView({
       <DesignFirstOutputNextStep
         key={id}
         outputId={id}
+        actionsAvailable={firstOutputActionsAvailable}
         {...(session && (session.userId ?? session.email)
           ? { userScope: session.userId ?? session.email }
           : {})}

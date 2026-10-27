@@ -21,11 +21,13 @@ import {
   PromptHome,
   createHomeSuggestionRandom,
   pickHomeSuggestions,
+  useHomeSuggestionRole,
   useHomeSuggestionSeed,
   useFirstPaintPromptDraft,
   useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
+  writeHomeSuggestionRole,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
@@ -655,6 +657,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
   const homeSuggestionSeed = useHomeSuggestionSeed();
+  const shellSuggestionRole = useHomeSuggestionRole();
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -681,15 +684,25 @@ export default function Index({ active = true }: { active?: boolean }) {
       staleTime: 0,
     },
   );
-  const onboardingRole = homeSuggestionsProfile.data?.onboardingRole;
+  const homeSuggestionRole =
+    shellSuggestionRole ??
+    homeSuggestionsProfile.data?.onboardingRole ??
+    "general";
+  useEffect(() => {
+    if (homeSuggestionsProfile.data === undefined) return;
+    writeHomeSuggestionRole(
+      "slides",
+      homeSuggestionsProfile.data.onboardingRole,
+    );
+  }, [homeSuggestionsProfile.data]);
   const selectedHomeSuggestions = useMemo(
     () =>
       pickHomeSuggestions(
         slidesHomeSuggestionPools,
-        onboardingRole,
+        homeSuggestionRole,
         createHomeSuggestionRandom(homeSuggestionSeed),
       ),
-    [homeSuggestionsIdentityScope, onboardingRole, homeSuggestionSeed],
+    [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
   );
   const homeSuggestions = useMemo(
     () =>
@@ -713,6 +726,21 @@ export default function Index({ active = true }: { active?: boolean }) {
   const homeSuggestionPromptSourceRef = useRef(
     firstPaintPrompt?.source === "home_suggestion",
   );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const handleHomePromptTextChange = useCallback((text: string) => {
+    if (
+      homeSuggestionPromptSourceRef.current &&
+      homeSuggestionPromptTextRef.current !== null &&
+      homeSuggestionPromptTextRef.current !== text
+    ) {
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
+    }
+  }, []);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
     key: number;
@@ -1284,6 +1312,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       source: generationSource,
     });
     homeSuggestionPromptSourceRef.current = false;
+    homeSuggestionPromptTextRef.current = null;
     setNewDeckPromptOpen(false);
 
     const recoverFromGenerationSetupFailure = (
@@ -2723,6 +2752,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               onSkip={handlePromptSkip}
               skipLabel={t("home.skipPrompt")}
               onSubmit={handlePromptSubmit}
+              onPromptTextChange={handleHomePromptTextChange}
               onBeforeUpload={(
                 prompt,
                 files,
@@ -2797,7 +2827,7 @@ export default function Index({ active = true }: { active?: boolean }) {
             layout="single-line"
             homeTracking={{
               appId: "slides",
-              ...(onboardingRole !== undefined ? { role: onboardingRole } : {}),
+              role: homeSuggestionRole,
               seed: homeSuggestionSeed,
             }}
             onHomeSuggestionClick={trackSlidesHomeSuggestionClick}
@@ -2814,6 +2844,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               if (!composer) return;
               homeSuggestionPromptSourceRef.current = true;
               const prompt = agentSuggestionPrompt(suggestion);
+              homeSuggestionPromptTextRef.current = prompt;
               if (!quickActionsEnabled) {
                 setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
                 window.requestAnimationFrame(() => composer.focus());
@@ -2821,6 +2852,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               }
               void composer.submitSource(prompt, []).finally(() => {
                 homeSuggestionPromptSourceRef.current = false;
+                homeSuggestionPromptTextRef.current = null;
               });
             }}
           />

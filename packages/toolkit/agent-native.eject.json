@@ -1511,6 +1511,7 @@
         "clsx",
         "culori",
         "react",
+        "react-dom",
         "react-router",
         "sonner",
         "tailwind-merge"

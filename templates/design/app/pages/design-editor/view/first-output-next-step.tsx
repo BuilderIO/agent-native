@@ -10,6 +10,7 @@ export function DesignFirstOutputNextStep({
   userScope,
   generationActive,
   outputReady,
+  actionsAvailable,
   labels,
   onRefine,
   onExport,
@@ -19,6 +20,7 @@ export function DesignFirstOutputNextStep({
   userScope?: string;
   generationActive: boolean;
   outputReady: boolean;
+  actionsAvailable: boolean;
   labels: FirstOutputNextStepLabels;
   onRefine: () => void;
   onExport: () => void;
@@ -38,12 +40,15 @@ export function DesignFirstOutputNextStep({
     }
   }, [generationActive, outputReady]);
 
+  if (!actionsAvailable) return null;
+
   return (
     <FirstOutputNextStepBar
       appId="design"
       {...(userScope ? { userScope } : {})}
       outputId={outputId}
       ready={ready}
+      positionTargetSelector="[data-multi-screen-canvas-surface]"
       labels={labels}
       onRefine={onRefine}
       onExport={onExport}

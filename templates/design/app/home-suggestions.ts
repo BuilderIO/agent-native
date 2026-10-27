@@ -9,8 +9,8 @@ const prompts = (
   role: string,
   keys: readonly string[],
 ): HomeSuggestionPrompt[] =>
-  keys.map((key) => ({
-    id: `design-${role}-${key}`,
+  keys.map((key, index) => ({
+    id: `design-suggestion-${index + 1}`,
     label: `home.suggestions.${role}.${key}`,
   }));
 

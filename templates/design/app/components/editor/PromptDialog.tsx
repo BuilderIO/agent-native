@@ -165,6 +165,7 @@ interface PromptPopoverProps {
   composerRef?: React.Ref<TiptapComposerHandle>;
   initialText?: string;
   initialTextKey?: number;
+  onPromptTextChange?: (text: string) => void;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
@@ -262,6 +263,7 @@ export default function PromptPopover({
   composerRef,
   initialText,
   initialTextKey,
+  onPromptTextChange,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
@@ -726,6 +728,7 @@ export default function PromptPopover({
       onBeforeSubmit={onBeforeSubmit}
       onTextChange={(text) => {
         draftTextRef.current = text;
+        onPromptTextChange?.(text);
       }}
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}

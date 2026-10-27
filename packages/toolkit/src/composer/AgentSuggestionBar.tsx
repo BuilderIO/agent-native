@@ -35,7 +35,12 @@ export interface AgentSuggestionBarProps {
   /** Visible label above the chips; it also names the group. */
   title?: string;
   onSelect: (suggestion: AgentSuggestionItem) => void;
-  homeTracking?: { appId: string; role?: string | null; seed?: number };
+  homeTracking?: {
+    appId: string;
+    role?: string | null;
+    seed?: number;
+    shellHandoff?: boolean;
+  };
   onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
@@ -175,7 +180,13 @@ export function AgentSuggestionBar({
       aria-busy={loading || undefined}
       aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
+      data-home-suggestion-app-id={homeTracking?.appId}
       data-home-suggestion-seed={homeTracking?.seed}
+      data-home-suggestion-shell-role={
+        homeTracking?.shellHandoff
+          ? normalizeHomeSuggestionRole(homeTracking.role)
+          : undefined
+      }
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
       {title ? (
