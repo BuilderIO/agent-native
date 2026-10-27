@@ -360,6 +360,10 @@ export default defineEventHandler(async (event: H3Event) => {
   const viewerEmail = granted
     ? (contentGrant.viewerEmail ?? undefined)
     : session?.email;
+  // Under a grant a 403 means only that the grant expired, so a media URL the
+  // server blocks is the 502 any other unfetchable source gets.
+  const notGrantExpiry = (status: number) =>
+    granted && status === 403 ? 502 : status;
 
   const requestContext = {
     ...(viewerEmail !== undefined ? { userEmail: viewerEmail } : {}),
@@ -622,11 +626,14 @@ export default defineEventHandler(async (event: H3Event) => {
             upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
           }
         } catch (err) {
-          setResponseStatus(event, statusCodeForProviderFetchError(err));
+          setResponseStatus(
+            event,
+            notGrantExpiry(statusCodeForProviderFetchError(err)),
+          );
           return { error: messageForProviderFetchError(err) };
         }
         if (!(upstream instanceof Response)) {
-          setResponseStatus(event, upstream.status);
+          setResponseStatus(event, notGrantExpiry(upstream.status));
           return { error: upstream.error };
         }
         if (upstream.status >= 500) {
