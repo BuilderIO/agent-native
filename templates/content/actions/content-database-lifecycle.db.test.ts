@@ -534,9 +534,10 @@ describe("database-scoped document properties", () => {
     const { overrides } = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
-        getPersonalViewAction.run({ databaseId: database.databaseId }, {
-          userEmail: OWNER,
-        } as any),
+        getPersonalViewAction.run(
+          { databaseId: database.databaseId },
+          { userEmail: OWNER },
+        ),
     );
     expect(overrides?.views[0].sorts.map((sort) => sort.key)).toEqual([
       "name",

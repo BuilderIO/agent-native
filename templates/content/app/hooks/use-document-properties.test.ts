@@ -273,9 +273,11 @@ describe("useDeleteDocumentProperty", () => {
 
     try {
       useDeleteDocumentProperty("database-page", "database-1");
-      const mutation = useActionMutation.mock.calls.find(
+      const call = useActionMutation.mock.calls.find(
         ([name]) => name === "delete-document-property",
-      )![1];
+      );
+      if (!call) throw new Error("delete-document-property was not wired");
+      const mutation = call[1];
       mutation.onSuccess(
         {
           documentId: "database-page",
