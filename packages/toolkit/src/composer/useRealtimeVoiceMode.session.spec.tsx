@@ -26,6 +26,7 @@ interface FakeChannel {
 let channel: FakeChannel;
 let track: { enabled: boolean; stop: () => void; onended: unknown };
 let audio: HTMLAudioElement | undefined;
+let setAppState: ReturnType<typeof vi.fn>;
 
 class FakePeerConnection {
   connectionState = "new";
@@ -48,6 +49,7 @@ beforeEach(() => {
   channel = { close: vi.fn() };
   track = { enabled: true, stop: vi.fn(), onended: null };
   audio = undefined;
+  setAppState = vi.fn();
   vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
@@ -96,7 +98,7 @@ async function startSession(
         adapters={{
           voice: {
             readAppState: readAppState as never,
-            setAppState: () => undefined,
+            setAppState: setAppState as never,
             getBrowserTabId: () => "tab-1",
             trackEvent,
           },
@@ -462,6 +464,52 @@ describe("realtime voice session controls", () => {
     ]);
     unregisterHandoff();
     unregisterOnScreen();
+    session.unmount();
+  });
+
+  it("saves the app's default level as not chosen so Settings can show it", async () => {
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      class extends FakePeerConnection {
+        override createOffer() {
+          return Promise.resolve({ type: "offer", sdp: "offer-sdp" });
+        }
+        setLocalDescription() {
+          return Promise.resolve();
+        }
+        setRemoteDescription() {
+          return Promise.resolve();
+        }
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("answer-sdp", {
+            headers: {
+              "X-Agent-Native-Realtime-Protocol": "live",
+              "X-Agent-Native-Realtime-Intelligence": "balanced",
+            },
+          }),
+      ),
+    );
+    const session = await startSession();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(session.api().preferences).toMatchObject({
+      intelligence: "balanced",
+      intelligenceChosen: false,
+    });
+    expect(setAppState).toHaveBeenCalledWith(
+      REALTIME_VOICE_PREFERENCES_KEY,
+      expect.objectContaining({
+        intelligence: "balanced",
+        intelligenceChosen: false,
+      }),
+    );
     session.unmount();
   });
 

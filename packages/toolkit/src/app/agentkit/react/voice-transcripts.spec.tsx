@@ -26,7 +26,10 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function mountChat(threadId: string) {
+async function mountChat(
+  threadId: string,
+  stored: Partial<AgentThreadSnapshot> = {},
+) {
   const saved: AgentThreadSnapshot[] = [];
   const transport: AgentTransport = {
     async startRun() {
@@ -35,7 +38,13 @@ async function mountChat(threadId: string) {
     async *subscribeToRun() {},
     async cancelRun() {},
     async getThreadSnapshot() {
-      return { id: threadId, createdAt: AT, updatedAt: AT, messages: [] };
+      return {
+        id: threadId,
+        createdAt: AT,
+        updatedAt: AT,
+        messages: [],
+        ...stored,
+      };
     },
     async persistThreadSnapshot({ snapshot }) {
       saved.push(snapshot);
@@ -242,6 +251,57 @@ describe("voice chat transcripts in AgentKitChat", () => {
     expect(saved.at(-1)?.messages.map((message) => message.id)).toContain(
       `${threadId}:user-2`,
     );
+  });
+
+  it("closes voice work a reload left running, and still saves later turns", async () => {
+    const threadId = "thread-voice-orphan";
+    const runId = "voice:call-edit";
+    const started = "2026-10-24T00:00:02.000Z";
+    const { client, saved } = await mountChat(threadId, {
+      events: [
+        {
+          id: `${runId}:call-edit:tool-started`,
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: started,
+          type: "tool.started",
+          toolCall: {
+            id: "call-edit",
+            name: "edit-design",
+            status: "running",
+            runId,
+          },
+        },
+      ],
+      runs: [{ id: runId, threadId, status: "running", lastSequence: 1 }],
+    });
+
+    expect(
+      client
+        .getThread(threadId)
+        .events.filter((event) => event.runId === runId)
+        .map((event) =>
+          event.type === "tool.updated"
+            ? `${event.type}:${event.toolCall.status}`
+            : event.type,
+        ),
+    ).toEqual([
+      "tool.started",
+      "activity.started",
+      "tool.updated:cancelled",
+      "activity.completed",
+      "run.completed",
+    ]);
+
+    await publish(threadId, {
+      id: `${threadId}:user-1`,
+      role: "user",
+      text: "Try again.",
+    });
+    expect(saved.at(-1)?.messages.map((message) => message.id)).toEqual([
+      `${threadId}:user-1`,
+    ]);
   });
 
   it("shows a reply's tool calls as one work item between the turns and saves it", async () => {

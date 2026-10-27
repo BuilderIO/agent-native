@@ -14,11 +14,13 @@ import { useEffect } from "react";
 import {
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
+  type RealtimeVoiceWorkCall,
   type RealtimeVoiceWorkUpdate,
 } from "../../../composer/realtime-voice-transcript.js";
 import { isChatThreadViewed } from "./viewed-threads.js";
 
 const REALTIME_VOICE_MESSAGE_SOURCE = "realtime-voice";
+const VOICE_RUN_PREFIX = "voice:";
 
 function realtimeVoiceTranscriptMessage(
   transcript: RealtimeVoiceTranscriptMessage,
@@ -52,7 +54,7 @@ export function realtimeVoiceWorkEvents(
   existingIds: ReadonlySet<string> = new Set(),
   lastSequence = 0,
 ): AgentEvent[] {
-  const runId = `voice:${update.id}`;
+  const runId = `${VOICE_RUN_PREFIX}${update.id}`;
   const base = (id: string, occurredAt: string) => ({
     id: `${runId}:${id}`,
     threadId: update.threadId,
@@ -139,17 +141,75 @@ export function realtimeVoiceWorkEvents(
 }
 
 /**
- * Whether a voice reply's work has started but not completed. A snapshot saved
- * now would keep that run with no terminal event, queued after a reload.
+ * Voice work this page is still running, by thread. Saved work that is not
+ * here can never finish, so it is closed instead of waited on.
  */
-function hasOpenVoiceWork(events: readonly AgentEvent[]): boolean {
-  const open = new Set<string>();
-  for (const event of events) {
-    if (!event.runId.startsWith("voice:")) continue;
-    if (event.type === "run.completed") open.delete(event.runId);
-    else open.add(event.runId);
+const runningVoiceWork = new Map<string, Set<string>>();
+
+interface VoiceRunThread {
+  events: readonly AgentEvent[];
+  runs: Readonly<Record<string, { lastSequence: number }>>;
+}
+
+function voiceRunPosition(thread: VoiceRunThread, runId: string) {
+  return {
+    existingIds: new Set(
+      thread.events
+        .filter((event) => event.runId === runId)
+        .map((event) => event.id),
+    ),
+    lastSequence:
+      new Map(Object.entries(thread.runs)).get(runId)?.lastSequence ?? 0,
+  };
+}
+
+/**
+ * The events that end, as cancelled, every voice run in `thread` with no
+ * terminal event. A snapshot saved while a call ran keeps such a run after a
+ * reload, and nothing is left to finish it.
+ */
+export function orphanedVoiceWorkEvents(
+  thread: VoiceRunThread,
+  threadId: string,
+  completedAt = new Date().toISOString(),
+): AgentEvent[] {
+  const runs = new Map<
+    string,
+    { calls: RealtimeVoiceWorkCall[]; completed: boolean }
+  >();
+  for (const event of thread.events) {
+    if (!event.runId.startsWith(VOICE_RUN_PREFIX)) continue;
+    const run = runs.get(event.runId) ?? { calls: [], completed: false };
+    runs.set(event.runId, run);
+    if (event.type === "run.completed") run.completed = true;
+    if (event.type !== "tool.started") continue;
+    const { input } = event.toolCall;
+    run.calls.push({
+      id: event.toolCall.id,
+      name: event.toolCall.name,
+      status: "cancelled",
+      startedAt: event.occurredAt,
+      completedAt,
+      ...(input && typeof input === "object" && !Array.isArray(input)
+        ? { input: input as Record<string, unknown> }
+        : {}),
+    });
   }
-  return open.size > 0;
+  return [...runs]
+    .filter(([, run]) => !run.completed)
+    .flatMap(([runId, run]) => {
+      const { existingIds, lastSequence } = voiceRunPosition(thread, runId);
+      return realtimeVoiceWorkEvents(
+        {
+          id: runId.slice(VOICE_RUN_PREFIX.length),
+          threadId,
+          calls: run.calls,
+          completedAt,
+        },
+        existingIds,
+        lastSequence,
+      );
+    });
 }
 
 /** A voice chat turn still being spoken; hosts must not save it. */
@@ -175,17 +235,25 @@ export function useRealtimeVoiceTranscripts(
     if (!threadId || !controller.upsertLocalMessages) return;
     const upsert = controller.upsertLocalMessages.bind(controller);
     const appendEvents = controller.appendLocalEvents?.bind(controller);
-    const persist = () => {
+    const closeOrphanedWork = () => {
+      if (!appendEvents || runningVoiceWork.get(threadId)?.size) return;
       const thread = controller.getThread(threadId);
+      if (hasActiveAgentRuns(thread)) return;
+      const events = orphanedVoiceWorkEvents(thread, threadId);
+      if (events.length > 0) appendEvents(threadId, events);
+    };
+    const persist = () => {
       // The work's completion saves the thread, this turn included.
-      if (hasOpenVoiceWork(thread.events)) return;
-      const messages = thread.messages.filter(
-        (message) => !isStreamingVoiceMessage(message),
-      );
+      if (runningVoiceWork.get(threadId)?.size) return;
+      closeOrphanedWork();
+      const messages = controller
+        .getThread(threadId)
+        .messages.filter((message) => !isStreamingVoiceMessage(message));
       // A failed save surfaces through the controller's connection error;
       // a host without transport persistence saves the thread itself.
       void controller.persistThreadSnapshotWithResult?.(threadId, messages);
     };
+    closeOrphanedWork();
     return realtimeVoiceTranscriptRegistry.register({
       threadId,
       active: () => isChatThreadViewed(threadId),
@@ -195,22 +263,23 @@ export function useRealtimeVoiceTranscripts(
               if (hasActiveAgentRuns(controller.getThread(threadId))) {
                 return false;
               }
-              const thread = controller.getThread(threadId);
-              const runId = `voice:${update.id}`;
+              const runId = `${VOICE_RUN_PREFIX}${update.id}`;
+              const { existingIds, lastSequence } = voiceRunPosition(
+                controller.getThread(threadId),
+                runId,
+              );
               appendEvents(
                 threadId,
-                realtimeVoiceWorkEvents(
-                  update,
-                  new Set(
-                    thread.events
-                      .filter((event) => event.runId === runId)
-                      .map((event) => event.id),
-                  ),
-                  new Map(Object.entries(thread.runs)).get(runId)
-                    ?.lastSequence ?? 0,
-                ),
+                realtimeVoiceWorkEvents(update, existingIds, lastSequence),
               );
-              if (update.completedAt) persist();
+              const running = runningVoiceWork.get(threadId) ?? new Set();
+              runningVoiceWork.set(threadId, running);
+              if (update.completedAt) {
+                running.delete(runId);
+                persist();
+              } else {
+                running.add(runId);
+              }
               return true;
             },
           }

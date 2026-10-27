@@ -159,7 +159,7 @@ describe("Realtime voice client transport", () => {
     expect(realtimeVoiceReasoningEffort("deep", "live")).toBe("high");
   });
 
-  it("treats an old save's default level as not picked, and keeps a new pick", () => {
+  it("treats an old save's default level as not picked, and keeps a new pick and the app's default", () => {
     expect(
       normalizeRealtimeVoicePreferences({
         language: "en",
@@ -182,7 +182,7 @@ describe("Realtime voice client transport", () => {
         voice: "cedar",
         intelligenceChosen: false,
       }),
-    ).toMatchObject({ intelligence: "instant", intelligenceChosen: false });
+    ).toMatchObject({ intelligence: "balanced", intelligenceChosen: false });
   });
 
   it("maps instant intelligence to a supported GPT-Live reasoning effort", () => {

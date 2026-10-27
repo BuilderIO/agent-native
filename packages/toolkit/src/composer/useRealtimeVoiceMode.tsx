@@ -341,12 +341,17 @@ export function normalizeRealtimeVoicePreferences(
       : storedIntelligence !== DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence
         ? storedIntelligence
         : undefined;
+  // A level saved as not chosen is the app default a session last reported.
+  const appDefaultIntelligence =
+    record.intelligenceChosen === false ? storedIntelligence : undefined;
   return {
     language: isOneOf(REALTIME_VOICE_LANGUAGES, record.language)
       ? record.language
       : DEFAULT_REALTIME_VOICE_PREFERENCES.language,
     intelligence:
-      chosenIntelligence ?? DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
+      chosenIntelligence ??
+      appDefaultIntelligence ??
+      DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
     voice: isOneOf(REALTIME_VOICES, record.voice)
       ? record.voice
       : DEFAULT_REALTIME_VOICE_PREFERENCES.voice,
@@ -2774,14 +2779,18 @@ function useRealtimeVoiceModeController(
       );
       greetingStarter.setProtocol(protocolRef.current);
       const chosen = preferencesRef.current.intelligenceChosen === true;
-      if (!chosen && answer.intelligence) {
-        // Shows the app's default without saving it as the user's pick.
-        const next = {
+      if (
+        !chosen &&
+        answer.intelligence &&
+        answer.intelligence !== preferencesRef.current.intelligence
+      ) {
+        // Saved as not chosen, so Settings shows the app's default after a
+        // reload and the app can still change it.
+        savePreferences({
           ...preferencesRef.current,
           intelligence: answer.intelligence,
-        };
-        preferencesRef.current = next;
-        setPreferences(next);
+          intelligenceChosen: false,
+        });
       }
       turnMetrics.setContext({
         protocol: protocolRef.current,
@@ -2826,6 +2835,7 @@ function useRealtimeVoiceModeController(
     handleServerEvent,
     hydratePreferences,
     refreshMicrophones,
+    savePreferences,
     t,
     transcriptSequencer,
     transition,
