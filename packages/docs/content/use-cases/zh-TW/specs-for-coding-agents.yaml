@@ -1,0 +1,93 @@
+template: v2
+slug: specs-for-coding-agents
+app: content
+title: 撰寫程式開發 agent 讀得懂的規格
+seo_title: 給 Claude Code、Codex 和 Cursor 的規格文件
+meta_description: Agent-Native Content 把規格放在同一個頁面，Claude Code、Codex 或 Cursor 透過 MCP 讀取，讓 agent 依照團隊正在編輯的版本開發。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Content 把你的筆記變成規格，讓你、你的團隊和程式開發 agent 都在同一頁上工作。Claude Code、Codex 或 Cursor 會讀取即時頁面，並提出由你接受的修改建議。
+  button:
+    label: 撰寫規格
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: 在 Content 中開啟的「Team invites」規格，有 Goals、Non-goals、Decisions 和 Open questions 等段落，左側是頁面樹。右側的 agent 對話新增了一項決定，說明邀請連結的有效期限。
+how_to:
+  heading: 如何為程式開發 agent 撰寫規格
+  steps:
+    - title: 和 agent 一起寫規格
+      body: 點選側邊欄的 **+**，選擇 **頁面** 並貼上你的筆記，或請 [Content 內建的 agent](https://www.agent-native.com/docs/template-content/) 根據筆記「Draft a PRD for a new feature」。你可以手動編輯，或選取一個段落請它改寫。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: agent 對話中要求根據會議筆記寫出團隊邀請規格。agent 的回覆列出它寫好的段落，旁邊是新頁面。
+    - title: 在程式開發 agent 中開啟
+      body: 在 **分享** 中開啟 **代理程式**，選擇 **在 Claude Code 中開啟** 或 **在 Codex 中開啟**。agent 會讀取頁面，或先請你連接 Content。若使用 Cursor 或 VS Code，先加入 Content，點選 **複製代理程式指示** 再貼上。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: 「分享」選單「代理程式」分頁的特寫：「複製代理程式指示」、「在 Claude 中開啟」、「在 Claude Code 中開啟」和「在 Codex 中開啟」。下方的「連接 Content」提供「加入 Cursor」、「加入 VS Code」和「其他代理程式」。
+    - title: 讓規格保持最新
+      body: 開發過程解決了某個待解問題時，請程式開發 agent 在頁面上提出修改建議。每項建議都會附上 agent 的理由。點選勾號接受，或點選 X 拒絕。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: 規格 Open questions 段落的特寫，有一則程式開發 agent 提出的修改建議，標為 Agent，附上理由，以及接受（勾號）和拒絕（X）按鈕。
+features:
+  heading: 為程式開發 agent 撰寫規格所需的一切
+  items:
+    - title: 以留言給意見
+      body: 請 agent 審查你的規格，它會在弱點處留言，而不是改寫你的文字。
+    - title: 一個功能一個頁面
+      body: 把研究、API 筆記和過去的決定放在各規格底下，並能搜尋標題和內文找到任何一份。
+    - title: 規格看板
+      body: 把規格放在有負責人和狀態欄位的集合中，以表格或看板呈現，每一列背後都是完整頁面。
+    - title: 給 agent 的備註
+      body: 在頁面說明中寫下哪些段落已經定案，每個讀取這份規格的 agent 也會一併讀到。
+    - title: 讀得到未儲存的編輯
+      body: 程式開發 agent 看得到你編輯器中尚未儲存的修改，所以永遠依照頁面當下的樣子工作。
+    - title: 和團隊一起審查
+      body: 在任何段落留言、@提及隊友並在討論串中回覆。版本記錄可以還原較早的規格。
+integrations:
+  heading: 將 Content 連接到你已在用的工具
+  cards:
+    - title: 搭配你的程式開發 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 從「分享」在 Claude Code 或 Codex 中開啟頁面，或一鍵把 Content 加入 Cursor 或 VS Code 的 GitHub Copilot。
+    - title: 沿用你現有的規格
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: 讓頁面與 Notion 雙向同步，或把 GitHub 上存放 Markdown 規格的資料夾變成一個集合。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Content 是免費的嗎？
+      a: 是的，Agent-Native Content 免費且開源。程式開發 agent 用它自己的模型讀取和編輯規格，所以會計入 agent 的用量。Content 內建的 agent 使用 Builder.io 點數或你自己的模型金鑰。Content 目前是 alpha 版，功能會持續調整。
+    - q: 哪些程式開發 agent 可以讀取我的規格？
+      a: Claude Code 和 Codex 從 **分享** 開啟頁面，只需連接一次。Cursor 和 VS Code 的 GitHub Copilot 可在同一處一鍵加入 Content。Claude Cowork、Goose 和 OpenCode 從終端機連接，任何支援登入的 MCP 用戶端都能[用網址連接 Content](https://www.agent-native.com/docs/external-agents/#private-content-links)。每個 agent 只看得到你帳號能看到的內容。
+    - q: 這和放在程式碼庫裡的規格檔有什麼不同？
+      a: 程式碼庫裡的規格檔是一份副本，通常只有寫程式的人會去編輯。在 Content 中，團隊撰寫和留言的頁面，就是程式開發 agent 讀取的那一頁，而 agent 的修改會以建議的形式出現。如果你也想在程式碼庫中保留 Markdown，Content 可以[與本機資料夾同步](https://www.agent-native.com/docs/template-content-sync/)。
+    - q: 程式開發 agent 可以修改規格嗎？
+      a: 可以，權限與你的帳號相同。請它提出修改建議，在你逐一接受之前，頁面都不會變動。它也能直接編輯頁面，但如果頁面在 agent 讀取後有過變更，Content 會拒絕這次編輯。[版本記錄](https://www.agent-native.com/docs/template-content-editing/)會保留較早的版本。
+    - q: 我可以把規格保留在程式碼庫中嗎？
+      a: 可以。在 Content 中連接一個[本機 Markdown 或 MDX 資料夾](https://www.agent-native.com/docs/template-content-local-files/)，就能拉取、檢查或推送變更，或用一行指令從程式碼庫啟動 Content。衝突會列出來讓你審查。瀏覽器無法自行讀取本機檔案，所以這需要本機的 Content 應用程式或 Agent-Native Desktop。

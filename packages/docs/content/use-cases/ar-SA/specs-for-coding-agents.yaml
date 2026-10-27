@@ -1,0 +1,93 @@
+template: v2
+slug: specs-for-coding-agents
+app: content
+title: "اكتب مواصفات يقرؤها وكيل البرمجة"
+seo_title: "مواصفات لـ Claude Code وCodex وCursor"
+meta_description: "يحفظ Agent-Native Content مواصفاتك في صفحة واحدة يقرؤها Claude Code أو Codex أو Cursor عبر MCP، فيبني وكيلك من النسخة التي يعدّلها فريقك الآن."
+updated: 2026-10-27
+hero:
+  body: "يحوّل Agent-Native Content ملاحظاتك إلى مواصفات تعمل منها أنت وفريقك ووكيل البرمجة في صفحة واحدة. يقرأ Claude Code أو Codex أو Cursor الصفحة الحية ويقترح تغييرات تقبلها."
+  button:
+    label: "اكتب مواصفات"
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: "مواصفات بعنوان «Team invites» مفتوحة في Content، فيها أقسام Goals وNon-goals وDecisions وOpen questions، وشجرة الصفحات على اليسار. وأضافت محادثة الوكيل على اليمين قرارًا بشأن مدة صلاحية روابط الدعوة."
+how_to:
+  heading: "كيف تكتب مواصفات لوكيل البرمجة"
+  steps:
+    - title: "اكتب المواصفات مع الوكيل"
+      body: "انقر على **+** في الشريط الجانبي، واختر **صفحة** والصق ملاحظاتك، أو اطلب من [الوكيل المدمج في Content](https://www.agent-native.com/docs/template-content/) «اكتب مسودة PRD لميزة جديدة» منها. عدّلها بيدك، أو حدّد قسمًا واطلب إعادة كتابته."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: "محادثة الوكيل تطلب مواصفات لدعوات الفريق من ملاحظات اجتماع. ويسرد رد الوكيل الأقسام التي كتبها، بجانب الصفحة الجديدة."
+    - title: "افتحها في وكيل البرمجة"
+      body: "في **مشاركة**، افتح **الوكلاء** واختر **فتح في Claude Code** أو **فتح في Codex**. يقرأ وكيلك الصفحة، أو يطلب منك أولًا ربط Content. ولـ Cursor أو VS Code، أضف Content، وانقر على **نسخ تعليمات الوكيل** والصقها."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "لقطة مقرّبة لتبويب Agents في قائمة Share: Copy agent prompt وOpen in Claude وOpen in Claude Code وOpen in Codex. وتحتها يعرض Connect Content خيارات Add to Cursor وAdd to VS Code وOther agents."
+    - title: "حافظ على تحديث المواصفات"
+      body: "عندما يحسم البناء سؤالًا مفتوحًا، اطلب من وكيل البرمجة اقتراح التغيير على الصفحة. يعرض كل اقتراح سبب الوكيل. انقر على علامة الصح لتقبله، أو على X لترفضه."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: "لقطة مقرّبة لقسم Open questions في المواصفات مع تعديل مقترح من وكيل البرمجة، موسوم بـ Agent، مع سببه وزرَّي القبول (علامة الصح) والرفض (X)."
+features:
+  heading: "كل ما تحتاجه لكتابة مواصفات لوكيل البرمجة"
+  items:
+    - title: "ملاحظات كتعليقات"
+      body: "اطلب من الوكيل مراجعة مواصفاتك، فيترك تعليقات على المواضع الضعيفة بدلًا من إعادة كتابة نصك."
+    - title: "صفحة واحدة لكل ميزة"
+      body: "ضع الأبحاث وملاحظات الـ API والقرارات السابقة تحت كل مواصفات، وابحث في العناوين والنصوص لتجد أيًا منها."
+    - title: "لوحة للمواصفات"
+      body: "احفظ المواصفات في مجموعة بحقلي المسؤول والحالة، كجدول أو لوحة، والصفحة الكاملة وراء كل صف."
+    - title: "ملاحظات لوكيلك"
+      body: "اكتب في وصف الصفحة الأقسام المحسومة، وكل وكيل يقرأ المواصفات يقرأ ذلك أيضًا."
+    - title: "يقرأ التعديلات غير المحفوظة"
+      body: "يرى وكيل البرمجة التعديلات التي لا تزال مفتوحة في محررك، فيعمل دائمًا من الصفحة كما هي الآن."
+    - title: "راجعها مع فريقك"
+      body: "علّق على أي فقرة، واذكر زميلًا بـ @، وردّ في سلاسل النقاش. ويستعيد سجل الإصدارات نسخة سابقة من المواصفات."
+integrations:
+  heading: "اربط Content بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "يعمل مع وكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "افتح صفحة في Claude Code أو Codex من قائمة المشاركة، أو أضف Content إلى Cursor أو GitHub Copilot في VS Code بنقرة واحدة."
+    - title: "أحضر مواصفاتك الحالية"
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: "زامن صفحة مع Notion في الاتجاهين، أو حوّل مجلد GitHub فيه مواصفات بصيغة Markdown إلى مجموعة."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Content مجاني؟"
+      a: "نعم، Agent-Native Content مجاني ومفتوح المصدر. يقرأ وكيل البرمجة المواصفات ويعدّلها على نموذجه الخاص، فيُحتسب ذلك من استخدام وكيلك. ويعمل الوكيل المدمج في Content على أرصدة Builder.io أو مفتاح النموذج الخاص بك. لا يزال Content في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "ما وكلاء البرمجة التي تستطيع قراءة مواصفاتي؟"
+      a: "يفتح Claude Code وCodex الصفحة من **مشاركة** ويطلبان منك الربط مرة واحدة. ويضيف Cursor وGitHub Copilot في VS Code تطبيق Content هناك بنقرة واحدة. ويتصل Claude Cowork وGoose وOpenCode من الطرفية، ويمكن لأي عميل MCP يدعم تسجيل الدخول [الاتصال بـ Content بعنوان URL الخاص به](https://www.agent-native.com/docs/external-agents/#private-content-links). ولا يرى كل وكيل إلا ما يستطيع حسابك رؤيته."
+    - q: "كيف يختلف هذا عن ملف مواصفات في مستودعي؟"
+      a: "ملف المواصفات في المستودع نسخة لا يعدّلها عادةً إلا من يعمل على الكود. أما في Content، فيكتب فريقك ويعلّق على الصفحة نفسها التي يقرؤها وكيل البرمجة، وتصل تغييرات الوكيل كاقتراحات. وإن أردت Markdown في المستودع أيضًا، فإن Content [يتزامن مع مجلد محلي](https://www.agent-native.com/docs/template-content-sync/)."
+    - q: "هل يمكن لوكيل البرمجة تغيير المواصفات؟"
+      a: "نعم، بالصلاحيات التي يملكها حسابك. اطلب منه اقتراح تعديلات، فتبقى الصفحة كما هي حتى تقبل كل تعديل. ويمكنه أيضًا تعديل الصفحة مباشرة، لكن إن تغيّرت الصفحة بعد أن قرأها الوكيل، يرفض Content التعديل. ويحتفظ [سجل الإصدارات](https://www.agent-native.com/docs/template-content-editing/) بالنسخ السابقة."
+    - q: "هل يمكنني إبقاء مواصفاتي في مستودعي؟"
+      a: "نعم. اربط [مجلد Markdown أو MDX محليًا](https://www.agent-native.com/docs/template-content-local-files/) في Content واسحب التغييرات أو افحصها أو ادفعها، أو شغّل Content من مستودعك بأمر واحد. وتُعرض التعارضات لتراجعها. ولا يستطيع المتصفح قراءة الملفات المحلية وحده، لذا يحتاج هذا إلى تطبيق Content محلي أو Agent-Native Desktop."
