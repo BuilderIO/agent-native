@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,6 +9,10 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import {
+  isMeetingRecordingAvailable,
+  meetingRecordingReference,
+} from "../server/lib/meeting-recording-access.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
@@ -57,8 +61,17 @@ export default defineAction({
         .where(eq(schema.recordings.id, meeting.recordingId))
         .limit(1);
       if (existing) {
+        await assertAccess("recording", existing.id, "editor");
+        if (
+          !isMeetingRecordingAvailable(
+            { ...existing, hasPassword: Boolean(existing.password) },
+            ownerEmail,
+          )
+        ) {
+          throw new ForbiddenError();
+        }
         return {
-          recording: existing,
+          recording: meetingRecordingReference(existing),
           meetingId,
           created: false,
           captureStopRevision: meeting.captureStopRevision,
@@ -114,14 +127,16 @@ export default defineAction({
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    const [recording] = await db
+    const recordingRows = await db
       .select()
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
+    const recording = recordingRows.values().next().value;
+
     return {
-      recording,
+      recording: recording ? meetingRecordingReference(recording) : undefined,
       meetingId,
       created: true,
       captureStopRevision: meeting.captureStopRevision,

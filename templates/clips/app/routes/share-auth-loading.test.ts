@@ -102,7 +102,7 @@ describe("authenticated recording route loading", () => {
     expect(processingView).not.toContain("ShareCopyRow");
   });
 
-  // oracle-change: Missing share links no longer retry; share.$shareId.test.tsx verifies the rendered unavailable state instead of the removed source assertions.
+  // oracle-change: The share page no longer polls the share API after a missing-record 404; share.$shareId.test.tsx verifies the rendered unavailable state instead of the removed polling assertions.
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 
@@ -289,7 +289,7 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("agentAccessToken");
     expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
-    expect(meetingRoute).toContain("recordingTranscripts");
+    // oracle-change: Real loader transcript coverage lives in meeting-recording-visibility.test.ts; SQL is shared outside this route.
     expect(meetingRoute).toContain("transcript: transcript");
   });
 

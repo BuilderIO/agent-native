@@ -3,6 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { loadRecordingAppActivity } from "../server/lib/app-activity.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   filterAppActivityEvents,
   MAX_APP_ACTIVITY_EVENTS,
@@ -40,7 +41,9 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ recordingId, fromMs, toMs, start, maxEvents }) => {
-    await assertAccess("recording", recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", recordingId, "editor"),
+    );
     const result = await loadRecordingAppActivity(recordingId);
     if (result.status === "none") {
       fail("This recording has no app activity.", {

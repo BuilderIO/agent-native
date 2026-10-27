@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
+}));
+
 /**
  * The action itself, with storage and the database stubbed: what it refuses,
  * and when a file it could not delete is worth failing the save over.
@@ -32,8 +37,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...(args as [])),
 }));
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
+  })),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -105,6 +114,8 @@ function pending(w: number, h: number) {
 }
 
 beforeEach(() => {
+  expiryAccess.role = "editor";
+  expiryAccess.expiresAt = null;
   uploads = 0;
   mocks.updates = [];
   mocks.matching = Infinity;
@@ -131,6 +142,26 @@ function marker(update: Record<string, unknown>) {
 }
 
 describe("save-screenshot-edits", () => {
+  it.each([false, true])(
+    "rechecks screenshot expiry after upload (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mocks.uploadFile.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { url: "https://example.test/fake-screenshot.png" };
+      });
+      const pending = run({ annotations: [] });
+      if (owner) await expect(pending).resolves.toMatchObject({ id: "shot-1" });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mocks.updates).toHaveLength(0);
+        expect(mocks.deleteStoredMediaUrl).toHaveBeenCalledWith(
+          "https://example.test/fake-screenshot.png",
+        );
+      }
+    },
+  );
+
   it("does not fail an ordinary save over an old copy it could not delete", async () => {
     // The row has already moved on to the new picture by then, and the old
     // flattened copy had nothing unredacted in it. Failing here left the
