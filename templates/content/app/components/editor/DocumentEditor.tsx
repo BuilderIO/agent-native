@@ -263,6 +263,7 @@ import {
 } from "./DocumentToolbar";
 import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
+import { reportEditorMerge } from "./editor-merge-telemetry";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
 import { useRegisterLiveEditorSession } from "./live-editor-session";
@@ -4493,6 +4494,8 @@ function PageEditorSessionBody({
             canContinue: () =>
               !options.requireActiveEditorSession ||
               editorSessionActiveRef.current,
+            onMerge: (outcome) =>
+              reportEditorMerge(documentId, "save_rebase", outcome),
             persist: (nextContent, contentBase) => {
               const reusedAttemptId =
                 rebaseAttempt++ === 0 ? options.saveAttemptId : undefined;
