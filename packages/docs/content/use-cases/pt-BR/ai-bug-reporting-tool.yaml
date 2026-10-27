@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: Relatório de bugs com IA
-seo_title: Ferramenta de relatório de bugs com IA e logs de console e de rede
-meta_description: O Agent-Native Clips é uma ferramenta gratuita de relatório de bugs com IA. Grave o bug no Chrome e compartilhe um link com os logs de console e de rede que seu agente de código consegue ler.
-updated: 2026-10-26
+title: Grave bugs com os logs de console e de rede
+seo_title: Relatório de bugs com IA e logs de console
+meta_description: Mostre o bug no Chrome, e o Agent-Native Clips transforma sua gravação em um link com os erros e as requisições com falha da página para seu engenheiro ou agente de código.
+updated: 2026-10-27
 hero:
-  body: O Agent-Native Clips transforma a gravação de um bug em um relatório para sua equipe e seu agente de código. Erros e requisições com falha da página vão junto no link.
+  body: O Agent-Native Clips transforma a gravação do bug em um link para seu engenheiro ou agente de código. Mostre o bug no Chrome, e os erros e requisições com falha da página vão junto.
   button:
     label: Grave um bug
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
 other_uses:
-  heading: Outras coisas que você pode fazer com o Clips
+  heading: Outras coisas que você pode fazer com o Agent-Native Clips
   cards:
-    - title: Notas de reunião com IA
+    - title: Tenha notas de reunião sem bot na chamada
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Receba resumo, notas e itens de ação de cada reunião, sem bot na chamada.
-    - title: Ditado com IA
+    - title: Dite seus prompts em vez de digitá-los
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "Fale em vez de digitar, e o texto limpo aparece no app que você estiver usando."
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: O Clips captura logs em outros navegadores ou no app desktop?
       a: Não. Os logs de console e de rede vêm apenas da extensão do Clips para Chrome. O Clips Desktop e o app web ainda gravam sua tela, sua câmera e sua voz, com transcrição e resumo, mas a gravação não terá os logs do navegador.
     - q: O Clips é um bug tracker como o Jira?
-      a: "Não. O Clips faz [um relatório de bug que um engenheiro consegue usar](https://www.agent-native.com/articles/how-to-write-a-bug-report/), e o seu tracker guarda: cole o link no Jira, no GitHub, no Linear ou no Slack. Seu agente de código ou o [agente do Clips](https://www.agent-native.com/docs/template-clips-agent/) recebe a gravação e os logs dela, e não só o texto de um ticket. É isso que faz do Clips um [app agêntico](https://www.agent-native.com/articles/what-is-an-agent-native-app/): o cérebro de um agente, a intuitividade de um app."
+      a: "Não. O Clips faz [um relatório de bug que um engenheiro consegue usar](https://www.agent-native.com/articles/how-to-write-a-bug-report/), e o seu tracker guarda: cole o link no Jira, no GitHub, no Linear ou no Slack. Seu agente de código ou o [agente do Clips](https://www.agent-native.com/docs/template-clips-agent/) lê a própria gravação e os logs dela. É isso que faz do Clips um [app agêntico](https://www.agent-native.com/articles/what-is-an-agent-native-app/): o cérebro de um agente, a intuitividade de um app."

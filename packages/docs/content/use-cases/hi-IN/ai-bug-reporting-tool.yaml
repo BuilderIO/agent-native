@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: "AI बग रिपोर्टिंग टूल"
-seo_title: "कंसोल और नेटवर्क लॉग्स के साथ AI बग रिपोर्टिंग टूल"
-meta_description: "Agent-Native Clips एक फ़्री AI बग रिपोर्टिंग टूल है। Chrome में बग रिकॉर्ड करें और एक लिंक शेयर करें, जिसमें कंसोल और नेटवर्क लॉग्स हों जो आपका कोडिंग एजेंट पढ़ सके।"
-updated: 2026-10-26
+title: "कंसोल और नेटवर्क लॉग्स के साथ बग रिकॉर्ड करें"
+seo_title: "कंसोल लॉग्स के साथ AI बग रिपोर्टिंग टूल"
+meta_description: "Chrome में बग दिखाएँ, और Agent-Native Clips आपकी रिकॉर्डिंग को आपके इंजीनियर या कोडिंग एजेंट के लिए एक लिंक में बदल देता है, जिसमें पेज के एरर और फ़ेल हुए रिक्वेस्ट होते हैं।"
+updated: 2026-10-27
 hero:
-  body: "Agent-Native Clips बग की रिकॉर्डिंग को ऐसी रिपोर्ट में बदल देता है जिस पर आपका इंजीनियर और आपका कोडिंग एजेंट काम कर सकें। आप Chrome में बग दिखाते हैं, और पेज के एरर और फ़ेल हुए रिक्वेस्ट लिंक के साथ आ जाते हैं।"
+  body: "Agent-Native Clips बग की रिकॉर्डिंग को एक ऐसे लिंक में बदल देता है जिस पर आपका इंजीनियर या कोडिंग एजेंट काम कर सके। आप Chrome में बग दिखाते हैं, और पेज के एरर और फ़ेल हुए रिक्वेस्ट उसके साथ आ जाते हैं।"
   button:
     label: "बग रिकॉर्ड करें"
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
 other_uses:
-  heading: "Clips से आप और क्या कर सकते हैं"
+  heading: "Agent-Native Clips से आप और क्या कर सकते हैं"
   cards:
-    - title: "AI मीटिंग नोट्स"
+    - title: "कॉल में बिना बॉट के मीटिंग नोट्स पाएँ"
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: "कॉल में बिना किसी बॉट के, हर मीटिंग से समरी, नोट्स और एक्शन आइटम्स पाएँ।"
-    - title: "AI डिक्टेशन"
+    - title: "अपने प्रॉम्प्ट टाइप करने के बजाय बोलकर लिखें"
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "टाइप करने के बजाय बोलें, और साफ़-सुथरा टेक्स्ट उसी ऐप में आ जाता है जिसे आप इस्तेमाल कर रहे हैं।"
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: "क्या Clips दूसरे ब्राउज़र्स या डेस्कटॉप ऐप में भी लॉग्स कैप्चर करता है?"
       a: "नहीं। कंसोल और नेटवर्क लॉग्स सिर्फ़ Clips Chrome एक्सटेंशन से आते हैं। Clips Desktop और वेब ऐप फिर भी आपकी स्क्रीन, कैमरा और आवाज़ को ट्रांसक्रिप्ट और समरी के साथ रिकॉर्ड करते हैं, लेकिन रिकॉर्डिंग में ब्राउज़र लॉग्स नहीं होंगे।"
     - q: "क्या Clips, Jira जैसा बग ट्रैकर है?"
-      a: "नहीं। Clips [ऐसी बग रिपोर्ट बनाता है जिस पर इंजीनियर काम कर सके](https://www.agent-native.com/articles/how-to-write-a-bug-report/), और उसे आपका ट्रैकर स्टोर करता है: लिंक को Jira, GitHub, Linear या Slack में पेस्ट करें। आपके कोडिंग एजेंट या [Clips एजेंट](https://www.agent-native.com/docs/template-clips-agent/) को सिर्फ़ टिकट का टेक्स्ट नहीं, रिकॉर्डिंग और उसके लॉग्स मिलते हैं। यही Clips को एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) बनाता है: एजेंट का दिमाग, ऐप जैसी आसानी।"
+      a: "नहीं। Clips [ऐसी बग रिपोर्ट बनाता है जिस पर इंजीनियर काम कर सके](https://www.agent-native.com/articles/how-to-write-a-bug-report/), और उसे आपका ट्रैकर स्टोर करता है: लिंक को Jira, GitHub, Linear या Slack में पेस्ट करें। आपका कोडिंग एजेंट या [Clips एजेंट](https://www.agent-native.com/docs/template-clips-agent/) खुद रिकॉर्डिंग और उसके लॉग्स पढ़ता है। यही Clips को एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) बनाता है: एजेंट का दिमाग, ऐप जैसी आसानी।"

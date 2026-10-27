@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: تقارير الأخطاء الذكية
-seo_title: "أداة إبلاغ عن الأخطاء بالذكاء الاصطناعي مع سجلات وحدة التحكم والشبكة"
-meta_description: "Agent-Native Clips أداة مجانية بالذكاء الاصطناعي للإبلاغ عن الأخطاء. سجّل الخطأ في Chrome وشارك رابطًا واحدًا مع سجلات وحدة التحكم والشبكة التي يقرأها وكيل البرمجة لديك."
-updated: 2026-10-26
+title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
+seo_title: "أداة ذكية للإبلاغ عن الأخطاء مع سجلات وحدة التحكم"
+meta_description: "اعرض الخطأ في Chrome، ويحوّل Agent-Native Clips تسجيلك إلى رابط واحد يضم أخطاء الصفحة وطلباتها الفاشلة لمهندسك أو وكيل البرمجة لديك."
+updated: 2026-10-27
 hero:
-  body: "يحوّل Agent-Native Clips تسجيل الخطأ إلى تقرير يستطيع مهندسك ووكيل البرمجة لديك العمل عليه. تعرض الخطأ في Chrome، فتأتي أخطاء الصفحة وطلباتها الفاشلة مع الرابط."
+  body: "يحوّل Agent-Native Clips تسجيل الخطأ إلى رابط واحد يستطيع مهندسك أو وكيل البرمجة لديك العمل عليه. تعرض الخطأ في Chrome، فتأتي معه أخطاء الصفحة وطلباتها الفاشلة."
   button:
     label: "سجّل خطأً"
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
 other_uses:
-  heading: "أشياء أخرى يمكنك فعلها مع Clips"
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Clips"
   cards:
-    - title: ملاحظات الاجتماعات الذكية
+    - title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: "احصل على ملخص وملاحظات وعناصر عمل من كل اجتماع، دون بوت في المكالمة."
-    - title: "الإملاء بالذكاء الاصطناعي"
+    - title: "أملِ مطالباتك بدلًا من كتابتها"
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "تحدّث بدلاً من الكتابة، ويظهر النص المنقّح في أي تطبيق تستخدمه."
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: "هل يلتقط Clips السجلات في متصفحات أخرى أو في تطبيق سطح المكتب؟"
       a: "لا. تأتي سجلات وحدة التحكم والشبكة من ملحق Clips لـ Chrome فقط. أما Clips Desktop وتطبيق الويب فيسجّلان شاشتك وكاميراك وصوتك مع نص وملخص، لكن التسجيل لن يتضمن سجلات المتصفح."
     - q: "هل Clips أداة لتتبع الأخطاء مثل Jira؟"
-      a: "لا. يصنع Clips [تقرير خطأ يستطيع المهندس العمل عليه](https://www.agent-native.com/articles/how-to-write-a-bug-report/)، وتحفظه أداة التتبع لديك: الصق الرابط في Jira أو GitHub أو Linear أو Slack. ويحصل وكيل البرمجة لديك أو [وكيل Clips](https://www.agent-native.com/docs/template-clips-agent/) على التسجيل وسجلاته، لا على نص التذكرة فقط. وهذا ما يجعل Clips [تطبيقًا وكيليًا](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."
+      a: "لا. يصنع Clips [تقرير خطأ يستطيع المهندس العمل عليه](https://www.agent-native.com/articles/how-to-write-a-bug-report/)، وتحفظه أداة التتبع لديك: الصق الرابط في Jira أو GitHub أو Linear أو Slack. ويقرأ وكيل البرمجة لديك أو [وكيل Clips](https://www.agent-native.com/docs/template-clips-agent/) التسجيل نفسه وسجلاته. وهذا ما يجعل Clips [تطبيقًا وكيليًا](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

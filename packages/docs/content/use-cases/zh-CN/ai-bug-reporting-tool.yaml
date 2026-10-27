@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: AI 缺陷报告工具
-seo_title: 带控制台和网络日志的 AI 缺陷报告工具
-meta_description: Agent-Native Clips 是一款免费的 AI 缺陷报告工具。在 Chrome 中录下 bug，分享一个链接，附带你的编码 agent 能读取的控制台和网络日志。
-updated: 2026-10-26
+title: 录下 bug，附带控制台和网络日志
+seo_title: 带控制台日志的 AI 缺陷报告工具
+meta_description: 在 Chrome 中演示 bug，Agent-Native Clips 会把录屏变成一个链接，附带页面的报错和失败的请求，交给你的工程师或编码 agent。
+updated: 2026-10-27
 hero:
-  body: Agent-Native Clips 把一段 bug 录屏变成工程师和编码 agent 都能直接处理的报告。你在 Chrome 里演示 bug，页面的报错和失败的请求会随链接一起带上。
+  body: Agent-Native Clips 把一段 bug 录屏变成一个链接，工程师或编码 agent 都能直接据此处理。你在 Chrome 里演示 bug，页面的报错和失败的请求会一起带上。
   button:
     label: 录制 bug
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
 other_uses:
-  heading: 用 Clips 还能做的其他事
+  heading: 用 Agent-Native Clips 还能做的其他事
   cards:
-    - title: AI 会议笔记
+    - title: 无需机器人入会，也能拿到会议笔记
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: 每场会议都有摘要、笔记和行动项，通话里没有机器人。
-    - title: AI 听写
+    - title: 口述提示词，不用再打字
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "用说代替打字，整理好的文字会直接出现在你正在用的应用里。"
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: Clips 能采集其他浏览器或桌面应用中的日志吗？
       a: 不能。控制台和网络日志只来自 Clips Chrome 扩展。Clips Desktop 和网页应用仍然会录下你的屏幕、摄像头和声音，并生成转录和摘要，但录屏中不会包含浏览器日志。
     - q: Clips 是像 Jira 这样的 bug 跟踪工具吗？
-      a: "不是。Clips 做出[工程师能直接处理的 bug 报告](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的跟踪工具来存放它：把链接粘贴到 Jira、GitHub、Linear 或 Slack 即可。你的编码 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 拿到的是录屏和它的日志，而不只是工单上的文字。这就是 Clips 成为[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)的原因：既有 agent 的智能，又有应用的直观易用。"
+      a: "不是。Clips 做出[工程师能直接处理的 bug 报告](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的跟踪工具来存放它：把链接粘贴到 Jira、GitHub、Linear 或 Slack 即可。你的编码 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 会直接读取录屏本身和它的日志。这就是 Clips 成为[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)的原因：既有 agent 的智能，又有应用的直观易用。"

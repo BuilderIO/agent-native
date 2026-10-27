@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: AI 錯誤回報工具
-seo_title: 附帶主控台與網路記錄的 AI 錯誤回報工具
-meta_description: Agent-Native Clips 是免費的 AI 錯誤回報工具。在 Chrome 中錄下錯誤，分享一個連結，就附上你的程式開發 agent 能讀取的主控台和網路記錄。
-updated: 2026-10-26
+title: 錄下錯誤，附上主控台與網路記錄
+seo_title: 附帶主控台記錄的 AI 錯誤回報工具
+meta_description: 在 Chrome 中示範錯誤，Agent-Native Clips 就會把你的錄影變成一個連結，附上頁面的錯誤訊息和失敗的請求，交給你的工程師或程式開發 agent。
+updated: 2026-10-27
 hero:
-  body: Agent-Native Clips 把錯誤的錄影變成工程師和你的程式開發 agent 都能直接處理的回報。你在 Chrome 中示範錯誤，頁面的錯誤訊息和失敗的請求就會隨著連結一起送出。
+  body: Agent-Native Clips 把錯誤的錄影變成一個連結，讓你的工程師或程式開發 agent 直接處理。你在 Chrome 中示範錯誤，頁面的錯誤訊息和失敗的請求就會一起附上。
   button:
     label: 錄製錯誤
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
 other_uses:
-  heading: 你還能用 Clips 做的其他事
+  heading: 你還能用 Agent-Native Clips 做的其他事
   cards:
-    - title: AI 會議筆記
+    - title: 不讓機器人加入通話，也能做會議筆記
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: 從每場會議取得摘要、筆記和行動項目，通話中不需要機器人。
-    - title: AI 聽寫
+    - title: 用說的輸入提示，不必再打字
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "用說的取代打字，整理好的文字會直接出現在你正在使用的應用程式中。"
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: Clips 會擷取其他瀏覽器或桌面應用程式的記錄嗎？
       a: 不會。主控台和網路記錄只來自 Clips Chrome 擴充功能。Clips Desktop 和網頁版應用程式仍會錄下你的螢幕、相機和聲音，並附上逐字稿和摘要，但錄影內容不會包含瀏覽器記錄。
     - q: Clips 是像 Jira 那樣的錯誤追蹤工具嗎？
-      a: 不是。Clips 製作的是[工程師能直接處理的錯誤回報](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的追蹤工具負責存放：把連結貼到 Jira、GitHub、Linear 或 Slack 即可。你的程式開發 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 拿到的是錄影和它的記錄，而不只是工單上的文字。這就是 Clips 之所以是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/) 的原因：擁有 agent 的智慧，也有應用程式的直覺易用。
+      a: 不是。Clips 製作的是[工程師能直接處理的錯誤回報](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的追蹤工具負責存放：把連結貼到 Jira、GitHub、Linear 或 Slack 即可。你的程式開發 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 會直接讀取錄影本身和它的記錄。這就是 Clips 之所以是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/) 的原因：擁有 agent 的智慧，也有應用程式的直覺易用。

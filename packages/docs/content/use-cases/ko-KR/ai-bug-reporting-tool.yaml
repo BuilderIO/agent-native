@@ -1,12 +1,12 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
-title: AI 버그 리포트 도구
-seo_title: 콘솔과 네트워크 로그가 담기는 AI 버그 리포트 도구
-meta_description: "Agent-Native Clips는 무료 AI 버그 리포트 도구예요. Chrome에서 버그를 녹화하고, 코딩 에이전트가 읽을 수 있는 콘솔과 네트워크 로그가 담긴 링크 하나를 공유하세요."
-updated: 2026-10-26
+title: 콘솔과 네트워크 로그까지 담아 버그를 녹화하세요
+seo_title: 콘솔 로그가 담기는 AI 버그 리포트 도구
+meta_description: "Chrome에서 버그를 보여 주세요. Agent-Native Clips가 녹화를 페이지의 오류와 실패한 요청이 담긴 링크 하나로 만들어 엔지니어나 코딩 에이전트에게 건네줘요."
+updated: 2026-10-27
 hero:
-  body: "Agent-Native Clips는 버그 녹화를 엔지니어와 코딩 에이전트가 바로 처리할 수 있는 리포트로 만들어 줘요. Chrome에서 버그를 보여 주면 페이지의 오류와 실패한 요청이 링크에 함께 담겨요."
+  body: "Agent-Native Clips는 버그 녹화를 엔지니어나 코딩 에이전트가 바로 처리할 수 있는 링크 하나로 만들어 줘요. Chrome에서 버그를 보여 주면 페이지의 오류와 실패한 요청이 함께 담겨요."
   button:
     label: 버그 녹화하기
     url: https://clips.agent-native.com
@@ -80,12 +80,12 @@ integrations:
       more: true
       body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
 other_uses:
-  heading: Clips로 할 수 있는 다른 일
+  heading: Agent-Native Clips로 할 수 있는 다른 일
   cards:
-    - title: AI 회의 노트
+    - title: 통화에 봇 없이 회의 노트를 받아 보세요
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: "통화에 봇 없이 모든 회의의 요약, 노트, 작업 항목을 받아 보세요."
-    - title: AI 받아쓰기
+    - title: 프롬프트를 타이핑 대신 말로 입력하세요
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "타이핑 대신 말하면, 정리된 텍스트가 사용 중인 앱에 바로 입력됩니다."
 faqs:
@@ -102,4 +102,4 @@ faqs:
     - q: 다른 브라우저나 데스크톱 앱에서도 로그를 캡처하나요?
       a: "아니요. 콘솔과 네트워크 로그는 Clips Chrome 확장 프로그램에서만 가져와요. Clips Desktop과 웹 앱도 화면, 카메라, 음성을 녹화하고 전사와 요약을 만들어 주지만, 녹화에 브라우저 로그는 포함되지 않아요."
     - q: Clips는 Jira 같은 버그 트래커인가요?
-      a: "아니요. Clips는 [엔지니어가 바로 처리할 수 있는 버그 리포트](https://www.agent-native.com/articles/how-to-write-a-bug-report/)를 만들고, 보관은 트래커가 맡아요. 링크를 Jira, GitHub, Linear, Slack에 붙여넣으세요. 코딩 에이전트나 [Clips 에이전트](https://www.agent-native.com/docs/template-clips-agent/)는 티켓 텍스트만이 아니라 녹화와 로그까지 받아요. 그래서 Clips는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."
+      a: "아니요. Clips는 [엔지니어가 바로 처리할 수 있는 버그 리포트](https://www.agent-native.com/articles/how-to-write-a-bug-report/)를 만들고, 보관은 트래커가 맡아요. 링크를 Jira, GitHub, Linear, Slack에 붙여넣으세요. 코딩 에이전트나 [Clips 에이전트](https://www.agent-native.com/docs/template-clips-agent/)는 녹화 자체와 로그를 직접 읽어요. 그래서 Clips는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."
