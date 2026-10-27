@@ -11,7 +11,6 @@ export const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 export interface WorkspaceAppMountPathOptions {
   explicitRootPath?: boolean;
-  fallbackOverridesExplicitRoot?: boolean;
   fallbackPath?: string;
   frameworkRoutePrefix?: string;
   preferDeclaredMounts?: boolean;
@@ -82,13 +81,6 @@ export function resolveMcpAppEmbedBasePath(
       .filter((basePath) => matches(basePath))
       .sort((left, right) => right.length - left.length)[0];
     if (matchingMount) return matchingMount;
-    if (
-      fallbackPath &&
-      options.fallbackOverridesExplicitRoot &&
-      declaredMounts.length === 0
-    ) {
-      return fallbackPath;
-    }
     if (explicitRootPath) return "";
     return fallbackPath || undefined;
   };
@@ -135,7 +127,6 @@ export function resolveMcpAppEmbedBasePath(
   return resolveWorkspacePath(url.pathname, {
     ...options,
     fallbackPath,
-    fallbackOverridesExplicitRoot: true,
     preferDeclaredMounts: true,
   });
 }
@@ -236,6 +227,7 @@ export function getMcpAppWidgetEmbedBootScriptBody(
     var workspaceOptions = {
       workspaceAppPath: appConfig.workspaceAppPath,
       workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+      explicitRootPath: appConfig.explicitRootPath === true,
       routerBasePath: w.__reactRouterContext && w.__reactRouterContext.basename,
       frameworkRoutePrefix: runtimeConfig.frameworkRoutePrefix || appConfig.frameworkRoutePrefix
     };

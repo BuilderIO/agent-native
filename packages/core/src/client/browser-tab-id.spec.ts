@@ -3,6 +3,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
+const SHARED_STATE_KEY = Symbol.for("@agent-native/core/client/browser-tab-id");
+
+function resetSharedTabIds() {
+  delete (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    SHARED_STATE_KEY
+  ];
+}
 
 async function loadTabId() {
   vi.resetModules();
@@ -21,9 +28,11 @@ describe("browser tab id", () => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/");
+    resetSharedTabIds();
   });
 
   afterEach(() => {
+    resetSharedTabIds();
     delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
       .__AGENT_NATIVE_CONFIG__;
     vi.unstubAllEnvs();
@@ -53,6 +62,16 @@ describe("browser tab id", () => {
 
     expect(getBrowserTabId()).not.toBe("original-tab");
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(getBrowserTabId());
+  });
+
+  it("shares one id across duplicate Core modules in the same navigation", async () => {
+    stubNavigationType("navigate");
+
+    const first = await loadTabId();
+    const firstId = first.getBrowserTabId();
+    const second = await loadTabId();
+
+    expect(second.getBrowserTabId()).toBe(firstId);
   });
 
   it("does not reuse malformed stored ids", async () => {

@@ -1,9 +1,23 @@
 import { appBasePath, isWorkspaceRuntime } from "./api-path.js";
 
-let cached: string | undefined;
-
 const STORAGE_KEY = "agent-native:browser-tab-id";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+const BROWSER_TAB_ID_STATE_SYMBOL = Symbol.for(
+  "@agent-native/core/client/browser-tab-id",
+);
+
+type BrowserTabIdState = {
+  ids: Map<string, string>;
+};
+
+const browserTabIdGlobal = globalThis as typeof globalThis & {
+  [BROWSER_TAB_ID_STATE_SYMBOL]?: BrowserTabIdState;
+};
+// Vite can load optimized package and deep-import copies in the same tab.
+const browserTabIdState =
+  browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] ??
+  (browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] = { ids: new Map() });
+let serverCached: string | undefined;
 
 function storageKey(): string {
   const appScope = isWorkspaceRuntime() ? appBasePath() : "";
@@ -27,28 +41,43 @@ function shouldReuseStoredTabId(): boolean {
 }
 
 export function getBrowserTabId(): string {
-  if (cached) return cached;
   if (typeof window === "undefined") {
-    cached = generate();
-    return cached;
+    serverCached ??= generate();
+    return serverCached;
   }
+
+  let key: string;
   try {
-    const key = storageKey();
+    key = storageKey();
+  } catch {
+    return getOrCreateMemoryId(STORAGE_KEY);
+  }
+
+  const cached = browserTabIdState.ids.get(key);
+  if (cached) return cached;
+  try {
     const existing = sessionStorage.getItem(key);
     if (
       existing &&
       SAFE_BROWSER_TAB_ID_RE.test(existing) &&
       shouldReuseStoredTabId()
     ) {
-      cached = existing;
+      browserTabIdState.ids.set(key, existing);
       return existing;
     }
     const id = generate();
     sessionStorage.setItem(key, id);
-    cached = id;
+    browserTabIdState.ids.set(key, id);
     return id;
   } catch {
-    cached = generate();
-    return cached;
+    return getOrCreateMemoryId(key);
   }
+}
+
+function getOrCreateMemoryId(key: string): string {
+  const cached = browserTabIdState.ids.get(key);
+  if (cached) return cached;
+  const id = generate();
+  browserTabIdState.ids.set(key, id);
+  return id;
 }

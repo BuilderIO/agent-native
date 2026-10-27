@@ -2146,6 +2146,11 @@ function getAppOriginClientConfigScript() {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : "");
+  const explicitRootPath =
+    workspaceAppMountConfig?.currentPath === "/" ||
+    (typeof appConfig.app.basePath === "string" &&
+      appConfig.app.basePath.trim().length > 0 &&
+      normalizeAppBasePath(appConfig.app.basePath) === "");
   const frameworkRoutePrefix = (
     process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX || ""
   ).trim();
@@ -2166,6 +2171,7 @@ function getAppOriginClientConfigScript() {
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
       : {}),
+    ...(explicitRootPath ? { explicitRootPath: true } : {}),
     ...(frameworkRoutePrefix ? { frameworkRoutePrefix } : {}),
   };
   const toUnicodeEscape = (character) =>

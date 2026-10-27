@@ -173,7 +173,19 @@ describe("app origin client config", () => {
     expect(resolvePublicAppOriginConfig()).toMatchObject({
       workspaceAppPath: "/",
       workspaceRuntime: true,
+      explicitRootPath: true,
     });
+  });
+
+  it("projects an env-only root path for dynamic first-paint resolution", () => {
+    process.env.VITE_APP_BASE_PATH = "/";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      explicitRootPath: true,
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
   });
 
   it("prefers the canonical spelling over its mirror", () => {

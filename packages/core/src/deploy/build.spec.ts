@@ -2825,6 +2825,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
     expect(html).toContain('"workspaceAppPath":"/"');
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+    expect(html).toContain('"explicitRootPath":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {

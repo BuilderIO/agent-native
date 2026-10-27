@@ -69,6 +69,7 @@ export function resolvePublicAppOriginConfig(): {
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
   frameworkRoutePrefix?: string;
+  explicitRootPath?: boolean;
 } | null {
   const config = getAppConfig();
   const frameworkRoutePrefix = getFrameworkRoutePrefix();
@@ -85,6 +86,11 @@ export function resolvePublicAppOriginConfig(): {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : undefined);
+  const explicitRootPath =
+    workspaceAppMountConfig?.currentPath === "/" ||
+    (typeof config.app.basePath === "string" &&
+      config.app.basePath.trim().length > 0 &&
+      normalizeAppBasePath(config.app.basePath) === "");
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId
@@ -103,6 +109,7 @@ export function resolvePublicAppOriginConfig(): {
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
       : {}),
+    ...(explicitRootPath ? { explicitRootPath: true } : {}),
     ...(frameworkRoutePrefix !== FRAMEWORK_INTERNAL_ROUTE_PREFIX
       ? { frameworkRoutePrefix }
       : {}),

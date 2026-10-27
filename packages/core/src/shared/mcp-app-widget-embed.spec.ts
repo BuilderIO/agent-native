@@ -87,10 +87,11 @@ describe("MCP app widget embed boot storage", () => {
       resolveExternalEmbedTargetBasePath("/deck/reports", {
         workspaceRuntime: true,
         workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/deck"],
       }),
     ).toBe("/deck");
     expect(
-      resolveExternalEmbedTargetBasePath("/reports", {
+      resolveExternalEmbedTargetBasePath("/reports/detail", {
         workspaceRuntime: true,
         workspaceAppPath: "/",
       }),
@@ -195,7 +196,7 @@ describe("MCP app widget embed boot storage", () => {
     expect(runBootScript(undefined, true)).toBe(true);
   });
 
-  it("uses the external target fallback instead of an explicit root mount", () => {
+  it("uses a declared external target mount instead of an explicit root mount", () => {
     setParent({ postMessage() {} } as unknown as Window);
     setTestUrl("http://localhost:3000/event-finder/inbox");
     (
@@ -203,6 +204,7 @@ describe("MCP app widget embed boot storage", () => {
     ).__AGENT_NATIVE_CONFIG__ = {
       workspaceRuntime: true,
       workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/event-finder"],
     };
     (
       window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
@@ -215,6 +217,42 @@ describe("MCP app widget embed boot storage", () => {
       mcpChatBridgeStorageKey("/event-finder", true),
       "child-token",
     );
+
+    expect(runBootScript(undefined, true)).toBe(true);
+  });
+
+  it("keeps an unmatched nested route on an explicit root mount", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl("http://localhost:3000/reports/detail");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/",
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/reports/detail" };
+    sessionStorage.setItem(embedTokenStorageKey("", true), "root-token");
+    sessionStorage.setItem(mcpChatBridgeStorageKey("", true), "root-token");
+
+    expect(runBootScript(undefined, true)).toBe(true);
+  });
+
+  it("uses projected root config for first paint on an env-only root mount", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl("http://localhost:3000/reports/detail");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      explicitRootPath: true,
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/reports/detail" };
+    sessionStorage.setItem(embedTokenStorageKey("", true), "root-token");
+    sessionStorage.setItem(mcpChatBridgeStorageKey("", true), "root-token");
 
     expect(runBootScript(undefined, true)).toBe(true);
   });
