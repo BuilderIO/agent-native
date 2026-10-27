@@ -154,4 +154,27 @@ describe("useConvertPageToLiveCopyOnOpen", () => {
     expect(invalidated(otherPage)).toBe(false);
     expect(invalidated(otherRows)).toBe(false);
   });
+
+  it("refetches the page's reads when it switched before its gate moved, and not when it was deferred unswitched", async () => {
+    const page = ["action", "get-document", { id: "page-1" }];
+    queryClient.setQueryData(page, { id: "page-1" });
+    render("page-1", true);
+
+    await mutation.options?.onSuccess?.(
+      { id: "page-1", status: "deferred", reason: "live_edits" },
+      { id: "page-1" },
+    );
+    expect(queryClient.getQueryState(page)?.isInvalidated).toBe(false);
+
+    await mutation.options?.onSuccess?.(
+      {
+        id: "page-1",
+        status: "deferred",
+        reason: "gate_moved",
+        gate: "flag_off",
+      },
+      { id: "page-1" },
+    );
+    expect(queryClient.getQueryState(page)?.isInvalidated).toBe(true);
+  });
 });

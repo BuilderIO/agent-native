@@ -951,6 +951,38 @@ describe("a primary Blocks value on a switched Files row", () => {
     expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
   });
 
+  it("refuses, under the page lock, a write whose field revision moved while the body went back to the text it read", async () => {
+    const row = await switchedFilesRow();
+    const read = await page(row.id);
+    const revision = await fieldRevision(row);
+    await setPrimary(row, "Someone else's edit.");
+    await setPrimary(row, read.content);
+    const before = await page(row.id);
+    expect(before.content).toBe(read.content);
+    const { editContentLiveCopy } = await import("./write.js");
+    const { CONTENT_LIVE_COPY_EDITS } = await import("./binding.js");
+
+    await expect(
+      as(ownerEmail, () =>
+        editContentLiveCopy(row.id, {
+          cause: {
+            ctx,
+            operation: "set-document-property",
+            lockCollections: [row.databaseId],
+            expectedBlocksFieldRevision: {
+              propertyId: row.propertyId,
+              revision,
+            },
+          },
+          edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "A stale write.", expected: read.content },
+        }),
+      ),
+    ).rejects.toThrow(/Blocks field revision conflict/);
+    expect(await page(row.id)).toEqual(before);
+    expect(await collabVersion(row.id)).toBe(before.liveCopyVersion);
+  });
+
   it("refuses it when a source owns the field, as the legacy path does, and leaves the page as it was", async () => {
     const row = await switchedFilesRow();
     const now = new Date().toISOString();
@@ -1301,6 +1333,29 @@ describe("the backfill sweep", () => {
     expect(changes.events).toEqual([
       { ...event, resourceId: id },
       { ...event, resourceId: `database-page-${id}` },
+    ]);
+  });
+
+  it("sends that change event for a page switched before its gate moved, too", async () => {
+    const id = await insertPage(stored);
+    await addToCollection(id, "files");
+    changes.events.length = 0;
+
+    await expect(
+      backfill.runLiveBodyBackfillSweep({
+        deadlineAt: Date.now() + 90_000,
+        now: Date.now(),
+        convert: async () => ({
+          status: "deferred" as const,
+          reason: "gate_moved" as const,
+          gate: "flag_off" as const,
+        }),
+      }),
+    ).resolves.toMatchObject({ outcomes: { "deferred:gate_moved": 1 } });
+
+    expect(changes.events.map((event) => event.resourceId)).toEqual([
+      id,
+      `database-page-${id}`,
     ]);
   });
 

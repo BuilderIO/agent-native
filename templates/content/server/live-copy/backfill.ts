@@ -692,16 +692,19 @@ export async function runLiveBodyBackfillSweep(context: {
       stoppedEarly = "lease_lost";
       break;
     }
-    let converted = false;
+    let switched = false;
     try {
       const outcome = await convert(page.id, { flagsOn });
       count(outcomeKey(outcome));
       delete held[page.id];
-      converted = outcome.status === "converted";
+      // A page whose gate moved was switched first, which changed it too.
+      switched =
+        outcome.status === "converted" ||
+        (outcome.status === "deferred" && outcome.reason === "gate_moved");
     } catch (error) {
       recordFailure(page.id, error);
     }
-    if (converted) {
+    if (switched) {
       try {
         await announceConversion(page);
       } catch (error) {

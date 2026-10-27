@@ -121,8 +121,8 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
       propertyId: args.propertyId,
       markdown: current.content,
     });
-    // The replace below names this body, so a write after this read is
-    // refused rather than overwritten.
+    // The commit checks the revision again under the page lock, so a body
+    // that went A→B→A after this read is refused rather than overwritten.
     if (revision !== args.expectedRevision) {
       throw new BlocksFieldRevisionConflictError(
         `Blocks field revision conflict: expected ${args.expectedRevision}, current ${revision}`,
@@ -135,6 +135,14 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
         ctx: args.ctx,
         operation: "set-document-property",
         lockCollections: [args.databaseId],
+        ...(args.expectedRevision !== undefined
+          ? {
+              expectedBlocksFieldRevision: {
+                propertyId: args.propertyId,
+                revision: args.expectedRevision,
+              },
+            }
+          : {}),
       },
       edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
       input: { content: args.content, expected: current.content },

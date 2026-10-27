@@ -527,6 +527,7 @@ async function writeBody(args: {
       after: text,
       now: updatedAt,
     });
+    const expected = cause?.expectedBlocksFieldRevision;
     for (const field of blocksFields) {
       await persistBlocksFieldIdentity({
         db,
@@ -535,6 +536,9 @@ async function writeBody(args: {
         propertyId: field.propertyId,
         previousMarkdown: page.content,
         markdown: text,
+        ...(expected?.propertyId === field.propertyId
+          ? { expectedRevision: expected.revision }
+          : {}),
         now: updatedAt,
       });
     }

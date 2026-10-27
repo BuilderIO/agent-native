@@ -13,6 +13,7 @@ import {
 type ConvertPageToLiveCopyResponse = {
   id: string;
   status: "converted" | "current" | "skipped" | "deferred";
+  reason?: string;
 };
 
 /**
@@ -31,9 +32,9 @@ export function useConvertPageToLiveCopyOnOpen(
   >("convert-page-to-live-copy-if-due", {
     // A switch re-baselines the page's suggestions and comments too, and
     // collection rows that list the page, its Files row among them, show its
-    // body and when it changed.
+    // body and when it changed. A page whose gate moved was switched first.
     invalidates: (data, variables) =>
-      data.status === "converted"
+      data.status === "converted" || data.reason === "gate_moved"
         ? [
             documentScopedQueryFilter(variables.id),
             contentDatabaseItemsContainingDocumentFilter(variables.id),

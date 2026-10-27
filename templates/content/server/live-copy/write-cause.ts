@@ -53,6 +53,12 @@ export interface ContentBodyWriteCause {
    * first, so locking that collection after the page could deadlock.
    */
   lockCollections?: readonly string[];
+  /**
+   * The primary Blocks field revision the writer read, checked under the page
+   * lock as the field's identity moves. A body that went A→B→A still matches
+   * the text an edit names, but not this revision.
+   */
+  expectedBlocksFieldRevision?: { propertyId: string; revision: number };
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */
