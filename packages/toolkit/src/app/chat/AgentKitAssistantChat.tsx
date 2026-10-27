@@ -2353,10 +2353,16 @@ const AgentKitAssistantChatBody = forwardRef<
   const setupConfirmedMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
   // The composer's model list knows nothing is connected well before the
-  // readiness check answers; an answer of "configured" still wins.
+  // readiness check answers; an answer of "configured" still wins. Only this
+  // chat's own card can show on that guess: a host-owned card waits for the
+  // server, and acting on the guess without it closes the prompt with nothing
+  // on screen to explain why.
+  const ownsSetupCard =
+    props.showMissingApiKeySetup !== false && props.setupCardOwner !== "host";
   const setupMissing =
     setupConfirmedMissing ||
     (providerChecksEnabled &&
+      ownsSetupCard &&
       effectiveReadiness !== "configured" &&
       composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing

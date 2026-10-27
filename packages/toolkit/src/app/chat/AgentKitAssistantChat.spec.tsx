@@ -9364,6 +9364,24 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("keeps a host-owned setup route open until the server confirms setup is missing", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    const props = baseProps({ setupCardOwner: "host" });
+    await mount(props);
+    await act(async () =>
+      chatMocks.composerProps.onModelConnectionRequiredChange(true),
+    );
+    await flush();
+
+    expect(chatMocks.composerProps.setupCardVisible).toBe(false);
+
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.composerProps.setupCardVisible).toBe(true);
+  });
+
   it("does not replay a refused prompt when only the model list guessed setup was missing", async () => {
     chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
     chatMocks.failureError = {

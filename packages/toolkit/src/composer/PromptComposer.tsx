@@ -1150,7 +1150,9 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          (composerDisabled || missingApiKey) &&
+          (composerDisabled ||
+            (engineStatusChecksEnabled && engineState === "missing") ||
+            (missingApiKey && setupCardVisible)) &&
             "agent-composer-area--attached-above",
           className,
         )}
