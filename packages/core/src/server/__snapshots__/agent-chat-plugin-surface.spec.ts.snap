@@ -49,6 +49,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: the full prompt now carries the attachment-read rule under rule 9, telling the agent to read truncated attachments in full and to report attachment processing or read errors before other work
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
