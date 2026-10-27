@@ -663,9 +663,87 @@ function sortedAdded(file: ChangedFile): number[] {
 
 interface InlineSnapshot {
   key: string;
+  body: string | null;
   line: number;
-  firstBodyLine: number;
-  lastBodyLine: number;
+}
+
+function snapshotReasonFor(
+  file: ChangedFile,
+  line: number,
+  previousLine: number,
+  previousPragmas: ReadonlyMap<number, readonly string[]>,
+): string | null {
+  const reason = bestReason([
+    ...(file.added.has(line)
+      ? reasonsOn(file.pragmas, line, PRAGMA_MARKER)
+      : []),
+    ...(file.added.has(line - 1)
+      ? reasonsOn(file.pragmas, line - 1, PRAGMA_MARKER)
+      : []),
+  ]);
+  if (reason === null) return null;
+
+  const previousReason = bestReason([
+    ...reasonsOn(previousPragmas, previousLine, PRAGMA_MARKER),
+    ...reasonsOn(previousPragmas, previousLine - 1, PRAGMA_MARKER),
+  ]);
+  // A stale reason must not approve a later edit to the same expectation.
+  return reason === previousReason ? null : reason;
+}
+
+interface SnapshotExpectation {
+  key: string;
+  body: string | null;
+  line: number;
+}
+
+function pairSnapshots<T extends SnapshotExpectation>(
+  before: readonly T[],
+  after: readonly T[],
+  added: ReadonlySet<number>,
+): [T, T][] {
+  const remainingBefore = new Set(before);
+  const remainingAfter = new Set(after);
+  const pairs: [T, T][] = [];
+
+  const pairWhere = (
+    matches: (previous: T, current: T) => boolean,
+    preferUnchangedCallLines: boolean,
+  ) => {
+    const currentSnapshots = [...remainingAfter].sort((left, right) => {
+      if (preferUnchangedCallLines) {
+        const addedOrder =
+          Number(added.has(left.line)) - Number(added.has(right.line));
+        if (addedOrder !== 0) return addedOrder;
+      }
+      return left.line - right.line;
+    });
+
+    for (const current of currentSnapshots) {
+      const previous = [...remainingBefore]
+        .filter((candidate) => matches(candidate, current))
+        .sort(
+          (left, right) =>
+            Math.abs(left.line - current.line) -
+            Math.abs(right.line - current.line),
+        )[0];
+      if (previous === undefined) continue;
+      pairs.push([previous, current]);
+      remainingBefore.delete(previous);
+      remainingAfter.delete(current);
+    }
+  };
+
+  pairWhere(
+    (previous, current) =>
+      previous.key === current.key && previous.body === current.body,
+    false,
+  );
+  pairWhere((previous, current) => previous.key === current.key, true);
+  pairWhere((previous, current) => previous.body === current.body, false);
+  pairWhere(() => true, false);
+
+  return pairs;
 }
 
 function testContext(node: ts.Node, scope: ImportScope): string {
@@ -730,25 +808,18 @@ function inlineSnapshots(file: string, source: string): InlineSnapshot[] {
           : null;
       if (matcher?.name === "toMatchInlineSnapshot" && receiver !== null) {
         const argument = node.arguments.at(-1);
-        const literal =
+        const body =
           argument !== undefined &&
           (ts.isStringLiteral(argument) ||
-            ts.isNoSubstitutionTemplateLiteral(argument));
-        const firstBodyLine =
-          literal && argument !== undefined ? lineOf(sourceFile, argument) : 0;
-        const lastBodyLine =
-          literal && argument !== undefined
-            ? sourceFile.getLineAndCharacterOfPosition(
-                Math.max(argument.getStart(sourceFile), argument.end - 1),
-              ).line + 1
-            : 0;
+            ts.isNoSubstitutionTemplateLiteral(argument))
+            ? argument.text
+            : null;
         snapshots.push({
           key: `${testContext(node, scope)}\u0000${receiver
             .getText(sourceFile)
             .replace(/\s+/g, " ")}`,
+          body,
           line: lineOf(sourceFile, node),
-          firstBodyLine,
-          lastBodyLine,
         });
       }
     }
@@ -758,13 +829,7 @@ function inlineSnapshots(file: string, source: string): InlineSnapshot[] {
   return snapshots;
 }
 
-interface ExternalSnapshot {
-  name: string;
-  value: string;
-  line: number;
-  firstValueLine: number;
-  lastValueLine: number;
-}
+type ExternalSnapshot = SnapshotExpectation;
 
 function externalSnapshots(file: string, source: string): ExternalSnapshot[] {
   const sourceFile = ts.createSourceFile(
@@ -789,14 +854,9 @@ function externalSnapshots(file: string, source: string): ExternalSnapshot[] {
         ts.isNoSubstitutionTemplateLiteral(node.right))
     ) {
       snapshots.push({
-        name: node.left.argumentExpression.text,
-        value: node.right.getText(sourceFile),
+        key: node.left.argumentExpression.text,
+        body: node.right.text,
         line: lineOf(sourceFile, node),
-        firstValueLine: lineOf(sourceFile, node.right),
-        lastValueLine:
-          sourceFile.getLineAndCharacterOfPosition(
-            Math.max(node.right.getStart(sourceFile), node.right.end - 1),
-          ).line + 1,
       });
     }
     ts.forEachChild(node, visit);
@@ -822,27 +882,16 @@ function checkInlineSnapshots(
     sources.base === null
   )
     return;
-  const before = new Map<string, number>();
-  for (const snapshot of inlineSnapshots(rel, sources.base)) {
-    before.set(snapshot.key, (before.get(snapshot.key) ?? 0) + 1);
-  }
-  const seen = new Map<string, number>();
-  for (const snapshot of inlineSnapshots(rel, sources.next)) {
-    const occurrence = (seen.get(snapshot.key) ?? 0) + 1;
-    seen.set(snapshot.key, occurrence);
-    if (occurrence > (before.get(snapshot.key) ?? 0)) continue;
-    const changedBody = sortedAdded(file).some(
-      (line) =>
-        snapshot.firstBodyLine > 0 &&
-        line >= snapshot.firstBodyLine &&
-        line <= snapshot.lastBodyLine,
-    );
-    if (!changedBody) continue;
+  const before = inlineSnapshots(rel, sources.base);
+  const after = inlineSnapshots(rel, sources.next);
+  const previousPragmas = pragmasIn(rel, sources.base);
+  for (const [previous, snapshot] of pairSnapshots(before, after, file.added)) {
+    if (previous.body === snapshot.body) continue;
     report(
       snapshot.line,
       "snapshot-changed",
       "changed the body of an existing toMatchInlineSnapshot() expectation",
-      optOutFor(file, snapshot.line),
+      snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
     );
   }
 }
@@ -863,29 +912,16 @@ function checkExternalSnapshots(
     sources.base === null
   )
     return;
-  const before = new Map<string, string[]>();
-  for (const snapshot of externalSnapshots("snapshot.snap", sources.base)) {
-    before.set(snapshot.name, [
-      ...(before.get(snapshot.name) ?? []),
-      snapshot.value,
-    ]);
-  }
-  const seen = new Map<string, number>();
-  for (const snapshot of externalSnapshots("snapshot.snap", sources.next)) {
-    const occurrence = seen.get(snapshot.name) ?? 0;
-    seen.set(snapshot.name, occurrence + 1);
-    if (before.get(snapshot.name)?.[occurrence] === undefined) continue;
-    if (before.get(snapshot.name)?.[occurrence] === snapshot.value) continue;
-    const changedBody = sortedAdded(file).some(
-      (line) =>
-        line >= snapshot.firstValueLine && line <= snapshot.lastValueLine,
-    );
-    if (!changedBody) continue;
+  const before = externalSnapshots("snapshot.snap", sources.base);
+  const after = externalSnapshots("snapshot.snap", sources.next);
+  const previousPragmas = pragmasIn("snapshot.snap", sources.base);
+  for (const [previous, snapshot] of pairSnapshots(before, after, file.added)) {
+    if (previous.body === snapshot.body) continue;
     report(
       snapshot.line,
       "snapshot-changed",
-      `changed the body of existing snapshot "${snapshot.name}"`,
-      optOutFor(file, snapshot.line),
+      `changed the body of existing snapshot "${snapshot.key}"`,
+      snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
     );
   }
 }
@@ -1006,6 +1042,42 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
       checkExternalSnapshots(file, changes.snapshotSources.get(abs), report);
     if (CONFIG_FILE.test(rel)) checkRunnerConfig(file, report);
     if (PACKAGE_JSON.test(rel)) checkPackageScripts(file, report);
+  }
+
+  for (const [abs, changed] of changes.removed) {
+    if (changes.added.has(abs)) continue;
+    const rel = relOf(abs);
+    const isTest = isTestFile(rel);
+    const isSnapshot = SNAPSHOT_FILE.test(rel);
+    if (!isTest && !isSnapshot) continue;
+
+    const sources = isTest
+      ? changes.assertionSources.get(abs)
+      : changes.snapshotSources.get(abs);
+    if (sources === undefined) {
+      throw new Error(
+        `${GUARD_NAME}: no snapshot sources for ${changed.path}; both sides of every changed test and snapshot file must be read`,
+      );
+    }
+    if (sources.next === null) continue;
+
+    const file: ChangedFile = {
+      source: sources.next.split("\n"),
+      added: new Set(),
+      pragmas: pragmasIn(rel, sources.next),
+    };
+    const report = (
+      line: number,
+      rule: string,
+      message: string,
+      reason: string | null,
+    ) => {
+      const text = reportable(message, reason);
+      if (text !== null)
+        violations.push({ file: rel, line, rule, message: text });
+    };
+    if (isTest) checkInlineSnapshots(rel, file, sources, report);
+    if (isSnapshot) checkExternalSnapshots(file, sources, report);
   }
 
   for (const [abs, removed] of changes.removed) {

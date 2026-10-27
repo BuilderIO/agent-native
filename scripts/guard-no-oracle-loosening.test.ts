@@ -98,6 +98,30 @@ function flagged(
   );
 }
 
+function flaggedRemovedOnly(
+  rel: string,
+  source: string,
+  base: string,
+  diff: string,
+): string[] {
+  const removed = parseRemovedLines(diff, ROOT);
+  if (removed === null) throw new Error("fixture diff could not be parsed");
+  const abs = at(rel);
+  const sources = { base, next: source };
+  const violations = findOracleLoosening({
+    root: ROOT,
+    added: new Map(),
+    removed,
+    assertionSources: isTestFile(rel) ? new Map([[abs, sources]]) : new Map(),
+    snapshotSources: /\.snap$/.test(rel)
+      ? new Map([[abs, sources]])
+      : new Map(),
+  });
+  return violations.map(
+    (violation) => `${violation.file}:${violation.line}: ${violation.rule}`,
+  );
+}
+
 function allLines(source: string): number[] {
   return source.split("\n").map((_, index) => index + 1);
 }
@@ -655,6 +679,30 @@ describe("snapshot-changed", () => {
     );
   });
 
+  it("flags an inline snapshot whose body was only shortened", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "before",',
+      '    "removed"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = base.replace('    "removed"\n', "");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -5 +4,0 @@",
+      '-    "removed"',
+    ].join("\n");
+
+    assert.deepEqual(flaggedRemovedOnly(SPEC, source, base, diff), [
+      `${SPEC}:3: snapshot-changed`,
+    ]);
+  });
+
   it("does not flag a new inline snapshot expectation", () => {
     const base = [
       `import { expect } from "${VITEST}";`,
@@ -682,6 +730,74 @@ describe("snapshot-changed", () => {
     assert.deepEqual(
       flagged({ [SPEC]: { source, added: [4, 5, 6] } }, diff, { [SPEC]: base }),
       [],
+    );
+  });
+
+  it("does not mistake an inserted same-key snapshot for the existing one", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "existing trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = [
+      ...base.split("\n").slice(0, 2),
+      "  expect(trace).toMatchInlineSnapshot(`",
+      '    "new trace"',
+      "  `);",
+      ...base.split("\n").slice(2),
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2,0 +3,3 @@",
+      "+  expect(trace).toMatchInlineSnapshot(`",
+      '+    "new trace"',
+      "+  `);",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [3, 4, 5] } }, diff, { [SPEC]: base }),
+      [],
+    );
+  });
+
+  it("flags a changed body when the test title and receiver identity change", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("before", () => {',
+      "  expect(before).toMatchInlineSnapshot(`",
+      '    "before trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = [
+      `import { expect } from "${VITEST}";`,
+      'it("after", () => {',
+      "  expect(after).toMatchInlineSnapshot(`",
+      '    "after trace"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -2,3 +2,3 @@",
+      '-it("before", () => {',
+      '+it("after", () => {',
+      "-  expect(before).toMatchInlineSnapshot(`",
+      "+  expect(after).toMatchInlineSnapshot(`",
+      '-    "before trace"',
+      '+    "after trace"',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [2, 3, 4] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:3: snapshot-changed`],
     );
   });
 
@@ -721,6 +837,54 @@ describe("snapshot-changed", () => {
     );
   });
 
+  it("does not let a pre-existing inline oracle-change pragma approve an edit", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  /* oracle-change: prior approved output */ expect(trace).toMatchInlineSnapshot(`",
+      '    "before"',
+      "  `);",
+      "});",
+    ].join("\n");
+    const source = base.replace('"before"', '"after"');
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -4 +4 @@",
+      '-    "before"',
+      '+    "after"',
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [4] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:3: snapshot-changed`],
+    );
+  });
+
+  it("does not treat an old one-line inline reason as newly added", () => {
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace).toMatchInlineSnapshot(`before`); // oracle-change: prior approved output",
+      "});",
+    ].join("\n");
+    const source = base.replace("`before`", "`after`");
+    const diff = [
+      `diff --git a/${SPEC} b/${SPEC}`,
+      `--- a/${SPEC}`,
+      `+++ b/${SPEC}`,
+      "@@ -3 +3 @@",
+      "-  expect(trace).toMatchInlineSnapshot(`before`); // oracle-change: prior approved output",
+      "+  expect(trace).toMatchInlineSnapshot(`after`); // oracle-change: prior approved output",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [SPEC]: { source, added: [3] } }, diff, { [SPEC]: base }),
+      [`${SPEC}:3: snapshot-changed`],
+    );
+  });
+
   it("flags a changed body in an existing .snap file", () => {
     const snap = "packages/core/src/a2a/trace.spec.ts.snap";
     const base = [
@@ -742,6 +906,108 @@ describe("snapshot-changed", () => {
 
     assert.deepEqual(
       flagged({ [snap]: { source, added: [4] } }, diff, { [snap]: base }),
+      [`${snap}:3: snapshot-changed`],
+    );
+  });
+
+  it("flags a shortened body in an existing .snap file", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "before",
+      "removed",
+      "`;",
+    ].join("\n");
+    const source = base.replace("removed\n", "");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      `--- a/${snap}`,
+      `+++ b/${snap}`,
+      "@@ -5 +4,0 @@",
+      "-removed",
+    ].join("\n");
+
+    assert.deepEqual(flaggedRemovedOnly(snap, source, base, diff), [
+      `${snap}:3: snapshot-changed`,
+    ]);
+  });
+
+  it("does not let a pre-existing .snap oracle-change pragma approve an edit", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "/* oracle-change: prior approved output */ exports[`trace > completes 1`] = `",
+      "before",
+      "`;",
+    ].join("\n");
+    const source = base.replace("before", "after");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      `--- a/${snap}`,
+      `+++ b/${snap}`,
+      "@@ -4 +4 @@",
+      "-before",
+      "+after",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [snap]: { source, added: [4] } }, diff, { [snap]: base }),
+      [`${snap}:3: snapshot-changed`],
+    );
+  });
+
+  it("does not flag a new .snap expectation", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const source = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "new trace",
+      "`;",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${snap}`,
+      "@@ -0,0 +1,5 @@",
+      ...source.split("\n").map((line) => `+${line}`),
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [snap]: { source, added: allLines(source) } }, diff),
+      [],
+    );
+  });
+
+  it("flags a changed .snap body when the exported identity changes", () => {
+    const snap = "packages/core/src/a2a/trace.spec.ts.snap";
+    const base = [
+      "// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html",
+      "",
+      "exports[`trace > completes 1`] = `",
+      "before",
+      "`;",
+    ].join("\n");
+    const source = base
+      .replace("trace > completes 1", "trace > cancels 1")
+      .replace("before", "after");
+    const diff = [
+      `diff --git a/${snap} b/${snap}`,
+      `--- a/${snap}`,
+      `+++ b/${snap}`,
+      "@@ -3,2 +3,2 @@",
+      "-exports[`trace > completes 1`] = `",
+      "+exports[`trace > cancels 1`] = `",
+      "-before",
+      "+after",
+    ].join("\n");
+
+    assert.deepEqual(
+      flagged({ [snap]: { source, added: [3, 4] } }, diff, { [snap]: base }),
       [`${snap}:3: snapshot-changed`],
     );
   });
