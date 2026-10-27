@@ -6,6 +6,7 @@ import type { SchemaSnapshot } from "./store-registry.js";
 export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
   statements: [
     'CREATE SEQUENCE IF NOT EXISTS "agent_chat_submission_inbox_queue_order_seq";',
+    'CREATE SEQUENCE IF NOT EXISTS "agent_run_admission_order_seq";',
     'CREATE SEQUENCE IF NOT EXISTS "agent_run_projection_retry_order_seq";',
     'CREATE SEQUENCE IF NOT EXISTS "app_resource_change_seq";',
     'CREATE SEQUENCE IF NOT EXISTS "automation_trigger_event_queue_sequence_id_seq";',
@@ -57,7 +58,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
     'CREATE TABLE "agent_review_thread_preferences" (\n  "thread_id" text NOT NULL,\n  "user_email" text NOT NULL,\n  "muted" integer DEFAULT 0 NOT NULL,\n  "unread" integer DEFAULT 0 NOT NULL,\n  "updated_at" text NOT NULL\n);',
     'CREATE TABLE "agent_run_events" (\n  "run_id" text NOT NULL,\n  "seq" bigint NOT NULL,\n  "event_at" bigint,\n  "event_data" text NOT NULL,\n  "transcript_order" bigint\n);',
     'CREATE TABLE "agent_run_outcome_daily" (\n  "day" text NOT NULL,\n  "status" text NOT NULL,\n  "terminal_reason" text DEFAULT \'\'::text NOT NULL,\n  "run_count" bigint DEFAULT 0 NOT NULL\n);',
-    'CREATE TABLE "agent_runs" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "status" text DEFAULT \'running\'::text NOT NULL,\n  "abort_reason" text,\n  "started_at" bigint NOT NULL,\n  "completed_at" bigint,\n  "heartbeat_at" bigint,\n  "last_progress_at" bigint,\n  "turn_id" text,\n  "error_code" text,\n  "error_detail" text,\n  "terminal_reason" text,\n  "dispatch_mode" text,\n  "diag_stage" text,\n  "dispatch_payload" text,\n  "peak_rss_mb" bigint,\n  "continuation_order" bigint,\n  "thread_projection_pending" boolean DEFAULT false NOT NULL,\n  "thread_projection_retry_order" bigint,\n  "thread_projection_error_code" text,\n  "worker_stage" text,\n  "in_flight_since" bigint,\n  "auto_continue_of" text,\n  "worker_generation" bigint\n);',
+    'CREATE TABLE "agent_runs" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "status" text DEFAULT \'running\'::text NOT NULL,\n  "abort_reason" text,\n  "started_at" bigint NOT NULL,\n  "completed_at" bigint,\n  "heartbeat_at" bigint,\n  "last_progress_at" bigint,\n  "turn_id" text,\n  "error_code" text,\n  "error_detail" text,\n  "terminal_reason" text,\n  "dispatch_mode" text,\n  "diag_stage" text,\n  "dispatch_payload" text,\n  "peak_rss_mb" bigint,\n  "continuation_order" bigint,\n  "thread_projection_pending" boolean DEFAULT false NOT NULL,\n  "thread_projection_retry_order" bigint,\n  "thread_projection_error_code" text,\n  "worker_stage" text,\n  "in_flight_since" bigint,\n  "auto_continue_of" text,\n  "worker_generation" bigint,\n  "admission_order" bigint DEFAULT nextval(\'agent_run_admission_order_seq\'::regclass)\n);',
     'CREATE TABLE "agent_satisfaction_scores" (\n  "id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "user_id" text,\n  "frustration_score" real DEFAULT 0 NOT NULL,\n  "rephrasing_score" real DEFAULT 0 NOT NULL,\n  "abandonment_score" real DEFAULT 0 NOT NULL,\n  "sentiment_score" real DEFAULT 0 NOT NULL,\n  "length_trend_score" real DEFAULT 0 NOT NULL,\n  "computed_at" bigint NOT NULL\n);',
     'CREATE TABLE "agent_team_run_queue" (\n  "task_id" text NOT NULL,\n  "thread_id" text NOT NULL,\n  "run_id" text NOT NULL,\n  "status" text DEFAULT \'queued\'::text NOT NULL,\n  "owner_email" text,\n  "org_id" text,\n  "payload" text NOT NULL,\n  "continuation_count" bigint DEFAULT 0 NOT NULL,\n  "attempts" bigint DEFAULT 0 NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "reconciliation_attempted_at" bigint\n);',
     'CREATE TABLE "agent_tool_approval_policies" (\n  "id" text NOT NULL,\n  "owner_email" text NOT NULL,\n  "org_id" text,\n  "tool_name" text NOT NULL,\n  "enabled" boolean NOT NULL,\n  "created_at" bigint NOT NULL,\n  "updated_at" bigint NOT NULL,\n  "tool_revision" text\n);',
@@ -881,6 +882,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
       null,
     ],
     ["agent_harness_sessions", "baseline", null],
+    ["agent_runs", "agent-run-admission-order", "b4cd3c0f84735807"],
     ["agent_runs", "agent-run-auto-continue-of", "00eb09bcf9ca7fb0"],
     ["agent_runs", "agent-run-base-tables", "ac6ed4a256f28116"],
     ["agent_runs", "agent-run-continuation-order", "efb06f1b4c911719"],

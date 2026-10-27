@@ -63,6 +63,8 @@ jobs:
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
+      verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
+      core_mutation: ${{ steps.scope.outputs.core_mutation }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
       has_tests: ${{ steps.lanes.outputs.has_tests }}
@@ -1993,6 +1995,75 @@ jobs:
           NITRO_PRESET=aws-lambda pnpm --filter plan build
           AWS_LAMBDA_FUNCTION_NAME=ssr-smoke timeout 120 node scripts/ssr-boot-smoke.mjs --preset aws-lambda plan
 
+  verify-execution-lease:
+    name: Execution lease model check
+    needs: change-scope
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.verify_execution_lease == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          install: no-scripts
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Restore TLA+ tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tmp/tla
+          key: tla2tools-${{ hashFiles('verification/execution-lease/manifest.json') }}
+
+      - name: Model-check the execution lease
+        run: pnpm verify:execution-lease
+
+  mutation-changed:
+    name: Mutation test changed Core lines
+    needs: change-scope
+    # Required check: run when selected, and also when change-scope did not
+    # succeed so the check fails closed instead of reporting "skipped".
+    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Require a successful change scope
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+        run: |
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Mutation-test the Core lines this branch added
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: pnpm mutation:changed
+
   guards:
     name: Security guards
     needs: change-scope
@@ -2020,6 +2091,9 @@ jobs:
       - name: Test untracked-imports guard
         run: pnpm test:no-untracked-imports
 
+      - name: Test deferred server counts guard
+        run: pnpm test:no-deferred-server-counts
+
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 
@@ -2028,6 +2102,9 @@ jobs:
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test strictness ratchet guards
+        run: pnpm test:strictness-guards
 
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert

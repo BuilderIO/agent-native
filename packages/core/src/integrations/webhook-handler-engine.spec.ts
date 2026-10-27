@@ -784,7 +784,8 @@ describe("integration webhook handler engine resolution", () => {
       };
       getJevContextCredentialsMock.mockResolvedValueOnce({
         apiKey: "owner-jev-key",
-        personalApiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
         builderAuth: null,
       });
 
@@ -822,7 +823,7 @@ describe("integration webhook handler engine resolution", () => {
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
-          reasoningEffort: "high",
+          reasoningEffort: undefined,
           systemPrompt: expect.stringContaining("QR profile"),
         }),
       );
@@ -834,7 +835,8 @@ describe("integration webhook handler engine resolution", () => {
           orgId: "org-qa",
           workspaceAppsEnabled: true,
           apiKey: "owner-jev-key",
-          personalApiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
           builderAuth: null,
         }),
       );

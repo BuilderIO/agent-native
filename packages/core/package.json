@@ -307,6 +307,8 @@
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
     "./agent/context-xray/actions/context-restore": "./dist/agent/context-xray/actions/context-restore.js",
     "./agent/context-xray/actions/context-report": "./dist/agent/context-xray/actions/context-report.js",
+    "./agent/context-xray/actions/context-compact": "./dist/agent/context-xray/actions/context-compact.js",
+    "./agent/context-xray/actions/context-compaction-get": "./dist/agent/context-xray/actions/context-compaction-get.js",
     "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
     "./agent/actions/get-chatgpt-subscription-status": "./dist/agent/actions/get-chatgpt-subscription-status.js",
     "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
@@ -320,6 +322,7 @@
     "./agent/actions/get-provider-models": "./dist/agent/actions/get-provider-models.js",
     "./agent/actions/manage-provider-models": "./dist/agent/actions/manage-provider-models.js",
     "./agent/actions/list-model-providers": "./dist/agent/actions/list-model-providers.js",
+    "./agent/actions/describe-models": "./dist/agent/actions/describe-models.js",
     "./agent/observational-memory": "./dist/agent/observational-memory/index.js",
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
@@ -418,6 +421,8 @@
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
     "./a2a": "./dist/a2a/index.js",
+    "./state-machine": "./dist/state-machine/index.js",
+    "./action-properties": "./dist/action-properties.js",
     "./mcp": "./dist/mcp/index.js",
     "./mcp/fetch": "./dist/mcp/fetch-handler.js",
     "./mcp-client": "./dist/mcp-client/index.js",
@@ -499,12 +504,14 @@
     "./agent/harness": "./dist/agent/harness/index.js",
     "./agent/harness/hosted": "./dist/agent/harness/hosted.js",
     "./eval": "./dist/eval/index.js",
+    "./decisions": "./dist/decisions/index.js",
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./client/route-warmup": "./dist/client/route-warmup.js",
     "./client/AgentNativeEmbedded": "./dist/client/AgentNativeEmbedded.js",
     "./agent/chatgpt-subscription-contract": "./dist/agent/chatgpt-subscription-contract.js",
     "./agent/engine/provider-env-vars": "./dist/agent/engine/provider-env-vars.js",
     "./agent/model-config": "./dist/agent/model-config.js",
+    "./agent/model-catalog": "./dist/agent/model-catalog.js",
     "./agent/model-version": "./dist/agent/model-version.js",
     "./app-config": "./dist/app-config/index.js",
     "./audit/types": "./dist/audit/types.js",
@@ -684,7 +691,7 @@
   "scripts": {
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.cli.json && tsc -p tsconfig.type-tests.json",
     "test": "vitest --run --dir src",
     "test:motion-text-package": "vitest --run scripts/motion-text-package.spec.ts",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && sed -e 's/utm_source=github/utm_source=npm/g' -e 's/utm_content=readme/utm_content=core-readme/g' ../../README.md > ./README.md",
@@ -791,6 +798,7 @@
     "botframework-connector": "^4.23.3",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "fast-check": "^4.10.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "mermaid": "11.15.0",
@@ -841,6 +849,7 @@
     "ai-sdk-ollama": ">=3",
     "botframework-connector": "^4.23.3",
     "drizzle-kit": ">=0.31",
+    "fast-check": "^4.10.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "node-pty": ">=1",
@@ -947,6 +956,9 @@
       "optional": true
     },
     "drizzle-kit": {
+      "optional": true
+    },
+    "fast-check": {
       "optional": true
     },
     "jszip": {

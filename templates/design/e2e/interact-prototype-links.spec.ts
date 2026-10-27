@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import { gotoEditor } from "./helpers";
 import { INTERACT_FRAME } from "./interact-helpers";
 
@@ -236,6 +237,7 @@ test("a single-screen invalid transition falls back to immediate navigation", as
   editorUrl.searchParams.set("editorView", "single");
   editorUrl.searchParams.set("screen", homeFileId);
   await page.goto(editorUrl.toString(), { waitUntil: "domcontentloaded" });
+  await waitForEditorBoot(page);
   await expect(page.locator("iframe[data-design-preview-iframe]")).toHaveCount(
     1,
   );

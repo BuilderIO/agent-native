@@ -802,7 +802,7 @@ async function runCaptureSync(
       handle.offset = nextChunkIndex * chunkSizeBytes;
       for (let index = nextChunkIndex; index < totalChunks; index += 1) {
         const remainingBytes = fileSizeBytes - index * chunkSizeBytes;
-        const bytes = handle.readBytes(
+        const bytes = await handle.readBytes(
           Math.min(chunkSizeBytes, remainingBytes),
         );
         if (bytes.byteLength <= 0) {

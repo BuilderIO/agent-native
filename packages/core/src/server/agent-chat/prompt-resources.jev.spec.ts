@@ -355,7 +355,7 @@ describe("preloadJevContextForPrompt", () => {
         request,
         appRequest: request,
         selfAppId,
-        apiKey: "jev-test-key",
+        directApiKey: "org-jev-test-key",
       });
 
       expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
@@ -365,6 +365,7 @@ describe("preloadJevContextForPrompt", () => {
           request,
           candidateStateKey: "candidate_app",
           answerKey: "best_app",
+          directApiKey: "org-jev-test-key",
         }),
       );
     },

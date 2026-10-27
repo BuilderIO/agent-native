@@ -159,6 +159,15 @@ function InteractiveLayout({ children }: LayoutProps) {
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
+  const guidedQuestionsWithDefaultRows = useMemo(
+    () =>
+      guidedQuestions?.map((question) => ({
+        ...question,
+        includeExplore: question.includeExplore ?? true,
+        includeDecide: question.includeDecide ?? true,
+      })),
+    [guidedQuestions],
+  );
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -260,10 +269,10 @@ function InteractiveLayout({ children }: LayoutProps) {
       >
         {children}
       </main>
-      {guidedQuestions && (
+      {guidedQuestionsWithDefaultRows && (
         <div className="fixed inset-0 z-[260] bg-background">
           <GuidedQuestionFlow
-            questions={guidedQuestions}
+            questions={guidedQuestionsWithDefaultRows}
             onSubmit={handleGuidedSubmit}
             onSkip={handleGuidedSkip}
             title={guidedTitle ?? t("guidedQuestions.title")}

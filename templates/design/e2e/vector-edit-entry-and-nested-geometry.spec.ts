@@ -30,7 +30,7 @@ const SCREEN_HTML = `<!doctype html>
 
 type Point = { x: number; y: number };
 
-test.use({ viewport: { width: 1440, height: 1000 } });
+test.use({ viewport: { width: 1480, height: 1000 } });
 
 async function openFixture(app: App) {
   const id = await app.seed(SCREEN_HTML);

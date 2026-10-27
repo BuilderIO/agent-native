@@ -583,7 +583,9 @@ export async function discoverWebsiteInventory(
     consumedBytes += bytes.byteLength;
     const xml = new TextDecoder().decode(bytes);
     for (const raw of xml.matchAll(/<loc\b[^>]*>([\s\S]*?)<\/loc>/gi)) {
-      const url = normalizeDiscoveredUrl(raw[1], response.url || sitemap);
+      const loc = raw[1];
+      if (loc === undefined) continue;
+      const url = normalizeDiscoveredUrl(loc, response.url || sitemap);
       if (!url) continue;
       inspected++;
       if (!allowedOrigins.has(new URL(url).origin)) continue;

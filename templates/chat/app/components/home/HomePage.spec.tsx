@@ -21,6 +21,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   markAgentChatHomeHandoff: state.markHomeHandoff,
+  markClientDraftThread: vi.fn(),
   navigateWithAgentChatViewTransition: state.navigateWithTransition,
 }));
 vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
@@ -126,10 +127,7 @@ describe("HomePage", () => {
     const contextItems = [
       { key: "project", title: "Project", context: "Use project defaults." },
     ];
-    const composerProps = state.composerProps;
-    act(() =>
-      (composerProps?.onModeChange as (mode: "act" | "plan") => void)("plan"),
-    );
+    expect(state.composerProps).not.toHaveProperty("onModeChange");
     const onSubmit = state.composerProps?.onSubmit as (
       text: string,
       files: File[],
@@ -142,6 +140,7 @@ describe("HomePage", () => {
         steer: true;
         contextItems: typeof contextItems;
         composerModeContext: string;
+        requestMode: "plan";
         onLocalSubmit: () => void;
       },
     ) => Promise<void>;
@@ -155,6 +154,7 @@ describe("HomePage", () => {
         steer: true,
         contextItems,
         composerModeContext: "Use the selected action.",
+        requestMode: "plan",
         onLocalSubmit,
       }),
     );
@@ -190,7 +190,8 @@ describe("HomePage", () => {
     );
     expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
     expect(state.markHomeHandoff.mock.invocationCallOrder[0]).toBeLessThan(
-      state.navigateWithTransition.mock.invocationCallOrder[0],
+      state.navigateWithTransition.mock.invocationCallOrder[0] ??
+        Number.NEGATIVE_INFINITY,
     );
     expect(onLocalSubmit).toHaveBeenCalledOnce();
   });

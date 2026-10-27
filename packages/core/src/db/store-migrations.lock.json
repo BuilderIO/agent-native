@@ -137,6 +137,10 @@
     {
       "name": "agent-run-harness-transcript-order-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "agent-run-admission-order",
+      "checksum": "b4cd3c0f84735807"
     }
   ],
   "agent_team_run_queue": [

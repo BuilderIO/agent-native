@@ -129,6 +129,7 @@ vi.mock("./run-store.js", () => ({
   ),
   markRunAborted: vi.fn(() => Promise.resolve(true)),
   markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
+  markRunThreadProjectionPending: vi.fn(() => Promise.resolve()),
   markTurnAborted: vi.fn(() => Promise.resolve()),
   getRunTurnRef: vi.fn(() => Promise.resolve(null)),
   isRunAborted: vi.fn(() => Promise.resolve(false)),

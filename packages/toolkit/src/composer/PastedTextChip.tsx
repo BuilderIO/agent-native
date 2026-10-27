@@ -114,7 +114,7 @@ export function PastedTextChip({
                 defaultValue: "Pasted text",
               })}
             </span>
-            <span className="block text-[11px] text-muted-foreground">
+            <span className="block agent-kit-caption-copy text-muted-foreground">
               {summary}
             </span>
           </span>
@@ -122,13 +122,16 @@ export function PastedTextChip({
             <span
               role="button"
               tabIndex={-1}
+              data-agent-composer-slot="attachment-remove"
               onClick={handleRemove}
               aria-label={t("agentChat.pastedText.remove", {
                 defaultValue: "Remove pasted text",
               })}
               className={cn(
-                "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground",
-                compact ? "" : "absolute end-1.5 top-1.5",
+                // The 20px glyph box keeps the chip's geometry; the pseudo
+                // element extends the hit target to 24px.
+                "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']",
+                compact ? "relative" : "absolute end-1.5 top-1.5",
               )}
             >
               <IconX className="h-3 w-3" />
@@ -152,7 +155,7 @@ export function PastedTextChip({
                   defaultValue: "Pasted text",
                 })}
               </span>
-              <span className="text-[11px] text-muted-foreground shrink-0">
+              <span className="agent-kit-caption-copy text-muted-foreground shrink-0">
                 {lineSummary} · {charSummary}
               </span>
             </div>
@@ -167,7 +170,7 @@ export function PastedTextChip({
               <IconX className="h-3.5 w-3.5" />
             </button>
           </div>
-          <pre className="max-h-[60vh] overflow-auto px-3 py-2 text-[12px] leading-[1.5] whitespace-pre-wrap break-words font-mono text-foreground">
+          <pre className="max-h-[60vh] overflow-auto px-3 py-2 text-xs leading-[1.5] whitespace-pre-wrap break-words font-mono text-foreground">
             {text}
           </pre>
         </PopoverPrimitive.Content>

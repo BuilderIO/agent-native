@@ -53,7 +53,7 @@ function CoreChatInterpolationProbe({ name }: { name: string }) {
 
 function CoreVoiceModeProbe() {
   const t = useT();
-  return <span>{t("agentChat.voiceMode.entryButtonLabel")}</span>;
+  return <span>{t("agentChat.voiceMode.start")}</span>;
 }
 
 function CustomLocaleProbe() {
@@ -534,7 +534,7 @@ describe("LanguagePicker", () => {
           persistPreference={false}
           initialMessages={{
             agentPanel: {
-              voiceMode: { entryButtonLabel: "Legacy microphone" },
+              voiceMode: { start: "Legacy microphone" },
             },
           }}
         >
@@ -553,10 +553,10 @@ describe("LanguagePicker", () => {
           persistPreference={false}
           initialMessages={{
             agentPanel: {
-              voiceMode: { entryButtonLabel: "Legacy microphone" },
+              voiceMode: { start: "Legacy microphone" },
             },
             agentChat: {
-              voiceMode: { entryButtonLabel: "New microphone" },
+              voiceMode: { start: "New microphone" },
             },
           }}
           key="explicit-modern-override"
