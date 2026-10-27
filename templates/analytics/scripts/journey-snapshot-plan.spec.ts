@@ -4,9 +4,11 @@ import {
   allocateFrameBudgets,
   compareTrees,
   defaultSnapshotWeek,
+  isReusableCaptureSelection,
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
+  snapshotCanvasCacheKey,
   snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
@@ -137,6 +139,39 @@ describe("weekly snapshot preset", () => {
       }),
     );
   });
+
+  it("scopes Design canvas reuse to the Analytics principal too", () => {
+    const designScope = {
+      designUrl: "https://design.example/team",
+      designScopeHash: "design-principal",
+    };
+    expect(
+      snapshotCanvasCacheKey({
+        ...designScope,
+        analyticsScopeHash: "analytics-principal-a",
+      }),
+    ).not.toBe(
+      snapshotCanvasCacheKey({
+        ...designScope,
+        analyticsScopeHash: "analytics-principal-b",
+      }),
+    );
+  });
+
+  it("reuses only completed capture selections", () => {
+    expect(
+      isReusableCaptureSelection(
+        { selectionHash: "same", complete: true },
+        "same",
+      ),
+    ).toBe(true);
+    expect(
+      isReusableCaptureSelection(
+        { selectionHash: "same", complete: false },
+        "same",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("snapshot tree planning", () => {
@@ -213,7 +248,9 @@ describe("snapshot tree planning", () => {
 
     expect(treeTopForks(source)).toEqual([
       {
+        key: "signup > choice",
         step: "Setup choice",
+        n: 10,
         branches: [
           { label: "Use Builder", n: 6, pctOfParent: 100 },
           { label: "Custom keys", n: 4, pctOfParent: 100 },
@@ -221,6 +258,51 @@ describe("snapshot tree planning", () => {
         dropoffN: 1,
         dropoffPct: 10,
       },
+    ]);
+  });
+
+  it("keeps fork counts attached to node identity when labels repeat", () => {
+    const source = tree([
+      node("signup", "Signup", null, 1, 10),
+      node("signup > first-choice", "Setup choice", "signup", 2, 8),
+      node(
+        "signup > first-choice > builder",
+        "Use Builder",
+        "signup > first-choice",
+        3,
+        6,
+      ),
+      node(
+        "signup > first-choice > custom",
+        "Custom keys",
+        "signup > first-choice",
+        3,
+        2,
+      ),
+      node("signup > second-choice", "Setup choice", "signup", 2, 2),
+      node(
+        "signup > second-choice > skip",
+        "Skip",
+        "signup > second-choice",
+        3,
+        1,
+      ),
+      node(
+        "signup > second-choice > connect",
+        "Connect",
+        "signup > second-choice",
+        3,
+        1,
+      ),
+    ]);
+
+    expect(
+      treeTopForks(source)
+        .filter((fork) => fork.step === "Setup choice")
+        .map(({ key, n }) => ({ key, n })),
+    ).toEqual([
+      { key: "signup > first-choice", n: 8 },
+      { key: "signup > second-choice", n: 2 },
     ]);
   });
 

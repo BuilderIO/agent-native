@@ -17,9 +17,11 @@ import {
   allocateFrameBudgets,
   compareTrees,
   defaultSnapshotWeek,
+  isReusableCaptureSelection,
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
+  snapshotCanvasCacheKey,
   snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
@@ -778,6 +780,7 @@ async function publishCanvas(args: {
   designUrl: string;
   designToken: string;
   designScopeHash: string;
+  analyticsScopeHash: string;
   bandDir: string;
   refresh: boolean;
 }): Promise<BoardResult> {
@@ -818,24 +821,32 @@ async function publishCanvas(args: {
     includeScreenshotless: false,
   };
   const designUrl = args.designUrl;
-  const scopeKey = pathHash(JSON.stringify([designUrl, args.designScopeHash]));
-  const canvasCachePath = path.join(
-    args.bandDir,
-    `canvas-${scopeKey}.json`,
-  );
+  const scopeKey = snapshotCanvasCacheKey({
+    designUrl,
+    designScopeHash: args.designScopeHash,
+    analyticsScopeHash: args.analyticsScopeHash,
+  });
+  const canvasCachePath = path.join(args.bandDir, `canvas-${scopeKey}.json`);
   const savedCanvas = await readJson<{
     designUrl?: string;
     designScopeHash?: string;
+    analyticsScopeHash?: string;
     inputHash?: string;
     result?: ReturnType<typeof actionCanvasResult>;
   }>(canvasCachePath);
   const inputHash = pathHash(
-    JSON.stringify({ designUrl, designScopeHash: args.designScopeHash, canvasInput }),
+    JSON.stringify({
+      designUrl,
+      designScopeHash: args.designScopeHash,
+      analyticsScopeHash: args.analyticsScopeHash,
+      canvasInput,
+    }),
   );
   const cacheMatchesScope =
     savedCanvas !== null &&
     savedCanvas.designUrl === designUrl &&
-    savedCanvas.designScopeHash === args.designScopeHash;
+    savedCanvas.designScopeHash === args.designScopeHash &&
+    savedCanvas.analyticsScopeHash === args.analyticsScopeHash;
   if (cacheMatchesScope && !("result" in savedCanvas)) {
     throw checkFailure("Design canvas cache has no result.");
   }
@@ -857,6 +868,7 @@ async function publishCanvas(args: {
     writeJson(canvasCachePath, {
       designUrl,
       designScopeHash: args.designScopeHash,
+      analyticsScopeHash: args.analyticsScopeHash,
       inputHash,
       result,
     });
@@ -951,16 +963,22 @@ async function runCapture(args: {
     }),
   );
   const selectionStatePath = path.join(bandDir, "selection.json");
-  const selectionState = await readJson<{ selectionHash?: string }>(
-    selectionStatePath,
-  );
+  const selectionState = await readJson<{
+    selectionHash?: string;
+    complete?: boolean;
+  }>(selectionStatePath);
   let manifest =
-    !args.refresh && selectionState?.selectionHash === selectionHash
+    !args.refresh && isReusableCaptureSelection(selectionState, selectionHash)
       ? await readJson<CaptureManifest>(manifestPath)
       : null;
+  let captureExitCode: 0 | 1 | undefined;
   if (!manifest) {
     await writeJson(captureTreePath, args.selectedTree);
     await mkdir(captureDir, { recursive: true, mode: 0o700 });
+    await writeJson(selectionStatePath, {
+      selectionHash,
+      complete: false,
+    });
     const commandArgs = [
       "--filter",
       "analytics",
@@ -985,7 +1003,7 @@ async function runCapture(args: {
       "--app-url",
       args.analyticsUrl,
     ];
-    const captureExitCode = await runCommand("pnpm", commandArgs, {
+    captureExitCode = await runCommand("pnpm", commandArgs, {
       cwd: repoRoot,
       env: {
         ...process.env,
@@ -999,7 +1017,6 @@ async function runCapture(args: {
         ? couldNotRun(`journey:capture stopped before writing ${manifestPath}.`)
         : checkFailure(`Capture produced no manifest at ${manifestPath}.`);
     }
-    await writeJson(selectionStatePath, { selectionHash });
   }
 
   if (
@@ -1028,6 +1045,12 @@ async function runCapture(args: {
     throw checkFailure(
       `Capture produced an invalid manifest at ${manifestPath}.`,
     );
+  }
+  if (captureExitCode === 0) {
+    await writeJson(selectionStatePath, {
+      selectionHash,
+      complete: true,
+    });
   }
 
   const frames = manifest.frames.filter(
@@ -1116,9 +1139,7 @@ function summaryTreeMarkdown(
   if (!forks.length)
     lines.push("- No observed fork with two or more branches.");
   for (const fork of forks) {
-    lines.push(
-      `- At **${fork.step}** (n=${tree.nodes.find((node) => node.label === fork.step)?.n ?? 0}):`,
-    );
+    lines.push(`- At **${fork.step}** (n=${fork.n}):`);
     for (const branch of fork.branches) {
       lines.push(
         `  - ${branch.label}: ${branch.n} (${branch.pctOfParent}% of parent)`,
@@ -1373,6 +1394,19 @@ async function main(argv: string[]): Promise<number> {
         );
       }
     }
+    const targetBands = captureTargets(app, result, Boolean(values.experiment));
+    if (
+      app === "design" &&
+      isCohortResponse(result) &&
+      !values.experiment &&
+      result.readCoverage.sessionlessMcpOauthSignupEvents > 0 &&
+      result.tree.rootN === 0 &&
+      result.tree.nodes.length === 0 &&
+      targetBands.length === 1 &&
+      targetBands[0]?.key === "design"
+    ) {
+      continue;
+    }
     const previousResult = await getTreeResult({
       app,
       week: comparisonWindow.week,
@@ -1390,7 +1424,6 @@ async function main(argv: string[]): Promise<number> {
         (target) => [target.key, target.tree],
       ),
     );
-    const targetBands = captureTargets(app, result, Boolean(values.experiment));
     const budgets = allocateFrameBudgets(targetBands, SNAPSHOT_MAX_FRAMES);
     const captures: Array<{
       target: CaptureTarget;
@@ -1452,12 +1485,12 @@ async function main(argv: string[]): Promise<number> {
           designUrl,
           designToken,
           designScopeHash,
+          analyticsScopeHash,
           bandDir: path.join(runRoot, app, "bands", capture.target.key),
           refresh: values.refresh === true,
         }),
       );
     }
-
   }
 
   const summary = renderSummary({

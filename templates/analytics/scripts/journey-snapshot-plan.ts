@@ -78,7 +78,10 @@ export function defaultSnapshotWeek(now = new Date()): string {
   return new Date(thisMonday - 7 * 86_400_000).toISOString().slice(0, 10);
 }
 
-export function weekWindow(week: string, now = new Date()): {
+export function weekWindow(
+  week: string,
+  now = new Date(),
+): {
   week: string;
   dateFrom: string;
   dateTo: string;
@@ -134,6 +137,27 @@ export function snapshotTreeCacheKey(input: {
     .update(JSON.stringify(input))
     .digest("hex")
     .slice(0, 20);
+}
+
+export function snapshotCanvasCacheKey(input: {
+  designUrl: string;
+  designScopeHash: string;
+  analyticsScopeHash: string;
+}): string {
+  return createHash("sha256")
+    .update(JSON.stringify(input))
+    .digest("hex")
+    .slice(0, 20);
+}
+
+export function isReusableCaptureSelection(
+  input: {
+    selectionHash?: string;
+    complete?: boolean;
+  } | null,
+  selectionHash: string,
+): boolean {
+  return input?.complete === true && input.selectionHash === selectionHash;
 }
 
 function frameable(node: SnapshotNode): boolean {
@@ -289,6 +313,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
       }
       if (exampleIndex >= available.length) continue;
       const example = available[exampleIndex];
+      if (!example) continue;
       examples.push(example);
       frameCount += 1;
       added = true;
@@ -329,7 +354,9 @@ export function treeTopForks(
   tree: SnapshotTree,
   limit = 5,
 ): Array<{
+  key: string;
   step: string;
+  n: number;
   branches: Array<{ label: string; n: number; pctOfParent: number }>;
   dropoffN: number;
   dropoffPct: number;
@@ -347,7 +374,9 @@ export function treeTopForks(
     )
     .slice(0, limit)
     .map((node) => ({
+      key: node.key,
       step: node.label,
+      n: node.n,
       branches: (children.get(node.key) ?? [])
         .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key))
         .map((child) => ({
