@@ -44,14 +44,24 @@ function isExecuteCall(
   sourceFile: ts.SourceFile,
   aliases: ReadonlySet<ts.Symbol>,
 ): boolean {
-  if (ts.isIdentifier(expression)) {
-    const symbol = checker.getSymbolAtLocation(expression);
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression;
+  }
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
     return symbol !== undefined && aliases.has(symbol);
   }
   return (
-    isExecuteMethodWrapper(expression, "apply", checker, sourceFile) ||
-    isExecuteMethodWrapper(expression, "call", checker, sourceFile) ||
-    isExecuteReference(expression, checker, sourceFile)
+    isExecuteMethodWrapper(current, "apply", checker, sourceFile) ||
+    isExecuteMethodWrapper(current, "call", checker, sourceFile) ||
+    isExecuteReference(current, checker, sourceFile)
   );
 }
 
@@ -60,16 +70,90 @@ function executeArgument(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): ts.Expression | undefined {
+  let argument: ts.Expression | undefined;
   if (isExecuteMethodWrapper(call.expression, "call", checker, sourceFile)) {
-    return call.arguments[1];
-  }
-  if (isExecuteMethodWrapper(call.expression, "apply", checker, sourceFile)) {
+    argument = call.arguments[1];
+  } else if (
+    isExecuteMethodWrapper(call.expression, "apply", checker, sourceFile)
+  ) {
     const args = call.arguments[1];
-    return args && ts.isArrayLiteralExpression(args)
-      ? args.elements[0]
-      : undefined;
+    argument =
+      args && ts.isArrayLiteralExpression(args) ? args.elements[0] : undefined;
+  } else {
+    argument = call.arguments[0];
   }
-  return call.arguments[0];
+  return argument && ts.isSpreadElement(argument)
+    ? argument.expression
+    : argument;
+}
+
+function unwrapExecuteExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isAwaitExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function isImportedValueExpression(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  const current = unwrapExecuteExpression(expression);
+  if (ts.isIdentifier(current)) {
+    const symbol = checker.getSymbolAtLocation(current);
+    if (!symbol || seen.has(symbol)) return false;
+    const declarations = symbol.declarations ?? [];
+    if (
+      declarations.some(
+        (declaration) =>
+          ts.isImportSpecifier(declaration) ||
+          ts.isNamespaceImport(declaration) ||
+          ts.isImportClause(declaration),
+      )
+    ) {
+      return true;
+    }
+    const nextSeen = new Set(seen);
+    nextSeen.add(symbol);
+    return declarations.some(
+      (declaration) =>
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer !== undefined &&
+        isImportedValueExpression(declaration.initializer, checker, nextSeen),
+    );
+  }
+  if (ts.isCallExpression(current)) {
+    const callee = unwrapExecuteExpression(current.expression);
+    const factoryName = ts.isIdentifier(callee)
+      ? callee.text
+      : ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : undefined;
+    if (
+      factoryName === "createDbExec" ||
+      factoryName === "getDbExec" ||
+      factoryName === "getScopedDbExec"
+    ) {
+      return false;
+    }
+    return isImportedValueExpression(current.expression, checker, seen);
+  }
+  if (
+    ts.isPropertyAccessExpression(current) ||
+    ts.isElementAccessExpression(current)
+  ) {
+    return isImportedValueExpression(current.expression, checker, seen);
+  }
+  return false;
 }
 
 function staticStringPropertyName(
@@ -1055,16 +1139,14 @@ function isExecuteMethodWrapper(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
-  if (
-    ts.isPropertyAccessExpression(expression) &&
-    expression.name.text === method
-  ) {
-    return isExecuteReference(expression.expression, checker, sourceFile);
+  const current = unwrapExecuteExpression(expression);
+  if (ts.isPropertyAccessExpression(current) && current.name.text === method) {
+    return isExecuteReference(current.expression, checker, sourceFile);
   }
   return (
-    ts.isElementAccessExpression(expression) &&
-    staticStringPropertyName(expression.argumentExpression) === method &&
-    isExecuteReference(expression.expression, checker, sourceFile)
+    ts.isElementAccessExpression(current) &&
+    staticStringPropertyName(current.argumentExpression) === method &&
+    isExecuteReference(current.expression, checker, sourceFile)
   );
 }
 
@@ -1073,22 +1155,25 @@ function isExecuteReference(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
+  const current = unwrapExecuteExpression(expression);
   if (
-    ts.isCallExpression(expression) &&
-    isExecuteMethodWrapper(expression.expression, "bind", checker, sourceFile)
+    ts.isCallExpression(current) &&
+    isExecuteMethodWrapper(current.expression, "bind", checker, sourceFile)
   ) {
     return true;
   }
-  if (ts.isPropertyAccessExpression(expression)) {
+  if (ts.isPropertyAccessExpression(current)) {
     return (
-      expression.name.text === "execute" &&
-      isDbExecExpression(expression.expression, checker, sourceFile)
+      current.name.text === "execute" &&
+      (isDbExecExpression(current.expression, checker, sourceFile) ||
+        isImportedValueExpression(current.expression, checker))
     );
   }
   return (
-    ts.isElementAccessExpression(expression) &&
-    staticStringPropertyName(expression.argumentExpression) === "execute" &&
-    isDbExecExpression(expression.expression, checker, sourceFile)
+    ts.isElementAccessExpression(current) &&
+    staticStringPropertyName(current.argumentExpression) === "execute" &&
+    (isDbExecExpression(current.expression, checker, sourceFile) ||
+      isImportedValueExpression(current.expression, checker))
   );
 }
 
@@ -2093,11 +2178,32 @@ function findUnsafeSqlSources(
     : new Set();
 }
 
-function executeWrapperArgumentIndexes(
+function callableDeclarations(
   call: ts.CallExpression,
   analysis: SqlAnalysis,
-): number[] {
-  const symbol = analysis.checker.getSymbolAtLocation(call.expression);
+): ts.FunctionLikeDeclaration[] {
+  const expression = unwrapExecuteExpression(call.expression);
+  let symbol: ts.Symbol | undefined;
+  if (ts.isIdentifier(expression)) {
+    symbol = analysis.checker.getSymbolAtLocation(expression);
+  } else if (ts.isPropertyAccessExpression(expression)) {
+    symbol =
+      analysis.checker.getSymbolAtLocation(expression.name) ??
+      analysis.checker.getPropertyOfType(
+        analysis.checker.getTypeAtLocation(expression.expression),
+        expression.name.text,
+      );
+  } else if (ts.isElementAccessExpression(expression)) {
+    const name = staticStringPropertyName(expression.argumentExpression);
+    if (name !== undefined) {
+      symbol =
+        analysis.checker.getSymbolAtLocation(expression.argumentExpression) ??
+        analysis.checker.getPropertyOfType(
+          analysis.checker.getTypeAtLocation(expression.expression),
+          name,
+        );
+    }
+  }
   const resolvedSymbol =
     symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0
       ? analysis.checker.getAliasedSymbol(symbol)
@@ -2123,12 +2229,25 @@ function executeWrapperArgumentIndexes(
       return [];
     });
   });
-  const indexes = new Set<number>();
+  return [...new Set(declarations)];
+}
 
-  for (const declaration of new Set(declarations)) {
-    if (!declaration.body) continue;
-    const wrapperAnalysis =
-      analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis;
+function executeWrapperArgumentIndexes(
+  call: ts.CallExpression,
+  analysis: SqlAnalysis,
+): number[] {
+  const indexes = new Set<number>();
+  const visitedFunctions = new Set<ts.Node>();
+
+  const traceWrapper = (
+    declaration: ts.FunctionLikeDeclaration,
+    wrapperAnalysis: SqlAnalysis,
+  ): Set<number> => {
+    if (!declaration.body || visitedFunctions.has(declaration)) {
+      return new Set();
+    }
+    visitedFunctions.add(declaration);
+
     const parameterIndexes = new Map<ts.Node, number>();
     declaration.parameters.forEach((parameter, index) => {
       if (!ts.isIdentifier(parameter.name)) return;
@@ -2139,40 +2258,105 @@ function executeWrapperArgumentIndexes(
         parameterIndexes.set(parameterSymbol.valueDeclaration, index);
       }
     });
-    if (parameterIndexes.size === 0) continue;
+    if (parameterIndexes.size === 0) return new Set();
 
+    const indexesForExpression = (expression: ts.Expression): Set<number> => {
+      const indexes = new Set<number>();
+      const current = ts.isSpreadElement(expression)
+        ? expression.expression
+        : unwrapExecuteExpression(expression);
+      if (ts.isIdentifier(current)) {
+        const symbol = wrapperAnalysis.checker.getSymbolAtLocation(current);
+        const declaration = symbol?.valueDeclaration;
+        const index = declaration && parameterIndexes.get(declaration);
+        if (index !== undefined) indexes.add(index);
+      }
+      for (const source of findUnsafeSqlSources(
+        current,
+        wrapperAnalysis,
+        new Set(),
+        new Set(),
+        true,
+      )) {
+        const index = parameterIndexes.get(source);
+        if (index !== undefined) indexes.add(index);
+      }
+      return indexes;
+    };
+
+    const forwarded = new Set<number>();
     const visit = (node: ts.Node) => {
-      if (
-        ts.isCallExpression(node) &&
-        isExecuteCall(
-          node.expression,
-          wrapperAnalysis.checker,
-          node.getSourceFile(),
-          wrapperAnalysis.executeAliases,
-        )
-      ) {
-        const argument = executeArgument(
-          node,
-          wrapperAnalysis.checker,
-          node.getSourceFile(),
-        );
-        if (argument) {
-          const sources = findUnsafeSqlSources(
-            argument,
-            wrapperAnalysis,
-            new Set(),
-            new Set(),
-            true,
+      if (ts.isCallExpression(node)) {
+        if (
+          isExecuteCall(
+            node.expression,
+            wrapperAnalysis.checker,
+            node.getSourceFile(),
+            wrapperAnalysis.executeAliases,
+          )
+        ) {
+          const argument = executeArgument(
+            node,
+            wrapperAnalysis.checker,
+            node.getSourceFile(),
           );
-          for (const source of sources) {
-            const index = parameterIndexes.get(source);
-            if (index !== undefined) indexes.add(index);
+          if (argument) {
+            for (const index of indexesForExpression(argument)) {
+              forwarded.add(index);
+            }
+          }
+        } else {
+          const nestedDeclarations = callableDeclarations(
+            node,
+            wrapperAnalysis,
+          );
+          for (const nestedDeclaration of nestedDeclarations) {
+            const nestedAnalysis =
+              wrapperAnalysis.relatedAnalyses?.get(
+                nestedDeclaration.getSourceFile(),
+              ) ?? wrapperAnalysis;
+            for (const nestedIndex of traceWrapper(
+              nestedDeclaration,
+              nestedAnalysis,
+            )) {
+              const nestedParameter = nestedDeclaration.parameters[nestedIndex];
+              const nestedArgumentIndexes = nestedParameter?.dotDotDotToken
+                ? node.arguments.flatMap((_, index) =>
+                    index >= nestedIndex ? [index] : [],
+                  )
+                : [nestedIndex];
+              for (const argumentIndex of nestedArgumentIndexes) {
+                const argument = node.arguments[argumentIndex];
+                if (!argument) continue;
+                for (const index of indexesForExpression(argument)) {
+                  forwarded.add(index);
+                }
+              }
+            }
           }
         }
       }
       ts.forEachChild(node, visit);
     };
     visit(declaration.body);
+    return forwarded;
+  };
+
+  for (const declaration of callableDeclarations(call, analysis)) {
+    if (!declaration.body) continue;
+    const wrapperAnalysis =
+      analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis;
+    for (const index of traceWrapper(declaration, wrapperAnalysis)) {
+      const parameter = declaration.parameters[index];
+      const callArgumentIndexes = parameter?.dotDotDotToken
+        ? call.arguments.flatMap((_, argumentIndex) =>
+            argumentIndex >= index ? [argumentIndex] : [],
+          )
+        : [index];
+      for (const argumentIndex of callArgumentIndexes) {
+        if (call.arguments[argumentIndex]) indexes.add(argumentIndex);
+      }
+    }
   }
 
   return [...indexes];
@@ -2216,6 +2400,188 @@ function hasPragma(node: ts.Node): boolean {
 export interface RawSqlGuardSource {
   source: string;
   addedLines: ReadonlySet<number>;
+}
+
+interface ImportedSqlCallTarget {
+  moduleName: string;
+  exportName: string;
+  argumentIndexes: ReadonlySet<number>;
+  spreadArgumentIndexes: ReadonlySet<number>;
+}
+
+function importedSqlCallTarget(
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  argumentIndexes: ReadonlySet<number>,
+  spreadArgumentIndexes: ReadonlySet<number>,
+): ImportedSqlCallTarget | undefined {
+  const callee = unwrapExecuteExpression(call.expression);
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      !statement.importClause
+    ) {
+      continue;
+    }
+
+    const clause = statement.importClause;
+    if (
+      clause.name &&
+      ts.isIdentifier(callee) &&
+      callee.text === clause.name.text
+    ) {
+      return {
+        moduleName: statement.moduleSpecifier.text,
+        exportName: "default",
+        argumentIndexes,
+        spreadArgumentIndexes,
+      };
+    }
+
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      const namespaceMember =
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === bindings.name.text
+          ? callee.name.text
+          : ts.isElementAccessExpression(callee) &&
+              ts.isIdentifier(callee.expression) &&
+              callee.expression.text === bindings.name.text
+            ? staticStringPropertyName(callee.argumentExpression)
+            : undefined;
+      if (namespaceMember !== undefined) {
+        return {
+          moduleName: statement.moduleSpecifier.text,
+          exportName: namespaceMember,
+          argumentIndexes,
+          spreadArgumentIndexes,
+        };
+      }
+      continue;
+    }
+
+    if (bindings && ts.isNamedImports(bindings) && ts.isIdentifier(callee)) {
+      const specifier = bindings.elements.find(
+        (element) => element.name.text === callee.text,
+      );
+      if (specifier) {
+        return {
+          moduleName: statement.moduleSpecifier.text,
+          exportName: specifier.propertyName?.text ?? specifier.name.text,
+          argumentIndexes,
+          spreadArgumentIndexes,
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+function callableExports(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  exportName: string,
+): ts.FunctionLikeDeclaration[] {
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  if (!moduleSymbol) return [];
+  const exportedSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.name === exportName);
+  if (!exportedSymbol) return [];
+  const symbol =
+    (exportedSymbol.flags & ts.SymbolFlags.Alias) !== 0
+      ? checker.getAliasedSymbol(exportedSymbol)
+      : exportedSymbol;
+  const declarations = symbol.declarations ?? [];
+  return declarations.flatMap((declaration) => {
+    if (
+      ts.isFunctionLike(declaration) &&
+      "body" in declaration &&
+      declaration.body !== undefined
+    ) {
+      return [declaration];
+    }
+    if (
+      ts.isVariableDeclaration(declaration) &&
+      declaration.initializer !== undefined
+    ) {
+      const callable = functionExpression(declaration.initializer);
+      return callable ? [callable] : [];
+    }
+    if (ts.isExportAssignment(declaration)) {
+      const callable = functionExpression(declaration.expression);
+      return callable ? [callable] : [];
+    }
+    return [];
+  });
+}
+
+function reexportedSqlTargets(
+  sourceFile: ts.SourceFile,
+  target: ImportedSqlCallTarget,
+): ImportedSqlCallTarget[] {
+  const targets: ImportedSqlCallTarget[] = [];
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isExportDeclaration(statement) ||
+      !statement.moduleSpecifier ||
+      !ts.isStringLiteral(statement.moduleSpecifier)
+    ) {
+      continue;
+    }
+    if (!statement.exportClause) {
+      targets.push({
+        ...target,
+        moduleName: statement.moduleSpecifier.text,
+      });
+      continue;
+    }
+    if (!ts.isNamedExports(statement.exportClause)) continue;
+    for (const specifier of statement.exportClause.elements) {
+      if (specifier.name.text !== target.exportName) continue;
+      targets.push({
+        ...target,
+        moduleName: statement.moduleSpecifier.text,
+        exportName: specifier.propertyName?.text ?? specifier.name.text,
+      });
+    }
+  }
+  return targets;
+}
+
+function callableParameterIndexes(
+  target: ImportedSqlCallTarget,
+  declaration: ts.FunctionLikeDeclaration,
+): Set<number> {
+  const indexes = new Set<number>();
+  const restIndex = declaration.parameters.findIndex(
+    (parameter) => parameter.dotDotDotToken !== undefined,
+  );
+  const spreadStart = [...target.spreadArgumentIndexes].sort(
+    (left, right) => left - right,
+  )[0];
+
+  for (const argumentIndex of target.argumentIndexes) {
+    if (spreadStart !== undefined && argumentIndex >= spreadStart) {
+      declaration.parameters.forEach((_, parameterIndex) => {
+        if (parameterIndex >= spreadStart) indexes.add(parameterIndex);
+      });
+    } else if (restIndex >= 0 && argumentIndex >= restIndex) {
+      indexes.add(restIndex);
+    } else if (argumentIndex < declaration.parameters.length) {
+      indexes.add(argumentIndex);
+    }
+  }
+
+  for (const spreadIndex of target.spreadArgumentIndexes) {
+    declaration.parameters.forEach((_, parameterIndex) => {
+      if (parameterIndex >= spreadIndex) indexes.add(parameterIndex);
+    });
+  }
+
+  return indexes;
 }
 
 export function findRawSqlInterpolationViolations(
@@ -2907,8 +3273,36 @@ export function addChangedSqlExecuteWrapperModules(
   sources: Map<string, RawSqlGuardSource>,
   resolveSourceFile = resolveImportedSourceFile,
 ): void {
-  for (const [file, input] of [...sources]) {
-    if (input.addedLines.size === 0) continue;
+  const pending: Array<{
+    sourceFile: ts.SourceFile;
+    target: ImportedSqlCallTarget;
+  }> = [];
+  const processed = new Map<string, Map<string, Set<string>>>();
+
+  const enqueueImportedTarget = (
+    sourceFile: ts.SourceFile,
+    target: ImportedSqlCallTarget,
+  ) => {
+    const imported = resolveSourceFile(target.moduleName, sourceFile.fileName);
+    if (!imported) return;
+    const importedPath = path.resolve(imported.fileName);
+    const existing = sources.get(importedPath);
+    if (!existing) {
+      sources.set(importedPath, {
+        source: imported.text,
+        addedLines: new Set(),
+      });
+    }
+    pending.push({
+      sourceFile: imported,
+      target: { ...target, moduleName: importedPath },
+    });
+  };
+
+  const changedSources = [...sources].filter(
+    ([, input]) => input.addedLines.size > 0,
+  );
+  for (const [file, input] of changedSources) {
     const sourceFile = ts.createSourceFile(
       path.resolve(file),
       input.source,
@@ -2922,70 +3316,155 @@ export function addChangedSqlExecuteWrapperModules(
       (left, right) => left - right,
     );
     const changedSymbols = changedSqlSourceSymbols(analysis, addedLines);
-    const calledNames = new Set<string>();
-    const collectCalls = (node: ts.Node) => {
+    const visitChangedCalls = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
-        node.arguments.some((argument) =>
-          hasInterpolatedTemplate(
-            argument,
-            analysis,
-            addedLines,
-            changedSymbols,
-          ),
+        !isExecuteCall(
+          node.expression,
+          checker,
+          sourceFile,
+          analysis.executeAliases,
         )
       ) {
-        if (ts.isIdentifier(node.expression)) {
-          calledNames.add(node.expression.text);
-        } else if (
-          ts.isPropertyAccessExpression(node.expression) &&
-          ts.isIdentifier(node.expression.expression)
-        ) {
-          calledNames.add(node.expression.expression.text);
+        const argumentIndexes = new Set<number>();
+        const spreadArgumentIndexes = new Set<number>();
+        node.arguments.forEach((argument, index) => {
+          if (
+            hasInterpolatedTemplate(
+              argument,
+              analysis,
+              addedLines,
+              changedSymbols,
+            )
+          ) {
+            argumentIndexes.add(index);
+            if (ts.isSpreadElement(argument)) {
+              spreadArgumentIndexes.add(index);
+            }
+          }
+        });
+        if (argumentIndexes.size > 0) {
+          const target = importedSqlCallTarget(
+            node,
+            sourceFile,
+            argumentIndexes,
+            spreadArgumentIndexes,
+          );
+          if (target) enqueueImportedTarget(sourceFile, target);
         }
       }
-      ts.forEachChild(node, collectCalls);
+      ts.forEachChild(node, visitChangedCalls);
     };
-    collectCalls(sourceFile);
-    if (calledNames.size === 0) continue;
+    visitChangedCalls(sourceFile);
+  }
 
-    for (const statement of sourceFile.statements) {
-      if (
-        !ts.isImportDeclaration(statement) ||
-        !ts.isStringLiteral(statement.moduleSpecifier) ||
-        !statement.importClause
-      ) {
-        continue;
+  let pendingIndex = 0;
+  while (pendingIndex < pending.length) {
+    const work = pending[pendingIndex];
+    pendingIndex += 1;
+    if (!work) continue;
+    const sourceFile = work.sourceFile;
+    const file = path.resolve(sourceFile.fileName);
+    const processedExports = processed.get(file) ?? new Map();
+    const processedIndexes =
+      processedExports.get(work.target.exportName) ?? new Set<string>();
+    const freshIndexes = [...work.target.argumentIndexes].filter(
+      (index) =>
+        !processedIndexes.has(
+          `${index}:${work.target.spreadArgumentIndexes.has(index)}`,
+        ),
+    );
+    if (freshIndexes.length === 0) continue;
+    freshIndexes.forEach((index) =>
+      processedIndexes.add(
+        `${index}:${work.target.spreadArgumentIndexes.has(index)}`,
+      ),
+    );
+    processedExports.set(work.target.exportName, processedIndexes);
+    processed.set(file, processedExports);
+
+    const checker = createChecker(sourceFile);
+    const analysis = buildSqlAnalysis(sourceFile, checker);
+    const declarations = callableExports(
+      sourceFile,
+      checker,
+      work.target.exportName,
+    );
+    if (declarations.length === 0) {
+      for (const target of reexportedSqlTargets(sourceFile, work.target)) {
+        enqueueImportedTarget(sourceFile, target);
       }
-      const bindings = statement.importClause.namedBindings;
-      const defaultName = statement.importClause.name?.text;
-      const namespaceName =
-        bindings && ts.isNamespaceImport(bindings)
-          ? bindings.name.text
-          : undefined;
-      const hasMatchingNamedImport =
-        bindings &&
-        ts.isNamedImports(bindings) &&
-        bindings.elements.some((element) => calledNames.has(element.name.text));
-      if (
-        (defaultName && calledNames.has(defaultName)) ||
-        (namespaceName && calledNames.has(namespaceName)) ||
-        hasMatchingNamedImport
-      ) {
-        const moduleSource = resolveSourceFile(
-          statement.moduleSpecifier.text,
-          sourceFile.fileName,
-        );
-        if (moduleSource) {
-          const modulePath = path.resolve(moduleSource.fileName);
-          if (!sources.has(modulePath)) {
-            sources.set(modulePath, {
-              source: moduleSource.text,
-              addedLines: new Set(),
-            });
+      continue;
+    }
+    for (const declaration of declarations) {
+      if (!declaration.body) continue;
+      const trackedParameters = new Set<ts.Node>();
+      for (const index of callableParameterIndexes(work.target, declaration)) {
+        const parameter = declaration.parameters[index];
+        if (!parameter || !ts.isIdentifier(parameter.name)) {
+          continue;
+        }
+        const symbol = checker.getSymbolAtLocation(parameter.name);
+        if (symbol?.valueDeclaration) {
+          trackedParameters.add(symbol.valueDeclaration);
+        }
+      }
+      if (trackedParameters.size === 0) continue;
+
+      const referencesTrackedParameter = (expression: ts.Expression) => {
+        let found = false;
+        const visit = (node: ts.Node) => {
+          if (found) return;
+          if (ts.isIdentifier(node)) {
+            const symbol = checker.getSymbolAtLocation(node);
+            if (
+              symbol?.valueDeclaration &&
+              trackedParameters.has(symbol.valueDeclaration)
+            ) {
+              found = true;
+              return;
+            }
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(expression);
+        if (found) return true;
+        return [
+          ...findUnsafeSqlSources(
+            expression,
+            analysis,
+            new Set(),
+            new Set(),
+            true,
+          ),
+        ].some((source) => trackedParameters.has(source));
+      };
+
+      const visitForwardedCalls = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) {
+          const argumentIndexes = new Set<number>();
+          const spreadArgumentIndexes = new Set<number>();
+          node.arguments.forEach((argument, index) => {
+            if (referencesTrackedParameter(argument)) {
+              argumentIndexes.add(index);
+              if (ts.isSpreadElement(argument)) {
+                spreadArgumentIndexes.add(index);
+              }
+            }
+          });
+          if (argumentIndexes.size > 0) {
+            const target = importedSqlCallTarget(
+              node,
+              sourceFile,
+              argumentIndexes,
+              spreadArgumentIndexes,
+            );
+            if (target) enqueueImportedTarget(sourceFile, target);
           }
         }
-      }
+        ts.forEachChild(node, visitForwardedCalls);
+      };
+      visitForwardedCalls(declaration.body);
     }
   }
 }

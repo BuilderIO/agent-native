@@ -712,6 +712,205 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("traces imported wrappers that forward SQL through another wrapper", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const executorFile = "packages/core/src/query-executor.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { executeQuery } from "./query-executor.js";',
+      'import { logValue } from "./logger.js";',
+      "export function runQuery(query: string) {",
+      "  executeQuery(query);",
+      "}",
+      "function unrelated(value: string) {",
+      "  logValue(value);",
+      "}",
+    ].join("\n");
+    const executor = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function executeQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+    const modules = new Map([
+      [
+        "./sql-helpers.js",
+        ts.createSourceFile(
+          wrapperFile,
+          wrapper,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        ),
+      ],
+      [
+        "./query-executor.js",
+        ts.createSourceFile(
+          executorFile,
+          executor,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        ),
+      ],
+    ]);
+    const sources = new Map<string, RawSqlGuardSource>([
+      [storeFile, { source: store, addedLines: new Set([2]) }],
+    ]);
+    const resolvedModules: string[] = [];
+
+    addChangedSqlExecuteWrapperModules(sources, (moduleName) => {
+      resolvedModules.push(moduleName);
+      return modules.get(moduleName);
+    });
+
+    expect(sources.has(resolve(wrapperFile))).toBe(true);
+    expect(sources.has(resolve(executorFile))).toBe(true);
+    expect(sources.has(resolve("packages/core/src/logger.ts"))).toBe(false);
+    expect(resolvedModules).not.toContain("./logger.js");
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
+  it("traces namespace element calls through re-exported wrappers", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const executorFile = "packages/core/src/query-executor.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper =
+      'export { executeQuery as runQuery } from "./query-executor.js";';
+    const executor = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function executeQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+    const store = [
+      'import * as helpers from "./sql-helpers.js";',
+      'helpers["runQuery"](`SELECT * FROM records WHERE id = ${recordId}`);',
+    ].join("\n");
+    const modules = new Map([
+      [
+        "./sql-helpers.js",
+        ts.createSourceFile(
+          wrapperFile,
+          wrapper,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        ),
+      ],
+      [
+        "./query-executor.js",
+        ts.createSourceFile(
+          executorFile,
+          executor,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        ),
+      ],
+    ]);
+    const sources = new Map<string, RawSqlGuardSource>([
+      [storeFile, { source: store, addedLines: new Set([2]) }],
+    ]);
+
+    addChangedSqlExecuteWrapperModules(sources, (moduleName) =>
+      modules.get(moduleName),
+    );
+
+    expect(sources.has(resolve(wrapperFile))).toBe(true);
+    expect(sources.has(resolve(executorFile))).toBe(true);
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet:
+          'helpers["runQuery"](`SELECT * FROM records WHERE id = ${recordId}`);',
+      },
+    ]);
+  });
+
+  it("traces rest parameters forwarded directly to execute", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "export function runQuery(...args: string[]) {",
+      "  getDbExec().execute(...args);",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      'runQuery("safe", `SELECT * FROM records WHERE id = ${recordId}`);',
+    ].join("\n");
+    const sources = new Map<string, RawSqlGuardSource>([
+      [storeFile, { source: store, addedLines: new Set([2]) }],
+    ]);
+    const wrapperSource = ts.createSourceFile(
+      wrapperFile,
+      wrapper,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    addChangedSqlExecuteWrapperModules(sources, () => wrapperSource);
+
+    expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet:
+          'runQuery("safe", `SELECT * FROM records WHERE id = ${recordId}`);',
+      },
+    ]);
+  });
+
+  it("treats imported execute receivers and imported factories as SQL sinks", () => {
+    const direct = [
+      'import { exec } from "./database.js";',
+      "exec.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+    const factory = [
+      'import { getExec } from "./database.js";',
+      "getExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, direct, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, factory, new Set([2])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes type-cast execute callees", () => {
+    const text = source([
+      "const database = getDbExec();",
+      "(database.execute as typeof database.execute)(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 2,
+          snippet:
+            "(database.execute as typeof database.execute)(`SELECT * FROM records WHERE id = ${recordId}`);",
+        },
+      ],
+    );
+  });
+
   it("does not load wrappers for unchanged templates after unrelated edits", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
     const storeFile = "packages/core/src/store.ts";
