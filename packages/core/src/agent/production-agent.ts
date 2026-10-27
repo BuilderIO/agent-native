@@ -1359,6 +1359,8 @@ export interface ActionEntry {
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: any) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
