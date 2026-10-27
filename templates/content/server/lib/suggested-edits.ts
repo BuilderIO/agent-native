@@ -2,7 +2,10 @@ import { ActionContractError } from "@agent-native/core";
 import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
+  AGENT_CLIENT_ID,
   LiveCopyError,
+  loadAwarenessRows,
+  loadAwarenessRowsWith,
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
@@ -20,7 +23,6 @@ import {
   type TransactionalChange,
 } from "@agent-native/core/server";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -51,9 +53,15 @@ import {
   supportedSuggestionStructure,
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
+import { parseSuggestionPlacement } from "../../shared/suggestion-placement.js";
 import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
 import { getDb, schema } from "../db/index.js";
 import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
+import {
+  liveCopyMarkdown,
+  replaceLiveCopy,
+  writeAcceptedSuggestion,
+} from "./accepted-suggestion-live-copy.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
@@ -132,6 +140,11 @@ async function acceptOnLegacyWriter<T>(
     throw new Error(
       "Suggestion decisions require an atomic database transaction",
     );
+  // `apply` reads presence inside the transaction, once the live copy is
+  // held. That read doesn't set up the presence table, which PGlite can't do
+  // inside a transaction, so a read here does it first. If it fails, the read
+  // in the transaction reports that when an accept needs it.
+  await loadAwarenessRows(context.resourceId).catch(() => undefined);
   const result = await withPreparedYDocMutation(
     context.resourceId,
     acceptedSuggestionRequestSource(context.ctx?.requestSource),
@@ -377,17 +390,6 @@ async function assertSuggestionBodyTarget(
     .map((membership) => String(membership.primary_id));
 }
 
-function replacePreparedCollabContent(
-  lease: PreparedYDocMutationLease,
-  proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
-): void {
-  prosemirrorJSONToYXmlFragment(
-    suggestionEditorSchema(),
-    proseMirrorDoc.toJSON(),
-    lease.doc.getXmlFragment("default"),
-  );
-}
-
 const STALE_ACCEPT_MESSAGE =
   "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.";
 const UNSUPPORTED_ACCEPT_MESSAGE =
@@ -451,6 +453,16 @@ async function proposalOnStoredBody(
       },
     );
   failBeforeStateConflict();
+}
+
+/**
+ * Whether a person has the Page open in an editor now. Agents don't count.
+ * Reads through the decision's transaction: a serverless pool has one
+ * connection, and that transaction holds it.
+ */
+async function openInEditor(tx: DbExec, documentId: string): Promise<boolean> {
+  const present = await loadAwarenessRowsWith(tx, documentId);
+  return present.some((entry) => entry.clientId !== AGENT_CLIENT_ID);
 }
 
 /**
@@ -769,13 +781,13 @@ async function commitAcceptedContent(input: {
   orgId: string | null;
   operationId: string;
   now: string;
-  afterWrite: () => Promise<void>;
+  /** Receives the Markdown the live copy now holds. */
+  afterWrite: (collabContent: string) => Promise<void>;
 }) {
   const { tx, documentId, nextContent, now } = input;
   const { current, primaryBlocksFields, identityTx } = input.target;
   const currentContent = String(current.content);
   const bodyRevision = Number(current.body_revision);
-  replacePreparedCollabContent(input.ydoc, input.nextDocument);
   const nextBodyRevision = bodyRevision + 1;
   const nextRevision = documentRevisionToken(nextBodyRevision, nextContent);
   const intent = {
@@ -796,6 +808,15 @@ async function commitAcceptedContent(input: {
       "The accepted suggestion cannot preserve document structure",
     );
   }
+  const collabContent = liveCopyMarkdown(
+    input.ydoc.doc,
+    suggestionEditorSchema(),
+    { content: nextContent, document: input.nextDocument },
+  );
+  // A live copy that also holds typing, or hasn't caught up with a save, keeps
+  // its older revision, so open editors still bring the two together.
+  const collabBodyRevision =
+    collabContent === nextContent ? nextBodyRevision : null;
   const applied = await commitCanonicalDocumentBodyMutation({
     write: async () => {
       // The Page may have switched since the gate chose this writer. The
@@ -807,11 +828,11 @@ async function commitAcceptedContent(input: {
         exec: tx,
       });
       const updated = await tx.execute({
-        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
+        sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = COALESCE(?, collab_body_revision), updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
         args: [
           nextContent,
           nextBodyRevision,
-          nextBodyRevision,
+          collabBodyRevision,
           now,
           documentId,
           bodyRevision,
@@ -885,7 +906,7 @@ async function commitAcceptedContent(input: {
         canonicalChanged: true,
         now,
       });
-      await input.afterWrite();
+      await input.afterWrite(collabContent);
     },
   });
   if (!applied)
@@ -1098,8 +1119,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       orgId: proposal.orgId,
       operationId: proposal.operationId,
       now: proposal.now,
-      afterWrite: async () => {
-        await coordination.ydoc.persist(tx, proposal.content);
+      afterWrite: async (collabContent) => {
+        await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);
       },
     });
@@ -1144,6 +1165,37 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       ...(await lockSuggestionTarget(tx, context.resourceId)),
     };
     const now = placed?.now ?? new Date().toISOString();
+    const currentDocument =
+      placed?.document ?? parseSuggestionMarkdown(currentContent);
+    // Each accepted edit reaches the live copy where the reviewer saw it.
+    if (
+      !writeAcceptedSuggestion(
+        coordination.ydoc.doc,
+        suggestionEditorSchema(),
+        {
+          before: currentDocument,
+          after: nextDocument,
+          placement: context.placement,
+        },
+      )
+    ) {
+      // A click that says where the words were comes from an open editor.
+      if (
+        parseSuggestionPlacement(context.placement) !== null ||
+        (await openInEditor(tx, context.resourceId))
+      ) {
+        fail(
+          "The words this suggestion changes were just edited, so it wasn't accepted.",
+          { statusCode: 409, errorCode: "suggestion_conflict" },
+        );
+      }
+      // Nobody can be typing, so the live copy is only behind a save.
+      replaceLiveCopy(
+        coordination.ydoc.doc,
+        suggestionEditorSchema(),
+        nextDocument,
+      );
+    }
     if (coordination.deferPersistence) {
       await reanchorSourceComment(
         tx,
@@ -1161,9 +1213,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         intermediateContents.push(currentContent);
       const blockCountChanged =
         placed?.blockCountChanged === true ||
-        nextDocument.childCount !==
-          (placed?.document ?? parseSuggestionMarkdown(currentContent))
-            .childCount;
+        nextDocument.childCount !== currentDocument.childCount;
       coordination.proposal = {
         ...target,
         content: nextContent,
@@ -1188,7 +1238,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       orgId: context.suggestion.orgId ?? null,
       operationId: context.suggestion.id,
       now,
-      afterWrite: async () => {
+      afterWrite: async (collabContent) => {
         await reanchorSourceComment(
           tx,
           context.resourceId,
@@ -1197,7 +1247,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
           nextContent,
           now,
         );
-        await coordination.ydoc.persist(tx, nextContent);
+        await coordination.ydoc.persist(tx, collabContent);
         await coordination.sync.persist(tx);
       },
     });

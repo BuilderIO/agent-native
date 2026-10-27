@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
+  "onboarding.builderProvisionFailedDetail":
+    "تعذّر إنشاء حساب Builder.io الخاص بك. حاول مرة أخرى أو سجّل الدخول بحساب موجود.",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
   "onboarding.builderCreateAccount": "استخدم Builder.io",
   "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",
@@ -411,6 +413,9 @@ const messages: ToolkitAgentChatTranslation = {
     "تعذّرت إضافة الملف الذي تم إفلاته. جرّب تنسيقًا آخر.",
   "composer.openDesktop": "افتح تطبيق سطح المكتب لاستخدام هذه المحادثة.",
   "composer.removeAttachment": "إزالة {{name}}",
+  "composer.attachmentReadFailed": "تعذّرت قراءة هذا الملف",
+  "composer.attachmentTooLarge": "حجم الملف أكبر من 8 ميغابايت",
+  "composer.attachmentNotUtf8": "الملف ليس نصًا بترميز UTF-8",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
   "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",
@@ -514,6 +519,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "إنشاء مهمة متكررة: ",
   "composer.selectedReferences": "المراجع المحددة",
   "composer.sendMessage": "إرسال رسالة",
+  "composer.select": "تحديد",
+  "composer.selectContextFull": "السياق ممتلئ. أزل عنصرًا قبل تحديد عنصر آخر.",
+  "composer.selectContextTooLarge":
+    "هذا الكائن كبير جدًا بحيث لا يمكن إضافته كسياق.",
   "composer.skill.added": 'تمت إضافة المهارة "{{name}}"',
   "composer.skill.back": "رجوع",
   "composer.skill.content": "المحتوى",
@@ -747,6 +756,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "نسخ الرابط",
   "history.linkCopied": "تم نسخ الرابط",
   "history.copyLinkFailed": "تعذّر نسخ الرابط",
+  "history.onlyYou": "أنت فقط",
+  "history.hide": "إخفاء من قائمتي",
+  "history.hidden": "تم الإخفاء من قائمتك",
+  "history.undo": "تراجع",
+  "history.hideFailed": "تعذّر إخفاء المحادثة",
+  "history.unhideFailed": "تعذّرت إعادة المحادثة",
   "integrations.availableSection": "عمليات التكامل المتاحة",
   "integrations.connectedSection": "متصل",
   "integrations.goToApiKeys": "الانتقال إلى مفاتيح API",
@@ -2039,6 +2054,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
   "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
+  "settings.audit.approvalMcpReview":
+    "تمت الموافقة عليه في صفحة مراجعة إجراءات MCP",
+  "settings.audit.approvalCliPrompt": "تمت الموافقة في مطالبة CLI (غير موثّق)",
+  "settings.audit.approvalCliFlag": "أُعيد تشغيله مع --approved (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",
   "settings.audit.empty": "لا توجد تغييرات في هذه الفترة.",
@@ -2337,6 +2356,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "تعرض الأدوات بطاقات تفاعلية، مثل مسودة بريد إلكتروني يمكنك تعديلها وإرسالها، في تطبيقات الدردشة التي تدعم MCP Apps، مثل Claude وChatGPT. بعد تغيير هذا الإعداد، أعد ربط هذا التطبيق في تطبيق الدردشة.",
   "settingsShell.appGroup.mcpFootnote":
     "للاطلاع على الأدوات التي يستخدمها الوكيل نفسه، راجع {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "أتمتة جديدة",

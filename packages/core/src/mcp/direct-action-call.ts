@@ -1,4 +1,5 @@
 import type {
+  CallToolResult,
   InputRequiredResult,
   ServerContext,
 } from "@modelcontextprotocol/server";
@@ -27,6 +28,7 @@ import {
 import { describeMcpError } from "./analytics.js";
 import {
   actionApprovalError,
+  actionApprovalReviewResult,
   buildLinkArtifacts,
   conciseMcpAppToolText,
   conciseToolResultText,
@@ -69,6 +71,7 @@ import {
   UnreadableResultError,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpApprovalReview,
 } from "./execute-action-call.js";
 import { mcpResponseOutputCheck } from "./output-contract.js";
 
@@ -96,11 +99,12 @@ export interface DirectActionCallScope {
   effectiveIdentity: MCPCallerIdentity | undefined;
   actionCallContext: McpActionCallContext;
   acceptedContent: (typeof import("@modelcontextprotocol/server"))["acceptedContent"];
+  inputResponse: (typeof import("@modelcontextprotocol/server"))["inputResponse"];
   requestMcpActionApproval: (
     approvalState: McpActionApprovalState,
-    name: string,
+    review: McpApprovalReview,
     ctx: ServerContext,
-  ) => Promise<InputRequiredResult>;
+  ) => Promise<InputRequiredResult | CallToolResult>;
 }
 
 /** The analytics record of a call that failed. */
@@ -122,6 +126,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     effectiveIdentity,
     actionCallContext,
     acceptedContent,
+    inputResponse,
     requestMcpActionApproval,
   } = scope;
 
@@ -269,6 +274,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               MCP_ACTION_APPROVAL_INPUT_KEY,
             ) as Record<string, unknown> | undefined
           )?.decision,
+        accepted: () =>
+          inputResponse(
+            ctx.mcpReq.inputResponses,
+            MCP_ACTION_APPROVAL_INPUT_KEY,
+          ).kind === "elicit" &&
+          (
+            inputResponse(
+              ctx.mcpReq.inputResponses,
+              MCP_ACTION_APPROVAL_INPUT_KEY,
+            ) as { action?: unknown }
+          ).action === "accept",
       },
     });
     if (outcome.status === "unknown-tool") {
@@ -313,8 +329,24 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     }
     if (outcome.status === "approval-required") {
       try {
-        return await requestMcpActionApproval(outcome.approval, name, ctx);
-      } catch (err: any) {
+        return await requestMcpActionApproval(
+          outcome.approval,
+          outcome.review,
+          ctx,
+        );
+      } catch (err) {
+        return actionError(err);
+      }
+    }
+    if (outcome.status === "approval-pending") {
+      try {
+        return await actionApprovalReviewResult(
+          outcome.review,
+          outcome.reason,
+          requestMeta,
+          effectiveIdentity?.userEmail,
+        );
+      } catch (err) {
         return actionError(err);
       }
     }
@@ -484,7 +516,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           )
         : {};
       const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-      const toolVisibility = toolUiMeta.visibility;
+      const toolVisibility = entry.mcpApp?.visibility ?? toolUiMeta.visibility;
       const isAppOnlyVisibility =
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
@@ -519,11 +551,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Text and `structuredContent` read `visible`, the result without its
       // images, redacted against the whole call. Images are checked whole
       // with the rest of the response. Only the embed start in `_meta` comes
-      // from the unredacted result. An opted-in action's contract may require
-      // a field that held an embed URL, so it keeps that field, masked.
-      const visible = redactEmbedCredentials(actionResultForClient, guard, {
-        maskUrlFields: outputContract !== undefined,
-      });
+      // from the unredacted result. A field that held an embed URL stays,
+      // masked, which an opted-in action's contract may require.
+      const visible = redactEmbedCredentials(actionResultForClient, guard);
       const textResultForClient =
         returned.text !== undefined ? projectedResultForClient : visible;
       const wantsStructuredResult =

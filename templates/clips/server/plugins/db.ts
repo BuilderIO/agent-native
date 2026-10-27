@@ -1325,6 +1325,11 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recording_transcript_versions_recording_created_idx
         ON recording_transcript_versions (recording_id, created_at)`,
     },
+    {
+      version: 93,
+      name: "meeting-capture-stop-revision",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS capture_stop_revision INTEGER NOT NULL DEFAULT 0`,
+    },
   ]),
   { table: "clips_migrations" },
 );

@@ -95,8 +95,8 @@ import {
   registerFeatureFlags,
 } from "../feature-flags/registry.js";
 import { uploadFile } from "../file-upload/index.js";
-import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { getFileUploadStatusForRequest } from "../file-upload/status.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -115,6 +115,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -186,7 +187,10 @@ import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
 } from "./better-auth-instance.js";
-import { resolveBuilderRequestAuthorization } from "./builder-api-auth.js";
+import {
+  isBuilderReauthorizationRequired,
+  resolveBuilderRequestAuthorization,
+} from "./builder-api-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_MODE_PARAM,
@@ -211,6 +215,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -237,7 +242,6 @@ import {
 } from "./builder-browser.js";
 import { createBuilderDesktopMessagesHandler } from "./builder-desktop-messages-route.js";
 import {
-  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   builderOAuthScopeFor,
   canRoleConnectPersonalBuilder,
@@ -2530,11 +2534,13 @@ export async function activateBuilderAccount(
     message: string,
     reason: string,
     code?: string,
+    diagnostics: Record<string, unknown> = {},
   ): Promise<BuilderAccountActivationResult> => {
     await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
       ...builderConnectTrackingProperties(input.tracking),
       reason,
       stage: "provision",
+      ...diagnostics,
     });
     return { ok: false, status, message, reason, ...(code ? { code } : {}) };
   };
@@ -2633,10 +2639,12 @@ export async function activateBuilderAccount(
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
-    console.error(
-      "[builder] Agent-Native account provisioning failed:",
-      error instanceof Error ? error.message : error,
-    );
+    const provisioningError =
+      error instanceof BuilderAccountProvisioningError ? error : null;
+    console.error("[builder] Agent-Native account provisioning failed:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      upstreamStatus: provisioningError?.upstreamStatus ?? null,
+    });
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
@@ -2649,6 +2657,15 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
+      undefined,
+      {
+        upstream_response_received: provisioningError?.upstreamStatus != null,
+        upstream_status: provisioningError?.upstreamStatus ?? null,
+        upstream_body: provisioningError?.upstreamErrorBody ?? null,
+        upstream_body_read_error_type:
+          provisioningError?.upstreamBodyReadErrorType ?? null,
+        upstream_error_type: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }
@@ -3120,6 +3137,57 @@ export function mountMcpConnectRoutes(
   }
 }
 
+// Each image module loads on the first request for its route. The OG image
+// module embeds its background image, over a megabyte of source, and loading
+// it while the routes mount would cost every cold instance its first request.
+// A failed load isn't kept, so the route's next request tries again.
+export function mountImageRoutes(
+  app: H3AppShim,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+): void {
+  app.use(
+    `${routePrefix}/og-image.png`,
+    lazyRouteHandler(async () => {
+      const { createAgentNativeOgImageHandler } =
+        await import("./social-og-image.js");
+      return createAgentNativeOgImageHandler();
+    }),
+  );
+
+  // Signed, content-only recap PNG images. POST (authenticated with the
+  // same `agent-native connect` bearer token the action surface accepts)
+  // stores a PNG and returns a public image URL; GET <token>.png serves
+  // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
+  // screenshot into a private-repo PR comment. Mounted as a prefix so it
+  // owns both `/_agent-native/recap-image` (POST) and
+  // `/_agent-native/recap-image/<token>.png` (GET).
+  app.use(
+    `${routePrefix}/recap-image`,
+    lazyRouteHandler(async () => {
+      const { createRecapImageHandler } =
+        await import("./recap-image-route.js");
+      return createRecapImageHandler();
+    }),
+  );
+}
+
+type RouteHandler = (event: H3Event) => unknown;
+
+// h3's `defineLazyEventHandler` keeps any rejected load, which would fail the
+// route for the rest of the instance's life. This one retries a handler that
+// failed to build or a module Node couldn't find or read. A module whose
+// evaluation threw stays failed, because Node keeps that error.
+function lazyRouteHandler(load: () => Promise<RouteHandler>) {
+  let loaded: Promise<RouteHandler> | undefined;
+  return defineEventHandler(async (event: H3Event) => {
+    const handler = await (loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw error;
+    }));
+    return handler(event);
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -3248,8 +3316,10 @@ export function createCoreRoutesPlugin(
       // app does not mount the optional onboarding plugin. The settings CTA and
       // the upload route share this registry. An app may register its own
       // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
+      // registration instead of replacing it during core bootstrap. The
+      // private-blob side gets the workspace and hosted private buckets.
       ensureS3FileUploadProvider();
+      ensureS3PrivateBlobProviders();
 
       getH3App(nitroApp).use(
         `${P}/oauth/popup`,
@@ -4160,27 +4230,7 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      {
-        const { createAgentNativeOgImageHandler } =
-          await import("./social-og-image.js");
-        getH3App(nitroApp).use(
-          `${P}/og-image.png`,
-          createAgentNativeOgImageHandler(),
-        );
-      }
-
-      // Signed, content-only recap PNG images. POST (authenticated with the
-      // same `agent-native connect` bearer token the action surface accepts)
-      // stores a PNG and returns a public image URL; GET <token>.png serves
-      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
-      // screenshot into a private-repo PR comment. Mounted as a prefix so it
-      // owns both `/_agent-native/recap-image` (POST) and
-      // `/_agent-native/recap-image/<token>.png` (GET).
-      {
-        const { createRecapImageHandler } =
-          await import("./recap-image-route.js");
-        getH3App(nitroApp).use(`${P}/recap-image`, createRecapImageHandler());
-      }
+      mountImageRoutes(getH3App(nitroApp), P);
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
@@ -4393,6 +4443,8 @@ export function createCoreRoutesPlugin(
                   canDisconnect: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
+                  builderReauthorizationRequired:
+                    isBuilderReauthorizationRequired(error),
                   connectError: {
                     message:
                       error instanceof CredentialStoreUnavailableError
@@ -6347,69 +6399,13 @@ export function createCoreRoutesPlugin(
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          const resolveStatus = async () => {
-            const providerStatuses =
-              await listFileUploadProviderStatusesForRequest();
-            // The Builder fallback that `getActiveFileUploadProviderForRequest`
-            // adds after these is `builderUploadConfigured` below.
-            const active =
-              providerStatuses.find((status) => status.configured)?.provider ??
-              null;
-            let builderConfigured = false;
-            let builderUploadConfigured = false;
-            const {
-              canAuthorizeBuilderApiRequest,
-              hasBuilderApiCredentialCustody,
-            } = await import("./builder-api-auth.js");
-            builderConfigured = await hasBuilderApiCredentialCustody();
-            builderUploadConfigured = await canAuthorizeBuilderApiRequest(
-              BUILDER_ASSETS_WRITE_SCOPE,
-            );
-
-            const providers = providerStatuses.map(
-              ({ provider, configured }) => ({
-                id: provider.id,
-                name: provider.name,
-                configured,
-              }),
-            );
-
-            // When the builder builtin is selected via env var, its sync
-            // isConfigured() doesn't reflect per-user OAuth credentials. Use
-            // builderConfigured so status reflects this specific request.
-            const isBuilderEnvActive = active?.id === "builder";
-            const configured = isBuilderEnvActive
-              ? builderUploadConfigured
-              : !!active || builderUploadConfigured;
-            const activeProvider = isBuilderEnvActive
-              ? builderUploadConfigured
-                ? { id: "builder", name: "Builder.io" }
-                : null
-              : active
-                ? active.id === "builder" && !builderUploadConfigured
-                  ? null
-                  : { id: active.id, name: active.name }
-                : builderUploadConfigured
-                  ? { id: "builder", name: "Builder.io" }
-                  : null;
-
-            return {
-              configured,
-              activeProvider,
-              providers,
-              builderConfigured,
-              builderUploadConfigured,
-              builderReauthorizationRequired:
-                builderConfigured && !builderUploadConfigured,
-            };
-          };
 
           return userEmail
             ? runWithRequestContext(
                 { userEmail, orgId: session?.orgId },
-                resolveStatus,
+                getFileUploadStatusForRequest,
               )
-            : resolveStatus();
+            : getFileUploadStatusForRequest();
         }),
       );
 

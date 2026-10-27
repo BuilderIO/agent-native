@@ -1,5 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 
+import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { observabilityConfig } from "../app-config/observability.js";
 import {
@@ -1515,8 +1517,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       },
     });
 
+    const engine = { name: "ai-sdk:anthropic" } as AgentEngine;
+    tagEngineLlmConnectionSource(engine, "env");
     const loopOpts: any = {
-      engine: { name: "anthropic" },
+      engine,
       model: "claude-test",
       systemPrompt: "",
       tools: [],
@@ -1573,6 +1577,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       $ai_provider: "anthropic",
       $ai_is_error: false,
       $session_id: "browser-session-1",
+      llm_connection: "anthropic",
+      llm_engine: "ai-sdk:anthropic",
+      llm_connection_source: "env",
     });
     expect(traces[0]?.properties).not.toHaveProperty("$ai_error");
 

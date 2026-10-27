@@ -51,7 +51,6 @@ import type {
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
-import type { ActionHttpConfig } from "../action.js";
 import {
   clientAbortReason,
   EXECUTION_LEASE_LOST_ABORT_REASON,
@@ -77,6 +76,7 @@ import {
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
+import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -254,6 +254,7 @@ import {
   declaredMcpToolNames,
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
+import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -277,6 +278,7 @@ import {
 import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -317,7 +319,9 @@ import {
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
+import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
+  actionDefinition,
   discoveredActionMcpAnnotations,
   filesystemActionEntry,
 } from "./filesystem-action-entry.js";
@@ -377,12 +381,23 @@ export function trackAgentChatRunLifecycle(
     event,
     {
       ...properties,
+      ...runLlmConnectionTrackingProperties(),
       ...(appId ? { app_name: appId, template_name: appId } : {}),
       thread_id: threadId,
       attempt_id: attemptId,
     },
     trackingSource ?? runLifecycleTrackingSource(userId),
   );
+}
+
+function runLlmConnectionTrackingProperties(): Record<string, unknown> {
+  const engine = getRequestRunContext()?.engine;
+  if (!engine || typeof engine.name !== "string") return {};
+  return llmConnectionTrackingProperties({
+    configured: true,
+    engine: engine.name,
+    source: getEngineLlmConnectionSource(engine) ?? "unknown",
+  });
 }
 
 /** `run_started` from every agent-chat entry point, keyed to its turn. */
@@ -518,6 +533,7 @@ import {
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   executeApprovedA2AToolCall,
   filterAgentTools,
+  filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
   filterDirectA2AActions,
@@ -1897,11 +1913,8 @@ export function createAgentChatPlugin(
               const filePath = pathMod.join(actionsDir, file);
               try {
                 const mod = await import(/* @vite-ignore */ filePath);
-                const def =
-                  mod.default && typeof mod.default === "object"
-                    ? mod.default
-                    : mod;
-                if (def?.tool && typeof def.run === "function") {
+                const def = actionDefinition(mod);
+                if (def) {
                   discoveredActionsAll[name] = filesystemActionEntry(def);
                   continue;
                 }
@@ -1910,45 +1923,36 @@ export function createAgentChatPlugin(
                 // (and .ts files Node can't parse natively).
               }
 
-              // Static-parse the source for `http: false` or
-              // `http: { method: "GET" }` so the shell-wrapper fallback still
-              // mounts HTTP routes with the correct method. We can't load the
-              // .ts module to read the real defineAction object in this Node
-              // context, so this regex sniff is the best we can do until the
-              // discovery is moved into a Vite-aware codepath.
-              let httpConfig: ActionHttpConfig | false | undefined;
-              // Sniff `agentTool: false` the same way so a CLI-style action can
-              // opt out of agent exposure even on the shell-wrapper fallback path.
-              let agentToolFlag: boolean | undefined;
+              // Static-parse the source for `http`, `agentTool: false`,
+              // `needsApproval`, `persistInBrowser`, `uiOnly` and
+              // `toolCallable` so the shell-wrapper fallback still mounts HTTP
+              // routes with the correct method, stays hidden when asked, keeps
+              // its approval gate and UI-only limits, and keeps its results out
+              // of browser storage. We can't load the .ts module to read
+              // the real defineAction object in this Node context, so parsing
+              // the source is the best we can do until the discovery is moved
+              // into a Vite-aware codepath. The parser loads only on this path.
+              let sniffed: CliWrapperFlags = {};
               try {
-                const src = _fs.readFileSync(filePath, "utf-8");
-                if (/\bagentTool\s*:\s*false\b/.test(src)) {
-                  agentToolFlag = false;
-                }
-                if (/\bhttp\s*:\s*false\b/.test(src)) {
-                  httpConfig = false;
-                } else {
-                  const httpStart = src.search(/\bhttp\s*:\s*\{/);
-                  if (httpStart >= 0) {
-                    const window = src.slice(httpStart, httpStart + 200);
-                    const m = window.match(
-                      /method\s*:\s*['"`](GET|POST|PUT|DELETE)['"`]/,
-                    );
-                    const p = window.match(/path\s*:\s*['"`]([^'"`]+)['"`]/);
-                    if (m || p) {
-                      httpConfig = {
-                        ...(m
-                          ? {
-                              method: m[1] as "GET" | "POST" | "PUT" | "DELETE",
-                            }
-                          : {}),
-                        ...(p ? { path: p[1] } : {}),
-                      };
-                    }
-                  }
-                }
-              } catch {
-                // File read failed — leave httpConfig undefined (default POST)
+                const { cliWrapperFlagsFromSource } =
+                  await import("./cli-wrapper-flags.js");
+                sniffed = cliWrapperFlagsFromSource(
+                  _fs.readFileSync(filePath, "utf-8"),
+                );
+              } catch (error) {
+                // Without the source there's no telling which limits the
+                // action sets, so it gets all of them. The route stays the
+                // default POST.
+                console.warn(
+                  `[agent-native] Could not read ${dir}/${file}; it will run only from the app's UI and ask for approval first.`,
+                  error,
+                );
+                sniffed = {
+                  needsApproval: true,
+                  persistInBrowser: false,
+                  uiOnly: true,
+                  toolCallable: false,
+                };
               }
 
               // Fallback: bash-based wrapper for CLI-style scripts
@@ -2017,10 +2021,7 @@ export function createAgentChatPlugin(
                     command: `pnpm action ${name} ${escapedArgs}`.trim(),
                   });
                 },
-                ...(httpConfig !== undefined ? { http: httpConfig } : {}),
-                ...(typeof agentToolFlag === "boolean"
-                  ? { agentTool: agentToolFlag }
-                  : {}),
+                ...sniffed,
               };
             }
           }
@@ -2635,6 +2636,15 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      const mcpAppActions = {
+        ...discoveredActions,
+        ...templateScripts,
+        ...mcpOnlyActions,
+      };
+      const mcpActions = preferMcpAppActions(externalActions, mcpAppActions);
+      const mcpProductionActions = externalFullActions
+        ? preferMcpAppActions(externalFullActions, mcpAppActions)
+        : undefined;
       reservedActionRegistries.push(
         templateScriptsAll,
         discoveredActionsAll,
@@ -2700,7 +2710,12 @@ export function createAgentChatPlugin(
         },
         executeApproval: (approval, { signal, threadId, turnId }) =>
           executeApprovedA2AToolCall(approval, {
-            actions: externalFullActions ?? externalActions,
+            actions: filterDelegatedRegistry(
+              preferMcpAppActions(
+                externalFullActions ?? externalActions,
+                templateScripts,
+              ),
+            ),
             appId: options?.appId,
             signal,
             threadId,
@@ -2906,19 +2921,9 @@ export function createAgentChatPlugin(
 
           // Build the same system prompt the interactive agent uses
           const owner = userEmail;
-          const resources = await loadResourcesForPrompt(
-            owner,
-            lazyContext,
-            options?.appId,
-            undefined,
-            {
-              disabledFrameworkGroups,
-              skillReadTool,
-            },
-          );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, databaseToolsMode);
+            : await buildSchemaBlock(owner, "off");
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
@@ -2982,24 +2987,6 @@ export function createAgentChatPlugin(
             receiverOwnsObjective && options?.appId
               ? buildSelectedA2AReceiverContext(options.appId)
               : "";
-          // Delegated turns use native template actions in every environment,
-          // so they must also receive the native-tool prompt. The interactive
-          // dev prompt teaches `pnpm action` and would send this receiver back
-          // into the shell loop the native action surface exists to prevent.
-          const systemPrompt =
-            basePrompt +
-            SYSTEM_PROMPT_CACHE_SPLIT +
-            resources +
-            schemaBlock +
-            extra +
-            modelOverlay +
-            selectedReceiverContext +
-            runtimeContext;
-          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
-
-          // Build tools — same as interactive handler. Cross-app delegation is
-          // enabled by default; call-agent carries a bounded visited-app path
-          // and rejects cycles/excessive hops before dispatch.
           // Delegated turns keep template actions as NATIVE tools even in dev,
           // unlike the interactive surface (see the allScripts comment). Dev
           // routes template actions through bash there to dodge the degenerate
@@ -3011,65 +2998,101 @@ export function createAgentChatPlugin(
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
           const a2aOrgId = getRequestOrgId();
-          const a2aRegisteredActions = devActive
-            ? {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                ...automationTools,
-                ...fetchTool,
-                ...webSearchTool,
-                ...workspaceFilesTool,
-                ...workspaceFileActions,
-                ...toolActions,
-                ...browserSessionTools,
-                ...remoteBrowserTools,
-                ...coreEmailTools,
-                ...coreAttachmentTools,
-                ...browserTools,
-                ...devScriptsForA2A,
-                ...devRunCodeTool,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                ...automationTools,
-                ...fetchTool,
-                ...webSearchTool,
-                ...workspaceFilesTool,
-                ...workspaceFileActions,
-                ...toolActions,
-                ...browserSessionTools,
-                ...remoteBrowserTools,
-                ...coreEmailTools,
-                ...coreAttachmentTools,
-                ...browserTools,
-                ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                ...prodCodingTools,
-              };
+          const a2aRegisteredActions = preferMcpAppActions(
+            devActive
+              ? {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...automationTools,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...browserSessionTools,
+                  ...remoteBrowserTools,
+                  ...coreEmailTools,
+                  ...coreAttachmentTools,
+                  ...browserTools,
+                  ...devScriptsForA2A,
+                  ...devRunCodeTool,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...automationTools,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...browserSessionTools,
+                  ...remoteBrowserTools,
+                  ...coreEmailTools,
+                  ...coreAttachmentTools,
+                  ...browserTools,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
+                },
+            templateScripts,
+          );
           const a2aActions = attachToolSearch({
-            ...a2aRegisteredActions,
-            ...(await getRequestScopedActions(
-              {
-                surface: "a2a",
-                event: context.event,
-                ownerEmail: userEmail,
-                orgId: a2aOrgId,
-              },
-              a2aRegisteredActions,
-            )),
+            ...skillReadScripts,
+            ...filterDelegatedRegistry({
+              ...a2aRegisteredActions,
+              ...(await getRequestScopedActions(
+                {
+                  surface: "a2a",
+                  event: context.event,
+                  ownerEmail: userEmail,
+                  orgId: a2aOrgId,
+                },
+                a2aRegisteredActions,
+              )),
+            }),
           });
+
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+            undefined,
+            {
+              disabledFrameworkGroups: disabledGroupsForA2APrompt(
+                disabledFrameworkGroups,
+                false,
+              ),
+              skillReadTool:
+                a2aActions["docs-search"] === docsSearchEntry
+                  ? skillReadTool
+                  : null,
+              runtimeToolHints: false,
+            },
+          );
+          // Delegated turns use native template actions in every environment,
+          // so they must also receive the native-tool prompt. The interactive
+          // dev prompt teaches `pnpm action` and would send this receiver back
+          // into the shell loop the native action surface exists to prevent.
+          const systemPrompt =
+            delegatedBasePrompt +
+            SYSTEM_PROMPT_CACHE_SPLIT +
+            resources +
+            schemaBlock +
+            extra +
+            modelOverlay +
+            selectedReceiverContext +
+            runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
@@ -3185,6 +3208,7 @@ export function createAgentChatPlugin(
               appId: runtimeAppId,
               executionMode: "act",
               runId: context.taskId,
+              actionCaller: "tool",
               networkProtocol: "a2a",
               networkId: context.taskId,
               networkPeer: correlation.callerApp,
@@ -3494,11 +3518,15 @@ export function createAgentChatPlugin(
           "tool",
           lazyContext ? effectiveInitialToolNames : undefined,
         ) + corpusToolsPrompt;
-      const devActionsPrompt =
-        generateActionsPrompt(
-          { ...discoveredActions, ...templateScripts },
-          "cli",
-        ) + corpusToolsPrompt;
+      // The CLI listing reads every action's parameters, which converts each
+      // schema, so it waits for the first dev prompt that asks for it.
+      let devActionsPromptText: string | undefined;
+      const devActionsPrompt = (): string =>
+        (devActionsPromptText ??=
+          generateActionsPrompt(
+            { ...discoveredActions, ...templateScripts },
+            "cli",
+          ) + corpusToolsPrompt);
 
       const filterPromptActionsForRequest = (
         actions: Record<string, ActionEntry>,
@@ -3512,7 +3540,7 @@ export function createAgentChatPlugin(
       const resolveRequestActionsPrompt = (mode: "tool" | "cli"): string => {
         const allowedNames = getRequestRunContext()?.allowedActionNames;
         if (!allowedNames) {
-          return mode === "tool" ? prodActionsPrompt : devActionsPrompt;
+          return mode === "tool" ? prodActionsPrompt : devActionsPrompt();
         }
         const promptActions = filterPromptActionsForRequest(
           mode === "tool"
@@ -3561,6 +3589,15 @@ export function createAgentChatPlugin(
       const devNative = options?.nativeActionsInDev === true || leanPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
+      const delegatedBasePrompt =
+        (options?.systemPrompt ??
+          buildFrameworkPrompts(options?.promptExamples, { delegated: true })
+            .PROD_FRAMEWORK_PROMPT) +
+        generateActionsPrompt(
+          filterDelegatedRegistry(templateScripts),
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        );
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
         Object.fromEntries(
           Object.entries(prodActions).filter(
@@ -3605,6 +3642,7 @@ export function createAgentChatPlugin(
         mountMCP(nitroApp, {
           createLocalAgentTaskClient: (event) =>
             createMcpAgentTaskClient(localA2AConfig, event),
+          appApprovalPage: mcpOptions.appApprovalPage,
           name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
@@ -3616,8 +3654,8 @@ export function createAgentChatPlugin(
           websiteUrl: mcpOptions.websiteUrl,
           widgetDomain: mcpOptions.widgetDomain,
           icons: mcpOptions.icons,
-          actions: externalActions,
-          productionActions: externalFullActions,
+          actions: mcpActions,
+          productionActions: mcpProductionActions,
           widgetReadActions: selectMcpDirectoryWidgetReadActions(
             mcpOptions.directoryProfile,
             templateScriptsAll,
@@ -3681,55 +3719,55 @@ export function createAgentChatPlugin(
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpOrgId = getRequestOrgId();
-            const mcpRegisteredActions = devActiveMcp
-              ? {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...devScriptsForA2A,
-                  ...devRunCodeTool,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                  ...prodCodingTools,
-                };
+            const mcpRegisteredActions = preferMcpAppActions(
+              devActiveMcp
+                ? {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...workspaceFileActions,
+                    ...toolActions,
+                    ...devScriptsForA2A,
+                    ...devRunCodeTool,
+                  }
+                : {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...dbScripts,
+                    ...refreshScreenTool,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...workspaceFileActions,
+                    ...toolActions,
+                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                    ...prodCodingTools,
+                  },
+              templateScripts,
+            );
             const mcpActions = attachToolSearch({
-              ...mcpRegisteredActions,
-              ...(await getRequestScopedActions(
-                { surface: "mcp", ownerEmail, orgId: mcpOrgId },
-                mcpRegisteredActions,
-              )),
+              ...skillReadScripts,
+              ...filterDelegatedRegistry({
+                ...mcpRegisteredActions,
+                ...(await getRequestScopedActions(
+                  { surface: "mcp", ownerEmail, orgId: mcpOrgId },
+                  mcpRegisteredActions,
+                )),
+              }),
             });
 
-            // Same compact initial-tool surface as interactive chat and A2A:
-            // template actions + the small framework default set stay visible
-            // on the first request; everything else (provider, MCP, extension
-            // schemas) is reachable through the attached `tool-search` entry
-            // via `runAgentLoop`'s mid-run tool expansion. Without this, every
-            // external host calling `ask_app` (MCP) paid for a near-full
-            // catalog on its very first request, undermining the compact MCP
-            // catalog this surface is supposed to keep external callers on.
+            // Tool search closes over the filtered registry so deferred tools
+            // cannot reintroduce framework runtime capabilities mid-run.
             const mcpToolSurface = createA2AEngineToolSurface(
               actionsToEngineTools(mcpActions),
               effectiveInitialToolNames,
@@ -3745,12 +3783,16 @@ export function createAgentChatPlugin(
                   disabledFrameworkGroups,
                   false,
                 ),
-                skillReadTool,
+                skillReadTool:
+                  mcpActions["docs-search"] === docsSearchEntry
+                    ? skillReadTool
+                    : null,
+                runtimeToolHints: false,
               },
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
+              : await buildSchemaBlock(SHARED_OWNER, "off");
             // Stable-first ordering: runtime-context (which changes daily)
             // goes last so the cached prompt prefix survives as long as
             // possible — same pattern as the other prompt-assembly sites in
@@ -3758,7 +3800,7 @@ export function createAgentChatPlugin(
             // ask_app receives native template actions even in dev, so the
             // native-tool prompt is required here for the same reason as A2A.
             const systemPrompt =
-              basePrompt +
+              delegatedBasePrompt +
               SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
@@ -3795,6 +3837,7 @@ export function createAgentChatPlugin(
                 appId: options?.appId,
                 executionMode: "act",
                 runId: mcpRunId,
+                actionCaller: "tool",
                 networkProtocol: "mcp",
                 networkId: mcpRunId,
                 threadId: mcpRunId,
@@ -7157,6 +7200,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
+      const scheduleStoppedThreadInboxDrain = (threadId: string) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) => {
+            console.error(
+              `[agent-chat] stopped-turn inbox drain failed for ${threadId}:`,
+              error,
+            );
+          },
+        });
+      };
+
       // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
         `${routePath}/runs`,
@@ -7246,7 +7305,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               threadId,
               turnId,
               reason,
-            );
+            ).finally(() => scheduleStoppedThreadInboxDrain(threadId));
             if (outcome === "already_terminal") {
               setResponseStatus(event, 409);
               return { error: "Turn is already terminal" };
@@ -7348,30 +7407,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
-            if (safeBoundary) {
-              const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
-              const aborted = isUserStop
-                ? await abortRunAndTurnDurably(runId, reason, {
-                    safeBoundary: true,
-                  })
-                : await abortRunAtSafeBoundaryDurably(runId, reason);
-              if (isUserStop && !aborted) {
-                const latest = await getRunById(runId);
-                if (latest?.status === "aborted") {
-                  await abortTurnDurably(runId, reason);
+            const isUserStop = USER_STOP_ABORT_REASONS.has(reason);
+            const stoppedRun = isUserStop ? await getRunById(runId) : null;
+            let aborted = false;
+            try {
+              if (safeBoundary) {
+                aborted = isUserStop
+                  ? await abortRunAndTurnDurably(runId, reason, {
+                      safeBoundary: true,
+                    })
+                  : await abortRunAtSafeBoundaryDurably(runId, reason);
+                if (isUserStop && !aborted) {
+                  const latest = await getRunById(runId);
+                  if (latest && latest.status !== "running") {
+                    await abortTurnDurably(runId, reason);
+                  }
+                }
+              } else {
+                // Recovery starts as soon as this response resolves, so wait for
+                // the cross-isolate abort + terminal event to be durable. Returning
+                // early lets Retry collide with the still-running row.
+                if (isUserStop) {
+                  await abortRunAndTurnDurably(runId, reason);
+                } else {
+                  await abortRunDurably(runId, reason);
                 }
               }
-              return { ok: true, aborted };
+              return safeBoundary ? { ok: true, aborted } : { ok: true };
+            } finally {
+              if (stoppedRun?.threadId)
+                scheduleStoppedThreadInboxDrain(stoppedRun.threadId);
             }
-            // Recovery starts as soon as this response resolves, so wait for
-            // the cross-isolate abort + terminal event to be durable. Returning
-            // early lets Retry collide with the still-running row.
-            if (USER_STOP_ABORT_REASONS.has(reason)) {
-              await abortRunAndTurnDurably(runId, reason);
-            } else {
-              await abortRunDurably(runId, reason);
-            }
-            return { ok: true };
           }
 
           // Route: GET /runs/:id/background-events
@@ -7462,7 +7528,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // whether a run whose stream closed is still going. `runId` names
           // the turn by one of its runs (a reloaded page knows the run, not
           // its turn) and wins over `turnId`.
-          if (method === "GET" && url.includes("/runs/latest")) {
+          // Match both full URL (/runs/latest) and h3 prefix-stripped (/latest)
+          const latestMatch =
+            url.match(/\/runs\/latest(?:[/?]|$)/) ||
+            url.match(/^\/latest(?:[/?]|$)/);
+          if (latestMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             const runIdQuery = query.runId ? String(query.runId) : undefined;
@@ -7569,7 +7639,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           // Route: GET /runs/active?threadId=X
-          if (method === "GET") {
+          // Only this path: a GET for a route above that fails to match must not
+          // be answered with this route's legacy status shape.
+          const activeMatch =
+            url.match(/\/runs\/active(?:[/?]|$)/) ||
+            url.match(/^\/active(?:[/?]|$)/);
+          if (activeMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             if (!threadId) {
@@ -8592,8 +8667,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (result.claimBusy) {
                 setResponseStatus(event, 409);
                 return {
-                  error: "Run already in progress for this thread",
-                  code: "run_slot_busy",
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
                   retryable: true,
                 };
               }
@@ -9082,6 +9157,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
+          followUpDepth?: number;
         } = {},
       ) => {
         const result = {
@@ -9102,6 +9178,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         const deferReceipt = (threadId: string) => {
           result.deferred += 1;
           deferredThreads.add(threadId);
+        };
+        const scheduleFollowUpDrain = (threadId: string) => {
+          const followUpDepth = drainOptions.followUpDepth ?? 0;
+          if (followUpDepth >= 2) return;
+          const waitUntil = getRequestRunContext()?.waitUntil;
+          scheduleQueuedSubmissionInboxDrain({
+            threadId,
+            turnContinues: false,
+            ...(waitUntil ? { waitUntil } : {}),
+            drain: (input) =>
+              drainQueuedSubmissionInbox({
+                ...input,
+                followUpDepth: followUpDepth + 1,
+              }),
+            onError: (error) => {
+              console.error(
+                `[agent-chat] queued-submission release follow-up drain failed for ${threadId}:`,
+                error,
+              );
+            },
+          });
         };
         const deadlineAt = Date.now() + 30_000;
         const maxAdmissions = 5;
@@ -9141,6 +9238,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           let claimId: string | undefined;
           let retryCount = receipt.retryCount;
           let recoveryMutationAttempted = false;
+          let activeRunLookupError: { error: unknown } | undefined;
           const retryClaimedReceipt = async (countRetry = false) => {
             if (!claimId) {
               throw new Error(
@@ -9249,6 +9347,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               continue;
             }
 
+            if (!drainOptions.threadId && message.interruptActiveRun !== true) {
+              try {
+                if (
+                  (await getActiveRunForThreadAsync(receipt.threadId))?.inFlight
+                ) {
+                  // Completion drains target this thread; broad sweeps should
+                  // not claim and release the same busy receipt every tick.
+                  deferReceipt(receipt.threadId);
+                  continue;
+                }
+              } catch (error) {
+                activeRunLookupError = { error };
+              }
+            }
+
             claimId = crypto.randomUUID();
             let claim: Awaited<ReturnType<typeof mutateThreadQueuedMessages>>;
             try {
@@ -9263,10 +9376,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error.code !== "queued_message_id_conflict"
               ) {
                 claimId = undefined;
+                if (activeRunLookupError) {
+                  throw activeRunLookupError.error;
+                }
                 deferReceipt(receipt.threadId);
                 continue;
               }
               throw error;
+            }
+            if (activeRunLookupError && !claim?.claimedMessage) {
+              claimId = undefined;
+              throw activeRunLookupError.error;
             }
             if (claim?.receiptUnavailable) {
               claimId = undefined;
@@ -9312,6 +9432,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 result.submitted += 1;
               } else {
                 deferReceipt(receipt.threadId);
+              }
+              if (activeRunLookupError) {
+                result.failed += 1;
+                console.error(
+                  `[agent-chat] active-run lookup failed for ${receipt.messageId}:`,
+                  activeRunLookupError.error,
+                );
               }
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
@@ -9382,10 +9509,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
 
-            const active = await getActiveRunForThreadAsync(receipt.threadId);
+            if (activeRunLookupError) {
+              throw activeRunLookupError.error;
+            }
+            let active: Awaited<ReturnType<typeof getActiveRunForThreadAsync>>;
+            try {
+              active = await getActiveRunForThreadAsync(receipt.threadId);
+            } catch (error) {
+              activeRunLookupError = { error };
+              throw error;
+            }
             if (active?.inFlight) {
               if (claimedMessage.interruptActiveRun !== true) {
-                await retryClaimedReceipt();
+                // The completion drain may already have collided with this
+                // claim, so retry after releasing without setting a backoff.
                 await mutateThreadQueuedMessages(receipt.threadId, {
                   type: "release",
                   messageId: receipt.messageId,
@@ -9393,6 +9530,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 });
                 claimId = undefined;
                 deferReceipt(receipt.threadId);
+                scheduleFollowUpDrain(receipt.threadId);
                 continue;
               }
               const recorded = await recordQueuedSubmissionInterruptRun({
@@ -9618,11 +9756,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             if (responseCode === "run_slot_busy") {
-              // The thread's run slot is still held by a run that is ending. That
-              // is a wait, not a failed admission: release the claim without
-              // spending a retry or setting a backoff, so the completion drain
-              // for that run can claim this receipt. A backoff here would make
-              // that drain skip it until the recurring sweep.
+              // The run-completion drain may have collided with this claim, so
+              // release without backoff and schedule another thread-scoped drain.
               await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "release",
                 messageId: receipt.messageId,
@@ -9630,6 +9765,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               });
               claimId = undefined;
               deferReceipt(receipt.threadId);
+              scheduleFollowUpDrain(receipt.threadId);
               await stream?.cancel().catch(() => {});
               continue;
             }
@@ -9669,6 +9805,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               `[agent-chat] queued submission drain failed for ${receipt.messageId}:`,
               error,
             );
+            if (
+              activeRunLookupError &&
+              Object.is(error, activeRunLookupError.error)
+            ) {
+              if (claimId) {
+                try {
+                  await mutateThreadQueuedMessages(receipt.threadId, {
+                    type: "release",
+                    messageId: receipt.messageId,
+                    claimId,
+                  });
+                  claimId = undefined;
+                } catch (releaseError) {
+                  console.error(
+                    `[agent-chat] could not release queued submission ${receipt.messageId} after active-run lookup failed:`,
+                    releaseError,
+                  );
+                }
+              }
+              deferReceipt(receipt.threadId);
+              continue;
+            }
             try {
               await recoverClaimedReceipt();
             } catch (releaseError) {

@@ -2264,6 +2264,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   isCurrentSegment = true,
   messageId,
   foldedReasoningMessageId,
+  summarizesTurn = false,
 }: {
   runId?: RunId;
   afterSequence?: number;
@@ -2274,9 +2275,17 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   messageId?: string;
   /** A saved reply whose reasoning before its answer joins this group. */
   foldedReasoningMessageId?: string;
+  /** This segment is its run's whole turn, so it shows a row with no work. */
+  summarizesTurn?: boolean;
 }) {
-  const { threadId, slots, registry, labels, formatWorkedForDuration } =
-    useAgentKit();
+  const {
+    threadId,
+    slots,
+    registry,
+    labels,
+    formatWorkedForDuration,
+    loadRunUsage,
+  } = useAgentKit();
   const thread = useAgentThreadSlice((previous, next) =>
     sameRunWork(previous, next, runId),
   );
@@ -2573,12 +2582,48 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
       (afterSequence === undefined &&
         run !== undefined &&
         ["completed", "failed", "cancelled"].includes(run.status)));
+  const formatDuration = (ms: number) =>
+    formatWorkedForDuration?.(ms) ??
+    formatAgentKitDuration(ms, {
+      hour: labels.durationHourShort,
+      minute: labels.durationMinuteShort,
+      second: labels.durationSecondShort,
+    });
   if (
     activityItems.length === 0 &&
     durableToolResults.length === 0 &&
     !activelyWorking
   ) {
-    return null;
+    const runFinished = run
+      ? ["completed", "failed", "cancelled"].includes(run.status)
+      : hasTerminalRunEvent;
+    // Untimed or under a second, a bare "Worked" would read as instant.
+    if (
+      !summarizesTurn ||
+      !runFinished ||
+      durationMs === undefined ||
+      durationMs < 1_000
+    ) {
+      return null;
+    }
+    // With no steps, the run's details (cost, model) are what it opens to, so
+    // it opens only when it can show one of them.
+    const selectedModel = selectedRunModel(thread.messages, messageId);
+    const hasRunDetails =
+      runId !== undefined &&
+      (loadRunUsage !== undefined ||
+        (selectedModel !== undefined && selectedModel !== "auto"));
+    return (
+      <AgentWorkDisclosure
+        label={workedSummaryLabel(durationMs, labels, formatDuration)}
+        icon={<IconClock aria-hidden="true" className="agentkit-icon" />}
+        expandable={hasRunDetails}
+        {...(runId === undefined ? {} : { runId })}
+        {...(messageId === undefined ? {} : { messageId })}
+      >
+        {null}
+      </AgentWorkDisclosure>
+    );
   }
   const currentActivity = activelyWorking
     ? (latestRunningUsefulActivity?.activity ??
@@ -2620,13 +2665,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   });
   const steps = agentWorkSteps(workItems);
   const hasExpandableActivity = steps.length > 0;
-  const formatDuration = (ms: number) =>
-    formatWorkedForDuration?.(ms) ??
-    formatAgentKitDuration(ms, {
-      hour: labels.durationHourShort,
-      minute: labels.durationMinuteShort,
-      second: labels.durationSecondShort,
-    });
   const failedCount = steps.reduce((sum, step) => sum + step.failedCount, 0);
   const reasoningMessageIds = activityItems.flatMap((activity) => {
     const entry = reasoningEntries.get(activity.id);
@@ -3352,7 +3390,8 @@ function AgentWorkDisclosure({
     />
   ) : undefined;
   // The row stays one mounted trigger from "Thinking" through the first
-  // activity, so it never flickers; until then it is not a tab stop.
+  // activity, so it never flickers; until then it is not a tab stop. Finished
+  // work with nothing to expand is text, not a disabled button.
   const disclosure = (
     <div
       ref={handoff.inPlaceRef}
@@ -3363,6 +3402,7 @@ function AgentWorkDisclosure({
       data-handoff={handoff.leavingHeight ? "enter" : undefined}
     >
       <AgentKitDisclosureSummary
+        as={expandable || running ? "button" : "static"}
         className="agentkit-activities-summary"
         rowClassName="agentkit-activities-row"
         open={open}
@@ -4827,6 +4867,21 @@ function messageMetadataString(
   return undefined;
 }
 
+/** The model a reply, or the request before it, was sent with. */
+function selectedRunModel(
+  messages: readonly AgentMessage[],
+  messageId: string | undefined,
+): string | undefined {
+  if (!messageId) return undefined;
+  return (
+    messageMetadataString(
+      agentMessagesById(messages).get(messageId)?.message,
+      "model",
+    ) ??
+    messageMetadataString(findPreviousUserMessage(messages, messageId), "model")
+  );
+}
+
 /**
  * A finished reply's footer offers a host under its message id, and the
  * reply's work row portals into it so it shares the line with the controls.
@@ -5025,17 +5080,9 @@ function AgentRunDetails({
           toolIds.add(event.activity.id);
         }
       }
-      const reply = messageId
-        ? agentMessagesById(thread.messages).get(messageId)?.message
-        : undefined;
-      const request = messageId
-        ? findPreviousUserMessage(thread.messages, messageId)
-        : undefined;
       return {
         toolCalls: toolIds.size,
-        model:
-          messageMetadataString(reply, "model") ??
-          messageMetadataString(request, "model"),
+        model: selectedRunModel(thread.messages, messageId),
       };
     },
     (previous, next) =>
@@ -5066,10 +5113,11 @@ function AgentRunDetails({
     if (billing.incomplete) {
       return { key: labels.runCreditsUsed, value: labels.runDetailIncomplete };
     }
-    // A measured zero has nothing to tell; only a missing or failed reading
-    // still shows, so it is never mistaken for a free run.
-    if (billing.builderCredits === 0) return null;
-    if (billing.builderCredits !== null) {
+    // Zero credits give way to a provider charge, which is the real cost.
+    if (
+      billing.builderCredits !== null &&
+      (billing.builderCredits !== 0 || !billing.providerCostUsd)
+    ) {
       return {
         key: labels.runCreditsUsed,
         value: formatRunUsageAmount(
@@ -5080,9 +5128,9 @@ function AgentRunDetails({
           billing.builderCreditsSource,
           labels,
         ),
+        measuredZero: billing.builderCredits === 0,
       };
     }
-    if (billing.providerCostUsd === 0) return null;
     if (billing.providerCostUsd !== null) {
       const usd = billing.providerCostUsd;
       return {
@@ -5099,6 +5147,7 @@ function AgentRunDetails({
           billing.providerCostSource,
           labels,
         ),
+        measuredZero: usd === 0,
       };
     }
     return { key: labels.runCreditsUsed, value: labels.runDetailNotRecorded };
@@ -5111,7 +5160,6 @@ function AgentRunDetails({
     details.model;
   const model = reportedModel === "auto" ? undefined : reportedModel;
   const rows: { id: string; key: string; value: ReactNode }[] = [
-    ...(credits ? [{ id: "credits", ...credits }] : []),
     ...(details.toolCalls > 0
       ? [
           {
@@ -5131,6 +5179,12 @@ function AgentRunDetails({
         ]
       : []),
   ];
+  // A measured zero has nothing to tell beside other details; a missing or
+  // failed reading always shows, so it is never mistaken for a free run. Alone,
+  // the zero still shows, so a row that opened to its details is never empty.
+  if (credits && (!credits.measuredZero || rows.length === 0)) {
+    rows.unshift({ id: "credits", key: credits.key, value: credits.value });
+  }
   if (rows.length === 0) return null;
   return (
     <dl
@@ -5219,6 +5273,42 @@ function AgentMessageTimestamp({
     <time dateTime={createdAt} title={fallback.title}>
       {format?.(createdAt) ?? fallback.text}
     </time>
+  );
+}
+
+/**
+ * Names an icon-only message action on hover and keyboard focus. Below the
+ * button, so it never covers the message it acts on.
+ */
+function MessageActionButton({
+  title,
+  ...props
+}: ComponentPropsWithoutRef<typeof IconButton>) {
+  // A disabled button gets no pointer events, so only a native title can
+  // explain it; an enabled one shows the reason in its tooltip instead, so a
+  // degraded action never opens both.
+  const inactive = Boolean(props.disabled || props.pending);
+  const reason = inactive ? undefined : title;
+  return (
+    <Tooltip
+      content={
+        reason ? (
+          <>
+            {props.label}
+            <span className="block text-muted-foreground">{reason}</span>
+          </>
+        ) : (
+          props.label
+        )
+      }
+      placement="bottom"
+      trigger={
+        <IconButton
+          {...props}
+          {...(inactive && title !== undefined ? { title } : {})}
+        />
+      }
+    />
   );
 }
 
@@ -5435,7 +5525,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     regenerateAction.error;
   const placement = isAssistant ? "inline" : undefined;
   const copyButton = (
-    <IconButton
+    <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
         copied ? (
@@ -5459,7 +5549,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           .replace("{{index}}", String(branchNavigation.index))
           .replace("{{count}}", String(branchNavigation.count))}
       >
-        <IconButton
+        <MessageActionButton
           label={labels.previousBranch}
           icon={<IconChevronLeft aria-hidden="true" />}
           size="compact"
@@ -5484,7 +5574,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             .replace("{{index}}", String(branchNavigation.index))
             .replace("{{count}}", String(branchNavigation.count))}
         </span>
-        <IconButton
+        <MessageActionButton
           label={labels.nextBranch}
           icon={<IconChevronRight aria-hidden="true" />}
           size="compact"
@@ -5544,7 +5634,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
                 return (
-                  <IconButton
+                  <MessageActionButton
                     key={value}
                     label={
                       value === "positive"
@@ -5590,7 +5680,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             inert={!moreActionsOpen}
           >
             {showRetry ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.regenerateResponse}
                 icon={<IconRefresh aria-hidden="true" />}
                 size="compact"
@@ -5602,14 +5692,16 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                   position.active ||
                   !forkingCapability.enabled
                 }
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 onPress={() =>
                   void regenerateAction.execute().catch(() => undefined)
                 }
               />
             ) : null}
             {showFork ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.forkFromHere}
                 icon={<IconArrowFork aria-hidden="true" />}
                 size="compact"
@@ -5624,7 +5716,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               />
             ) : null}
             {requestId ? (
-              <IconButton
+              <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
                   requestIdCopied ? (
@@ -5646,7 +5738,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         ) : null}
       </div>
       {hasSecondaryActions ? (
-        <IconButton
+        <MessageActionButton
           elementRef={moreToggleRef}
           label={labels.moreMessageActions}
           icon={<IconDots aria-hidden="true" />}
@@ -5697,13 +5789,15 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.editMessage}
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
                 className="size-6"
                 disabled={position.active || !forkingCapability.enabled}
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 aria-pressed={editContext.message?.id === message.id}
                 onPress={() => editContext.setMessage(message)}
               />
@@ -6070,6 +6164,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onSlashCommand"
     | "plusMenuMode"
     | "voiceEnabled"
+    | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
     | "isReferenceTarget"
@@ -6168,6 +6263,7 @@ export function AgentKitComposer({
   onSlashCommand,
   plusMenuMode,
   voiceEnabled = false,
+  onVoiceChatStart,
   autoFocus = true,
   toolbarSlot,
   disabled,
@@ -6216,7 +6312,10 @@ export function AgentKitComposer({
   onRetryContextItem,
   contextMenuItems,
   attachmentAdapter,
-  inlineTextAttachments,
+  // AgentKit always uploads attached files and the server reads their text,
+  // so also pasting a text file into the message sends it twice: the copy
+  // here has only a weak truncation note and a read failure here is silent.
+  inlineTextAttachments = false,
   beforeSend,
 }: AgentKitComposerProps) {
   const {
@@ -6425,7 +6524,7 @@ export function AgentKitComposer({
     <div
       role="group"
       aria-labelledby={editingLabelId}
-      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-2 text-xs text-muted-foreground"
       data-agentkit-editing-row="true"
     >
       <Tooltip
@@ -6434,7 +6533,7 @@ export function AgentKitComposer({
         trigger={
           <span
             tabIndex={0}
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <IconPencil aria-hidden="true" className="size-4 shrink-0" />
             <span id={editingLabelId} className="truncate">
@@ -6925,6 +7024,7 @@ export function AgentKitComposer({
             slashSkills,
             onSlashCommand,
             voiceEnabled,
+            onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
             initialText: composerInitialText,
@@ -8297,6 +8397,7 @@ export function AgentKitChat({
     throughSequence,
     messageId,
     foldedReasoningMessageId,
+    summarizesTurn,
   }: {
     runId: RunId;
     anchor: string;
@@ -8304,6 +8405,7 @@ export function AgentKitChat({
     throughSequence?: number | undefined;
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
+    summarizesTurn?: boolean | undefined;
   }) => {
     const key = `run-work:${threadId}:${runId}:${anchor}`;
     const resetKey = `${anchor}:${runRevision(runId)}`;
@@ -8315,6 +8417,7 @@ export function AgentKitChat({
         throughSequence,
         messageId,
         foldedReasoningMessageId,
+        summarizesTurn,
       ],
       () =>
         renderRunWorkElement({
@@ -8325,6 +8428,7 @@ export function AgentKitChat({
           throughSequence,
           messageId,
           foldedReasoningMessageId,
+          summarizesTurn,
         }),
     );
   };
@@ -8336,6 +8440,7 @@ export function AgentKitChat({
     throughSequence,
     messageId,
     foldedReasoningMessageId,
+    summarizesTurn,
   }: {
     key: string;
     resetKey: string;
@@ -8344,6 +8449,7 @@ export function AgentKitChat({
     throughSequence?: number | undefined;
     messageId?: string | undefined;
     foldedReasoningMessageId?: string | undefined;
+    summarizesTurn?: boolean | undefined;
   }) => (
     <AgentKitSurfaceBoundary key={key} surface="activity" resetKey={resetKey}>
       <AgentCollaborationFeed
@@ -8364,6 +8470,7 @@ export function AgentKitChat({
         isCurrentSegment={throughSequence === undefined}
         messageId={messageId}
         foldedReasoningMessageId={foldedReasoningMessageId}
+        summarizesTurn={summarizesTurn}
       />
     </AgentKitSurfaceBoundary>
   );
@@ -8537,10 +8644,21 @@ export function AgentKitChat({
       isAssistantBoundary && runId
         ? previousSegmentEndByRun.get(runId)
         : undefined;
+    // A turn that only answered still gets one "Worked for" row: it is the
+    // run's only reply, nothing ran after it, and it shows no reasoning row.
+    const summarizesTurn = Boolean(
+      isAssistantBoundary &&
+      runId &&
+      previousAssistant === undefined &&
+      lastAssistantMessagesByRun.get(runId)?.id === message.id &&
+      !hasRunWork(runId, sequence) &&
+      !hasVisibleReasoning(message),
+    );
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
-      hasRunWork(runId, previousAssistant?.sequence, sequence),
+      (summarizesTurn ||
+        hasRunWork(runId, previousAssistant?.sequence, sequence)),
     );
     // A saved reply's reasoning before its answer joins the work group above
     // it, so the turn shows one disclosure; the stream did not place it there.
@@ -8558,6 +8676,7 @@ export function AgentKitChat({
           throughSequence: sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
+          summarizesTurn,
         }),
       );
     }

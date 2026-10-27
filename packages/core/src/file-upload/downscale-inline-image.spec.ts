@@ -3,12 +3,19 @@ import { randomFillSync } from "node:crypto";
 import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as media from "../ingestion/media.js";
 import { downscaleInlineImageBase64 } from "./downscale-inline-image.js";
 import { MAX_INLINE_IMAGE_BASE64_CHARS } from "./inline-attachment-limits.js";
 import { PNG_BASE64 } from "./test-image-fixtures.js";
 
+vi.mock("../ingestion/media.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ingestion/media.js")>();
+  return { ...actual, downscaleImageToFit: vi.fn(actual.downscaleImageToFit) };
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.mocked(media.downscaleImageToFit).mockClear();
 });
 
 describe("downscaleInlineImageBase64", () => {
@@ -54,6 +61,25 @@ describe("downscaleInlineImageBase64", () => {
     ).metadata();
     expect(metadata.format).toBe("jpeg");
     expect(metadata.width).toBeLessThan(1500);
+    // The byte budget is the decoded size of the inline base64 limit.
+    expect(media.downscaleImageToFit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxBytes: (MAX_INLINE_IMAGE_BASE64_CHARS / 4) * 3,
+      }),
+    );
+  });
+
+  it("returns null without warning when the image cannot shrink enough", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(media.downscaleImageToFit).mockResolvedValueOnce(null);
+
+    await expect(
+      downscaleInlineImageBase64(
+        "A".repeat(MAX_INLINE_IMAGE_BASE64_CHARS + 4),
+        "image/png",
+      ),
+    ).resolves.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("returns null and warns when the image cannot be decoded", async () => {

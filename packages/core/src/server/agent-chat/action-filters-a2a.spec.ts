@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../../action-arguments-identity.js";
-import { defineAction } from "../../action.js";
+import { isOutsideAgentCall } from "../../action-caller.js";
+import { defineAction, type ActionRunContext } from "../../action.js";
 import { approvalKeyWithArguments } from "../../agent/approval-key.js";
 import {
   toolCallCacheKey,
@@ -11,6 +12,7 @@ import {
 import type { AgentChatEvent } from "../../agent/types.js";
 import type { AuditEvent } from "../../audit/types.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
+import { frameworkMcpTool } from "../../mcp/framework-tools.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -22,6 +24,7 @@ import {
   buildPublicAgentA2ASkills,
   executeApprovedA2AToolCall,
   filterDelegatedA2ACapabilityActions,
+  filterDelegatedRegistry,
   filterDirectA2AActions,
   filterMcpOnlyActions,
   resolveInitialToolNames,
@@ -141,20 +144,18 @@ describe("executeApprovedA2AToolCall", () => {
       userEmail: "owner@example.test",
       orgId: "org-1",
       caller: "tool",
+      networkProtocol: "a2a",
+      networkId: "task-1",
       approvedToolCallKey: approvalKey,
       threadId: "a2a-task:task-1",
       turnId: "task-1",
     });
-    for (const key of [
-      "runId",
-      "networkProtocol",
-      "networkId",
-      "auditOverride",
-    ]) {
+    expect(isOutsideAgentCall(ctx as ActionRunContext)).toBe(true);
+    for (const key of ["runId", "auditOverride"]) {
       expect(ctx[key]).toBeUndefined();
     }
     expect(auditRows).toHaveLength(1);
-    // The same source as the paused task's own rows: its loop sets no caller.
+    // The same network source as the paused task's own rows.
     expect(auditRows[0]).toMatchObject({
       action: "send-email",
       status: "success",
@@ -168,6 +169,121 @@ describe("executeApprovedA2AToolCall", () => {
       networkPeer: null,
       approval: "a2a-review",
     });
+  });
+});
+
+describe("filterDelegatedRegistry", () => {
+  const named = (names: string[], make: () => ActionEntry = action) =>
+    Object.fromEntries(names.map((name) => [name, make()]));
+
+  it("keeps app actions and the allowlisted framework tools", () => {
+    const registry = {
+      ...named(["list-decks", "create-deck"]),
+      ...named(["share-resource", "manage-automations"], () =>
+        frameworkMcpTool(action()),
+      ),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual(
+      Object.keys(registry),
+    );
+  });
+
+  it("drops runtime tools by name even when an app action reuses the name", () => {
+    const registry = {
+      ...named(["list-decks"]),
+      ...named(["web-request", "call-agent", "bash", "db-exec", "run-code"]),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("drops a framework tool the allowlist does not name, whatever its name", () => {
+    const registry = {
+      ...named(["list-decks"]),
+      ...named(["manage-jobs", "save-data-program"], () =>
+        frameworkMcpTool(action()),
+      ),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  const rawInput = (field: string, overrides: Partial<ActionEntry> = {}) =>
+    action({
+      tool: {
+        description: "Raw input",
+        parameters: {
+          type: "object",
+          properties: { [field]: { type: "string" } },
+          required: [field],
+        },
+      },
+      ...overrides,
+    });
+
+  it.each(["sql", "code", "script", "expression"])(
+    "keeps an app action that takes a raw %s string, direct MCP opt-out or not",
+    (field) => {
+      const registry = {
+        raw: rawInput(field),
+        "raw-direct-opt-out": rawInput(field, { mcpTool: false }),
+      };
+
+      expect(Object.keys(filterDelegatedRegistry(registry))).toEqual(
+        Object.keys(registry),
+      );
+    },
+  );
+
+  it("keeps an app action that opted out of direct MCP", () => {
+    const registry = { "list-decks": action({ mcpTool: false }) };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("excludes entries the app agent cannot use after the registry merge", () => {
+    const registry = {
+      "ui-only": action({ uiOnly: true }),
+      "agent-hidden": action({ agentTool: false }),
+      "mcp-only": action({ agentTool: false, mcpTool: true }),
+      "app-only": action({ mcpTool: false }),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "app-only",
+    ]);
+  });
+
+  it("drops runtime names whatever their input", () => {
+    const registry = {
+      "list-decks": action(),
+      "web-request": rawInput("code"),
+      bash: rawInput("script"),
+      "run-code": rawInput("code"),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("drops db-, provider-api- and seed- names and CLI wrappers", () => {
+    const registry = {
+      "list-decks": action(),
+      ...named(["db-status", "provider-api-request", "seed-demo-data"]),
+      "run-script": action({ cliWrapper: true }),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
   });
 });
 
@@ -434,6 +550,45 @@ describe("filterDirectA2AActions", () => {
         filterDirectA2AActions(actions, { connectorCatalog: ["raw-sql"] }),
       ),
     ).toEqual(["raw-sql"]);
+  });
+
+  it("converts the schema of only the actions every other check selects", () => {
+    const exposed = (readOnly: boolean) => {
+      const schema = z.object({ id: z.string() });
+      const convert = vi.spyOn(
+        (schema as any)["~standard"].jsonSchema,
+        "input",
+      );
+      const entry = defineAction({
+        description: "Read",
+        schema,
+        readOnly,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => "ok",
+      });
+      return { entry, convert };
+    };
+    const allowed = exposed(true);
+    const uncataloged = exposed(true);
+    const mutation = exposed(false);
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(
+          {
+            allowed: allowed.entry,
+            uncataloged: uncataloged.entry,
+            mutation: mutation.entry,
+          },
+          { connectorCatalog: ["allowed", "mutation"] },
+        ),
+      ),
+    ).toEqual(["allowed"]);
+    expect(
+      [allowed, uncataloged, mutation].map(
+        ({ convert }) => convert.mock.calls.length,
+      ),
+    ).toEqual([1, 0, 0]);
   });
 
   it("allows only cataloged authenticated reads", () => {

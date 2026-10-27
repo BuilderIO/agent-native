@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "चौड़ाई में फ़िट करें",
   githubLinkTitle: "GitHub फ़ोल्डर लिंक करें",
   githubNewCollectionTitle: "GitHub फ़ोल्डर से नया संग्रह",
   githubLinkDescription:
@@ -653,6 +654,16 @@ const editor = {
     purple: "बैंगनी",
     pink: "गुलाबी",
     red: "लाल",
+    defaultText: "डिफ़ॉल्ट टेक्स्ट",
+    defaultBackground: "डिफ़ॉल्ट पृष्ठभूमि",
+    textChoice: "{{color}} टेक्स्ट",
+    backgroundChoice: "{{color}} पृष्ठभूमि",
+  },
+  blockMenu: {
+    label: "ब्लॉक कार्रवाइयाँ",
+    duplicate: "डुप्लिकेट करें",
+    delete: "हटाएँ",
+    insertBelow: "नीचे ब्लॉक जोड़ें",
   },
   noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
   registryBlockLoadError: "{{type}} ब्लॉक लोड नहीं किया जा सका: {{message}}",
@@ -1326,6 +1337,14 @@ const exactEnglish = {
       "इस सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए इसे लागू नहीं किया जा सकता। यह अभी भी लंबित है: इसे अस्वीकार करें, या बदलाव फिर से सुझाएँ।",
     proposalUnplaceable:
       "इनमें से एक सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए उसे लागू नहीं किया जा सकता और कोई भी सुझाव लागू नहीं हुआ। सभी अभी भी लंबित हैं: उन्हें एक-एक करके स्वीकार या अस्वीकार करें।",
+    suggestionAcceptFailed: "सुझाव स्वीकार नहीं किया जा सका",
+    suggestionRejectFailed: "सुझाव अस्वीकार नहीं किया जा सका",
+    proposalAcceptFailed: "सुझाव स्वीकार नहीं किए जा सके",
+    proposalRejectFailed: "सुझाव अस्वीकार नहीं किए जा सके",
+    suggestionDecisionReverted:
+      "यह फिर से लंबित है। उसके बाद आपने जो भी टाइप किया, वह सुरक्षित है।",
+    proposalDecisionReverted:
+      "ये फिर से लंबित हैं। उसके बाद आपने जो भी टाइप किया, वह सुरक्षित है।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
     suggestionAmendmentResolved:
       "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",

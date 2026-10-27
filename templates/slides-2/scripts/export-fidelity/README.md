@@ -1,10 +1,10 @@
 # Export fidelity harness
 
 Verifies Slides → PowerPoint/Google Slides export fidelity by comparing
-Chrome's own text layout for a deck against what Google Slides renders after
-importing the exported PPTX. This exists because an earlier Google Slides
-export fix shipped without ever being checked against real Google Slides —
-the PPTX was valid but nobody diffed its rendered layout against the source.
+Chrome's own text layout for a deck against the layout rendered after the
+exported PPTX is imported. This exists because an earlier export fix shipped
+without an end-to-end rendering check: the PPTX was valid, but nobody compared
+its rendered layout against the source.
 
 ## Prerequisites
 

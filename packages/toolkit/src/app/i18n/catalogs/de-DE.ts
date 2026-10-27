@@ -136,6 +136,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.builderProvisionFailedDetail":
+    "Dein Builder.io-Konto konnte nicht erstellt werden. Versuche es erneut oder melde dich mit einem bestehenden Konto an.",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
   "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
@@ -438,6 +440,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Die abgelegte Datei konnte nicht hinzugefügt werden. Versuche ein anderes Format.",
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
+  "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
+  "composer.attachmentTooLarge": "Datei ist größer als 8 MB",
+  "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",
@@ -481,6 +486,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "Link kopieren",
   "history.linkCopied": "Link kopiert",
   "history.copyLinkFailed": "Link konnte nicht kopiert werden",
+  "history.onlyYou": "Nur du",
+  "history.hide": "Aus meiner Liste ausblenden",
+  "history.hidden": "Aus deiner Liste ausgeblendet",
+  "history.undo": "Rückgängig",
+  "history.hideFailed": "Chat konnte nicht ausgeblendet werden",
+  "history.unhideFailed": "Chat konnte nicht wiederhergestellt werden",
   "integrations.availableSection": "Verfügbare Integrationen",
   "integrations.connectedSection": "Verbunden",
   "integrations.goToApiKeys": "Zu den API-Schlüsseln",
@@ -1229,6 +1240,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "Wiederkehrenden Auftrag erstellen: ",
   "composer.selectedReferences": "Ausgewählte Referenzen",
   "composer.sendMessage": "Nachricht senden",
+  "composer.select": "Auswählen",
+  "composer.selectContextFull":
+    "Der Kontext ist voll. Entferne ein Element, bevor du ein weiteres auswählst.",
+  "composer.selectContextTooLarge":
+    "Dieses Objekt ist zu groß, um es als Kontext hinzuzufügen.",
   "composer.skill.added": "Skill „{{name}}“ hinzugefügt",
   "composer.skill.back": "Zurück",
   "composer.skill.content": "Inhalt",
@@ -2016,6 +2032,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Auf der Prüfseite für Agent-Aktionen genehmigt",
   "settings.audit.approvalMcpClient":
     "Vom MCP-Client akzeptiert (nicht verifiziert)",
+  "settings.audit.approvalMcpReview":
+    "Auf der Prüfseite für MCP-Aktionen genehmigt",
+  "settings.audit.approvalCliPrompt":
+    "In der CLI-Abfrage genehmigt (nicht verifiziert)",
+  "settings.audit.approvalCliFlag":
+    "Mit --approved erneut ausgeführt (nicht verifiziert)",
   "settings.audit.changedBy": "Geändert von",
   "settings.audit.close": "Schließen",
   "settings.audit.empty": "Keine Änderungen in diesem Zeitraum.",
@@ -2306,6 +2328,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
+  "settingsShell.appGroup.mcpAppCards": "App-Karten in Chat-Apps",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Tools zeigen interaktive Karten, etwa einen E-Mail-Entwurf, den du bearbeiten und senden kannst, in Chat-Apps, die MCP Apps unterstützen, wie Claude und ChatGPT. Verbinde diese App nach einer Änderung in deiner Chat-App neu.",
   "settingsShell.appGroup.mcpFootnote":
     "Tools, die der Agent selbst verwendet, findest du unter {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Neue Automatisierung",

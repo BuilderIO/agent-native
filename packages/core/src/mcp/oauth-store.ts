@@ -402,6 +402,42 @@ export async function getOAuthClient(
   }
 }
 
+/**
+ * A user's connection to an OAuth client, as an approval page names it. The
+ * client chose its own registered name, so two clients can share one; when
+ * this user first authorized it is what tells them apart.
+ */
+export interface OAuthClientConnection {
+  clientName: string | null;
+  connectedAt: number | null;
+}
+
+export async function getOAuthClientConnection(
+  clientId: string,
+  ownerEmail: string,
+): Promise<OAuthClientConnection> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT
+        (SELECT client_name FROM mcp_oauth_clients WHERE client_id = ?) AS client_name,
+        (SELECT MIN(created_at) FROM mcp_oauth_refresh_tokens
+          WHERE client_id = ? AND LOWER(owner_email) = ?) AS connected_at`,
+    args: [clientId, clientId, ownerEmail.trim().toLowerCase()],
+  });
+  const row = (rows as Record<string, unknown>[])[0] ?? {};
+  const clientName =
+    typeof row.client_name === "string" && row.client_name.trim()
+      ? row.client_name.trim()
+      : null;
+  return {
+    clientName,
+    connectedAt:
+      row.connected_at === null || row.connected_at === undefined
+        ? null
+        : Number(row.connected_at),
+  };
+}
+
 export async function createOAuthCode(
   params: {
     clientId: string;

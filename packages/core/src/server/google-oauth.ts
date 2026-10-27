@@ -10,6 +10,7 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
@@ -22,6 +23,7 @@ import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
+import { requestAllowsConsentCategory } from "./consent-route.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
@@ -35,6 +37,12 @@ import {
   isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
   isNetlifyDeployPermalinkGoogleOAuthClientRequest,
 } from "./identity-sso-store.js";
+import { filterMcpSignupAttributionByConsent } from "./mcp-signup-attribution.js";
+import {
+  applyMcpSignupAttribution,
+  sanitizeMcpSignupAttribution,
+  type McpSignupAttribution,
+} from "./mcp-signup-attribution.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -562,6 +570,8 @@ export interface OAuthStatePayload {
   desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
+  signupSessionId?: string;
+  mcpSignupAttribution?: McpSignupAttribution;
 }
 
 let _devStateSigningKey: string | undefined;
@@ -622,6 +632,8 @@ export interface EncodeOAuthStateOptions {
   desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
+  signupSessionId?: string;
+  mcpSignupAttribution?: McpSignupAttribution;
 }
 
 function sanitizeStateAttribution(
@@ -698,6 +710,12 @@ export function encodeOAuthState(
     opts.signupAnonymousId,
   );
   if (signupAnonymousId) payload.ai = signupAnonymousId;
+  const signupSessionId = normalizeAnalyticsSessionId(opts.signupSessionId);
+  if (signupSessionId) payload.si = signupSessionId;
+  const mcpSignupAttribution = sanitizeMcpSignupAttribution(
+    opts.mcpSignupAttribution,
+  );
+  if (mcpSignupAttribution) payload.ms = mcpSignupAttribution;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getOAuthStateSigningKey())
@@ -769,6 +787,8 @@ export function decodeOAuthState(
       desktopWebview: parsed.dw === true,
       signupAttribution: sanitizeStateAttribution(parsed.ft),
       signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
+      signupSessionId: normalizeAnalyticsSessionId(parsed.si),
+      mcpSignupAttribution: sanitizeMcpSignupAttribution(parsed.ms),
     };
   } catch {
     return { ok: false, reason: "malformed-payload", redirectUri: fallbackUri };
@@ -825,6 +845,8 @@ export async function createOAuthSession(
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      signupSessionId?: string;
+      mcpSignupAttribution?: McpSignupAttribution;
       isNewUser?: boolean;
     };
   },
@@ -865,19 +887,42 @@ export async function createOAuthSession(
     }
     if (shouldTrackSignup && opts.trackSignup) {
       const signupCookieHeader = getHeader(event, "cookie") ?? null;
-      const attribution =
-        opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(signupCookieHeader);
-      const anonymousId =
-        opts.trackSignup.signupAnonymousId ??
-        readAnalyticsAnonymousId(signupCookieHeader);
-      const sessionId = readAnalyticsSessionId(signupCookieHeader);
+      const performanceAllowed = requestAllowsConsentCategory(
+        event,
+        "performance",
+      );
+      const targetingAllowed = requestAllowsConsentCategory(event, "targeting");
+      const baseAttribution = targetingAllowed
+        ? (opts.trackSignup.attribution ??
+          signupAttributionFromCookieHeader(signupCookieHeader))
+        : undefined;
+      const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        opts.trackSignup.mcpSignupAttribution,
+        signupCookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
+      );
+      const attribution = applyMcpSignupAttribution(
+        baseAttribution,
+        mcpSignupAttribution,
+      );
+      const anonymousId = performanceAllowed
+        ? (opts.trackSignup.signupAnonymousId ??
+          mcpSignupAttribution?.anonymousId ??
+          readAnalyticsAnonymousId(signupCookieHeader))
+        : undefined;
+      const sessionId = performanceAllowed
+        ? (opts.trackSignup.signupSessionId ??
+          mcpSignupAttribution?.sessionId ??
+          readAnalyticsSessionId(signupCookieHeader))
+        : undefined;
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
-        origin: "google_oauth",
+        origin: opts.trackSignup.mcpSignupAttribution
+          ? "mcp_oauth"
+          : "google_oauth",
         signupMethod: "google",
         authUserId,
         email,

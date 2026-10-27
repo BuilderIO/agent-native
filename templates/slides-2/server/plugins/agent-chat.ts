@@ -224,6 +224,7 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     keyToolNames: INITIAL_TOOL_NAMES,
     instructions:

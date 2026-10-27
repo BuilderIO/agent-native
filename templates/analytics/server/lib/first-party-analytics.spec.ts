@@ -2189,6 +2189,7 @@ describe("queryFirstPartyAnalytics", () => {
         rows: [{ count: 1 }],
         schema: [{ name: "count", type: "number" }],
         backend: "postgres",
+        bytesProcessed: 0,
       });
       expect(backendMocks.query).not.toHaveBeenCalled();
     });
@@ -2570,8 +2571,8 @@ describe("queryFirstPartyAnalytics", () => {
       };
       const sql = "SELECT COUNT(*) AS events FROM analytics_events";
       const first = await queryFirstPartyAnalytics(sql, scope, { cache: true });
-      expect(first).toEqual({ ...saved, cached: true });
-      expect(first).not.toHaveProperty("bytesProcessed");
+      // oracle-change: Postgres results now report bytesProcessed 0 instead of omitting it; toEqual pins the value.
+      expect(first).toEqual({ ...saved, cached: true, bytesProcessed: 0 });
       const cached = await queryFirstPartyAnalytics(sql, scope, {
         cache: true,
       });
@@ -3098,6 +3099,7 @@ describe("queryFirstPartyAnalytics", () => {
       schema: [{ name: "count", type: "string" }],
       cached: false,
       fetchedAt: expect.any(String),
+      bytesProcessed: 0,
     });
   });
 });

@@ -6,6 +6,7 @@ import {
   isDefaultWorkspaceAppHiddenId,
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
+  isWorkspaceAppHostPageUrl,
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
@@ -146,6 +147,38 @@ describe("workspace app routes", () => {
 
   it("accepts nested app routes while preserving the app id", () => {
     expect(workspaceAppIdFromRoute("/apps/mail/inbox")).toBe("mail");
+  });
+
+  it("recognizes the Dispatch page that hosts an app only on Dispatch's own origin", () => {
+    const origin = "https://beta.agent-workspace.builder.io";
+    const hostPage = { id: "coach", url: `${origin}/dispatch/apps/coach` };
+
+    expect(isWorkspaceAppHostPageUrl(hostPage, origin)).toBe(true);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "Coach", url: `${origin}/dispatch/apps/coach/` },
+        origin,
+      ),
+    ).toBe(true);
+    expect(
+      isWorkspaceAppHostPageUrl(hostPage, "https://beta.dispatch.example.test"),
+    ).toBe(false);
+    expect(isWorkspaceAppHostPageUrl(hostPage, undefined)).toBe(false);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "coach", url: `${origin}/coach` },
+        origin,
+      ),
+    ).toBe(false);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "coach", url: `${origin}/dispatch/apps/mycoach` },
+        origin,
+      ),
+    ).toBe(false);
+    expect(isWorkspaceAppHostPageUrl({ id: "coach", url: null }, origin)).toBe(
+      false,
+    );
   });
 
   it("preserves the initial app suffix for a standalone deep link", () => {

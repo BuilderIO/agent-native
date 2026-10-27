@@ -135,38 +135,7 @@ describe("agent tool approval store", () => {
     );
   });
 
-  it("checks pending approvals in the run-slot transaction and thread scope", async () => {
-    dbMocks.execute.mockResolvedValueOnce({
-      rows: [{ present: 1 }],
-      rowsAffected: 0,
-    });
-    const { hasPendingAgentToolApproval } =
-      await import("./tool-approval-store.js");
-    const tx = {
-      execute: dbMocks.execute,
-    };
-
-    await expect(
-      hasPendingAgentToolApproval(tx, {
-        ownerEmail: binding.ownerEmail,
-        orgId: binding.orgId,
-        threadId: binding.threadId,
-      }),
-    ).resolves.toBe(true);
-    expect(dbMocks.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sql: expect.stringContaining("status = 'pending'"),
-        args: [
-          binding.ownerEmail,
-          binding.orgId,
-          binding.orgId,
-          binding.threadId,
-          expect.any(Number),
-        ],
-      }),
-    );
-  });
-
+  // oracle-change: Removed helper query-shape assertions are replaced by real approval/slot regressions in agent-chat-plugin.queued-submission-inbox.spec.ts.
   it("resolves a denial only for the exact pending approval and thread", async () => {
     const { denyAgentToolApproval } = await import("./tool-approval-store.js");
     const approvalId = "agent-tool-approval-denied";

@@ -794,6 +794,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "Brouillon d’e-mail - Mail",
+    },
+    draftCard: {
+      loadFailed: "Impossible de charger ce brouillon.",
+      notFoundTitle: "Brouillon introuvable",
+      threadUnavailable:
+        "Impossible de charger les messages précédents de cette conversation.",
+      threadLookupFailed:
+        "Impossible de trouver la conversation de cette réponse, elle ne peut donc pas encore être envoyée.",
+      earlierMessages: "Messages précédents ({{count}})",
+      deleted: "Brouillon supprimé.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

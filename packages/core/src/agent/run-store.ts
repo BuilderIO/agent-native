@@ -59,6 +59,11 @@ import {
   type RunTerminalTrackingFields,
 } from "./run-terminal-tracking.js";
 import {
+  ensureAgentToolApprovalTable,
+  getPendingCurrentTurnApprovals,
+  hasPendingCurrentTurnApproval,
+} from "./tool-approval-store.js";
+import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
   toolCallInputFingerprint,
@@ -472,6 +477,16 @@ export const agentRunsStore = defineStore({
         });
       },
     },
+    {
+      name: "agent-run-admission-order",
+      // Set the volatile default separately so existing run history is not rewritten.
+      sql: [
+        "CREATE SEQUENCE IF NOT EXISTS agent_run_admission_order_seq",
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS admission_order BIGINT",
+        `ALTER TABLE agent_runs ALTER COLUMN admission_order
+           SET DEFAULT nextval('agent_run_admission_order_seq')`,
+      ],
+    },
   ],
 });
 
@@ -768,6 +783,25 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
+
+/**
+ * A model step's input snapshot keeps the arguments' key order, which a
+ * re-emitted call need not repeat; its exact arguments hash does not.
+ */
+function executionStepInputIdentity(
+  inputJson: string | undefined,
+): string | undefined {
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  const { argumentsHash } = JSON.parse(inputJson) as {
+    argumentsHash?: unknown;
+  };
+  if (typeof argumentsHash !== "string") {
+    throw new Error("Execution step input has an unreadable arguments hash");
+  }
+  return `arguments:${argumentsHash}`;
+}
+
 /** Persist intent before dispatch and decide whether an interrupted call may run again. */
 export async function beginAgentExecutionStep(
   intent: AgentExecutionStepIntent,
@@ -795,7 +829,8 @@ export async function beginAgentExecutionStep(
       });
       const selected = await tx.execute({
         sql: `SELECT operation_id, tool_name, input_json, replay_policy,
-                   status, run_id, generation, result_json, error_json
+                   status, run_id, generation, result_json, error_json,
+                   dispatched_at
             FROM agent_execution_steps
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
             FOR UPDATE`,
@@ -812,13 +847,15 @@ export async function beginAgentExecutionStep(
             generation?: number | string;
             result_json?: string | null;
             error_json?: string | null;
+            dispatched_at?: number | string | null;
           }
         | undefined;
       if (!row) throw new Error("Execution step intent was not persisted");
       if (
         row.operation_id !== intent.operationId ||
         row.tool_name !== intent.toolName ||
-        row.input_json !== intent.inputJson
+        executionStepInputIdentity(row.input_json) !==
+          executionStepInputIdentity(intent.inputJson)
       ) {
         throw new Error(
           `Execution step ${intent.stepId} was retried with a different intent`,
@@ -831,8 +868,9 @@ export async function beginAgentExecutionStep(
           errorJson: row.error_json ?? null,
         };
       }
-      const wasDispatched =
-        row.status === "dispatched" || row.status === "unknown";
+      const hadDispatch =
+        row.status === "dispatched" || row.dispatched_at != null;
+      const wasDispatched = hadDispatch || row.status === "unknown";
       if (row.status === "unknown") {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
@@ -840,7 +878,7 @@ export async function beginAgentExecutionStep(
             intent.replayPolicy === "retry-safe");
         if (!canReplay) return { status: "unknown" };
       }
-      if (row.status === "dispatched") {
+      if (hadDispatch) {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
           (intent.replayPolicy === "read-only" ||
@@ -905,6 +943,7 @@ export async function markAgentExecutionStepDispatched(
 
 export async function resetAgentExecutionStepBeforeInvocation(
   intent: AgentExecutionStepIntent,
+  options: { preserveDispatchHistory?: boolean } = {},
 ): Promise<void> {
   await ensureRunTables();
   const expectedFence: ExecutionFence = {
@@ -917,12 +956,15 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
       tx.execute({
         sql: `UPDATE agent_execution_steps
-              SET status = 'prepared', dispatched_at = NULL,
+              SET status = 'prepared',
+                  dispatched_at = CASE WHEN ? THEN
+                    COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                   updated_at = clock_timestamp()
               WHERE thread_id = ? AND turn_id = ? AND step_id = ?
                 AND run_id = ? AND generation = CAST(? AS BIGINT)
                 AND status IN ('prepared', 'dispatched')`,
         args: [
+          options.preserveDispatchHistory === true,
           intent.threadId,
           intent.turnId,
           intent.stepId,
@@ -984,7 +1026,9 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const reconciled = await tx.execute({
       sql: `UPDATE agent_execution_steps
             SET status = 'prepared', run_id = ?,
-                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                generation = CAST(? AS BIGINT),
+                dispatched_at = CASE WHEN ? THEN
+                  COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                 updated_at = clock_timestamp()
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
               AND run_id = ? AND generation = CAST(? AS BIGINT)
@@ -992,6 +1036,7 @@ export async function resetAgentExecutionStepBeforeInvocation(
       args: [
         currentLease.ownerRunId,
         currentLease.generation,
+        options.preserveDispatchHistory === true,
         intent.threadId,
         intent.turnId,
         intent.stepId,
@@ -1421,6 +1466,7 @@ export async function insertRun(
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  const executionFence = currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -1462,7 +1508,7 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
-    if (currentExecutionFence()) {
+    if (executionFence) {
       throw new Error("Fenced run insertion requires transaction support");
     }
     if (options?.afterInsert)
@@ -1723,11 +1769,15 @@ export async function readRunDispatchPayload(
 
 export async function clearRunDispatchPayload(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
-    args: [runId],
-  });
+  await withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
+        args: [runId],
+      });
+    },
+    { runId },
+  );
 }
 
 export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
@@ -2048,6 +2098,8 @@ export async function tryClaimRunSlot(
     hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
     /** Keep ordinary turns behind a pending tool approval on this thread. */
     hasPendingApproval?: (tx: DbExec) => Promise<boolean>;
+    /** Cancel a completed approval pause before admitting an explicit interruption. */
+    interruptApprovalPause?: boolean;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
@@ -2059,10 +2111,12 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
   await ensureRunTables();
+  if (options?.interruptApprovalPause) await ensureAgentToolApprovalTable();
   const client = getDbExec();
   const now = Date.now();
   const turnId = options?.turnId ?? runId;
@@ -2088,6 +2142,7 @@ export async function tryClaimRunSlot(
       if (denied) return { refused: denied } as const;
     }
     await lockThreadRunSlot(tx, threadId);
+    await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
@@ -2152,6 +2207,17 @@ export async function tryClaimRunSlot(
             completedRunId: latestRun.id,
           },
         } as const;
+      }
+    }
+    if (options?.interruptApprovalPause) {
+      const pauses = await getPendingCurrentTurnApprovals(threadId, tx);
+      if (pauses.some((pause) => pause.status === "running")) {
+        return {
+          result: { claimed: false, activeRunId: null, approvalPending: true },
+        } as const;
+      }
+      for (const pause of pauses) {
+        await insertTurnAbortMarkers(tx, threadId, pause.turnId, "user", now);
       }
     }
     if (await options?.hasPendingApproval?.(tx)) {
@@ -3951,6 +4017,38 @@ function turnAbortMarkerRunId(threadId: string, turnId: string): string {
   return `turn-abort:${encodeURIComponent(threadId)}:${encodeURIComponent(turnId)}`;
 }
 
+async function insertTurnAbortMarkers(
+  tx: DbExec,
+  threadId: string,
+  turnId: string,
+  reason: string,
+  now: number,
+): Promise<void> {
+  await tx.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+    args: [
+      turnAbortMarkerRunId(threadId, turnId),
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+      `turn-abort-${turnId}`,
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+    ],
+  });
+}
+
 export async function markTurnAborted(
   threadId: string,
   turnId: string,
@@ -3961,6 +4059,7 @@ export async function markTurnAborted(
     throw new StaleExecutionFenceError(fence);
   }
   await ensureRunTables();
+  await ensureAgentToolApprovalTable();
   const now = Date.now();
   const client = getDbExec();
   if (!client.transaction) {
@@ -4046,11 +4145,12 @@ export async function markTurnAborted(
           .map((row) => String((row as { id?: unknown }).id ?? ""))
           .filter(Boolean),
       );
-      if (
+      const turnPending =
         latest &&
-        latest.continuation_pending !== true &&
-        !isContinuationTerminalReason(latest.terminal_reason ?? "")
-      ) {
+        (latest.continuation_pending === true ||
+          isContinuationTerminalReason(latest.terminal_reason ?? "") ||
+          (await hasPendingCurrentTurnApproval(threadId, tx, turnId)));
+      if (latest && !turnPending) {
         return "already_terminal" as const;
       }
     }
@@ -4093,29 +4193,7 @@ export async function markTurnAborted(
     for (const runId of runIds) {
       await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
     }
-    await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
-      args: [
-        turnAbortMarkerRunId(threadId, turnId),
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-        `turn-abort-${turnId}`,
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-      ],
-    });
+    await insertTurnAbortMarkers(tx, threadId, turnId, reason, now);
     return "aborted" as const;
   };
   const outcome = await retryAbortTerminalEventTransaction(
@@ -5523,8 +5601,8 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Keep execution receipts through the longest configured recovery window,
-    // even when the run rows they belong to have already been pruned.
+    // Same-turn recovery can outlive the run row, so keep recent receipts
+    // until the longest configured run-retention window has elapsed.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
@@ -5532,8 +5610,22 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = s.thread_id
                   AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_leases l
+                WHERE l.thread_id = s.thread_id
+                  AND l.turn_id = s.turn_id
+                  AND l.lease_expires_at > clock_timestamp()
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = s.thread_id
+                  AND active.turn_id = s.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_execution_leases AS l
@@ -5542,8 +5634,17 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = l.thread_id
                   AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )
+              AND l.lease_expires_at <= clock_timestamp()
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = l.thread_id
+                  AND active.turn_id = l.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i

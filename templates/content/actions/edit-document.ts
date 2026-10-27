@@ -28,6 +28,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import {
@@ -472,6 +473,7 @@ export default defineAction({
       );
       return { applied: 0, total: edits.length, results };
     }
+    assertNoNewlySharedVideoIds(existing.content, content);
 
     let linkedLocalPersistence:
       | {

@@ -44,6 +44,7 @@ export async function saveDocumentWithRebase({
   confirmsWrite = () => true,
   canContinue = () => true,
   owner,
+  onMerge,
 }: {
   base: DocumentContentBase;
   content: string;
@@ -70,6 +71,15 @@ export async function saveDocumentWithRebase({
     canPreferLive: (winner: Document) => boolean;
     confirm: (content: string) => void;
   };
+  /**
+   * Called once the save persists, for each merge of it over a newer body,
+   * with how many of that body's hunks the merge set aside (see
+   * `BaseAwareReconcileResult`). A body whose changes the save already holds
+   * counts with none set aside. A save that ends any other way reports none
+   * of its merges.
+   * For counting: it cannot change the save, even by throwing.
+   */
+  onMerge?: (outcome: { setAside: number }) => void;
 }): Promise<RebasedDocumentSaveResult> {
   let attemptedBase = base;
   let candidate = content;
@@ -90,8 +100,16 @@ export async function saveDocumentWithRebase({
       base: current && !ownsCurrentSnapshot() ? undefined : attemptedBase,
     };
   };
+  const merges: { setAside: number }[] = [];
   const confirmed = (document: Document): RebasedDocumentSaveResult => {
     if (owner && ownsCurrentSnapshot()) owner.confirm(document.content);
+    for (const merge of merges) {
+      try {
+        onMerge?.(merge);
+      } catch {
+        // coercion-ok: counting a merge never changes the save.
+      }
+    }
     return { status: "saved", document, content: document.content };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
@@ -126,28 +144,33 @@ export async function saveDocumentWithRebase({
     try {
       contentSchema ??= getSchema(createVisualEditorExtensions());
       const localDoc = contentSchema.nodeFromJSON(nfmToDoc(candidate));
-      let plan = planDocReconcile(
-        localDoc,
-        contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
-        contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
+      const baseDoc = contentSchema.nodeFromJSON(
+        nfmToDoc(attemptedBase.content),
       );
+      const winnerDoc = contentSchema.nodeFromJSON(nfmToDoc(winner.content));
+      let plan = planDocReconcile(localDoc, baseDoc, winnerDoc);
       if (
         plan.status === "conflict" &&
         owner &&
         ownsCurrentSnapshot() &&
         owner.canPreferLive(winner)
       ) {
-        plan = planDocReconcile(
-          localDoc,
-          contentSchema.nodeFromJSON(nfmToDoc(attemptedBase.content)),
-          contentSchema.nodeFromJSON(nfmToDoc(winner.content)),
-          { overlapPolicy: "prefer-live" },
-        );
+        plan = planDocReconcile(localDoc, baseDoc, winnerDoc, {
+          overlapPolicy: "prefer-live",
+        });
       } else if (plan.status === "conflict" && owner) {
         if (!ownsCurrentSnapshot()) {
           return { status: "superseded", document: winner };
         }
         return { status: "displaced", document: winner, localDraft: candidate };
+      }
+      // Only a newer body that differs from the base is a merge; one with
+      // the base's body (a title change, say) brings nothing to merge.
+      if (
+        (plan.status === "applied" || plan.status === "noop") &&
+        !winnerDoc.eq(baseDoc)
+      ) {
+        merges.push({ setAside: plan.setAside });
       }
       if (plan.status === "applied") {
         candidate = docToNfm(plan.mergedDoc.toJSON());
