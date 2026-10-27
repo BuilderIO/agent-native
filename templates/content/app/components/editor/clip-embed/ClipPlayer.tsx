@@ -158,8 +158,11 @@ export function ClipPlayer({
           if (element) element.playbackRate = rate;
         }}
         onToggleFullscreen={() => {
+          const frame = frameRef.current;
           if (document.fullscreenElement) void document.exitFullscreen();
-          else void frameRef.current?.requestFullscreen?.();
+          else if (frame && "requestFullscreen" in frame) {
+            void frame.requestFullscreen();
+          }
         }}
         menuPortalContainer={fullscreen ? frameRef.current : undefined}
       />

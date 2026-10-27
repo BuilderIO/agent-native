@@ -361,12 +361,12 @@ async function withOpenedClip(
   kind: RateKind,
   fn: (opened: OpenedClip) => Promise<Response>,
 ): Promise<Response> {
-  let opened = false;
+  const outcome = { opened: false };
   const response = await openClip(peer, async (clip) => {
-    opened = true;
+    outcome.opened = true;
     return rateLimited(peer, kind) ?? fn(clip);
   });
-  if (!opened) countMiss(peer, kind);
+  if (!outcome.opened) countMiss(peer, kind);
   return response;
 }
 
@@ -470,8 +470,7 @@ export async function handleContentClipPlayback(
     return json({
       recording: {
         id: recording.id,
-        title:
-          recording.title?.slice(0, CONTENT_CLIP_RECORDING_TITLE_CHARS) ?? null,
+        title: recording.title.slice(0, CONTENT_CLIP_RECORDING_TITLE_CHARS),
         kind: recording.kind,
         status: recording.status,
         durationMs: recording.durationMs,

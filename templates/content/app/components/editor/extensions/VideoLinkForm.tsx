@@ -59,7 +59,10 @@ export function VideoLinkForm({
   }
 
   return (
-    <form className="media-source-panel__body" onSubmit={handleSubmit}>
+    <form
+      className="media-source-panel__body"
+      onSubmit={(event) => void handleSubmit(event)}
+    >
       <Input
         autoFocus
         type="url"

@@ -320,7 +320,7 @@ describe("a Clips answer's size", () => {
       documentId: "doc_1",
       recordingId: "rec_1",
       resource,
-      query: resource === "comments" ? { limit: "500" } : undefined,
+      ...(resource === "comments" ? { query: { limit: "500" } } : {}),
     });
 
   // Sent in two chunks with no length header, so only the stream says how

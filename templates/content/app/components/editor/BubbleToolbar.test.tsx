@@ -27,6 +27,11 @@ import {
 } from "./extensions/NotionExtensions";
 import { isLocalEditorEdit } from "./VisualEditor";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -1050,9 +1055,9 @@ describe("BubbleToolbar", () => {
     toolbarButton.focus();
     const shows = (from: number, to: number) =>
       shouldShowBubbleToolbar({
-        editor: editor!,
-        element: toolbarElement!,
-        state: editor!.state,
+        editor: defined(editor),
+        element: defined(toolbarElement),
+        state: defined(editor).state,
         from,
         to,
       });

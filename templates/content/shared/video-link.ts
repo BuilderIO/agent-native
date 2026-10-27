@@ -83,8 +83,8 @@ function clipsPathFor(
 function recordingIdFromClipsPath(path: string): string | null {
   const segments = path.split("/").filter(Boolean);
   if (segments.length !== 2) return null;
-  const [route, id] = segments;
-  if (!CLIPS_RECORDING_ROUTES.has(route!)) return null;
+  const [route = "", id] = segments;
+  if (!CLIPS_RECORDING_ROUTES.has(route)) return null;
   return isClipRecordingId(id) ? id : null;
 }
 

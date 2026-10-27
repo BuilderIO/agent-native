@@ -55,7 +55,7 @@ export interface PlayerControlsProps {
   onToggleMute: () => void;
   onSpeedChange: (rate: number) => void;
   onToggleFullscreen: () => void;
-  menuPortalContainer?: HTMLElement | null;
+  menuPortalContainer?: HTMLElement | null | undefined;
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
@@ -181,7 +181,7 @@ export function PlayerControls(props: PlayerControlsProps) {
                   max={1}
                   step={0.05}
                   value={[muted ? 0 : volume]}
-                  onValueChange={([value]) => onVolumeChange(value ?? 0)}
+                  onValueChange={([value = 0]) => onVolumeChange(value)}
                   className="h-24 w-2 data-[orientation=vertical]:flex-col [&_[data-orientation=vertical]]:h-full [&_[data-orientation=vertical]]:w-1.5 [&_[role=slider]]:size-3.5"
                 />
               </div>
