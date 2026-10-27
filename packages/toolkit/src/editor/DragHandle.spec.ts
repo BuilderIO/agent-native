@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { type AnyExtension, Editor } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import {
   DRAG_HANDLE_UI_EVENT,
   DragHandle,
   dragPreviewTransform,
+  type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
 
@@ -61,6 +64,7 @@ function mountEditor(
   rect: DOMRect = makeRect({ left: 24, top: 0, width: 640, height: 400 }),
   parent: HTMLElement = document.body,
   hoverPoint: { x: number; y: number } = { x: 32, y: rect.top + 12 },
+  extensions: AnyExtension[] = [StarterKit],
 ): {
   editor: Editor;
   wrapper: HTMLElement;
@@ -76,7 +80,7 @@ function mountEditor(
 
   const editor = new Editor({
     element,
-    extensions: [StarterKit, DragHandle.configure(options)],
+    extensions: [...extensions, DragHandle.configure(options)],
     content,
   });
 
@@ -798,6 +802,522 @@ describe("DragHandle menu", () => {
     } finally {
       right.editor.destroy();
       left.editor.destroy();
+    }
+  });
+});
+
+describe("DragHandle app menu", () => {
+  it("opens the app's menu in place of the built-in one", () => {
+    const close = vi.fn();
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return close;
+      },
+    });
+    const uiEvents: unknown[] = [];
+    editor.on("transaction", ({ transaction }) => {
+      if (transaction.docChanged) uiEvents.push(transaction.getMeta("uiEvent"));
+    });
+
+    try {
+      clickHandle(handle);
+
+      expect(document.querySelector(".an-rich-md-drag-menu")).toBeNull();
+      expect(requests).toHaveLength(1);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("First");
+      expect(request.anchorRect.top).toBe(2);
+      expect(handle.getAttribute("aria-expanded")).toBe("true");
+
+      // The grip stays on its block while the menu is open.
+      hoverAt(32, 52);
+      expect(handle.style.top).toBe("2px");
+
+      editor.commands.insertContentAt(0, "<p>Zero</p>");
+      expect(request.getBlock()?.pos).toBe(editor.state.doc.child(0).nodeSize);
+      request.duplicate();
+      expect(childText(editor, 1)).toBe("First");
+      expect(childText(editor, 2)).toBe("First");
+      expect(uiEvents.at(-1)).toBe(DRAG_HANDLE_UI_EVENT);
+
+      request.onClose();
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+      expect(handle.style.display).toBe("none");
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("finds no block once the menu's block is deleted", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      const first = editor.state.doc.child(0);
+      editor.view.dispatch(editor.state.tr.delete(0, first.nodeSize));
+
+      expect(request.getBlock()).toBeNull();
+      request.duplicate();
+      request.remove();
+      request.insertBelow();
+      expect(editor.state.doc.childCount).toBe(1);
+      expect(childText(editor, 0)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("finds no block once it is deleted, though the same block after it takes its DOM", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>Same</p><p>Same</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      const first = editor.view.nodeDOM(0);
+      editor.view.dispatch(
+        editor.state.tr
+          .delete(0, editor.state.doc.child(0).nodeSize)
+          .insertText("!", 2),
+      );
+      expect(editor.view.nodeDOM(0)).toBe(first);
+
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("S!ame");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("finds no block once the page's content is replaced", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>Same</p><p>Other</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      editor.commands.setContent("<p>Same</p><p>Other</p>");
+      expect(requests[0].getBlock()).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("finds no block once the menu's own edit deletes it", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      request.dispatch(
+        editor.state.tr.delete(0, editor.state.doc.child(0).nodeSize),
+      );
+
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps its block through the menu's own edits, even one that wraps it", () => {
+    const requests: DragHandleMenuRequest[] = [];
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>", {
+      openMenu: (request) => {
+        requests.push(request);
+        return () => {};
+      },
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      const { schema } = editor.state;
+      request.dispatch(
+        editor.state.tr.setNodeMarkup(0, schema.nodes.heading, { level: 2 }),
+      );
+      expect(request.getBlock()?.node.type.name).toBe("heading");
+
+      const { doc } = editor.state;
+      const range = doc
+        .resolve(1)
+        .blockRange(doc.resolve(doc.child(0).nodeSize - 1))!;
+      request.dispatch(
+        editor.state.tr.wrap(range, [{ type: schema.nodes.blockquote }]),
+      );
+      expect(request.getBlock()).toMatchObject({ pos: 0 });
+      expect(request.getBlock()?.node.type.name).toBe("blockquote");
+
+      editor.commands.insertContentAt(
+        editor.state.doc.content.size,
+        "<p>Third</p>",
+      );
+      expect(request.getBlock()?.node.textContent).toBe("First");
+
+      editor.view.dispatch(editor.state.tr.insertText("!", 3));
+      expect(request.getBlock()).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  // Two collaborators: the page is mounted for the first, and the second
+  // edits it through a Yjs document synced with the first's. The second's
+  // edits reach the first together, when `deliver` is called.
+  function mountCollaborative(content: string) {
+    const local = new Y.Doc();
+    const remote = new Y.Doc();
+    const pending: Uint8Array[] = [];
+    local.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "sync") Y.applyUpdate(remote, update, "sync");
+    });
+    remote.on("update", (update: Uint8Array, origin: unknown) => {
+      if (origin !== "sync") pending.push(update);
+    });
+    const deliver = () =>
+      Y.applyUpdate(local, Y.mergeUpdates(pending.splice(0)), "sync");
+    const starterKit = StarterKit.configure({ undoRedo: false });
+    const peer = new Editor({
+      extensions: [starterKit, Collaboration.configure({ document: remote })],
+    });
+    peer.commands.setContent(content);
+    deliver();
+
+    const requests: DragHandleMenuRequest[] = [];
+    const close = vi.fn();
+    const mounted = mountEditor(
+      "",
+      {
+        openMenu: (request) => {
+          requests.push(request);
+          return close;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      [starterKit, Collaboration.configure({ document: local })],
+    );
+    return { ...mounted, close, deliver, peer, requests };
+  }
+
+  it("finds no block once a peer deletes it, though the next block takes its element", () => {
+    const { deliver, editor, handle, peer, requests } = mountCollaborative(
+      "<p>First</p><p>Second</p>",
+    );
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("First");
+
+      const first = editor.view.nodeDOM(0);
+      peer.view.dispatch(
+        peer.state.tr.delete(0, peer.state.doc.child(0).nodeSize),
+      );
+      peer.commands.insertContentAt(
+        peer.state.doc.child(0).nodeSize - 1,
+        " edited",
+      );
+      deliver();
+
+      expect(childText(editor, 0)).toBe("Second edited");
+      expect(editor.view.nodeDOM(0)).toBe(first);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(childText(editor, 0)).toBe("Second edited");
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  it("keeps its block when a peer changes another", () => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<p>First</p><p>Second</p>");
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      peer.commands.insertContentAt(0, "<p>Zero</p>");
+      peer.commands.insertContentAt(peer.state.doc.content.size - 1, " edited");
+      deliver();
+
+      expect(request.getBlock()?.node.textContent).toBe("First");
+      expect(request.getBlock()?.pos).toBe(editor.state.doc.child(0).nodeSize);
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  // y-tiptap writes a peer's edit by rewriting elements in place, so after
+  // these the menu block's element holds another block.
+  it.each([
+    {
+      change: "changes it",
+      edit: (peer: Editor) =>
+        peer.view.dispatch(
+          peer.state.tr.setNodeMarkup(0, undefined, { level: 2 }),
+        ),
+    },
+    {
+      change: "moves it below the others",
+      edit: (peer: Editor) => {
+        const first = peer.state.doc.child(0);
+        const tr = peer.state.tr.delete(0, first.nodeSize);
+        peer.view.dispatch(tr.insert(tr.doc.content.size, first));
+      },
+    },
+    {
+      change: "deletes it and edits the next block in one edit",
+      edit: (peer: Editor) => {
+        const tr = peer.state.tr.delete(0, peer.state.doc.child(0).nodeSize);
+        peer.view.dispatch(
+          tr.insertText(" edited", tr.doc.child(0).nodeSize - 1),
+        );
+      },
+    },
+  ])("lets go of its block once a peer $change", ({ edit }) => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<h1>First</h1><h1>Second</h1><h1>Third</h1>");
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      edit(peer);
+      deliver();
+      const after = editor.state.doc.toJSON();
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      request.duplicate();
+      expect(editor.state.doc.toJSON()).toEqual(after);
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  it("lets go of its block once this editor moves it outside the menu", () => {
+    const { close, editor, handle, requests } = mountCollaborative(
+      "<p>First</p><p>Second</p><p>Third</p>",
+    );
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+
+      const first = editor.state.doc.child(0);
+      const tr = editor.state.tr.delete(0, first.nodeSize);
+      editor.view.dispatch(tr.insert(tr.doc.content.size, first));
+
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(editor.state.doc.textContent).toBe("SecondThirdFirst");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("lets go of a block the document has no element for once the document loads", () => {
+    const local = new Y.Doc();
+    const requests: DragHandleMenuRequest[] = [];
+    const close = vi.fn();
+    const starterKit = StarterKit.configure({ undoRedo: false });
+    const { editor, handle } = mountEditor(
+      "",
+      {
+        openMenu: (request) => {
+          requests.push(request);
+          return close;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      [starterKit, Collaboration.configure({ document: local })],
+    );
+    const saved = new Y.Doc();
+    const loader = new Editor({
+      extensions: [starterKit, Collaboration.configure({ document: saved })],
+    });
+
+    try {
+      clickHandle(handle);
+      const [request] = requests;
+      expect(request.getBlock()?.node.textContent).toBe("");
+
+      loader.commands.setContent("<p>First</p><p>Second</p>");
+      Y.applyUpdate(local, Y.encodeStateAsUpdate(saved));
+
+      expect(childText(editor, 0)).toBe("First");
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(request.getBlock()).toBeNull();
+      request.remove();
+      expect(editor.state.doc.textContent).toBe("FirstSecond");
+    } finally {
+      editor.destroy();
+      loader.destroy();
+    }
+  });
+
+  it("acts on the copy whose menu is open, not the block it copies", () => {
+    const { close, deliver, editor, handle, peer, requests } =
+      mountCollaborative("<h1>First</h1><p>Second</p>");
+
+    try {
+      clickHandle(handle);
+      requests[0].duplicate();
+      requests[0].onClose();
+      const copyPos = editor.state.doc.child(0).nodeSize;
+      const at = (pos: number, top: number) =>
+        setRect(
+          editor.view.nodeDOM(pos) as HTMLElement,
+          makeRect({ left: 24, top, width: 640, height: 24 }),
+        );
+      at(copyPos, 40);
+      at(copyPos * 2, 80);
+      hoverAt(32, 52);
+      clickHandle(handle);
+      const request = requests[1];
+
+      expect(request.getBlock()?.pos).toBe(copyPos);
+      request.dispatch(
+        editor.state.tr.setNodeMarkup(copyPos, undefined, { level: 2 }),
+      );
+      expect(request.getBlock()?.node.attrs.level).toBe(2);
+      expect(close).not.toHaveBeenCalled();
+      deliver();
+      expect(peer.state.doc.child(0).attrs.level).toBe(1);
+      expect(peer.state.doc.child(1).attrs.level).toBe(2);
+
+      request.remove();
+      expect(editor.state.doc.childCount).toBe(2);
+      expect(editor.state.doc.child(0).attrs.level).toBe(1);
+      expect(childText(editor, 1)).toBe("Second");
+    } finally {
+      editor.destroy();
+      peer.destroy();
+    }
+  });
+
+  it("opens the built-in menu when the app's declines", () => {
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => null,
+    });
+
+    try {
+      clickHandle(handle);
+      expect(getMenuItems().map((item) => item.textContent)).toEqual([
+        "Duplicate",
+        "Delete",
+        "Insert block below",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("closes the app's menu when the page scrolls, but not when the menu or a sidebar does", () => {
+    const close = vi.fn();
+    const page = document.createElement("div");
+    const sidebar = document.createElement("div");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.append(page, sidebar, menu);
+    const { editor, handle } = mountEditor(
+      "<p>First</p>",
+      { openMenu: () => close },
+      undefined,
+      page,
+    );
+
+    try {
+      clickHandle(handle);
+      menu.dispatchEvent(new Event("scroll"));
+      sidebar.dispatchEvent(new Event("scroll"));
+      expect(close).not.toHaveBeenCalled();
+
+      page.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(handle.getAttribute("aria-expanded")).toBe("false");
+
+      hoverAt(32, 12);
+      clickHandle(handle);
+      window.dispatchEvent(new Event("scroll"));
+      expect(close).toHaveBeenCalledTimes(2);
+    } finally {
+      editor.destroy();
+      page.remove();
+      sidebar.remove();
+      menu.remove();
+    }
+  });
+
+  it("closes the app's menu with the editor", () => {
+    const close = vi.fn();
+    const { editor, handle } = mountEditor("<p>First</p>", {
+      openMenu: () => close,
+    });
+
+    clickHandle(handle);
+    editor.destroy();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DragHandle grip position", () => {
+  it("keeps the grip on screen beside a block at the page's edge", () => {
+    const { editor, handle } = mountEditor(
+      "<p>First</p>",
+      {},
+      makeRect({ left: 0, top: 0, width: 390, height: 400 }),
+    );
+    setRect(
+      editor.view.nodeDOM(0) as HTMLElement,
+      makeRect({ left: 16, top: 0, width: 358, height: 24 }),
+    );
+
+    try {
+      hoverAt(40, 12);
+      expect(handle.style.display).toBe("flex");
+      expect(handle.style.left).toBe("0px");
+    } finally {
+      editor.destroy();
     }
   });
 });
