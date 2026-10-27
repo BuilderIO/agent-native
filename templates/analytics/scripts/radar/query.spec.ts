@@ -400,12 +400,11 @@ describe("radar query safety", () => {
     }
   });
 
-  it("reports a rejected HTTP response before raising the request error", async () => {
+  it("retains the HTTP status when BigQuery rejects a request", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("rejected", { status: 400 })),
     );
-    const onResponse = vi.fn();
     try {
       await expect(
         bqRequest(
@@ -414,12 +413,10 @@ describe("radar query safety", () => {
           undefined,
           undefined,
           true,
-          onResponse,
         ),
-      ).rejects.toThrow("BigQuery request failed (HTTP 400).");
-      expect(onResponse).toHaveBeenCalledExactlyOnceWith({
-        ok: false,
-        status: 400,
+      ).rejects.toMatchObject({
+        message: "BigQuery request failed (HTTP 400).",
+        httpStatus: 400,
       });
     } finally {
       vi.unstubAllGlobals();

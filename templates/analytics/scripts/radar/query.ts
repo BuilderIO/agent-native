@@ -73,6 +73,7 @@ export class RadarQueryError extends Error {
   constructor(
     message: string,
     readonly exitCode: 1 | 2,
+    readonly httpStatus?: number,
   ) {
     super(message);
     this.name = "RadarQueryError";
@@ -1306,7 +1307,6 @@ export async function bqRequest(
   init?: RequestInit,
   maxResponseBytes = MAX_BQ_RESULT_BYTES,
   allowJobErrors = false,
-  onResponse?: (response: { ok: boolean; status: number }) => void,
 ): Promise<BqPayload> {
   let response: Response;
   try {
@@ -1321,11 +1321,11 @@ export async function bqRequest(
   } catch {
     throw new RadarQueryError("BigQuery request failed or timed out.", 1);
   }
-  onResponse?.({ ok: response.ok, status: response.status });
   if (!response.ok) {
     throw new RadarQueryError(
       `BigQuery request failed (HTTP ${response.status}).`,
       1,
+      response.status,
     );
   }
   const body = response.body;
@@ -1556,31 +1556,38 @@ export async function runBigQuery(
   recordRadarBigQueryDryRunBytes(bytesProcessed);
 
   const startedAt = Date.now();
-  let submissionAttempted = false;
-  let submissionRejectedByHttp = false;
+  let submissionRejectedByHttp: true | undefined;
   let actualBytesProcessed: number | null = null;
   let jobComplete = false;
   try {
-    submissionAttempted = true;
-    const first = await bqRequest(
-      postUrl,
-      token,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          maximumBytesBilled: Math.floor(maxBytes),
-          maxResults: MAX_BQ_PAGE_SIZE,
-        }),
-      },
-      MAX_BQ_RESULT_BYTES,
-      true,
-      (response) => {
-        submissionRejectedByHttp =
-          response.status >= 400 && response.status < 500;
-      },
-    );
+    let first: BqPayload;
+    try {
+      first = await bqRequest(
+        postUrl,
+        token,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            maximumBytesBilled: Math.floor(maxBytes),
+            maxResults: MAX_BQ_PAGE_SIZE,
+          }),
+        },
+        MAX_BQ_RESULT_BYTES,
+        true,
+      );
+    } catch (error) {
+      if (
+        error instanceof RadarQueryError &&
+        error.httpStatus !== undefined &&
+        error.httpStatus >= 400 &&
+        error.httpStatus < 500
+      ) {
+        submissionRejectedByHttp = true;
+      }
+      throw error;
+    }
     const jobId = first.jobReference?.jobId;
     actualBytesProcessed = parseActualBigQueryBytes(first.totalBytesProcessed);
     jobComplete =
@@ -1670,7 +1677,7 @@ export async function runBigQuery(
     if (cacheEnabled) writeCache(key, result);
     return result;
   } finally {
-    if (submissionAttempted && !submissionRejectedByHttp) {
+    if (submissionRejectedByHttp !== true) {
       recordRadarBigQueryJobUsage(actualBytesProcessed, jobComplete);
     }
   }
