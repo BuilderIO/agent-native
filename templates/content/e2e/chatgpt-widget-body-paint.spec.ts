@@ -138,7 +138,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
   }
   const reviewerEmail = readFileSync(AUTH_FILES.email, "utf8").trim();
   const ticket = await createEmbedSessionTicket({
-    audienceHost: new URL(baseURL).hostname,
+    audienceHost: new URL(baseURL).origin,
     ownerEmail: reviewerEmail,
     targetPath: `/page/${encodeURIComponent(documentId)}`,
     scope,
