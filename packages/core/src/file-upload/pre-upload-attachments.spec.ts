@@ -796,6 +796,84 @@ describe("preUploadAttachments", () => {
     expect(result.readableWithoutStorage).toEqual(["report.pdf"]);
   });
 
+  it("does not call a long text file fully readable when storage is missing", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "DESIGN.md",
+          contentType: "text/markdown",
+          text: "x".repeat(70_000),
+        },
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "short",
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.providerMissing).toBe(true);
+    expect(result.readableWithoutStorage).toEqual(["notes.md"]);
+    expect(result.injectedText).not.toContain('"DESIGN.md"');
+  });
+
+  it("does not let a binary file part use the shared text budget", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          data: `data:application/pdf;base64,${PDF_BASE64}`,
+          text: "x".repeat(70_000),
+        },
+        {
+          type: "file",
+          name: "notes.md",
+          contentType: "text/markdown",
+          text: "a".repeat(50_000),
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toContain("notes.md");
+  });
+
+  it("does not call a file readable when the shared text budget cut it", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const result = await preUploadAttachments({
+      attachments: [
+        {
+          type: "file",
+          name: "first.md",
+          contentType: "text/markdown",
+          text: "a".repeat(50_000),
+        },
+        {
+          type: "file",
+          name: "second.md",
+          contentType: "text/markdown",
+          text: "b".repeat(50_000),
+        },
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toEqual(["first.md"]);
+  });
+
   it("uploads decoded text attachments so their URL survives the thread", async () => {
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.com/notes.txt",
@@ -824,6 +902,57 @@ describe("preUploadAttachments", () => {
       "https://cdn.example.com/notes.txt",
     );
     expect(att.url).toBe("https://cdn.example.com/notes.txt");
+  });
+
+  it("does not encode or upload text over the 8 MB limit", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/huge.md",
+      provider: "builder",
+    });
+
+    await preUploadAttachments({
+      attachments: [
+        makeFileAtt({
+          data: undefined,
+          name: "huge.md",
+          contentType: "text/markdown",
+          text: "x".repeat(9_000_000),
+        }),
+        makeFileAtt({
+          name: "inline.md",
+          contentType: "text/markdown",
+          data: `data:text/markdown;base64,${"A".repeat(12_000_000)}`,
+        }),
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
+  it("uploads the file body, not the composer's attachment wrapper", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/notes.txt",
+      provider: "builder",
+    });
+
+    await preUploadAttachments({
+      attachments: [
+        makeFileAtt({
+          data: undefined,
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: '<attachment name="notes.txt" contentType="text/plain">\nbody\n</attachment>',
+        }),
+      ],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(
+      Buffer.from(uploadFileMock.mock.calls[0]![0].data).toString("utf8"),
+    ).toBe("body");
   });
 
   it("does not fetch a text attachment that already has readable extracted text", async () => {

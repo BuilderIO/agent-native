@@ -45,17 +45,53 @@ function describeReleaseMigrationUrl(url: string): string {
   return scheme ? `${scheme} url` : "no scheme — likely a masked secret";
 }
 
+function shouldLogReleaseTiming(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.uptime === "function" &&
+    process.env.VITEST !== "true" &&
+    process.env.VITEST !== "1"
+  );
+}
+
 export async function runFrameworkReleaseMigrations(
   _nitroApp?: unknown,
 ): Promise<void> {
-  assertReleaseMigrationTargetsRemoteDatabase();
-  // One lease for the whole release, so two deploys against one database
-  // never interleave.
-  await withStoreMigrationLock(async () => {
-    await runFrameworkSchemaEnsures();
-    await recordDatabaseIdentity();
-    // Last, so the framework's own share and owner tables exist. An app's tables
-    // are indexed by the release after the one that creates them.
-    await ensureSharingAccessIndexes();
-  });
+  const logTiming = shouldLogReleaseTiming();
+  const startedAt = Date.now();
+  if (logTiming) {
+    console.log(
+      `[db] Migration runtime ready ${Math.round(process.uptime() * 1_000)}ms after process start`,
+    );
+  }
+  let lockWaitMs: number | undefined;
+  try {
+    assertReleaseMigrationTargetsRemoteDatabase();
+    // One lease for the whole release, so two deploys against one database
+    // never interleave.
+    await withStoreMigrationLock(async () => {
+      lockWaitMs = Date.now() - startedAt;
+      await runFrameworkSchemaEnsures();
+      await recordDatabaseIdentity();
+      // Last, so the framework's own share and owner tables exist. An app's tables
+      // are indexed by the release after the one that creates them.
+      await ensureSharingAccessIndexes();
+    });
+  } catch (err) {
+    if (logTiming) {
+      const lockWait =
+        lockWaitMs === undefined
+          ? "lock not acquired"
+          : `lock wait ${lockWaitMs}ms`;
+      console.log(
+        `[db] Framework release migrations failed after ${Date.now() - startedAt}ms (${lockWait})`,
+      );
+    }
+    throw err;
+  }
+  if (logTiming) {
+    console.log(
+      `[db] Framework release migrations finished in ${Date.now() - startedAt}ms (lock wait ${lockWaitMs}ms)`,
+    );
+  }
 }

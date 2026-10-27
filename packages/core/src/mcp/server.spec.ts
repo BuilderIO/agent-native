@@ -10457,7 +10457,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("reads a hidden value back as the placeholder under its key", async () => {
     const path =
-      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+      "https://mail.agent-native.com/_agent-native/embed/start?ticket=hidden-row-ticket";
     const readConfig = {
       ...config,
       actions: {
@@ -10507,7 +10507,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           run: async () => ({
             id: "row-1",
             title: "Row",
-            message: "Saved the note about the embed start URL.",
+            message:
+              "https://mail.agent-native.com/_agent-native/embed/start?ticket=hidden-message-ticket",
             url: "/rows/row-1",
           }),
         },

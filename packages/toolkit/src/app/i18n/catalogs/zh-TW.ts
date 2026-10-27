@@ -126,6 +126,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
+  "onboarding.builderProvisionFailedDetail":
+    "無法建立你的 Builder.io 帳戶。請重試，或使用現有帳戶登入。",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
   "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
@@ -399,6 +401,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.droppedFileError": "無法加入拖放的檔案。請嘗試其他格式。",
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
+  "composer.attachmentReadFailed": "無法讀取此檔案",
+  "composer.attachmentTooLarge": "檔案超過 8 MB",
+  "composer.attachmentNotUtf8": "檔案不是 UTF-8 文字",
   "composer.scrollToBottom": "捲動到底部",
   "composer.suggestedPrompts": "建議提示",
   "composer.stopResponse": "停止回應",
