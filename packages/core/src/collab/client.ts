@@ -320,6 +320,7 @@ function readUpdateAck(body: unknown): CollabUpdateAck {
 const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 const VERSIONED_OUTBOX_PREFIX = "agent-native-collab-outbox-v2:";
 const OUTBOX_ORIGIN = "collab-outbox";
+const OUTBOX_OWNER_LOCK_PREFIX = "agent-native-collab-outbox-owner:";
 
 function outboxPrefix(
   docKey: string,
@@ -414,6 +415,7 @@ class CollabDocConnection {
   private keepsUnsentUpdates = false;
   private unsentUpdatesRestored = false;
   private onlineDuringUpdate = false;
+  private releaseOutboxOwner: (() => void) | null = null;
   private readonly outboxOwnerId = `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2)}`;
@@ -579,6 +581,8 @@ class CollabDocConnection {
     }
     void this.flushPendingUpdates(true);
     this.detachUpdateHandler();
+    this.releaseOutboxOwner?.();
+    this.releaseOutboxOwner = null;
     if (this.agentTimer) {
       clearTimeout(this.agentTimer);
       this.agentTimer = null;
@@ -705,10 +709,30 @@ class CollabDocConnection {
     }
   }
 
+  private holdOutboxOwner(key: string): void {
+    if (this.releaseOutboxOwner) return;
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (typeof locks?.request !== "function") {
+      this.markDurableUpdatesFailed();
+      return;
+    }
+    // Queue the owner lock before publishing bytes an adopting tab can read.
+    const held = new Promise<void>((release) => {
+      this.releaseOutboxOwner = release;
+    });
+    void locks
+      .request(OUTBOX_OWNER_LOCK_PREFIX + key, () => held)
+      .catch(() => {
+        if (!this.disposed) this.markDurableUpdatesFailed();
+      });
+  }
+
   private storeUnsentUpdates(): void {
     if (!this.keepsUnsentUpdates) return;
     const scope = this.outboxScope;
     if (!scope) return;
+    this.holdOutboxOwner(scope.key);
     try {
       if (this.pendingUpdates.length === 0) {
         window.localStorage.removeItem(scope.key);
@@ -741,8 +765,8 @@ class CollabDocConnection {
    * Sends what other connections for this doc and user kept: a tab that
    * closed or reloaded before its updates were acknowledged. Applying them
    * queues what the doc lacks as this connection's own unsent updates, which
-   * are kept before the other entry is removed. A live tab's entry is adopted
-   * too, which sends its updates twice and changes nothing.
+   * are kept before the other entry is removed. A live or frozen tab keeps
+   * its owner lock, so another connection leaves its entry untouched.
    */
   private restoreUnsentUpdates(): void {
     if (
@@ -781,32 +805,66 @@ class CollabDocConnection {
       this.markDurableUpdatesFailed();
       return;
     }
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (typeof locks?.request !== "function") {
+      this.markDurableUpdatesFailed();
+      return;
+    }
     for (const entry of stored) {
-      try {
-        for (const item of readStoredUpdates(entry, this.hasStrictSubscriber)) {
-          if (entry.version === 2 || item.requireLiveCopyOutcome) {
-            Y.applyUpdate(this.ydoc, item.update, "remote");
-            // Applying one custody group can integrate another's pending
-            // dependencies without emitting a separate update event.
-            this.enqueueUpdate(item.update, item.requireLiveCopyOutcome);
-          } else {
-            Y.applyUpdate(this.ydoc, item.update, OUTBOX_ORIGIN);
-          }
+      const ownerKey = entry.key.startsWith(scope.versionedPrefix)
+        ? scope.prefix + entry.key.slice(scope.versionedPrefix.length)
+        : entry.key;
+      void locks
+        .request(
+          OUTBOX_OWNER_LOCK_PREFIX + ownerKey,
+          { ifAvailable: true },
+          (lock) => {
+            if (
+              !lock ||
+              this.disposed ||
+              this.outboxScope?.prefix !== scope.prefix
+            )
+              return;
+            try {
+              const raw = window.localStorage.getItem(entry.key);
+              if (raw !== null) this.adoptStoredOutbox({ ...entry, raw });
+            } catch {
+              this.markDurableUpdatesFailed();
+            }
+          },
+        )
+        .catch(() => {
+          if (!this.disposed) this.markDurableUpdatesFailed();
+        });
+    }
+  }
+
+  private adoptStoredOutbox(entry: StoredOutbox): void {
+    try {
+      for (const item of readStoredUpdates(entry, this.hasStrictSubscriber)) {
+        if (entry.version === 2 || item.requireLiveCopyOutcome) {
+          Y.applyUpdate(this.ydoc, item.update, "remote");
+          // Applying one custody group can integrate another's pending
+          // dependencies without emitting a separate update event.
+          this.enqueueUpdate(item.update, item.requireLiveCopyOutcome);
+        } else {
+          Y.applyUpdate(this.ydoc, item.update, OUTBOX_ORIGIN);
         }
-        // Kept nowhere else while this connection cannot keep its own.
-        if (this.snapshot.durableUpdatesFailed) continue;
-      } catch {
-        // An entry that cannot be applied never will be; it is reported,
-        // then removed so it is not reported on every open.
-        this.markDurableUpdatesFailed();
       }
-      try {
-        if (window.localStorage.getItem(entry.key) === entry.raw) {
-          window.localStorage.removeItem(entry.key);
-        }
-      } catch {
-        this.markDurableUpdatesFailed();
+      // Kept nowhere else while this connection cannot keep its own.
+      if (this.snapshot.durableUpdatesFailed) return;
+    } catch {
+      // An entry that cannot be applied never will be; it is reported,
+      // then removed so it is not reported on every open.
+      this.markDurableUpdatesFailed();
+    }
+    try {
+      if (window.localStorage.getItem(entry.key) === entry.raw) {
+        window.localStorage.removeItem(entry.key);
       }
+    } catch {
+      this.markDurableUpdatesFailed();
     }
   }
 

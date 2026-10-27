@@ -60,15 +60,66 @@ function outboxKeys(): string[] {
   );
 }
 
+type TestLockCallback = (
+  lock: Pick<Lock, "name" | "mode"> | null,
+) => void | Promise<void>;
+
+function createTestLocks() {
+  const held = new Map<string, Promise<void>>();
+  return {
+    request: vi.fn(
+      async (
+        name: string,
+        optionsOrCallback: { ifAvailable?: boolean } | TestLockCallback,
+        requestedCallback?: TestLockCallback,
+      ) => {
+        const callback =
+          typeof optionsOrCallback === "function"
+            ? optionsOrCallback
+            : requestedCallback;
+        if (!callback) throw new Error("Missing lock callback");
+        const previous = held.get(name);
+        if (
+          typeof optionsOrCallback !== "function" &&
+          optionsOrCallback.ifAvailable &&
+          previous
+        ) {
+          await callback(null);
+          return;
+        }
+        let release!: () => void;
+        const finished = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        held.set(name, finished);
+        if (previous) await previous;
+        try {
+          await callback({ name, mode: "exclusive" });
+        } finally {
+          if (held.get(name) === finished) held.delete(name);
+          release();
+        }
+      },
+    ),
+  };
+}
+
 describe("collab durable updates", () => {
   let root: Root;
   let container: HTMLDivElement;
   let updateResponses: Array<"offline" | "unreadable" | "too_large" | object>;
   let sentUpdates: Uint8Array[];
+  let locks: ReturnType<typeof createTestLocks>;
+  const originalLocks = Object.getOwnPropertyDescriptor(navigator, "locks");
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
+    locks = createTestLocks();
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: locks,
+    });
     window.localStorage.clear();
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
@@ -113,6 +164,8 @@ describe("collab durable updates", () => {
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
     vi.restoreAllMocks();
+    if (originalLocks) Object.defineProperty(navigator, "locks", originalLocks);
+    else Reflect.deleteProperty(navigator, "locks");
     window.localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -1327,6 +1380,90 @@ describe("collab durable updates", () => {
         updateResponses = [{ ok: true, liveCopy: "unchanged" }];
         await expect(owner().flushUpdates()).resolves.toBe(true);
         expect(outboxKeys()).toEqual([]);
+      },
+    },
+    {
+      name: "leaves a frozen owner's stored bytes untouched until that owner is gone",
+      baseline:
+        "Regression: 912f6406 adopts a live owner's entry and sends its edit from the joining tab.",
+      run: async () => {
+        const first = await mountReady({ durableUpdates: true });
+        first().ydoc!.getText("t").insert(0, "frozen edit");
+        updateResponses = ["offline"];
+        await expect(first().flushUpdates()).resolves.toBe(false);
+        await closeTab();
+        const key = outboxKeys()[0];
+        if (!key) throw new Error("Missing retained update");
+        const raw = window.localStorage.getItem(key);
+        let release!: () => void;
+        let entered!: () => void;
+        const acquired = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const lease = locks.request(
+          "agent-native-collab-outbox-owner:" +
+            key.replace(STRICT_OUTBOX_PREFIX, OUTBOX_PREFIX),
+          () => {
+            entered();
+            return new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          },
+        );
+        await acquired;
+        onTestFinished(async () => {
+          release();
+          await lease;
+        });
+        sentUpdates = [];
+        const joining = await mountReady({ durableUpdates: true });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(200);
+        });
+        expect(joining().ydoc!.getText("t").toString()).toBe("");
+        expect(sentUpdates).toEqual([]);
+        expect(window.localStorage.getItem(key)).toBe(raw);
+
+        release();
+        await lease;
+        await closeTab();
+        updateResponses = [];
+        sentUpdates = [];
+        const reopened = await mountReady({ durableUpdates: true });
+        await expect(reopened().flushUpdates()).resolves.toBe(true);
+        const server = new Y.Doc();
+        onTestFinished(() => server.destroy());
+        for (const update of sentUpdates) Y.applyUpdate(server, update);
+        expect(server.getText("t").toString()).toBe("frozen edit");
+        expect(outboxKeys()).toEqual([]);
+      },
+    },
+    {
+      name: "keeps another owner's bytes when the browser cannot check its lock",
+      baseline:
+        "Regression: 912f6406 adopts entries without checking whether their owner is alive.",
+      run: async () => {
+        const first = await mountReady({ durableUpdates: true });
+        first().ydoc!.getText("t").insert(0, "kept without ownership proof");
+        updateResponses = ["offline"];
+        await expect(first().flushUpdates()).resolves.toBe(false);
+        await closeTab();
+        const key = outboxKeys()[0];
+        if (!key) throw new Error("Missing retained update");
+        const raw = window.localStorage.getItem(key);
+        Object.defineProperty(navigator, "locks", {
+          configurable: true,
+          value: undefined,
+        });
+        sentUpdates = [];
+        const joining = await mountReady({ durableUpdates: true });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(200);
+        });
+        expect(joining().durableUpdatesFailed).toBe(true);
+        expect(joining().ydoc!.getText("t").toString()).toBe("");
+        expect(window.localStorage.getItem(key)).toBe(raw);
+        expect(sentUpdates).toEqual([]);
       },
     },
   ];
