@@ -1,0 +1,99 @@
+template: v2
+slug: ai-sales-analytics
+app: analytics
+title: Review your sales pipeline with HubSpot and Gong data
+seo_title: AI sales analytics for HubSpot and Gong
+meta_description: See which deals stalled and why before pipeline review. Ask Agent-Native Analytics about HubSpot and Gong in plain English, and keep the answers as a dashboard.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics turns your HubSpot deals and Gong calls into a dashboard for every pipeline review. You ask which deals stalled and why in plain English, and the agent answers from both.
+  button:
+    label: Ask your pipeline
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: The Weekly pipeline review dashboard in Analytics, with panels for open pipeline by stage, deals by owner and deals stuck for 30 days. The agent chat on the right answers why one stuck deal stalled, using its HubSpot stage history and its last Gong call.
+how_to:
+  heading: How to analyze your sales pipeline with AI
+  steps:
+    - title: Connect your CRM and call data
+      body: Open **Data Sources** and click **Connect** next to HubSpot, under **CRM & Sales**. Paste the token from a private app you create in HubSpot's settings and click **Save Credentials**. Gong works the same way, with an access key and secret.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: The Data Sources page with HubSpot under Connected and Gong under CRM & Sales. The Gong setup sheet is open on its Access Key Secret step, pasted in, above Save Credentials.
+    - title: Ask about your pipeline
+      body: 'On **Ask**, ask in plain English: "Which open deals have sat in the same stage for 30 days or more?". The agent searches your HubSpot deals and answers with a table you can sort and follow up on.'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: "The Ask chat with the question about deals stuck for 30 days. The agent answers with a table of six open deals: stage, owner, amount and days in stage."
+    - title: Save the answers as a dashboard
+      body: Ask the agent to "save this as a dashboard for pipeline review." It builds a panel for each answer, and the panels refresh with new data from HubSpot. Share the dashboard with your team before your pipeline review.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: The agent chat confirming it saved the Weekly pipeline review dashboard, next to the new dashboard with its stuck-deals table and pipeline-by-stage chart.
+features:
+  heading: Everything you need for pipeline review
+  items:
+    - title: Your deals and calls together
+      body: One question can pull a deal's stage and owner from HubSpot and what the buyer said on its calls from Gong.
+    - title: Dashboards the agent edits
+      body: Ask for a new panel, a filter by owner or a different chart, and the agent updates the dashboard your team shares.
+    - title: Answers you can check
+      body: The agent marks a figure Unverified when it didn't come from a live HubSpot or Gong query, so you know what to check.
+    - title: Your pipeline next to revenue
+      body: Connect Stripe and BigQuery too, and the same chat answers questions about revenue and product use beside your deals.
+    - title: Your pipeline definitions
+      body: An admin writes down what a stuck deal or qualified pipeline means on the **Semantic Layer** page. The agent reads it before answering.
+    - title: A daily pipeline report
+      body: Get the dashboard every day by email to up to five people or in a Slack channel, without opening the app.
+integrations:
+  heading: Connect Analytics to the tools you already use
+  cards:
+    - title: Your CRM and your calls
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: Analytics reads deals, pipelines, stages and owners from HubSpot, and call recordings and transcripts from Gong.
+    - title: Share it where your team reads
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: Post a dashboard to a Slack channel, or export a table of deals to a new Google Sheet in your connected Google account.
+    - title: Connect anything through MCP
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Analytics
+  cards:
+    - title: Build a KPI dashboard for your startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Ask for the charts your startup tracks and keep them in one dashboard.
+    - title: Make your weekly marketing report without spreadsheets
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Ask how the week went across Google Analytics and HubSpot, and keep the report.
+    - title: Find where new users drop off
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: See where new users stop, then watch the sessions to find out why.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Analytics free?
+      a: Yes, Agent-Native Analytics is free and open source. The agent runs on Builder.io AI credits or your own AI key, so AI use isn't unlimited. Questions about calls can also use your Gong API credits, which an admin can turn off. Analytics is in alpha.
+    - q: Which CRM and call tools does Agent-Native Analytics connect to?
+      a: Analytics connects to HubSpot for your CRM and Gong for your sales calls. Apollo and Clay connect too, for contact and company data. Each one [connects on the Data Sources page](https://www.agent-native.com/docs/template-analytics-connectors/) with its own key, and one question can draw on HubSpot and Gong together.
+    - q: Do I need to write SQL?
+      a: No. You ask in plain English, and the agent finds the data in HubSpot or Gong, runs the query and answers with a number, a table or a chart. When you save an answer to a dashboard, the agent sets up how each panel fetches fresh data.
+    - q: Can I trust the numbers?
+      a: "Yes, with a check: the agent answers from live HubSpot and Gong data and marks a figure Unverified when it didn't come from a live query. It follows your team's [definitions on the Semantic Layer page](https://www.agent-native.com/docs/template-analytics-dashboards/). Compare the first answers with HubSpot before you rely on them."
+    - q: How is Agent-Native Analytics different from the AI that comes with HubSpot or Gong?
+      a: The AI in HubSpot or Gong is built into that one tool. Analytics answers one question from HubSpot and Gong together, also reads Stripe and BigQuery, and keeps the answer as a dashboard your team reopens every week. You keep using HubSpot and Gong as before, and Analytics reads from both.
+    - q: Who can see my dashboards?
+      a: Only you, until you share one. Share a dashboard with a teammate or your whole organization as a viewer, editor or admin. Teammates see HubSpot and Gong data through their own connection, or through one an admin set up for the organization; without either, those panels show an error.
