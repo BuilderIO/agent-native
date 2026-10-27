@@ -53,6 +53,7 @@ export interface UpgradeCliOptions {
 export interface PackageJsonLike {
   name?: string;
   version?: string;
+  packageManager?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
@@ -1022,6 +1023,134 @@ function installArgs(pm: "pnpm" | "npm" | "yarn"): string[] {
   return ["install"];
 }
 
+interface LatestAgentNativeDependencyGroup {
+  file: string;
+  names: string[];
+}
+
+function collectLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  pendingBumps: AgentNativeDepBump[],
+): LatestAgentNativeDependencyGroup[] {
+  const byFile = new Map<string, Set<string>>();
+  const add = (file: string, name: string) => {
+    const names = byFile.get(file) ?? new Set<string>();
+    names.add(name);
+    byFile.set(file, names);
+  };
+
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok) continue;
+    for (const section of PINNABLE_SECTIONS) {
+      for (const [name, version] of Object.entries(read.value[section] ?? {})) {
+        if (
+          isAgentNativePackageName(name) &&
+          version.trim() === PINNABLE_VERSION
+        ) {
+          add(file, name);
+        }
+      }
+    }
+  }
+  for (const bump of pendingBumps) add(bump.file, bump.name);
+
+  return [...byFile]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([file, names]) => ({ file, names: [...names].sort() }));
+}
+
+function yarnMajorVersion(project: UpgradeProject, io: UpgradeIo): number | null {
+  const rootPackage = readJsonFile(path.join(project.root, "package.json"));
+  const packageManager = rootPackage.ok ? rootPackage.value.packageManager : null;
+  const pinnedMajor = packageManager?.match(/^yarn@(\d+)/)?.[1];
+  if (pinnedMajor) return Number(pinnedMajor);
+
+  const version = io.spawn("yarn", ["--version"], {
+    cwd: project.root,
+    stdio: "pipe",
+  });
+  if (version.status !== 0) return null;
+  const output = String(version.stdout ?? version.output?.[1] ?? "").trim();
+  const major = Number(output.match(/^(\d+)/)?.[1]);
+  return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
+
+function refreshLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  groups: LatestAgentNativeDependencyGroup[],
+  pm: "pnpm" | "npm" | "yarn",
+  io: UpgradeIo,
+  stdio: "inherit" | "pipe",
+): { ok: true } | { ok: false; message: string } {
+  if (groups.length === 0) return { ok: true };
+
+  const yarnMajor = pm === "yarn" ? yarnMajorVersion(project, io) : null;
+  if (pm === "yarn" && yarnMajor === null) {
+    return {
+      ok: false,
+      message: "Could not determine the Yarn version to refresh latest packages.",
+    };
+  }
+
+  const updateGroups =
+    pm === "yarn" && yarnMajor! >= 2
+      ? [
+          {
+            file: path.join(project.root, "package.json"),
+            names: [...new Set(groups.flatMap(({ names }) => names))].sort(),
+          },
+        ]
+      : groups;
+
+  let updateFailure: string | null = null;
+  for (const group of updateGroups) {
+    const args =
+      pm === "pnpm"
+        ? ["update", "--latest", ...group.names]
+        : pm === "npm"
+          ? ["update", "--save", ...group.names]
+          : yarnMajor! >= 2
+            ? ["up", ...group.names.map((name) => `${name}@latest`)]
+            : ["upgrade", ...group.names.map((name) => `${name}@latest`)];
+    const result = io.spawn(pm, args, {
+      cwd:
+        pm === "yarn" && yarnMajor! >= 2
+          ? project.root
+          : path.dirname(group.file),
+      stdio,
+    });
+    if (result.status !== 0) {
+      updateFailure = `${pm} ${args.join(" ")} failed while refreshing @agent-native/* latest dependencies.`;
+      break;
+    }
+  }
+
+  for (const group of groups) {
+    const read = readJsonFile(group.file);
+    if (!read.ok) {
+      return {
+        ok: false,
+        message: `Could not read ${relativeTo(project.root, group.file)} after refreshing latest packages.${updateFailure ? ` ${updateFailure}` : ""}`,
+      };
+    }
+    for (const section of PINNABLE_SECTIONS) {
+      const dependencies = read.value[section];
+      if (!dependencies) continue;
+      for (const name of group.names) {
+        if (dependencies[name] !== undefined) {
+          dependencies[name] = PINNABLE_VERSION;
+        }
+      }
+    }
+    writeJsonFile(group.file, read.value);
+  }
+
+  if (updateFailure) return { ok: false, message: updateFailure };
+
+  return { ok: true };
+}
+
 export function buildUpgradeDoctorReport(
   project: UpgradeProject,
 ): UpgradeDoctorReport {
@@ -1413,6 +1542,55 @@ export async function runUpgrade(
     }
   }
 
+  const latestDependencies = collectLatestAgentNativeDependencies(
+    project,
+    doctor.bumps,
+  );
+  const pm = detectPackageManager(project.root);
+  if (latestDependencies.length === 0) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "No floating @agent-native/* package specs need refreshing",
+    });
+  } else if (opts.skipInstall) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "--skip-install leaves latest package specs unresolved",
+    });
+  } else if (dryRun) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "planned",
+      detail: `Would refresh ${latestDependencies
+        .flatMap(({ names }) => names)
+        .join(", ")} before installing`,
+    });
+  } else {
+    const refreshed = refreshLatestAgentNativeDependencies(
+      project,
+      latestDependencies,
+      pm,
+      io,
+      opts.json ? "pipe" : "inherit",
+    );
+    result.steps.push({
+      id: "refresh-latest",
+      status: refreshed.ok ? "ok" : "failed",
+      detail: refreshed.ok
+        ? "Refreshed floating @agent-native/* packages"
+        : refreshed.message,
+    });
+    if (!refreshed.ok) {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = refreshed.message;
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
+
   if (opts.skipInstall) {
     result.steps.push({
       id: "install",
@@ -1423,10 +1601,9 @@ export async function runUpgrade(
     result.steps.push({
       id: "install",
       status: "planned",
-      detail: `${detectPackageManager(project.root)} install`,
+      detail: `${pm} install`,
     });
   } else {
-    const pm = detectPackageManager(project.root);
     const spawned = io.spawn(pm, installArgs(pm), {
       cwd: project.root,
       stdio: opts.json ? "pipe" : "inherit",

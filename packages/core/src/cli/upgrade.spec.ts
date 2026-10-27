@@ -1358,6 +1358,71 @@ describe("runUpgrade", () => {
     );
   });
 
+  it("refreshes packages already using latest before installing", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", packageManager: "pnpm@10.29.0" },
+      apps: {
+        chat: {
+          name: "chat",
+          dependencies: {
+            "@agent-native/dispatch": "latest",
+            "@agent-native/otel": "latest",
+          },
+        },
+      },
+    });
+    const spawnCalls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const { io } = captureIo({
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, cwd: options.cwd });
+        if (args[0] === "update") {
+          writeInstalledPackage(root, "0.40.40", "@agent-native/dispatch");
+          writeInstalledPackage(root, "0.1.25", "@agent-native/otel");
+          const manifestPath = path.join(options.cwd, "package.json");
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
+          manifest.dependencies["@agent-native/otel"] = "^0.1.25";
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    expect(
+      await runUpgrade(
+        ["--cwd", root, "--skip-skills", "--skip-verify"],
+        io,
+      ),
+    ).toBe(0);
+
+    expect(spawnCalls.slice(0, 2)).toEqual([
+      {
+        command: "pnpm",
+        args: [
+          "update",
+          "--latest",
+          "@agent-native/dispatch",
+          "@agent-native/otel",
+        ],
+        cwd: path.join(root, "apps", "chat"),
+      },
+      { command: "pnpm", args: ["install"], cwd: root },
+    ]);
+    const appPackage = JSON.parse(
+      fs.readFileSync(path.join(root, "apps", "chat", "package.json"), "utf-8"),
+    );
+    expect(appPackage.dependencies["@agent-native/dispatch"]).toBe("0.40.40");
+    expect(appPackage.dependencies["@agent-native/otel"]).toBe("0.1.25");
+  });
+
   it("fails loudly instead of leaving a spec floating on latest", async () => {
     const root = makeTempProject({
       rootPkg: {

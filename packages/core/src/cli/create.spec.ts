@@ -2,6 +2,8 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { once } from "node:events";
+import { createServer } from "node:http";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
@@ -14,6 +16,8 @@ import {
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
   _copyDir,
+  _curlDownloadArgs,
+  _downloadAndExtract,
   _fixPackageJsonName,
   _fixWebManifestName,
   _ensureScaffoldEmailBrandingConfig,
@@ -829,6 +833,59 @@ describe("createApp", { timeout: 30000 }, () => {
     process.exit = origExit;
     expect(exited).toBe(true);
     expect(fs.existsSync(path.join(dir, "package.json"))).toBe(false);
+  });
+});
+
+describe("template archive downloads", () => {
+  it("streams archives to a file before extracting them", async () => {
+    const sourceDir = path.join(tmpDir, "archive-source");
+    const sourceFile = path.join(sourceDir, "nested", "template.txt");
+    const archivePath = path.join(tmpDir, "template.tar.gz");
+    fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+    fs.writeFileSync(sourceFile, "template contents\n");
+    execFileSync(
+      resolveTarExecutable(),
+      ["-czf", archivePath, "nested"],
+      { cwd: sourceDir },
+    );
+
+    const server = createServer((_request, response) => {
+      fs.createReadStream(archivePath).pipe(response);
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Archive test server did not get a TCP address.");
+      }
+      const destDir = path.join(tmpDir, "extracted");
+      await _downloadAndExtract(
+        `http://127.0.0.1:${address.port}/template.tar.gz`,
+        destDir,
+      );
+      expect(
+        fs.readFileSync(path.join(destDir, "nested", "template.txt"), "utf8"),
+      ).toBe("template contents\n");
+      expect(fs.existsSync(path.join(destDir, ".download.tar.gz"))).toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("writes curl response bodies to the archive file", () => {
+    const args = _curlDownloadArgs(
+      "https://example.test/archive.tar.gz",
+      "/tmp/archive.tar.gz",
+    );
+    const outputIndex = args.indexOf("--output");
+
+    expect(outputIndex).toBeGreaterThanOrEqual(0);
+    expect(args[outputIndex + 1]).toBe("/tmp/archive.tar.gz");
+    expect(args.at(-1)).toBe("https://example.test/archive.tar.gz");
   });
 });
 

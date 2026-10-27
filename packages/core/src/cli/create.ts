@@ -2774,7 +2774,7 @@ function extractTarball(
   }
 }
 
-async function downloadAndExtract(
+export async function _downloadAndExtract(
   url: string,
   destDir: string,
   options: {
@@ -2783,29 +2783,34 @@ async function downloadAndExtract(
   } = {},
 ): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
-  const tarball = await execFileBuffer(
-    "curl",
-    [
-      "--fail-with-body",
-      "--connect-timeout",
-      "10",
-      "--max-time",
-      "120",
-      "-sSL",
-      url,
-    ],
-    { maxBuffer: 100 * 1024 * 1024 },
-  );
   const tarPath = path.join(destDir, ".download.tar.gz");
-  fs.writeFileSync(tarPath, tarball);
   try {
+    await execFileBuffer(
+      "curl",
+      _curlDownloadArgs(url, tarPath),
+      { maxBuffer: 10 * 1024 * 1024 },
+    );
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);
     }
     extractTarball(tarPath, destDir, options);
   } finally {
-    fs.unlinkSync(tarPath);
+    fs.rmSync(tarPath, { force: true });
   }
+}
+
+export function _curlDownloadArgs(url: string, tarPath: string): string[] {
+  return [
+    "--fail-with-body",
+    "--connect-timeout",
+    "10",
+    "--max-time",
+    "120",
+    "-sSL",
+    "--output",
+    tarPath,
+    url,
+  ];
 }
 
 function validateCommunityArchive(tarPath: string): void {
@@ -2875,7 +2880,7 @@ async function downloadGitHubSubdir(
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      await downloadAndExtract(tarUrl, tmpDir, {
+      await _downloadAndExtract(tarUrl, tmpDir, {
         skipAgentSymlinks: repo === REPO,
       });
       const srcDir = path.join(tmpDir, subdir);
@@ -2909,7 +2914,7 @@ async function downloadGitHubRepo(
   const errors: string[] = [];
   for (const ref of refs) {
     try {
-      await downloadAndExtract(
+      await _downloadAndExtract(
         communityTemplateTarballUrl(repo, ref),
         targetDir,
         { untrustedCommunityArchive: true },
