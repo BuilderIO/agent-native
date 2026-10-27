@@ -178,6 +178,9 @@ function importsModule(text: string, base: string): boolean {
 
 const SOURCE_TEXT_READ =
   /new URL\(\s*["'][^"']+\.tsx?["']\s*,\s*import\.meta\.url/;
+// The harness resolves the monorepo's `templates/` from its own location; the
+// sandbox holds only Core, so a spec importing it dies on ENOENT.
+const REPO_ROOT_HARNESS = /advertised-catalog\.harness/;
 const RELATIVE_SPECIFIER =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
 
@@ -188,7 +191,7 @@ const RELATIVE_SPECIFIER =
  * the sandbox; either fails the dry run, which aborts every mutant.
  */
 function runsInSandbox(text: string, directory: string): boolean {
-  if (SOURCE_TEXT_READ.test(text)) return false;
+  if (SOURCE_TEXT_READ.test(text) || REPO_ROOT_HARNESS.test(text)) return false;
   for (const [, specifier] of text.matchAll(RELATIVE_SPECIFIER)) {
     if (specifier === undefined) continue;
     if (path.posix.join(directory, specifier).startsWith("../")) return false;
