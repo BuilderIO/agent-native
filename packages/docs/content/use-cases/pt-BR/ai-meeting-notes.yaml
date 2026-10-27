@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: Notas de reunião com IA
+title: Tenha notas de reunião sem bot na chamada
 seo_title: Notas de reunião com IA, sem bot na sua chamada
-meta_description: "O Agent-Native Clips é um jeito gratuito e open source de fazer notas de reunião com IA direto do seu computador: transcrição, resumo e itens de ação de cada chamada."
+meta_description: Receba transcrição, resumo e itens de ação de cada chamada. O Agent-Native Clips grava no seu próprio computador, e você pode pesquisar ou perguntar sobre qualquer reunião depois.
 updated: 2026-10-26
 hero:
-  body: "O Agent-Native Clips transforma chamadas em notas: transcrição, resumo e itens de ação por participante. Grava no seu computador, sem bot, e qualquer reunião é pesquisável."
+  body: "O Agent-Native Clips transforma chamadas em notas: transcrição, resumo e itens de ação por pessoa. Grava o microfone e o áudio da chamada no computador, e você pesquisa ou pergunta sobre qualquer chamada."
   button:
     label: Faça notas de reunião
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
 other_uses:
-  heading: Outras coisas que você pode fazer com o Clips
+  heading: Outras coisas que você pode fazer com o Agent-Native Clips
   cards:
-    - title: Relatório de bugs com IA
+    - title: Grave bugs com os logs de console e de rede
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Grave um bug com os logs de console e de rede do navegador, pronto para o seu agente de código.
-    - title: Ditado com IA
+      body: Cada gravação fica pronta para entregar ao seu agente de código, para ele ver o que deu errado.
+    - title: Dite seus prompts em vez de digitá-los
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: Segure uma tecla e fale, e o Clips digita o texto já limpo no app que você está usando.
 faqs:

@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: Notas de reuniones con IA
-seo_title: Notas de reuniones con IA sin ningún bot en tu llamada
-meta_description: "Agent-Native Clips es una forma gratuita y de código abierto de tomar notas de reuniones con IA desde tu propio ordenador: transcripción, resumen y tareas de cada llamada."
+title: Obtén notas de reunión sin bots en la llamada
+seo_title: Notas de reuniones con IA sin bots en tu llamada
+meta_description: Obtén la transcripción, un resumen y las tareas de cada llamada. Agent-Native Clips graba en tu propio ordenador, así que puedes buscar o preguntar por cualquier reunión más tarde.
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips convierte tus llamadas en notas: transcripción, resumen y tareas por asistente. Graba en tu ordenador, sin bots, y cada reunión es buscable."
+  body: "Agent-Native Clips convierte tus llamadas en notas: transcripción, resumen y tareas por asistente. Graba tu micrófono y el audio de la llamada en tu ordenador, y puedes buscar o preguntar por cualquier llamada."
   button:
     label: Toma notas de reuniones
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
 other_uses:
-  heading: Otras cosas que puedes hacer con Clips
+  heading: Otras cosas que puedes hacer con Agent-Native Clips
   cards:
-    - title: Reportes de bugs con IA
+    - title: Graba bugs con sus registros de consola y de red
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Graba un bug con los registros de consola y de red del navegador, listo para tu agente de código.
-    - title: Dictado con IA
+      body: Cada grabación está lista para pasársela a tu agente de código, para que vea qué falló.
+    - title: Dicta tus prompts en vez de escribirlos
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: Mantén pulsada una tecla y habla, y Clips escribe el texto ya limpio en la aplicación que estés usando.
 faqs:

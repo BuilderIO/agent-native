@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: AI議事録
-seo_title: ボット不要のAI議事録作成
-meta_description: Agent-Native Clipsは、ご自身のパソコンからAI議事録を作成できる無料のオープンソースツールです。すべての通話について、文字起こし、要約、アクションアイテムを作成します。
+title: ボットなしで通話の議事録を作成
+seo_title: 通話にボットを入れないAI議事録作成
+meta_description: すべての通話から文字起こし、要約、アクションアイテムを作成します。Agent-Native Clipsはご自身のパソコンで録音するので、どの会議も後から検索したり質問したりできます。
 updated: 2026-10-26
 hero:
-  body: Agent-Native Clipsは、通話から文字起こし、要約、参加者ごとのアクションアイテムを作成。パソコンで録音するのでボット不要で、検索や質問もできます。
+  body: Agent-Native Clipsは、通話から文字起こし、要約、参加者ごとのアクションアイテムを作成。マイクと通話音声をパソコンで録音し、どの通話も検索や質問ができます。
   button:
     label: 議事録を作成する
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
 other_uses:
-  heading: Clipsでできるその他のこと
+  heading: Agent-Native Clipsでできるその他のこと
   cards:
-    - title: AIバグ報告ツール
+    - title: コンソールログとネットワークログ付きでバグを録画
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: ブラウザのコンソールログとネットワークログ付きでバグを録画し、コーディングエージェントに渡せる状態にします。
-    - title: AIディクテーション
+      body: 録画はそのままコーディングエージェントに渡せるので、何が起きたのかをエージェントが確認できます。
+    - title: プロンプトはタイプせず、話して入力
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: キーを押しながら話すだけで、Clipsが整えたテキストを使用中のアプリに入力します。
 faqs:

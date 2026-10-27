@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: AI 회의 노트
+title: 통화에 봇 없이 회의 노트를 받아 보세요
 seo_title: 통화에 봇이 들어오지 않는 AI 회의 노트
-meta_description: "Agent-Native Clips는 내 컴퓨터에서 AI 회의 노트를 만들어 주는 무료 오픈 소스 도구예요. 모든 통화의 전사, 요약, 작업 항목을 받아 보세요."
+meta_description: "모든 통화의 전사, 요약, 작업 항목을 받아 보세요. Agent-Native Clips는 내 컴퓨터에서 녹음하니 나중에 어떤 회의든 검색하거나 질문할 수 있어요."
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips는 통화를 전사, 요약, 참석자별 작업 항목이 담긴 노트로 만들어 줘요. 내 컴퓨터에서 녹음하니 봇이 들어오지 않고, 어떤 회의든 검색하거나 질문할 수 있어요."
+  body: "Agent-Native Clips는 통화를 전사, 요약, 참석자별 작업 항목이 담긴 노트로 만들어 줘요. 내 컴퓨터에서 마이크와 통화 오디오를 녹음하고, 어떤 통화든 검색하거나 질문할 수 있어요."
   button:
     label: 회의 노트 만들기
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
 other_uses:
-  heading: Clips로 할 수 있는 다른 일
+  heading: Agent-Native Clips로 할 수 있는 다른 일
   cards:
-    - title: AI 버그 리포트 도구
+    - title: 콘솔과 네트워크 로그까지 담아 버그를 녹화하세요
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: "브라우저 콘솔과 네트워크 로그가 담긴 버그 녹화를 코딩 에이전트에게 바로 넘겨 보세요."
-    - title: AI 받아쓰기
+      body: "녹화마다 코딩 에이전트에게 바로 넘길 수 있어, 무엇이 잘못됐는지 에이전트가 볼 수 있어요."
+    - title: 프롬프트를 타이핑 대신 말로 입력하세요
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: "키를 누른 채 말하면 Clips가 정리된 텍스트를 쓰고 있는 앱에 입력해 줘요."
 faqs:

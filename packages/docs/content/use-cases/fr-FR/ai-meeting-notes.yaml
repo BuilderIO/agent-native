@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: Notes de réunion par IA
+title: Vos notes de réunion, sans bot dans l'appel
 seo_title: Notes de réunion par IA, sans bot dans vos appels
-meta_description: "Agent-Native Clips est un moyen gratuit et open source de prendre des notes de réunion par IA depuis votre ordinateur : transcription, résumé et actions à faire pour chaque appel."
+meta_description: Obtenez une transcription, un résumé et les actions à faire de chaque appel. Agent-Native Clips enregistre sur votre ordinateur, pour rechercher ou interroger n'importe quelle réunion plus tard.
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips transforme vos appels en notes : transcription, résumé et actions par participant. Il enregistre depuis votre ordinateur, sans bot, et chaque réunion est interrogeable."
+  body: "Agent-Native Clips transforme vos appels en notes : transcription, résumé et actions par participant. Il enregistre votre micro et l'audio de l'appel sur votre ordinateur, et chaque appel est interrogeable."
   button:
     label: Prendre des notes de réunion
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
 other_uses:
-  heading: Autres usages de Clips
+  heading: Autres usages d'Agent-Native Clips
   cards:
-    - title: Rapport de bug par IA
+    - title: Enregistrez vos bugs avec leurs logs console et réseau
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Enregistrez un bug avec les logs console et réseau du navigateur, prêt pour votre agent de code.
-    - title: Dictée par IA
+      body: Chaque enregistrement est prêt pour votre agent de code, qui voit ce qui n'a pas marché.
+    - title: Dictez vos prompts au lieu de les taper
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: Maintenez une touche et parlez, et Clips saisit un texte nettoyé dans l'application que vous utilisez.
 faqs:

@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: KI-Meeting-Notizen
-seo_title: KI-Meeting-Notizen ohne Bot im Gespräch
-meta_description: "Agent-Native Clips ist eine kostenlose Open-Source-Lösung für KI-Meeting-Notizen von Ihrem eigenen Computer: Transkript, Zusammenfassung und Aufgaben für jeden Anruf."
+title: Meeting-Notizen ohne Bot im Anruf erstellen
+seo_title: KI-Meeting-Notizen ohne Bot in Ihrem Anruf
+meta_description: Erhalten Sie Transkript, Zusammenfassung und Aufgaben aus jedem Anruf. Agent-Native Clips nimmt auf Ihrem eigenen Computer auf, sodass Sie jedes Meeting später durchsuchen oder dazu befragen können.
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips macht aus Anrufen Notizen: Transkript, Zusammenfassung und Aufgaben pro Teilnehmer. Es nimmt auf Ihrem Computer auf, ohne Bot, und Meetings lassen sich durchsuchen."
+  body: "Agent-Native Clips macht aus Anrufen Notizen: Transkript, Zusammenfassung und Aufgaben pro Teilnehmer. Es nimmt Mikrofon und Anrufton auf Ihrem Computer auf, und jeder Anruf lässt sich durchsuchen und befragen."
   button:
     label: Meeting-Notizen erstellen
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
 other_uses:
-  heading: Was Sie sonst noch mit Clips tun können
+  heading: Was Sie sonst noch mit Agent-Native Clips tun können
   cards:
-    - title: KI-Tool für Fehlerberichte
+    - title: Fehler samt Konsolen- und Netzwerk-Logs aufnehmen
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Nehmen Sie einen Fehler samt Browser-Konsole und Netzwerk-Logs auf, bereit für Ihren Coding-Agenten.
-    - title: KI-Diktat
+      body: Jede Aufnahme ist bereit für Ihren Coding-Agenten, damit er sieht, was schiefgelaufen ist.
+    - title: Ihre Prompts diktieren statt tippen
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: Taste halten und sprechen, und Clips tippt den bereinigten Text in die App, die Sie gerade nutzen.
 faqs:

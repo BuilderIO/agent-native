@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: AI 會議筆記
+title: 不讓機器人加入通話，也能做會議筆記
 seo_title: 不需要機器人加入通話的 AI 會議筆記
-meta_description: Agent-Native Clips 是免費開源的 AI 會議筆記工具，直接在你自己的電腦上記錄：每場通話都有逐字稿、摘要和行動項目。
+meta_description: 每場通話都能取得逐字稿、摘要和行動項目。Agent-Native Clips 在你自己的電腦上錄製，任何一場會議日後都能搜尋或提問。
 updated: 2026-10-26
 hero:
-  body: Agent-Native Clips 把你的通話變成筆記：逐字稿、摘要，以及依與會者整理的行動項目。它直接在你自己的電腦上錄製，不會有機器人加入通話，任何一場會議你都能搜尋或提問。
+  body: Agent-Native Clips 把你的通話變成筆記：逐字稿、摘要，以及依與會者整理的行動項目。它在你的電腦上錄下你的麥克風和通話音訊，任何一場通話你都能搜尋或提問。
   button:
     label: 開始做會議筆記
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
 other_uses:
-  heading: 你還能用 Clips 做的其他事
+  heading: 你還能用 Agent-Native Clips 做的其他事
   cards:
-    - title: AI 錯誤回報工具
+    - title: 錄下錯誤，附上主控台與網路記錄
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: 錄下錯誤，連同瀏覽器主控台和網路記錄，交給你的程式開發 agent 使用。
-    - title: AI 聽寫
+      body: 每段錄影都能直接交給你的程式開發 agent，讓它看清楚哪裡出了問題。
+    - title: 用說的輸入提示，不必再打字
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: 按住一個按鍵說話，Clips 就會把整理好的文字輸入到你正在使用的應用程式。
 faqs:
