@@ -1644,7 +1644,7 @@ describe("runQuery cancellation", () => {
     const fenceRead = execute.mock.calls.find(([input]) =>
       input.sql.startsWith("SELECT generation, fence_token"),
     );
-    expect(fenceRead?.[0].args[0]).toMatch(/^v2:/);
+    expect(fenceRead?.[0].args[0]).toMatch(/^v3:/);
   });
 
   it("reports when the app received the result and whether the provider cache answered", async () => {
@@ -1699,6 +1699,52 @@ describe("runQuery cancellation", () => {
       maximumBytesBilled: "750000000000",
     });
   });
+
+  it.each([
+    { name: "omitted", raw: undefined, expected: undefined },
+    { name: "null", raw: null, expected: undefined },
+    { name: "empty", raw: "", expected: undefined },
+    { name: "malformed", raw: "12bytes", expected: undefined },
+    { name: "negative", raw: "-1", expected: undefined },
+    { name: "fractional", raw: "1.5", expected: undefined },
+    { name: "unsafe", raw: "9007199254740992", expected: undefined },
+    { name: "zero", raw: "0", expected: 0 },
+    { name: "actual", raw: "4096", expected: 4096 },
+  ])(
+    "preserves $name processed-byte metadata through both cache layers",
+    async ({ name, raw, expected }) => {
+      const cache = useCacheDatabase();
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [] },
+          rows: [],
+          totalBytesProcessed: raw,
+          cacheHit: false,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = `SELECT 1 AS byte_metadata_${name}`;
+
+      const fresh = await runQuery(sql, { forceRefresh: true });
+      const l1 = await runQuery(sql);
+      for (const entry of cache.values()) entry.generation++;
+      const l2 = await runQuery(sql);
+
+      expect(fresh.cached).toBe(false);
+      for (const result of [fresh, l1, l2]) {
+        expect(result.bytesProcessed).toBe(expected);
+        expect(result.providerCacheHit).toBe(false);
+      }
+      expect(l1.cached).toBe(true);
+      expect(l2.cached).toBe(true);
+      const write = execute.mock.calls.find(([query]) =>
+        query.sql.startsWith("UPDATE bigquery_cache SET sql"),
+      );
+      expect(write?.[0].args[3]).toBe(expected ?? -1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("keeps the original fetch time and provider cache state on app cache hits", async () => {
     const cache = useCacheDatabase();
