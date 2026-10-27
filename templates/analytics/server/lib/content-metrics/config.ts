@@ -165,7 +165,7 @@ export function ga4ConfigFingerprint(propertyId: string): string {
 }
 
 export function searchConsoleConfigFingerprint(
-  sites: Array<{ siteUrl: string; pathPrefix?: string }>,
+  sites: ContentCollectionConfig["searchConsole"]["sites"],
 ): string {
   return sha256(
     JSON.stringify(
