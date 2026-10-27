@@ -292,6 +292,9 @@ const auditRows = async (tx: Tx, query: string, params: unknown[]) =>
   (await tx.unsafe(query, params)).map((r) => r.row as Row);
 
 const AUDIT_CAP = 2000;
+const THREAD_AUDIT_CAP = 1000;
+const LIVE_ROW_CAP = 200;
+const VERSION_SCAN_BUDGET_MS = 45_000;
 
 // Queries fetch the newest AUDIT_CAP + 1 rows so an over-full window is reported, not silently clipped.
 const newestFirst = (rows: Row[]) => ({
@@ -520,7 +523,15 @@ async function versionRows(tx: Tx, threadId: string) {
     `SELECT table_name FROM information_schema.columns WHERE table_schema = 'public' AND column_name = 'chat_context'`,
   );
   const out: Row[] = [];
+  const deadline = Date.now() + VERSION_SCAN_BUDGET_MS;
   for (const [i, t] of tables.entries()) {
+    if (Date.now() > deadline) {
+      out.push({
+        table: t.table_name,
+        scanError: `skipped: version scan exceeded ${VERSION_SCAN_BUDGET_MS / 1000}s budget`,
+      });
+      continue;
+    }
     let rows: Row[];
     try {
       await tx.unsafe(`SAVEPOINT version_scan_${i}`);
@@ -583,28 +594,47 @@ async function show(sources: Source[], raw: string) {
            FROM agent_runs WHERE thread_id = $1 ORDER BY started_at`,
           [threadId],
         );
+        const runEvents = liveRuns.length
+          ? await tx.unsafe(
+              `SELECT run_id, seq, event_data FROM agent_run_events
+                 WHERE run_id = ANY($1) AND (event_data LIKE '{"type":"tool_done"%' OR event_data LIKE '{"type":"error"%' OR event_data LIKE '{"type":"done"%')
+                 ORDER BY run_id, seq LIMIT ${LIVE_ROW_CAP + 1}`,
+              [liveRuns.map((r) => r.id)],
+            )
+          : [];
+        const failedSpans = await tx.unsafe(
+          `SELECT run_id, span_type, name, status, error_message, duration_ms, created_at
+             FROM agent_trace_spans WHERE thread_id = $1 AND status = 'error' ORDER BY created_at DESC LIMIT ${LIVE_ROW_CAP + 1}`,
+          [threadId],
+        );
+        const versions = await versionRows(tx, threadId);
+        const audit = await tx.unsafe(
+          `SELECT created_at, action, caller, status, error_code, summary, run_id, turn_id, left(input, 2000) AS input
+             FROM agent_audit_log WHERE thread_id = $1 AND created_at BETWEEN $2 AND $3 ORDER BY created_at DESC LIMIT ${THREAD_AUDIT_CAP + 1}`,
+          [threadId, createdAt - 60_000, updatedAt + 60_000],
+        );
+        const truncated: string[] = [];
+        const bound = (
+          name: string,
+          rows: Row[],
+          max: number,
+          newest: boolean,
+        ) => {
+          if (rows.length <= max) return newest ? [...rows].reverse() : rows;
+          truncated.push(
+            `${name}: only the ${newest ? "newest" : "oldest"} ${max} rows are included`,
+          );
+          const kept = rows.slice(0, max);
+          return newest ? kept.reverse() : kept;
+        };
         return {
           thread,
           liveRuns,
-          runEvents: liveRuns.length
-            ? await tx.unsafe(
-                `SELECT run_id, seq, event_data FROM agent_run_events
-                 WHERE run_id = ANY($1) AND (event_data LIKE '{"type":"tool_done"%' OR event_data LIKE '{"type":"error"%' OR event_data LIKE '{"type":"done"%')
-                 ORDER BY run_id, seq LIMIT 200`,
-                [liveRuns.map((r) => r.id)],
-              )
-            : [],
-          failedSpans: await tx.unsafe(
-            `SELECT run_id, span_type, name, status, error_message, duration_ms, created_at
-             FROM agent_trace_spans WHERE thread_id = $1 AND status = 'error' ORDER BY created_at LIMIT 200`,
-            [threadId],
-          ),
-          versions: await versionRows(tx, threadId),
-          audit: await tx.unsafe(
-            `SELECT created_at, action, caller, status, error_code, summary, run_id, turn_id, left(input, 2000) AS input
-             FROM agent_audit_log WHERE thread_id = $1 AND created_at BETWEEN $2 AND $3 ORDER BY created_at LIMIT 1000`,
-            [threadId, createdAt - 60_000, updatedAt + 60_000],
-          ),
+          runEvents: bound("runEvents", runEvents, LIVE_ROW_CAP, false),
+          failedSpans: bound("failedSpans", failedSpans, LIVE_ROW_CAP, true),
+          versions,
+          audit: bound("audit", audit, THREAD_AUDIT_CAP, true),
+          truncated,
         };
       });
     } catch (error) {
@@ -642,9 +672,12 @@ async function show(sources: Source[], raw: string) {
         `## runs\n${fence(JSON.stringify(runs, null, 2))}`,
         `## live run rows (pruned after 1-7 days)\n${fence(JSON.stringify(live.liveRuns, null, 2))}`,
         // thread_data is written when a run settles, so a running run's tool calls exist only here.
+        ...(live.truncated.length
+          ? [`## truncated\n${fence(live.truncated.join("\n"))}`]
+          : []),
         `## live tool and terminal events\n${fence(cap(live.runEvents, `${base}.json`))}`,
         `## failed trace spans (30-day retention)\n${fence(JSON.stringify(live.failedSpans, null, 2))}`,
-        `## versions written by this thread\n${fence(JSON.stringify(live.versions, null, 2))}`,
+        `## versions written by this thread\n${fence(cap(live.versions, `${base}.json`))}`,
         `## audited actions (${live.audit.length})\n${fence(cap(live.audit, `${base}.json`))}`,
         `# transcript\n\n${renderTranscript(threadData, `${base}.json`)}`,
       ].join("\n\n"),
