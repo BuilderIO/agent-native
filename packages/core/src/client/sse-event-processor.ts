@@ -2007,6 +2007,7 @@ export function processEvent(
             completedSideEffect: ev.completedSideEffect === true,
             tabId,
             browserTabId: getBrowserTabId(),
+            runId: context?.runId,
             eventId: ev.eventId ?? ev.id,
           },
         }),

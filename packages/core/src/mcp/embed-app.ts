@@ -861,6 +861,34 @@ export function embedApp(
         }
         return target;
       }
+      function requestBelongsToTargetMount(value, target) {
+        var active = activeConfig();
+        var appConfig = active.appConfig || {};
+        if (appConfig.workspaceRuntime !== true) return true;
+        var options = workspaceMountOptions(active);
+        var targetMount = resolveMcpAppEmbedBasePath(
+          "external-target",
+          target,
+          options
+        );
+        if (typeof targetMount !== "string") return false;
+        var parsedUrl;
+        try {
+          parsedUrl = { url: new URL(value, location.href) };
+        } catch (error) {
+          parsedUrl = { error: error };
+        }
+        if (!("url" in parsedUrl)) return false;
+        var url = parsedUrl.url;
+        const origin = appOrigin();
+        if (url.origin !== location.origin && url.origin !== origin) return false;
+        var requestMount = resolveMcpAppEmbedBasePath(
+          "workspace-path",
+          url.pathname,
+          Object.assign({}, options, { preferDeclaredMounts: true })
+        );
+        return typeof requestMount === "string" && requestMount === targetMount;
+      }
       function rewrittenUrl(value, appendToken) {
         var active = activeConfig();
         const origin = appOrigin();
@@ -877,11 +905,19 @@ export function embedApp(
           url.protocol = app.protocol;
           url.host = app.host;
         }
+        const appConfig = active.appConfig || {};
+        var frameworkRoutePrefix = appConfig.frameworkRoutePrefix || "/_agent-native";
+        if (frameworkRoutePrefix.endsWith("/")) {
+          frameworkRoutePrefix = frameworkRoutePrefix.slice(0, -1);
+        }
+        const eventsPath = frameworkRoutePrefix + "/events";
+        const authorizedTarget = authorizedTargetPath();
         if (
           appendToken &&
-          authorizedTargetPath() !== null &&
+          authorizedTarget !== null &&
+          requestBelongsToTargetMount(value, authorizedTarget) &&
           active.token &&
-          url.pathname === "/_agent-native/events"
+          url.pathname.endsWith(eventsPath)
         ) {
           url.searchParams.set(active.embedTokenParam, active.token);
         }
@@ -890,6 +926,13 @@ export function embedApp(
       function authHeaders(input, init) {
         var active = activeConfig();
         var authorizedTarget = authorizedTargetPath();
+        var requestUrl = input instanceof Request ? input.url : input;
+        if (
+          authorizedTarget !== null &&
+          !requestBelongsToTargetMount(requestUrl, authorizedTarget)
+        ) {
+          authorizedTarget = null;
+        }
         const headers = new Headers(
           init && init.headers ? init.headers : input instanceof Request ? input.headers : undefined
         );
@@ -930,6 +973,7 @@ export function embedApp(
         XMLHttpRequest.prototype.open = function(method, url) {
           const rewritten = rewrittenUrl(url, false);
           this.__agentNativeExternalEmbed = !!rewritten;
+          this.__agentNativeExternalEmbedUrl = url;
           return originalOpen.call(
             this,
             method,
@@ -944,7 +988,13 @@ export function embedApp(
             try {
               var active = activeConfig();
               var authorizedTarget = authorizedTargetPath();
-              if (authorizedTarget !== null) {
+              if (
+                authorizedTarget !== null &&
+                requestBelongsToTargetMount(
+                  this.__agentNativeExternalEmbedUrl,
+                  authorizedTarget
+                )
+              ) {
                 if (active.token) {
                   this.setRequestHeader("Authorization", "Bearer " + active.token);
                 }

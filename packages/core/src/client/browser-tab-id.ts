@@ -1,4 +1,8 @@
-import { appBasePath, isWorkspaceRuntime } from "./api-path.js";
+import {
+  appBasePath,
+  isWorkspaceRuntime,
+  WorkspaceAppMountResolutionError,
+} from "./api-path.js";
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -8,6 +12,7 @@ const BROWSER_TAB_ID_STATE_SYMBOL = Symbol.for(
 
 type BrowserTabIdState = {
   ids: Map<string, string>;
+  aliases?: Map<string, { storageKey: string; id: string }>;
   pendingId: string | null;
 };
 
@@ -19,9 +24,11 @@ const browserTabIdState =
   browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] ??
   (browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] = {
     ids: new Map(),
+    aliases: new Map(),
     pendingId: null,
   });
 browserTabIdState.pendingId ??= null;
+const browserTabIdAliases = (browserTabIdState.aliases ??= new Map());
 let serverCached: string | undefined;
 
 function storageKey(): string {
@@ -82,6 +89,7 @@ export function getBrowserTabId(): string {
     ) {
       browserTabIdState.pendingId = null;
       browserTabIdState.ids.set(key, existing);
+      browserTabIdAliases.set(pending, { storageKey: key, id: existing });
       return existing;
     }
 
@@ -118,13 +126,31 @@ export function getBrowserTabId(): string {
   return id;
 }
 
+export function resolveBrowserTabIdAlias(tabId?: string): string | undefined {
+  if (typeof tabId !== "string") return undefined;
+  const alias = browserTabIdAliases.get(tabId);
+  if (!alias) return undefined;
+  return browserTabIdState.ids.get(alias.storageKey) === alias.id
+    ? alias.id
+    : undefined;
+}
+
 export function isBrowserTabIdForCurrentDocument(tabId?: string): boolean {
   if (typeof tabId !== "string") return false;
   if (browserTabIdState.pendingId === tabId) return true;
   for (const knownTabId of browserTabIdState.ids.values()) {
     if (knownTabId === tabId) return true;
   }
-  return false;
+  const alias = browserTabIdAliases.get(tabId);
+  if (!alias || resolveBrowserTabIdAlias(tabId) === undefined) return false;
+  let currentStorageKey: string;
+  try {
+    currentStorageKey = storageKey();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) return false;
+    throw error;
+  }
+  return currentStorageKey === alias.storageKey;
 }
 
 function getOrCreateMemoryId(key: string): string {

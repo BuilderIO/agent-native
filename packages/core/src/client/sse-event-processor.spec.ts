@@ -80,6 +80,8 @@ describe("SSE tool completion tab identity", () => {
         [],
         { value: 0 },
         "chat-tab-a",
+        undefined,
+        { runId: "run-1" },
       );
 
       const completed = dispatchEvent.mock.calls
@@ -88,6 +90,7 @@ describe("SSE tool completion tab identity", () => {
       expect(completed?.detail).toMatchObject({
         tabId: "chat-tab-a",
         browserTabId,
+        runId: "run-1",
       });
       expect(browserTabId).not.toBe("chat-tab-a");
     } finally {

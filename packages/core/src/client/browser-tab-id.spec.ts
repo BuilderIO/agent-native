@@ -195,22 +195,31 @@ describe("browser tab id", () => {
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
     ).__AGENT_NATIVE_CONFIG__ = {
       workspaceRuntime: true,
-      workspaceAppMountPaths: ["/mail"],
+      workspaceAppMountPaths: ["/mail", "/calendar"],
     };
     window.sessionStorage.setItem(`${STORAGE_KEY}:/mail`, "stored-mail-id");
     window.history.replaceState({}, "", "/opening");
     stubNavigationType("reload");
 
-    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
-      await loadTabId();
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
     const pendingId = getBrowserTabId();
 
     expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
     window.history.replaceState({}, "", "/mail/inbox");
     expect(getBrowserTabId()).toBe("stored-mail-id");
-    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
       "stored-mail-id",
     );
+
+    window.history.replaceState({}, "", "/calendar");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe("stored-mail-id");
   });
 });

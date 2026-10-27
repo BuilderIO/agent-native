@@ -19,7 +19,7 @@ import {
 } from "../shared/surface-visibility.js";
 import { actionQueryAffectedByResources } from "./action-query-scope.js";
 import { agentNativePath } from "./api-path.js";
-import { getBrowserTabId } from "./browser-tab-id.js";
+import { getBrowserTabId, resolveBrowserTabIdAlias } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
 import {
   ensureEmbedAuthFetchInterceptor,
@@ -1909,11 +1909,19 @@ export function useDbSync(
           ? detail.runId
           : undefined;
       const runStart = browserTabIdsByTab.get(tabId);
+      if (runId && runStart?.runId && runId !== runStart.runId) return;
+      const aliasedRunStartId = runStart
+        ? resolveBrowserTabIdAlias(runStart.browserTabId)
+        : undefined;
       const browserTabId =
+        aliasedRunStartId ??
         runStart?.browserTabId ??
         (typeof detail.browserTabId === "string"
           ? detail.browserTabId
           : getBrowserTabId());
+      if (runStart && browserTabId !== runStart.browserTabId) {
+        browserTabIdsByTab.set(tabId, { ...runStart, browserTabId });
+      }
       if (completedSideEffect && !runStart) {
         browserTabIdsByTab.set(tabId, {
           browserTabId,
@@ -1983,7 +1991,11 @@ export function useDbSync(
           ? detail.runId
           : undefined;
       if (runId && runStart?.runId && runId !== runStart.runId) return;
+      const aliasedRunStartId = runStart
+        ? resolveBrowserTabIdAlias(runStart.browserTabId)
+        : undefined;
       const browserTabId =
+        aliasedRunStartId ??
         runStart?.browserTabId ??
         (typeof detail.browserTabId === "string"
           ? detail.browserTabId

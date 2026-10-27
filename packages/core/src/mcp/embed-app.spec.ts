@@ -544,7 +544,7 @@ describe("embedApp", () => {
     const installedFetch = windowObject.fetch as (
       input: string,
     ) => Promise<Response>;
-    await installedFetch("/api/action");
+    await installedFetch("/deck/_agent-native/actions/action");
     const sameMountHeaders = new Headers(forwarded[0]?.init?.headers);
     expect(sameMountHeaders.get("Authorization")).toBe("Bearer deck-token");
     expect(sameMountHeaders.get("X-Agent-Native-Embed-Target")).toBe(
@@ -552,7 +552,7 @@ describe("embedApp", () => {
     );
 
     const sameMountXhr = new MockXMLHttpRequest();
-    sameMountXhr.open("GET", "/api/action");
+    sameMountXhr.open("GET", "/deck/_agent-native/actions/action");
     sameMountXhr.send();
     expect(sameMountXhr.headers.get("authorization")).toBe("Bearer deck-token");
     expect(sameMountXhr.headers.get("x-agent-native-embed-target")).toBe(
@@ -562,19 +562,41 @@ describe("embedApp", () => {
     const installedEventSource = windowObject.EventSource as (
       url: string,
     ) => unknown;
-    installedEventSource("/_agent-native/events");
+    installedEventSource("/deck/_agent-native/events");
     expect(
       new URL(eventSourceUrls[0] as string).searchParams.get(
         "__an_embed_token",
       ),
     ).toBe("deck-token");
 
+    await installedFetch("/mail/_agent-native/actions/action");
+    const siblingRequestHeaders = new Headers(forwarded[1]?.init?.headers);
+    expect(siblingRequestHeaders.has("Authorization")).toBe(false);
+    expect(siblingRequestHeaders.has("X-Agent-Native-Embed-Target")).toBe(
+      false,
+    );
+
+    const siblingRequestXhr = new MockXMLHttpRequest();
+    siblingRequestXhr.open("GET", "/mail/_agent-native/actions/action");
+    siblingRequestXhr.send();
+    expect(siblingRequestXhr.headers.has("authorization")).toBe(false);
+    expect(siblingRequestXhr.headers.has("x-agent-native-embed-target")).toBe(
+      false,
+    );
+
+    installedEventSource("/mail/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[1] as string).searchParams.has(
+        "__an_embed_token",
+      ),
+    ).toBe(false);
+
     locationObject.pathname = "/mail/settings";
     locationObject.href = "https://host.example/mail/settings";
     locationObject.search = "";
 
     await installedFetch("/api/action");
-    const siblingMountHeaders = new Headers(forwarded[1]?.init?.headers);
+    const siblingMountHeaders = new Headers(forwarded[2]?.init?.headers);
     expect(siblingMountHeaders.has("Authorization")).toBe(false);
     expect(siblingMountHeaders.has("X-Agent-Native-Embed-Target")).toBe(false);
 
@@ -588,7 +610,7 @@ describe("embedApp", () => {
 
     installedEventSource("/_agent-native/events");
     expect(
-      new URL(eventSourceUrls[1] as string).searchParams.has(
+      new URL(eventSourceUrls[2] as string).searchParams.has(
         "__an_embed_token",
       ),
     ).toBe(false);
