@@ -4525,6 +4525,7 @@ async function scan(file, read) {
   } catch (error) {
     // Codex archives rollouts while the report runs; the open error surfaces
     // asynchronously from the stream, not from createReadStream.
+    if (error?.code !== "ENOENT" && error?.code !== "EACCES") throw error;
     process.stderr.write(`[friction] unreadable: ${file} (${error.code})\n`);
   }
 }

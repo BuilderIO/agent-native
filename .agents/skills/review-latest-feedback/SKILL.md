@@ -113,7 +113,9 @@ the invocation gives), plus 14 days for open items.
   with a human reply newer than our last reply, comes first in this run. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
-- **New reports:** roots from the last 5 days. Read the thread for every root
+- **New reports:** roots from the last 5 days. React and reply on the root
+  message's own `ts`, never on a thread reply that was also sent to the
+  channel. Read the thread for every root
   that looks like a report. Open screenshots and attachments, since the error
   text in a screenshot is often the whole diagnosis.
 - **Other sources.** Unread or failing sources are reported as
