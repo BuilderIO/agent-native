@@ -1253,6 +1253,44 @@ describe("content webhooks", () => {
     expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
   });
 
+  it("W2-4: permanently deleting a row page removes its events and keeps the collection's webhook", async () => {
+    const ids = await fixture(2);
+    const gone = found(ids.rows[0], "First row");
+    const kept = found(ids.rows[1], "Second row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+      }),
+    );
+    for (const row of [gone, kept]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value: "agent",
+        }),
+      );
+    }
+    await settled(webhook.id, 2);
+
+    await deleteDocumentRecursive(getDb(), gone.documentId, OWNER);
+
+    const left = await deliveries(webhook.id);
+    expect(left.map((delivery) => delivery.documentId)).toEqual([
+      kept.documentId,
+    ]);
+    expect(await hooks.removeOrphanedContentWebhooks()).toBe(0);
+    const listed = await asOwner(() =>
+      listWebhooks.run({ databaseId: ids.databaseId }),
+    );
+    expect(listed.webhooks.map((listedWebhook) => listedWebhook.id)).toEqual([
+      webhook.id,
+    ]);
+  });
+
   it("W2-4: refuses URLs it can't safely call and properties outside the scope", async () => {
     const ids = await fixture();
     const other = await fixture();

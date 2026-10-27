@@ -1574,7 +1574,9 @@ export const runContentMigrations = runMigrations(
           ON content_webhook_deliveries (webhook_id, lease_expires_at)
           WHERE status = 'pending';
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_settled_idx
-          ON content_webhook_deliveries (status, updated_at)`,
+          ON content_webhook_deliveries (status, updated_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_document_idx
+          ON content_webhook_deliveries (document_id)`,
     },
   ],
   { table: "content_migrations" },

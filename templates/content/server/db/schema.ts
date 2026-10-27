@@ -1198,6 +1198,7 @@ export const contentWebhookDeliveries = table(
       delivery.status,
       delivery.updatedAt,
     ),
+    index("content_webhook_deliveries_document_idx").on(delivery.documentId),
   ],
 );
 
