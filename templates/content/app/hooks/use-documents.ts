@@ -817,6 +817,7 @@ export function useDocument(
     batchRefetches?: false;
   } = {},
 ) {
+  trackDocumentReadFailures(useQueryClient());
   return useActionQuery<Document>(
     "get-document",
     id ? documentReadParams(id, context) : undefined,

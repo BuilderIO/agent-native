@@ -10,7 +10,7 @@ import {
 // or when a page open starts the read before the editor mounts. Each document
 // read's last failure is kept here until the read next succeeds on its own (a
 // cache write doesn't count) or the query leaves the cache. Tracking starts on
-// first use, so call this before a read that may fail.
+// first use, so every document read calls this before it can fail.
 const failuresByClient = new WeakMap<QueryClient, Map<string, unknown>>();
 
 export function trackDocumentReadFailures(queryClient: QueryClient) {

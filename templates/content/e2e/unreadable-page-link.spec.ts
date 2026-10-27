@@ -186,9 +186,13 @@ test("a Page that isn't shared with the reader says so without an error first, a
       timeout: 60_000,
     });
     errorFrames = 0;
-    const reread = readerPage.waitForResponse((response) =>
-      response.url().includes("/_agent-native/actions/get-document"),
-    );
+    const reread = readerPage.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/_agent-native/actions/get-document") &&
+        url.searchParams.get("id") === documentId
+      );
+    });
     await readerPage.goBack({ waitUntil: "commit" });
 
     await reread;
