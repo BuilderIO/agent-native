@@ -428,7 +428,7 @@ function frontmatterKey(line: string): string | undefined {
 
 function automationFrontmatter(content: string) {
   const match = content.match(FACTORY_FRONTMATTER_RE);
-  const header = match?.at(1);
+  const header = match?.[1];
   if (!match || header === undefined) {
     fail(
       "Restore complete Factory automation frontmatter (--- header ---) before saving outside-agent or marked content.",

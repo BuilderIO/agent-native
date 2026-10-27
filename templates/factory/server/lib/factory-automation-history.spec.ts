@@ -357,10 +357,10 @@ describe("restoreFactoryAutomationVersion", () => {
     expect(result.resource.content.endsWith("\n\nRestored prompt.\n")).toBe(
       true,
     );
-    expect(resourcePutIfCurrentMock.mock.calls.at(0)?.[0].expectedContent).toBe(
+    expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].expectedContent).toBe(
       live,
     );
-    expect(insertValuesMock.mock.calls.at(0)?.[0].rawContent).toBe(live);
+    expect(insertValuesMock.mock.calls[0]?.[0].rawContent).toBe(live);
   });
 
   it.each([
@@ -450,7 +450,7 @@ describe("restoreFactoryAutomationVersion", () => {
         ),
       ).toBe(true);
       expect(result.resource.content).toContain("customFactory: retained");
-      const header = result.resource.content.split(/\r?\n---/).at(0);
+      const header = result.resource.content.split(/\r?\n---/).shift();
       if (header === undefined) throw new Error("Expected automation header.");
       for (const key of [
         "mcpManaged",
@@ -465,11 +465,11 @@ describe("restoreFactoryAutomationVersion", () => {
             .filter((line) => line.split(":").shift()?.trim() === key),
         ).toHaveLength(1);
       }
-      expect(resourcePutIfCurrentMock.mock.calls.at(0)?.[0]).toMatchObject({
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0]).toMatchObject({
         expectedContent: live,
         expectedUpdatedAt: 42,
       });
-      expect(insertValuesMock.mock.calls.at(0)?.[0].rawContent).toBe(live);
+      expect(insertValuesMock.mock.calls[0]?.[0].rawContent).toBe(live);
     },
   );
 
@@ -492,8 +492,8 @@ describe("restoreFactoryAutomationVersion", () => {
     const { parseJobResource } =
       await import("@agent-native/core/jobs/frontmatter");
     expect(
-      parseJobResource(resourcePutIfCurrentMock.mock.calls.at(0)?.[0].content)
-        .meta.mcpManaged,
+      parseJobResource(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).meta
+        .mcpManaged,
     ).toBeUndefined();
   });
 
@@ -626,16 +626,16 @@ describe("restoreFactoryAutomationVersion", () => {
         true,
       );
       expect(result.resource.content).toBe(
-        resourcePutIfCurrentMock.mock.calls.at(0)?.[0].content,
+        resourcePutIfCurrentMock.mock.calls[0]?.[0].content,
       );
       expect(result.resource.size).toBe(
         Buffer.byteLength(result.resource.content),
       );
-      expect(resourcePutIfCurrentMock.mock.calls.at(0)?.[0]).toMatchObject({
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0]).toMatchObject({
         expectedUpdatedAt: 42,
         expectedContent: live,
       });
-      expect(insertValuesMock.mock.calls.at(0)?.[0].rawContent).toBe(live);
+      expect(insertValuesMock.mock.calls[0]?.[0].rawContent).toBe(live);
     },
   );
 
@@ -658,7 +658,7 @@ describe("restoreFactoryAutomationVersion", () => {
       );
       expect(insertValuesMock).toHaveBeenCalledOnce();
       expect(deleteReturningMock).toHaveBeenCalledOnce();
-      expect(resourcePutIfCurrentMock.mock.calls.at(0)?.[0]).toMatchObject({
+      expect(resourcePutIfCurrentMock.mock.calls[0]?.[0]).toMatchObject({
         expectedId: "resource-1",
         expectedUpdatedAt: 42,
         expectedContent: currentContent,

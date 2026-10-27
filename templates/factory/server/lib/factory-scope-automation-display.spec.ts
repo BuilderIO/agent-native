@@ -102,7 +102,7 @@ describe("factory automation display names", () => {
         model: "selected",
         enabled: false,
       });
-      const header = updated.split(/\r?\n---/).at(0);
+      const header = updated.split(/\r?\n---/).shift();
       if (header === undefined) throw new Error("Expected automation header.");
       expect(
         header
