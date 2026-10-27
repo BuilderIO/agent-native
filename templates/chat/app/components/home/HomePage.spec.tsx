@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   markHomeHandoff: vi.fn(),
   uploadFiles: vi.fn(),
+  startVoice: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -42,6 +43,9 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   }: {
     children: React.ReactNode;
   }) => <>{children}</>,
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
+  useRealtimeVoiceModeOptional: () => ({ start: state.startVoice }),
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   CoreAgentKitRoot: (props: Record<string, unknown>) => {
@@ -80,6 +84,8 @@ describe("HomePage", () => {
     state.markHomeHandoff.mockReset();
     state.uploadFiles.mockReset();
     state.uploadFiles.mockResolvedValue([]);
+    state.startVoice.mockReset();
+    state.startVoice.mockResolvedValue(undefined);
     window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -194,6 +200,24 @@ describe("HomePage", () => {
         Number.NEGATIVE_INFINITY,
     );
     expect(onLocalSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("starts voice chat on the home thread and opens that thread", () => {
+    act(() => root.render(<HomePage />));
+    const threadId = state.rootProps?.threadId as string;
+
+    act(() => (state.composerProps?.onVoiceChatStart as () => void)());
+
+    expect(state.startVoice).toHaveBeenCalledWith({ threadId });
+    expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
+    expect(state.navigateWithTransition).toHaveBeenCalledWith(
+      state.navigate,
+      `/chat/${threadId}`,
+    );
+    expect(state.startVoice.mock.invocationCallOrder[0]).toBeLessThan(
+      state.navigateWithTransition.mock.invocationCallOrder[0] ??
+        Number.NEGATIVE_INFINITY,
+    );
   });
 
   it("renders file paths as code inside translated sentences", () => {
