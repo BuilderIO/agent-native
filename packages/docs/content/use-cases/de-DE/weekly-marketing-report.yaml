@@ -1,7 +1,7 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
-title: Den Marketing-Wochenbericht ohne Tabellen erstellen
+title: Marketing-Wochenbericht ohne Tabellen erstellen
 seo_title: Marketing-Wochenbericht aus GA4 und HubSpot
 meta_description: "Ihr Marketing-Wochenbericht aus Google Analytics und HubSpot: Fragen Sie Agent-Native Analytics, wie die Woche lief, und teilen Sie die Antworten als Dashboard."
 updated: 2026-10-27
@@ -63,7 +63,7 @@ integrations:
       logos:
         - name: Slack
         - name: Google Sheets
-      body: Senden Sie täglich eine Zusammenfassung mit Dashboard-Link per Slack-Webhook in einen Kanal, und exportieren Sie Tabellen in ein verbundenes Google-Sheets-Konto.
+      body: Senden Sie täglich eine Zusammenfassung mit Dashboard-Link per Slack-Webhook in einen Kanal. Tabellen exportieren Sie nach Google Sheets.
     - title: Alles per MCP verbinden
       logos:
         - name: Notion
@@ -80,7 +80,7 @@ other_uses:
     - title: Erkennen, wo neue Nutzer abspringen
       url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
       body: Finden Sie den Schritt, an dem neue Nutzer abspringen, und sehen Sie sich die Sitzungen an, in denen es passiert.
-    - title: Ihre Sales-Pipeline mit HubSpot- und Gong-Daten prüfen
+    - title: Ihre Sales-Pipeline mit HubSpot und Gong prüfen
       url: https://www.agent-native.com/use-cases/ai-sales-analytics/
       body: Stellen Sie Ihren HubSpot-Deals und Gong-Anrufen Fragen in normaler Sprache.
 faqs:

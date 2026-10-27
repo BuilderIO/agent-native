@@ -58,12 +58,12 @@ integrations:
         - name: Google Analytics
         - name: HubSpot
         - name: X
-      body: Conecte o Google Analytics para o tráfego, o HubSpot para contatos e negócios e o X para o engajamento dos posts, cada um pela página Fontes de dados.
+      body: Conecte o Google Analytics para tráfego, o HubSpot para contatos e negócios e o X para engajamento, na página Fontes de dados.
     - title: Envie o relatório para onde sua equipe lê
       logos:
         - name: Slack
         - name: Google Sheets
-      body: Envie um resumo diário e o link do dashboard para um canal do Slack por um webhook do Slack, e exporte qualquer tabela para uma conta do Google Sheets conectada.
+      body: Envie um resumo diário e o link do dashboard a um canal do Slack por webhook, e exporte qualquer tabela para o Google Sheets conectado.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Notion

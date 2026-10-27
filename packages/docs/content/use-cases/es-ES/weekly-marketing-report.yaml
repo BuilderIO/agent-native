@@ -1,7 +1,7 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
-title: Haz tu informe semanal de marketing sin hojas de cálculo
+title: Haz tu informe semanal sin hojas de cálculo
 seo_title: Informe semanal de marketing con GA4 y HubSpot
 meta_description: Crea tu informe semanal de marketing con Google Analytics y HubSpot en Agent-Native Analytics. Pregunta cómo fue la semana y comparte las respuestas en un panel.
 updated: 2026-10-27
@@ -58,12 +58,12 @@ integrations:
         - name: Google Analytics
         - name: HubSpot
         - name: X
-      body: Conecta Google Analytics para el tráfico, HubSpot para contactos y oportunidades, y X para la interacción con tus posts, todo desde Fuentes de datos.
+      body: Conecta Google Analytics para el tráfico, HubSpot para contactos y oportunidades, y X para la interacción, desde Fuentes de datos.
     - title: Envía el informe adonde lo lee tu equipo
       logos:
         - name: Slack
         - name: Google Sheets
-      body: Envía un resumen diario y el enlace al panel a un canal de Slack mediante un webhook de Slack, y exporta cualquier tabla a una cuenta de Google Sheets conectada.
+      body: Envía un resumen diario y el enlace al panel a un canal de Slack con un webhook, y exporta cualquier tabla a tu cuenta de Google Sheets.
     - title: Conecta lo que quieras con MCP
       logos:
         - name: Notion

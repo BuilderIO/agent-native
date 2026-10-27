@@ -1,7 +1,7 @@
 template: v2
 slug: weekly-marketing-report
 app: analytics
-title: スプレッドシートなしで週次マーケティングレポートを作成
+title: 表計算なしで週次マーケティングレポートを作成
 seo_title: GA4とHubSpotで作る週次マーケティングレポート
 meta_description: Agent-Native Analyticsで、Google AnalyticsとHubSpotから週次マーケティングレポートを作成。1週間の成果を質問し、回答をダッシュボードとして共有できます。
 updated: 2026-10-27
