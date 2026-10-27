@@ -130,6 +130,9 @@ interface BqPayload extends Record<string, unknown> {
 }
 
 let loadedEnv: EnvConfig | undefined;
+let runtimeEnvironment:
+  | { selectedFile: string; contents: string; databaseUrl: string }
+  | undefined;
 let loadedOrganizationId: string | undefined;
 let loadedFirstPartyBackend:
   | { sink: "postgres" | "dual" | "bigquery"; table: string | null }
@@ -194,6 +197,26 @@ export function radarEnvironmentFiles(
     : [path.join(templateDir, ".env"), path.join(templateDir, ".env.local")];
 }
 
+export function configureRadarRuntimeEnvironment(input: {
+  selectedFile: string;
+  contents: string;
+  databaseUrl: string;
+}): void {
+  if (
+    loadedEnv ||
+    pgClient ||
+    !path.isAbsolute(input.selectedFile) ||
+    !input.databaseUrl ||
+    isLocalDatabaseUrl(input.databaseUrl)
+  ) {
+    throw new RadarQueryError(
+      "The live radar environment must be selected before queries start and use a remote database URL.",
+      2,
+    );
+  }
+  runtimeEnvironment = input;
+}
+
 export function radarProcessEnvironment(
   processValues: Record<string, string | undefined>,
   selectedFile: boolean,
@@ -211,7 +234,8 @@ function loadEnv(): EnvConfig {
   if (loadedEnv) return loadedEnv;
 
   const templateDir = path.join(REPO_ROOT, "templates/analytics");
-  const override = process.env.ANALYTICS_ENV;
+  const override =
+    runtimeEnvironment?.selectedFile ?? process.env.ANALYTICS_ENV;
   const files = radarEnvironmentFiles(templateDir, override);
   const values: Record<string, string | undefined> = {};
   const encryptionMaterials = new Set<string>();
@@ -219,10 +243,17 @@ function loadEnv(): EnvConfig {
   for (const file of files) {
     if (!fs.existsSync(file)) continue;
     let contents: string;
-    try {
-      contents = fs.readFileSync(file, "utf8");
-    } catch {
-      throw new RadarQueryError("Analytics environment file is unreadable.", 2);
+    if (runtimeEnvironment?.selectedFile === file) {
+      contents = runtimeEnvironment.contents;
+    } else {
+      try {
+        contents = fs.readFileSync(file, "utf8");
+      } catch {
+        throw new RadarQueryError(
+          "Analytics environment file is unreadable.",
+          2,
+        );
+      }
     }
 
     for (const [key, value] of Object.entries(dotenv.parse(contents))) {
@@ -289,7 +320,9 @@ export function radarDatabaseCacheNamespace(databaseUrl: string): string {
 
 function getPostgres(): NonNullable<typeof pgClient> {
   if (pgClient) return pgClient;
-  const configured = process.env.ANALYTICS_RADAR_DATABASE_URL;
+  const configured = runtimeEnvironment
+    ? runtimeEnvironment.databaseUrl
+    : process.env.ANALYTICS_RADAR_DATABASE_URL;
   const databaseUrl = configured ?? loadEnv().values.DATABASE_URL;
   if (!databaseUrl) {
     throw new RadarQueryError(

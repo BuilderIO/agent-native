@@ -16,6 +16,7 @@ import { liveDatabaseUrlFromEnv } from "./radar/live.ts";
 import {
   REPO_ROOT,
   RadarQueryError,
+  configureRadarRuntimeEnvironment,
   closeRadarQueries,
   radarRunCliExitCode,
 } from "./radar/query.ts";
@@ -42,8 +43,11 @@ function loadLiveDatabaseUrl(): void {
       2,
     );
   }
-  process.env.ANALYTICS_RADAR_DATABASE_URL = liveDatabaseUrlFromEnv(contents);
-  process.env.ANALYTICS_ENV = envFile;
+  configureRadarRuntimeEnvironment({
+    selectedFile: envFile,
+    contents,
+    databaseUrl: liveDatabaseUrlFromEnv(contents),
+  });
 }
 
 async function main(): Promise<void> {
