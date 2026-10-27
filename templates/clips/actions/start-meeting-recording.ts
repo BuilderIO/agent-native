@@ -61,6 +61,8 @@ export default defineAction({
           recording: existing,
           meetingId,
           created: false,
+          captureStopRevision: meeting.captureStopRevision,
+          actualEnd: meeting.actualEnd,
           scheduledEnd: meeting.scheduledEnd,
         };
       }
@@ -122,6 +124,8 @@ export default defineAction({
       recording,
       meetingId,
       created: true,
+      captureStopRevision: meeting.captureStopRevision,
+      actualEnd: meeting.actualEnd,
       scheduledEnd: meeting.scheduledEnd,
     };
   },
