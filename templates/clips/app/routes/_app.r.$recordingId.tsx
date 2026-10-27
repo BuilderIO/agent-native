@@ -1,4 +1,3 @@
-import { cancelBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
@@ -17,7 +16,6 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
-  backgroundAgentTurnIdForReceipt,
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
   AGENT_SIDEBAR_QUERY_PARAM,
@@ -1423,14 +1421,6 @@ export default function RecordingPage() {
         workflow.requestedAt,
         workflow.requestId,
       );
-      await cancelBackgroundAgentSession({
-        threadId: tabId,
-        turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
-        reason: stopReason,
-      }).catch((error) => {
-        const status = (error as Error & { status?: unknown }).status;
-        if (status !== 409) throw error;
-      });
       const result = await reconcileWorkflowGeneration.mutateAsync({
         operation: "stop",
         recordingId,

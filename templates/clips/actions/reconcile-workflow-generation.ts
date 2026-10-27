@@ -4,12 +4,15 @@ import {
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
+import { abortTurnByRefDurably } from "@agent-native/core/server";
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
   matchesWorkflowRequest,
   WorkflowKindSchema,
+  workflowSessionTabId,
 } from "../shared/workflow.js";
 
 const WorkflowStateSchema = z
@@ -65,7 +68,7 @@ export default defineAction({
     await assertAccess(
       "recording",
       recordingId,
-      operation === "stop" && stopReason ? "editor" : "viewer",
+      operation === "stop" ? "editor" : "viewer",
     );
 
     const requestKey = `clips-ai-request-${recordingId}`;
@@ -297,6 +300,21 @@ export default defineAction({
             reason: "different-run" as const,
           }
         : { reconciled: false, reason: "different-run" as const };
+    }
+    if (operation === "stop") {
+      const expectedTabId = workflowSessionTabId(
+        recordingId,
+        requestedAt,
+        requestId,
+      );
+      if (tabId !== expectedTabId) {
+        throw new Error("Invalid workflow generation session");
+      }
+      await abortTurnByRefDurably(
+        tabId,
+        backgroundAgentTurnIdForReceipt(tabId, tabId),
+        stopReason ?? "workflow-session-ended",
+      );
     }
     if (operation === "release") {
       const untrackedState = { ...rawState };

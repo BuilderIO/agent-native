@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => undefined),
+  abortTurnByRefDurably: vi.fn(async () => "aborted" as const),
   readAppState: vi.fn(),
   compareAndSetAppState: vi.fn(async () => true),
   compareAndSetManyAppState: vi.fn(async () => true),
@@ -20,14 +21,22 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
 }));
+vi.mock("@agent-native/core/server", () => ({
+  abortTurnByRefDurably: (...args: unknown[]) =>
+    mocks.abortTurnByRefDurably(...args),
+}));
 
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
+
+import { workflowSessionTabId } from "../shared/workflow";
 import action from "./reconcile-workflow-generation";
 
 const requestedAt = "2026-07-14T12:00:00.000Z";
-const tabId = "clips-workflow:rec_123:request:chat-123";
+const tabId = workflowSessionTabId("rec_123", requestedAt);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.abortTurnByRefDurably.mockResolvedValue("aborted");
   mocks.compareAndSetAppState.mockResolvedValue(true);
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
 });
@@ -300,7 +309,29 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
-  it("fails a viewer-accessible generation when its agent run ends", async () => {
+  it("requires editor access before stopping when no reason is supplied", async () => {
+    const denied = new Error("Forbidden");
+    mocks.assertAccess.mockRejectedValueOnce(denied);
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).rejects.toBe(denied);
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "editor",
+    );
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+  });
+
+  it("aborts the matching workflow turn before reconciling its generation", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
@@ -321,7 +352,12 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "recording",
       "rec_123",
-      "viewer",
+      "editor",
+    );
+    expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
+      tabId,
+      backgroundAgentTurnIdForReceipt(tabId, tabId),
+      "workflow-session-ended",
     );
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "clips-workflow-rec_123",
@@ -333,6 +369,28 @@ describe("reconcile-workflow-generation", () => {
         tabId,
       }),
     );
+  });
+
+  it("does not abort a session outside the recording's deterministic ID", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: "arbitrary-thread",
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId: "arbitrary-thread",
+      }),
+    ).rejects.toThrow("Invalid workflow generation session");
+
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("requires editor access before stopping a shared generation", async () => {
@@ -359,12 +417,18 @@ describe("reconcile-workflow-generation", () => {
   });
 
   it("stops a matching generation before an agent tab claims it", async () => {
+    const requestId = "workflow-request-123";
+    const requestTabId = workflowSessionTabId(
+      "rec_123",
+      requestedAt,
+      requestId,
+    );
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
-      requestId: "workflow-request-123",
+      requestId,
     });
 
     await expect(
@@ -372,12 +436,17 @@ describe("reconcile-workflow-generation", () => {
         operation: "stop",
         recordingId: "rec_123",
         requestedAt,
-        requestId: "workflow-request-123",
-        tabId,
+        requestId,
+        tabId: requestTabId,
         stopReason: "cancelled",
       }),
     ).resolves.toEqual({ reconciled: true });
 
+    expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
+      requestTabId,
+      backgroundAgentTurnIdForReceipt(requestTabId, requestTabId),
+      "cancelled",
+    );
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       "clips-workflow-rec_123",
       expect.objectContaining({ status: "generating", requestedAt }),
