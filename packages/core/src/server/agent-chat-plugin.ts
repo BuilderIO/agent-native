@@ -337,7 +337,11 @@ import { startIntervalJob } from "./interval-job.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { scheduleQueuedSubmissionInboxDrain } from "./queued-submission-inbox-drain.js";
-import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
+import {
+  mountRealtimeVoiceRoutes,
+  realtimeVoiceApprovalHooks,
+  realtimeVoiceThreadId,
+} from "./realtime-voice.js";
 import {
   runWithRequestContext,
   getRequestContext,
@@ -5074,10 +5078,9 @@ export function createAgentChatPlugin(
             ownerEmail: request.userEmail,
             orgId: request.orgId,
             appId: options?.appId,
-            threadId: request.sessionId
-              ? `realtime:${request.sessionId}`
-              : `realtime:${request.callId}`,
+            threadId: realtimeVoiceThreadId(request),
             turnId: request.callId,
+            ...realtimeVoiceApprovalHooks(request),
           }),
       });
 

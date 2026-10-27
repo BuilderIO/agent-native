@@ -13,7 +13,14 @@ import { getBuilderGatewayRequestHeaders } from "../agent/engine/builder-gateway
 import {
   actionsToEngineTools,
   type ActionEntry,
+  type AgentApprovalBinding,
 } from "../agent/production-agent.js";
+import {
+  consumeAgentToolApproval,
+  createAgentToolApproval,
+  isAgentToolAlwaysAllowed,
+  type AgentToolApprovalBinding,
+} from "../agent/tool-approval-store.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -73,10 +80,11 @@ const LIVE_DELEGATION_INSTRUCTIONS =
 const REALTIME_TOOL_INSTRUCTIONS =
   "Use the function tools for every request to look something up, search the web, navigate, or change anything in the app. Never say you cannot do something before you have tried the tools.";
 const DEFAULT_TOOL_INSTRUCTIONS =
-  "You act for a live voice conversation in this Agent-Native app. Use the available function tools when the user asks you to look something up, navigate, or take an action. For a web search, call `web-search`, then `web-request` on the most relevant result. When you lack a tool for the request, call `tool-search` before saying the app cannot do it. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
+  "You act for a live voice conversation in this Agent-Native app. Use the available function tools when the user asks you to look something up, navigate, or take an action. For a web search, call `web-search`, then `web-request` on the most relevant result. When you lack a tool for the request, call `tool-search` before saying the app cannot do it. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, say it needs the user's approval on screen and wait; you will be told whether they approved it and what it returned. Never call it again yourself.";
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
+const MAX_APPROVED_TOOL_CALLS = 4;
 const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
@@ -137,6 +145,11 @@ export interface RealtimeVoiceToolExecutionRequest extends RealtimeVoiceRequestC
   callId: string;
   /** The mounted actions plus the caller's own; run the call against these. */
   actions: Record<string, ActionEntry>;
+  /**
+   * Approval keys the user approved for this call. A key only runs a call the
+   * server recorded an approval for in this voice session.
+   */
+  approvedToolCalls?: string[];
   sessionId?: string;
 }
 
@@ -966,9 +979,11 @@ function parseToolRequest(value: unknown): {
   callId: string;
   sessionId?: string;
   browserTabId?: string;
+  approvedToolCalls?: string[];
 } | null {
   if (!isRecord(value)) return null;
-  const { name, args, callId, sessionId, browserTabId } = value;
+  const { name, args, callId, sessionId, browserTabId, approvedToolCalls } =
+    value;
   if (typeof name !== "string" || !REALTIME_TOOL_NAME.test(name)) return null;
   if (typeof callId !== "string" || !CALL_ID.test(callId)) return null;
   if (!isRecord(args)) return null;
@@ -984,12 +999,28 @@ function parseToolRequest(value: unknown): {
   ) {
     return null;
   }
+  if (
+    approvedToolCalls !== undefined &&
+    (!Array.isArray(approvedToolCalls) ||
+      approvedToolCalls.length > MAX_APPROVED_TOOL_CALLS ||
+      !approvedToolCalls.every(
+        (key) =>
+          typeof key === "string" &&
+          key.length > 0 &&
+          key.length <= MAX_APPROVAL_KEY_CHARS,
+      ))
+  ) {
+    return null;
+  }
   return {
     name,
     args,
     callId,
     ...(sessionId ? { sessionId } : {}),
     ...(browserTabId ? { browserTabId } : {}),
+    ...(approvedToolCalls?.length
+      ? { approvedToolCalls: approvedToolCalls as string[] }
+      : {}),
   };
 }
 
@@ -1096,9 +1127,7 @@ function createToolHandler(
     }
 
     const browserTabId = capability.browserTabId;
-    const threadId = request.sessionId
-      ? `realtime:${request.sessionId}`
-      : `realtime:${request.callId}`;
+    const threadId = realtimeVoiceThreadId(request);
     return runWithRequestContext(
       {
         userEmail: auth.userEmail,
@@ -1159,6 +1188,60 @@ function createToolHandler(
       },
     );
   });
+}
+
+/** The thread a voice tool call runs in: its session's, or its own. */
+export function realtimeVoiceThreadId(request: {
+  sessionId?: string | undefined;
+  callId: string;
+}): string {
+  // guard:allow-realtime-opt-in — a thread id prefix, not a realtime sync opt-in
+  return `realtime:${request.sessionId ?? request.callId}`;
+}
+
+/**
+ * Approval hooks for one voice tool call. A voice session is one approval
+ * scope, so the approval a call asks for is consumed by the user's approved
+ * retry of that exact call, and an "always allow" from chat applies here too.
+ */
+export function realtimeVoiceApprovalHooks(
+  request: Pick<
+    RealtimeVoiceToolExecutionRequest,
+    "userEmail" | "orgId" | "sessionId" | "callId" | "approvedToolCalls"
+  >,
+) {
+  const scope = realtimeVoiceThreadId(request);
+  const orgId = request.orgId ?? null;
+  const storeBinding = (
+    binding: AgentApprovalBinding,
+  ): AgentToolApprovalBinding => ({
+    ownerEmail: request.userEmail,
+    orgId,
+    threadId: scope,
+    turnId: scope,
+    toolName: binding.toolName,
+    toolRevision: binding.toolRevision,
+    callId: binding.callId,
+    approvalKey: binding.approvalKey,
+    argumentsHash: binding.argumentsHash,
+    ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
+  });
+  return {
+    ...(request.approvedToolCalls
+      ? { approvedToolCalls: request.approvedToolCalls }
+      : {}),
+    onApprovalRequired: (binding: AgentApprovalBinding) =>
+      createAgentToolApproval(storeBinding(binding)),
+    consumeApproval: (binding: AgentApprovalBinding) =>
+      consumeAgentToolApproval(storeBinding(binding)),
+    isToolAlwaysAllowed: (binding: AgentApprovalBinding) =>
+      isAgentToolAlwaysAllowed({
+        ownerEmail: request.userEmail,
+        orgId,
+        toolName: binding.toolName,
+        toolRevision: binding.toolRevision,
+      }),
+  };
 }
 
 export function mountRealtimeVoiceRoutes(

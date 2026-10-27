@@ -21,6 +21,8 @@ import {
 interface FakeChannel {
   onmessage?: (event: { data: string }) => void;
   close: () => void;
+  readyState?: string;
+  send?: (data: string) => void;
 }
 
 let channel: FakeChannel;
@@ -260,6 +262,102 @@ describe("realtime voice session controls", () => {
     unregister();
     session.unmount();
   });
+
+  it.each([
+    ["approved", true],
+    ["declined", false],
+  ])(
+    "holds a call that needs approval until the user has %s it",
+    async (decision, approved) => {
+      const callId = `call-delete-${decision}`;
+      const work: RealtimeVoiceWorkUpdate[] = [];
+      const unregister = realtimeVoiceTranscriptRegistry.register({
+        threadId: `thread-approval-${String(approved)}`,
+        active: true,
+        append: () => true,
+        appendWork: (update) => {
+          work.push(update);
+          return true;
+        },
+      });
+      const sent: Array<Record<string, unknown>> = [];
+      channel = {
+        close: vi.fn(),
+        readyState: "open",
+        send: (data: string) => sent.push(JSON.parse(data)),
+      } as FakeChannel;
+      const requests: Array<Record<string, unknown>> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          requests.push(body);
+          return Response.json(
+            body.approvedToolCalls
+              ? { callId: body.callId, status: "completed", output: "deleted" }
+              : {
+                  callId: body.callId,
+                  status: "approval_required",
+                  output: "Awaiting approval",
+                  approvalKey: "delete-slide:key",
+                },
+          );
+        }),
+      );
+      const session = await startSession();
+      await session.send({ type: "response.created" });
+      await session.send({
+        type: "response.function_call_arguments.done",
+        call_id: callId,
+        name: "delete-slide",
+        arguments: JSON.stringify({ slideId: "s1" }),
+      });
+      await act(async () => {
+        await new Promise((done) => setTimeout(done, 0));
+      });
+
+      expect(session.api().approvals).toEqual([
+        { callId, toolName: "delete-slide" },
+      ]);
+      expect(work.at(-1)?.calls.map((call) => call.status)).toEqual([
+        "running",
+      ]);
+      sent.length = 0;
+
+      await act(async () => {
+        await session.api().resolveApproval(callId, approved);
+      });
+
+      expect(session.api().approvals).toEqual([]);
+      expect(requests.slice(1)).toEqual(
+        approved
+          ? [
+              expect.objectContaining({
+                name: "delete-slide",
+                args: { slideId: "s1" },
+                approvedToolCalls: ["delete-slide:key"],
+              }),
+            ]
+          : [],
+      );
+      expect(work.at(-1)?.calls.map((call) => call.status)).toEqual([
+        approved ? "completed" : "cancelled",
+      ]);
+      // A session that has not connected yet speaks GPT-Live.
+      expect(sent.map((event) => event.type)).toEqual([
+        "response.item.create",
+        "response.create",
+      ]);
+      expect(JSON.stringify(sent[0])).toContain(
+        approved ? "The user approved delete-slide" : "The user declined",
+      );
+      unregister();
+      await session.unmount();
+    },
+  );
 
   it("records a tool call that teardown aborted as cancelled", async () => {
     const work: RealtimeVoiceWorkUpdate[] = [];

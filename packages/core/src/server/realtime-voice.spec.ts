@@ -58,6 +58,13 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
 }));
 
+const approvalStore = vi.hoisted(() => ({
+  createAgentToolApproval: vi.fn(),
+  consumeAgentToolApproval: vi.fn(),
+  isAgentToolAlwaysAllowed: vi.fn(),
+}));
+vi.mock("../agent/tool-approval-store.js", () => approvalStore);
+
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -76,6 +83,7 @@ import {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   REALTIME_VOICE_TOOL_GRANT_TTL_MS,
+  realtimeVoiceApprovalHooks,
   realtimeVoiceSafetyIdentifier,
   resolveRealtimeVoiceLanguagePreference,
   resolveRealtimeVoicePreference,
@@ -1923,6 +1931,100 @@ describe("realtime voice tool route", () => {
         orgId: "org-session",
       }),
     );
+  });
+
+  it("passes the keys the user approved to the tool, and rejects malformed ones", async () => {
+    const executeTool = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", output: "{}" });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+    const call = (approvedToolCalls: unknown) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          {
+            name: "navigate",
+            args: {},
+            callId: "call_approved",
+            sessionId: "voice-session-1",
+            approvedToolCalls,
+          },
+          withToolCapability(capability),
+        ),
+      );
+
+    await call(["navigate:approval-key"]);
+    expect(executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({ approvedToolCalls: ["navigate:approval-key"] }),
+    );
+    for (const malformed of [
+      "navigate:approval-key",
+      [42],
+      Array(5).fill("k"),
+    ]) {
+      expect(await call(malformed)).toEqual({
+        error: "Invalid realtime tool request",
+      });
+    }
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes a voice approval to its session, so an approved retry consumes it", async () => {
+    approvalStore.createAgentToolApproval.mockResolvedValue("approval-1");
+    approvalStore.consumeAgentToolApproval.mockResolvedValue(true);
+    approvalStore.isAgentToolAlwaysAllowed.mockResolvedValue(false);
+    const binding = (callId: string) => ({
+      toolName: "delete-slide",
+      toolRevision: "r1",
+      input: { slideId: "s1" },
+      argumentsHash: "args-hash",
+      callId,
+      approvalKey: "delete-slide:key",
+    });
+    const asked = realtimeVoiceApprovalHooks({
+      userEmail: "person@example.com",
+      orgId: "org-session",
+      sessionId: "voice-session-1",
+      callId: "call_asked",
+    });
+    const retry = realtimeVoiceApprovalHooks({
+      userEmail: "person@example.com",
+      orgId: "org-session",
+      sessionId: "voice-session-1",
+      callId: "call_asked_approved",
+      approvedToolCalls: ["delete-slide:key"],
+    });
+
+    expect(asked).not.toHaveProperty("approvedToolCalls");
+    expect(retry.approvedToolCalls).toEqual(["delete-slide:key"]);
+    await asked.onApprovalRequired(binding("call_asked"));
+    await retry.consumeApproval(binding("call_asked_approved"));
+    const scope = {
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      threadId: "realtime:voice-session-1",
+      turnId: "realtime:voice-session-1",
+      toolName: "delete-slide",
+      toolRevision: "r1",
+      approvalKey: "delete-slide:key",
+      argumentsHash: "args-hash",
+    };
+    expect(approvalStore.createAgentToolApproval).toHaveBeenCalledWith({
+      ...scope,
+      callId: "call_asked",
+    });
+    expect(approvalStore.consumeAgentToolApproval).toHaveBeenCalledWith({
+      ...scope,
+      callId: "call_asked_approved",
+    });
+
+    await asked.isToolAlwaysAllowed(binding("call_asked"));
+    expect(approvalStore.isAgentToolAlwaysAllowed).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      toolName: "delete-slide",
+      toolRevision: "r1",
+    });
   });
 
   it("never offers one person's MCP tools to another", async () => {

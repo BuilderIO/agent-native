@@ -12,6 +12,7 @@ import { z } from "zod";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { defineAction } from "../action.js";
+import { realtimeVoiceApprovalHooks } from "../server/realtime-voice.js";
 import { withExecutionFence } from "./execution-fence.js";
 import type { ActionEntry } from "./production-agent.js";
 import { executeAgentToolCall, toolCallCacheKey } from "./production-agent.js";
@@ -378,6 +379,54 @@ describe("tool approval and turn cancellation ordering", () => {
     );
     expect(approval.rows[0]?.status).toBe("consumed");
     expect(await markTurnAborted(turn.threadId, turn.turnId)).toBe("aborted");
+  });
+});
+
+describe("voice chat approvals", () => {
+  it("asks once, runs the approved retry, and does not let it be reused", async () => {
+    const run = vi.fn(async () => ({ deleted: true }));
+    const actions = {
+      "delete-slide": defineAction({
+        description: "Delete a slide.",
+        schema: z.object({ slideId: z.string() }),
+        needsApproval: true,
+        run,
+      }) as unknown as ActionEntry,
+    };
+    const voiceCall = (callId: string, approvedToolCalls?: string[]) =>
+      executeAgentToolCall({
+        actions,
+        name: "delete-slide",
+        input: { slideId: "s1" },
+        callId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-1",
+        turnId: callId,
+        ...realtimeVoiceApprovalHooks({
+          userEmail: scope.ownerEmail,
+          orgId: scope.orgId,
+          sessionId: "voice-session-1",
+          callId,
+          ...(approvedToolCalls ? { approvedToolCalls } : {}),
+        }),
+      });
+
+    const asked = await voiceCall("call_asked");
+    expect(asked).toMatchObject({ status: "approval_required" });
+    expect(run).not.toHaveBeenCalled();
+    const approvalKey = asked.approvalKey!;
+
+    expect(await voiceCall("call_asked_approved", [approvalKey])).toMatchObject(
+      { status: "completed" },
+    );
+    expect(run).toHaveBeenCalledOnce();
+
+    // The approval was used up; the same key cannot run the call again.
+    expect(await voiceCall("call_again", [approvalKey])).toMatchObject({
+      status: "approval_required",
+    });
+    expect(run).toHaveBeenCalledOnce();
   });
 });
 

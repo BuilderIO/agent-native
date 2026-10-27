@@ -11,6 +11,12 @@ export interface RealtimeVoiceTranscriptMessage {
 }
 
 /** One tool call in a voice reply's work. */
+/** A tool name as a short label, such as "Edit design" for `edit-design`. */
+export function realtimeVoiceToolLabel(name: string): string {
+  const label = name.replace(/[_-]+/g, " ").trim();
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : name;
+}
+
 export interface RealtimeVoiceWorkCall {
   /** The provider's call id. */
   id: string;

@@ -12,6 +12,7 @@ import {
 import { useEffect } from "react";
 
 import {
+  realtimeVoiceToolLabel,
   realtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
   type RealtimeVoiceWorkCall,
@@ -36,11 +37,6 @@ function realtimeVoiceTranscriptMessage(
       : createdAt.toISOString(),
     metadata: { custom: { source: REALTIME_VOICE_MESSAGE_SOURCE } },
   };
-}
-
-function voiceWorkLabel(name: string): string {
-  const label = name.replace(/[_-]+/g, " ").trim();
-  return label ? label.charAt(0).toUpperCase() + label.slice(1) : name;
 }
 
 /**
@@ -75,7 +71,7 @@ export function realtimeVoiceWorkEvents(
     const activity: AgentActivity = {
       id: call.id,
       kind: inferAgentActivityKind(call.name),
-      label: voiceWorkLabel(call.name),
+      label: realtimeVoiceToolLabel(call.name),
       status: "running",
       runId,
       startedAt: call.startedAt,

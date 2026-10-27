@@ -195,6 +195,16 @@ export interface RealtimeVoiceModeApi {
   end: () => void;
   /** Clears a failed session so voice chat can start again. */
   dismissError: () => void;
+  /** Tool calls waiting for the user to approve them, oldest first. */
+  approvals: readonly RealtimeVoiceApproval[];
+  /** Runs an approved call and tells the assistant how it went. */
+  resolveApproval: (callId: string, approved: boolean) => Promise<void>;
+}
+
+export interface RealtimeVoiceApproval {
+  /** The provider's id for the call that asked. */
+  callId: string;
+  toolName: string;
 }
 
 export interface RealtimeVoiceStartOptions {
@@ -513,6 +523,35 @@ function openRealtimeVoiceWorkSegment(
  * Ends a reply's work. It ends at its last call's completion, so the reply
  * that follows the work reads below it.
  */
+interface PendingApproval {
+  callId: string;
+  name: string;
+  args: Record<string, unknown>;
+  approvalKey: string;
+  workCall: RealtimeVoiceWorkCall;
+  workSegment: RealtimeVoiceWorkSegment | null;
+}
+
+/** Ends a call that waited for approval: `result` is null when it never ran. */
+function finishPendingApproval(
+  pending: PendingApproval,
+  result: RealtimeVoiceToolResult | null,
+): void {
+  const { workCall, workSegment } = pending;
+  workCall.status =
+    !result || result.status === "approval_required"
+      ? "cancelled"
+      : result.status;
+  if (result) workCall.output = result.output;
+  workCall.completedAt = new Date().toISOString();
+  if (!workSegment) return;
+  if (workSegment.closing) {
+    closeRealtimeVoiceWorkSegment({ current: null }, workSegment);
+  } else {
+    publishRealtimeVoiceWorkSegment(workSegment);
+  }
+}
+
 function closeRealtimeVoiceWorkSegment(
   ref: { current: RealtimeVoiceWorkSegment | null },
   segment: RealtimeVoiceWorkSegment | null = ref.current,
@@ -1189,6 +1228,7 @@ export async function executeRealtimeVoiceTool(input: {
   browserTabId?: string | undefined;
   capability?: string | undefined;
   signal?: AbortSignal | undefined;
+  approvedToolCalls?: readonly string[] | undefined;
 }): Promise<RealtimeVoiceToolResult> {
   const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
     method: "POST",
@@ -1208,6 +1248,9 @@ export async function executeRealtimeVoiceTool(input: {
       callId: input.callId,
       sessionId: input.sessionId,
       browserTabId: input.browserTabId,
+      ...(input.approvedToolCalls?.length
+        ? { approvedToolCalls: input.approvedToolCalls }
+        : {}),
     }),
     signal: input.signal,
   });
@@ -1360,6 +1403,29 @@ export function mergeRealtimeVoiceToolManifest(
     }
   }
   return packed;
+}
+
+/** Tells the assistant what the user decided about a call that asked. */
+export function createRealtimeVoiceApprovalOutcomeEvent(
+  toolName: string,
+  result: RealtimeVoiceToolResult | null,
+  protocol: RealtimeVoiceProtocol = "realtime",
+): Record<string, unknown> {
+  const text = result
+    ? `The user approved ${toolName}. ${JSON.stringify({
+        status: result.status,
+        output: result.output,
+      })}`
+    : `The user declined ${toolName}, so it did not run.`;
+  return {
+    type:
+      protocol === "live" ? "response.item.create" : "conversation.item.create",
+    item: {
+      type: "message",
+      role: "system",
+      content: [{ type: "input_text", text }],
+    },
+  };
 }
 
 function createRealtimeVoiceToolResultEvent(
@@ -1653,6 +1719,15 @@ export function createRealtimeVoiceModeCopy(
     voiceSettings: t("agentChat.voiceMode.voiceSettings", {
       defaultValue: "Voice settings",
     }),
+    approval: {
+      question: (toolLabel) =>
+        t("agentChat.approval.question", {
+          tool: toolLabel,
+          defaultValue: "Approve to run {{tool}}?",
+        }),
+      approve: t("agentChat.approval.approve", { defaultValue: "Approve" }),
+      deny: t("agentChat.approval.deny", { defaultValue: "Deny" }),
+    },
     settings: {
       language: t("agentChat.voiceMode.settings.language", {
         defaultValue: "Language",
@@ -1868,6 +1943,18 @@ function useRealtimeVoiceModeController(
   const liveCloseDrainTimerRef = useRef<number | null>(null);
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
+  const pendingApprovalsRef = useRef(new Map<string, PendingApproval>());
+  const [approvals, setApprovals] = useState<readonly RealtimeVoiceApproval[]>(
+    [],
+  );
+  const syncApprovals = useCallback(() => {
+    setApprovals(
+      [...pendingApprovalsRef.current.values()].map(({ callId, name }) => ({
+        callId,
+        toolName: name,
+      })),
+    );
+  }, []);
   const transcriptSequenceRef = useRef(0);
   const transcriptCreatedAtRef = useRef(new Map<string, string>());
   const workSegmentRef = useRef<RealtimeVoiceWorkSegment | null>(null);
@@ -2193,6 +2280,11 @@ function useRealtimeVoiceModeController(
     // the chat after the session is gone.
     flushTranscriptsRef.current?.();
     turnMetrics.sessionEnded();
+    for (const pending of pendingApprovalsRef.current.values()) {
+      finishPendingApproval(pending, null);
+    }
+    pendingApprovalsRef.current.clear();
+    syncApprovals();
     closeRealtimeVoiceWorkSegment(workSegmentRef);
     responseCallCountsRef.current.clear();
     if (liveCloseDrainTimerRef.current !== null) {
@@ -2245,6 +2337,7 @@ function useRealtimeVoiceModeController(
     abortActiveToolCalls,
     audioLevels,
     responseCoordinator,
+    syncApprovals,
     toolManifestCoordinator,
     turnMetrics,
   ]);
@@ -2368,15 +2461,25 @@ function useRealtimeVoiceModeController(
       } finally {
         toolAbortControllersRef.current.delete(toolAbortController);
       }
-      // Session teardown aborted the call, so it did not fail. An
-      // approval-gated call did not run; the user approves it in chat.
-      workCall.status =
-        toolAbortController.signal.aborted ||
-        result.status === "approval_required"
-          ? "cancelled"
-          : result.status;
-      workCall.output = result.output;
-      workCall.completedAt = new Date().toISOString();
+      // Session teardown aborted the call, so it did not fail. A call that
+      // asks for approval stays running until the user decides.
+      const approvalKey =
+        !toolAbortController.signal.aborted &&
+        result.status === "approval_required" &&
+        workCall.input &&
+        transportGeneration === transportGenerationRef.current
+          ? result.approvalKey
+          : undefined;
+      const awaitingApproval = Boolean(approvalKey);
+      if (!awaitingApproval) {
+        workCall.status =
+          toolAbortController.signal.aborted ||
+          result.status === "approval_required"
+            ? "cancelled"
+            : result.status;
+        workCall.output = result.output;
+        workCall.completedAt = new Date().toISOString();
+      }
       if (workSegment) {
         if (!workSegment.calls.includes(workCall)) {
           workSegment.calls.push(workCall);
@@ -2398,9 +2501,84 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (result.capability) capabilityRef.current = result.capability;
+      if (approvalKey && workCall.input) {
+        pendingApprovalsRef.current.set(call.callId, {
+          callId: call.callId,
+          name: call.name,
+          args: workCall.input,
+          approvalKey,
+          workCall,
+          workSegment,
+        });
+        syncApprovals();
+      }
       toolManifestCoordinator.enqueue(result);
     },
-    [browserTabId, toolManifestCoordinator, transition, turnMetrics],
+    [
+      browserTabId,
+      syncApprovals,
+      toolManifestCoordinator,
+      transition,
+      turnMetrics,
+    ],
+  );
+
+  const resolveApproval = useCallback(
+    async (callId: string, approved: boolean) => {
+      const pending = pendingApprovalsRef.current.get(callId);
+      if (!pending) return;
+      pendingApprovalsRef.current.delete(callId);
+      syncApprovals();
+      const transportGeneration = transportGenerationRef.current;
+      const transportChannel = channelRef.current;
+      let result: RealtimeVoiceToolResult | null = null;
+      let aborted = false;
+      if (approved) {
+        transition("working");
+        const toolAbortController = new AbortController();
+        toolAbortControllersRef.current.add(toolAbortController);
+        try {
+          result = await executeRealtimeVoiceTool({
+            name: pending.name,
+            args: pending.args,
+            callId: `${callId}_approved`,
+            sessionId: sessionIdRef.current,
+            browserTabId,
+            capability: capabilityRef.current,
+            signal: toolAbortController.signal,
+            approvedToolCalls: [pending.approvalKey],
+          });
+        } catch (toolError) {
+          result = {
+            callId,
+            status: "failed",
+            output: errorMessage(toolError),
+          };
+        } finally {
+          toolAbortControllersRef.current.delete(toolAbortController);
+        }
+        aborted = toolAbortController.signal.aborted;
+      }
+      finishPendingApproval(pending, aborted || !result ? null : result);
+      if (
+        aborted ||
+        transportGeneration !== transportGenerationRef.current ||
+        channelRef.current !== transportChannel
+      ) {
+        return;
+      }
+      if (result?.capability) capabilityRef.current = result.capability;
+      sendDataChannelEvent(
+        channelRef.current,
+        createRealtimeVoiceApprovalOutcomeEvent(
+          pending.name,
+          result,
+          protocolRef.current,
+        ),
+      );
+      sendDataChannelEvent(channelRef.current, { type: "response.create" });
+    },
+    [browserTabId, syncApprovals, transition],
   );
 
   const handleServerEvent = useCallback(
@@ -2978,6 +3156,8 @@ function useRealtimeVoiceModeController(
     start: startForThread,
     end,
     dismissError,
+    approvals,
+    resolveApproval,
   };
 }
 

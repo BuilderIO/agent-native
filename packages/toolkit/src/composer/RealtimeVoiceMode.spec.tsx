@@ -68,6 +68,11 @@ const copy: RealtimeVoiceModeCopy = {
     error: "Voice mode needs attention",
     ending: "Ending voice mode",
   },
+  approval: {
+    question: (toolLabel) => `Approve to run ${toolLabel}?`,
+    approve: "Approve",
+    deny: "Deny",
+  },
   errors: {
     unsupported: "Unsupported",
     responseFailed: "Response failed",
@@ -93,6 +98,8 @@ function voiceSession(
     start: vi.fn(async () => {}),
     end: vi.fn(),
     dismissError: vi.fn(),
+    approvals: [],
+    resolveApproval: vi.fn(async () => {}),
     ...overrides,
   } as unknown as RealtimeVoiceModeApi;
 }
@@ -169,6 +176,33 @@ describe("RealtimeVoiceComposerControls", () => {
     renderControls(voiceSession({ state: "speaking", audioLevels }));
     await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
     expect(new Set(bars())).toEqual(new Set(["scaleY(0.4)"]));
+  });
+
+  it("asks to approve a waiting tool call in place of the status", () => {
+    const voice = voiceSession({
+      state: "working",
+      approvals: [{ callId: "call-delete", toolName: "delete-slide" }],
+    });
+    renderControls(voice);
+
+    expect(slot("voice-chat-status")).toBeNull();
+    const approval = slot("voice-chat-approval")!;
+    expect(approval.querySelector('[role="status"]')?.textContent).toBe(
+      "Approve to run Delete slide?",
+    );
+    const [approve, deny] = Array.from(approval.querySelectorAll("button"));
+    act(() => approve!.click());
+    act(() => deny!.click());
+    expect(voice.resolveApproval).toHaveBeenNthCalledWith(
+      1,
+      "call-delete",
+      true,
+    );
+    expect(voice.resolveApproval).toHaveBeenNthCalledWith(
+      2,
+      "call-delete",
+      false,
+    );
   });
 
   it("toggles speaker and microphone mute with pressed states", () => {
