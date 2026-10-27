@@ -1429,13 +1429,14 @@ export default function RecordingPage() {
         } as any,
       )) as { reconciled?: boolean };
       const refreshed = await generatedWorkflowQ.refetch();
-      if (
+      const sameRequestStillGenerating =
         refreshed.data?.status === "generating" &&
         matchesWorkflowRequest(refreshed.data, {
           requestedAt: workflow.requestedAt,
           requestId: workflow.requestId,
-        })
-      ) {
+        });
+      if (!result.reconciled && !sameRequestStillGenerating) return result;
+      if (sameRequestStillGenerating) {
         throw new Error(t("recordingPage.tryAgainMoment"));
       }
       return result;

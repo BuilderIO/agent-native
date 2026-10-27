@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "child_process";
 import fs from "fs";
-import { Readable, Transform } from "node:stream";
+import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -47,6 +48,8 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const MAX_TEMPLATE_ARCHIVE_BYTES = 512 * 1024 * 1024;
+const MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES = 1024 * 1024 * 1024;
+const MAX_COMMUNITY_ARCHIVE_ENTRIES = 100_000;
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
@@ -2841,7 +2844,7 @@ export async function _downloadAndExtract(
   try {
     await _downloadToFile(url, tarPath);
     if (options.untrustedCommunityArchive) {
-      validateCommunityArchive(tarPath);
+      await validateCommunityArchive(tarPath);
     }
     extractTarball(tarPath, destDir, options);
   } finally {
@@ -2849,13 +2852,55 @@ export async function _downloadAndExtract(
   }
 }
 
-function validateCommunityArchive(tarPath: string): void {
+async function validateCommunityArchive(
+  tarPath: string,
+  limits: {
+    maxExpandedBytes?: number;
+    maxEntries?: number;
+  } = {},
+): Promise<void> {
+  await assertCommunityArchiveExpandedSize(
+    tarPath,
+    limits.maxExpandedBytes ?? MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES,
+  );
   const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
   });
+  const entries = listing.split(/\r?\n/).filter((line) => line.trim());
+  const maxEntries = limits.maxEntries ?? MAX_COMMUNITY_ARCHIVE_ENTRIES;
+  if (entries.length > maxEntries) {
+    throw new ValidationError(
+      `Community template archive exceeds the ${maxEntries}-entry limit.`,
+    );
+  }
   assertSafeCommunityArchiveListing(listing);
+}
+
+async function assertCommunityArchiveExpandedSize(
+  tarPath: string,
+  maxBytes: number,
+): Promise<void> {
+  let expandedBytes = 0;
+  await pipeline(
+    fs.createReadStream(tarPath),
+    createGunzip(),
+    new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        expandedBytes += chunk.byteLength;
+        if (expandedBytes > maxBytes) {
+          callback(
+            new ValidationError(
+              "Community template archive exceeds its expanded-size limit.",
+            ),
+          );
+          return;
+        }
+        callback();
+      },
+    }),
+  );
 }
 
 function assertSafeCommunityArchiveListing(listing: string): void {

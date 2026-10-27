@@ -1241,7 +1241,7 @@ describe("community template selections", () => {
 
   it.skipIf(process.platform === "win32")(
     "validates canonical and outward links in real tar archives",
-    () => {
+    async () => {
       const fixtureRoot = path.join(tmpDir, "archive-fixture");
       const repoRoot = path.join(fixtureRoot, "repo");
       const archivePath = path.join(fixtureRoot, "template.tar.gz");
@@ -1271,7 +1271,15 @@ describe("community template selections", () => {
         ["czf", archivePath, "-C", fixtureRoot, "repo"],
         { stdio: "pipe" },
       );
-      expect(() => _validateCommunityArchive(archivePath)).not.toThrow();
+      await expect(
+        _validateCommunityArchive(archivePath, { maxExpandedBytes: 1 }),
+      ).rejects.toThrow("expanded-size limit");
+      await expect(
+        _validateCommunityArchive(archivePath, { maxEntries: 1 }),
+      ).rejects.toThrow("exceeds the 1-entry limit");
+      await expect(
+        _validateCommunityArchive(archivePath),
+      ).resolves.toBeUndefined();
 
       fs.symlinkSync("../../outside", path.join(repoRoot, "outside"));
       execFileSync(
@@ -1279,7 +1287,7 @@ describe("community template selections", () => {
         ["czf", archivePath, "-C", fixtureRoot, "repo"],
         { stdio: "pipe" },
       );
-      expect(() => _validateCommunityArchive(archivePath)).toThrow(
+      await expect(_validateCommunityArchive(archivePath)).rejects.toThrow(
         "may only contain Agent-Native's canonical internal symlinks",
       );
     },
