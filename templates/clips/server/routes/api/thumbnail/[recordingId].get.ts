@@ -433,10 +433,10 @@ async function loadRecording(
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
-  if (footageRows.length === 0) {
+  const footage = footageRows.shift();
+  if (!footage) {
     return { error: "Not found", status: 404 } as const;
   }
-  const [footage] = footageRows;
   if (footage.trashedAt || footage.failureCode === "taken_down") {
     return { error: "Not found", status: 404 } as const;
   }
