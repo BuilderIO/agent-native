@@ -461,7 +461,7 @@ describe("reconcile-workflow-generation", () => {
     });
     mocks.getRunTurnRef.mockResolvedValue({
       threadId: tabId,
-      turnId: "turn-1",
+      turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
     });
     mocks.getRunStatus.mockResolvedValue("errored");
 
@@ -510,12 +510,39 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
+  it("does not settle terminal evidence from another turn on the workflow thread", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+    mocks.getRunTurnRef.mockResolvedValue({
+      threadId: tabId,
+      turnId: "another-turn",
+    });
+    mocks.getRunStatus.mockResolvedValue("errored");
+
+    await expect(
+      action.run({
+        operation: "settle-terminal",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+        terminalRunId: "run-1",
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
   it("fails and consumes a matching request after confirmed dispatch rejection", async () => {
     const state = {
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
       tabId,
     };
     const request = {
@@ -528,12 +555,15 @@ describe("reconcile-workflow-generation", () => {
       .mockResolvedValueOnce(request);
 
     await expect(
-      action.run({
-        operation: "reject",
-        recordingId: "rec_123",
-        requestedAt,
-        tabId,
-      }),
+      action.run(
+        {
+          operation: "reject",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: true });
 
     expect(mocks.assertAccess).toHaveBeenCalledWith(
@@ -558,6 +588,33 @@ describe("reconcile-workflow-generation", () => {
     ]);
   });
 
+  it("does not let another viewer reject the requester's workflow", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+      tabId,
+    });
+
+    await expect(
+      action.run(
+        {
+          operation: "reject",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, reason: "not-requester" });
+
+    expect(mocks.readAppState).toHaveBeenCalledTimes(1);
+    expect(mocks.getActiveRunForThreadAsync).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
   it("keeps a rejected request while a matching run is still in progress", async () => {
     const request = {
       kind: "generate-workflow",
@@ -570,6 +627,7 @@ describe("reconcile-workflow-generation", () => {
         status: "generating",
         recordingId: "rec_123",
         requestedAt,
+        requestedBy: "viewer@example.com",
         tabId,
       })
       .mockResolvedValueOnce(request);
@@ -582,12 +640,15 @@ describe("reconcile-workflow-generation", () => {
     });
 
     await expect(
-      action.run({
-        operation: "reject",
-        recordingId: "rec_123",
-        requestedAt,
-        tabId,
-      }),
+      action.run(
+        {
+          operation: "reject",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: false, reason: "in-progress" });
     expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });

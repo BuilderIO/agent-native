@@ -58,7 +58,7 @@ export default defineAction({
       .optional()
       .describe("Open the user-visible agent chat for this request"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     await assertAccess("recording", args.recordingId, "viewer");
 
     const stateKey = `clips-workflow-${args.recordingId}`;
@@ -111,6 +111,9 @@ export default defineAction({
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(ctx?.userEmail
+          ? { requestedBy: ctx.userEmail.trim().toLowerCase() }
+          : {}),
       };
 
       const baseMessage =

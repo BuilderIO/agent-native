@@ -101,11 +101,14 @@ describe("generate-workflow action", () => {
       });
     });
 
-    const first = action.run({
-      recordingId: "rec_1",
-      kind: "pr",
-      openInChat: true,
-    });
+    const first = action.run(
+      {
+        recordingId: "rec_1",
+        kind: "pr",
+        openInChat: true,
+      },
+      { userEmail: "Owner@Example.com" } as never,
+    );
     await readStarted;
 
     await expect(
@@ -124,6 +127,7 @@ describe("generate-workflow action", () => {
     const workflowState = operations.find(
       (operation: { key: string }) => operation.key === "clips-workflow-rec_1",
     )?.nextValue;
+    expect(workflowState.requestedBy).toBe("owner@example.com");
     const queuedRequest = operations.find(
       (operation: { key: string }) =>
         operation.key === "clips-ai-request-rec_1",

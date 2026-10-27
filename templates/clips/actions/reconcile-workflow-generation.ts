@@ -28,6 +28,7 @@ const WorkflowStateSchema = z
     recordingId: z.string().optional(),
     requestedAt: z.string().optional(),
     requestId: z.string().min(1).optional(),
+    requestedBy: z.string().optional(),
     tabId: z.string().optional(),
     claimedAt: z.string().optional(),
   })
@@ -72,15 +73,18 @@ export default defineAction({
     stopReason: z.enum(["cancelled", "timed_out"]).optional(),
     terminalRunId: z.string().min(1).optional(),
   }),
-  run: async ({
-    operation,
-    recordingId,
-    requestedAt,
-    requestId,
-    tabId,
-    stopReason,
-    terminalRunId,
-  }) => {
+  run: async (
+    {
+      operation,
+      recordingId,
+      requestedAt,
+      requestId,
+      tabId,
+      stopReason,
+      terminalRunId,
+    },
+    ctx,
+  ) => {
     if (stopReason !== undefined && operation !== "stop") {
       fail("A workflow stop reason is only valid when stopping a session", {
         errorCode: "invalid_workflow_generation_stop_reason",
@@ -339,6 +343,11 @@ export default defineAction({
         : { reconciled: false, reason: "different-run" as const };
     }
     if (operation === "reject") {
+      const requesterEmail = ctx?.userEmail?.trim().toLowerCase();
+      if (!requesterEmail || state.requestedBy !== requesterEmail) {
+        return { reconciled: false, reason: "not-requester" as const };
+      }
+
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
         return { reconciled: false, reason: "request-missing" as const };
@@ -431,7 +440,11 @@ export default defineAction({
           getRunTurnRef(terminalRunId),
           getRunStatus(terminalRunId),
         ]);
-        if (!runRef || runRef.threadId !== tabId) {
+        if (
+          !runRef ||
+          runRef.threadId !== tabId ||
+          runRef.turnId !== backgroundAgentTurnIdForReceipt(tabId, tabId)
+        ) {
           return { reconciled: false, reason: "run-not-found" as const };
         }
         if (
