@@ -2414,6 +2414,7 @@ fi
     );
     assert.match(String(forceMerge.run), /branches\/main/);
     assert.match(String(forceMerge.run), /current_main.*BASE_SHA/s);
+    assert.match(String(forceMerge.run), /repos\/\$REPO\/merges/);
     assert.match(String(forceMerge.run), /--match-head-commit "\$HEAD_SHA"/);
     assert.match(
       String(forceMerge.run),

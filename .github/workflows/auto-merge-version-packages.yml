@@ -296,8 +296,18 @@ jobs:
           fi
           current_main=$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')
           if [ "$current_main" != "$BASE_SHA" ]; then
-            echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
-            exit 1
+            # Main moved while this head validated. Fold the new main into the
+            # release branch rather than merging against an unvalidated base.
+            # The push re-runs this workflow on the new head, which validates
+            # it before anything merges. A conflict fails this step loudly.
+            folded_sha=$(gh api -X POST "repos/$REPO/merges" \
+              -f base=changeset-release/main -f head="$current_main" --jq '.sha')
+            if [ -z "$folded_sha" ] || [ "$folded_sha" = "null" ]; then
+              echo "::error::Folding main $current_main into the release PR returned no commit; refusing admin-merge." >&2
+              exit 1
+            fi
+            echo "::notice::Folded main $current_main into release PR head $folded_sha; the new head re-validates before merge." >&2
+            exit 0
           fi
           node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
           gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"
