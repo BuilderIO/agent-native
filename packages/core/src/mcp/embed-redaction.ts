@@ -43,8 +43,8 @@ export function isEmbedStartUrl(value: string): boolean {
   }
 }
 
-/** The embed start route's last two segments, letters only. */
-const EMBED_START_LETTERS = "embedstart";
+/** The framework's embed start route, letters only. */
+const EMBED_START_LETTERS = "agentnativeembedstart";
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -149,10 +149,9 @@ export interface StringReading {
    */
   complete: boolean;
   /**
-   * Whether `embed/start` can be read in any layer. It is loose on purpose.
-   * Any string whose letters run `embedstart` counts, prose about an embed
-   * start included, because a missed credential costs more than a hidden
-   * sentence.
+   * Whether `/_agent-native/embed/start` can be read in any layer. The route
+   * namespace distinguishes a sign-in URL from ordinary prose about starting
+   * an embed, which must survive document and message reads.
    */
   mentionsRoute: boolean;
 }
