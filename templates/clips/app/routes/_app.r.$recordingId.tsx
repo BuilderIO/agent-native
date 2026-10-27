@@ -1414,8 +1414,7 @@ export default function RecordingPage() {
         reason: stopReason,
       }).catch((error) => {
         const status = (error as Error & { status?: unknown }).status;
-        // A terminal turn is safe to reconcile; 404 also hides access failures.
-        if (status !== 409) throw error;
+        if (status !== 404 && status !== 409) throw error;
       });
       const result = (await callAction(
         "reconcile-workflow-generation" as any,
