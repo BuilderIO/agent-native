@@ -1,0 +1,99 @@
+template: v2
+slug: ai-sales-analytics
+app: analytics
+title: Revisa tu pipeline de ventas con datos de HubSpot y Gong
+seo_title: Analítica de ventas con IA para HubSpot y Gong
+meta_description: Mira qué oportunidades se estancaron y por qué antes de revisar el pipeline. Pregunta a Agent-Native Analytics por HubSpot y Gong y guárdalo en un panel.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics convierte tus oportunidades de HubSpot y tus llamadas de Gong en un panel para cada revisión del pipeline. Pregunta qué se ha estancado y por qué, y el agente responde con ambos.
+  button:
+    label: Consulta tu pipeline
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: El panel Weekly pipeline review en Analytics, con gráficos del pipeline abierto por fase, las oportunidades por responsable y las oportunidades estancadas 30 días. El chat del agente, a la derecha, explica por qué se estancó una de ellas, con su historial de fases en HubSpot y su última llamada en Gong.
+how_to:
+  heading: Cómo analizar tu pipeline de ventas con IA
+  steps:
+    - title: Conecta tu CRM y tus llamadas
+      body: Abre **Fuentes de datos** y haz clic en **Conectar** junto a HubSpot, en **CRM y ventas**. Pega el token de una app privada que crees en los ajustes de HubSpot y haz clic en **Guardar credenciales**. Gong funciona igual, con una clave de acceso y un secreto.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: La página Data Sources con HubSpot en Connected y Gong en CRM & Sales. El panel de configuración de Gong está abierto en el paso Access Key Secret, ya pegado, encima de Save Credentials.
+    - title: Pregunta por tu pipeline
+      body: "En **Preguntar**, pregunta con tus palabras: «¿Qué oportunidades abiertas llevan 30 días o más en la misma fase?». El agente busca en tus oportunidades de HubSpot y responde con una tabla que puedes ordenar y seguir consultando."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: "El chat Ask con la pregunta sobre las oportunidades estancadas 30 días. El agente responde con una tabla de seis oportunidades abiertas: fase, responsable, importe y días en la fase."
+    - title: Guarda las respuestas en un panel
+      body: Pide al agente que lo «guarde como panel para la revisión del pipeline». Crea un gráfico por cada respuesta, y se actualizan con los datos nuevos de HubSpot. Comparte el panel con tu equipo antes de la revisión del pipeline.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: El chat del agente confirma que ha guardado el panel Weekly pipeline review, junto al panel nuevo con su tabla de oportunidades estancadas y su gráfico del pipeline por fase.
+features:
+  heading: Todo lo que necesitas para revisar el pipeline
+  items:
+    - title: Oportunidades y llamadas juntas
+      body: Una sola pregunta trae de HubSpot la fase y el responsable de una oportunidad, y de Gong lo que dijo el comprador en sus llamadas.
+    - title: Paneles que edita el agente
+      body: Pide un gráfico nuevo, un filtro por responsable u otro tipo de gráfico, y el agente actualiza el panel que comparte tu equipo.
+    - title: Respuestas que puedes comprobar
+      body: El agente marca una cifra como «Sin verificar» cuando no sale de una consulta en vivo a HubSpot o Gong, para que sepas qué revisar.
+    - title: Tu pipeline junto a los ingresos
+      body: Conecta también Stripe y BigQuery, y el mismo chat responde sobre ingresos y uso del producto junto a tus oportunidades.
+    - title: Tus definiciones del pipeline
+      body: Un administrador define qué es una oportunidad estancada o un pipeline cualificado en la página **Capa semántica**. El agente la lee antes de responder.
+    - title: Un informe diario del pipeline
+      body: Recibe el panel cada día por correo, hasta cinco personas, o en un canal de Slack, sin abrir la aplicación.
+integrations:
+  heading: Conecta Analytics con las herramientas que ya usas
+  cards:
+    - title: Tu CRM y tus llamadas
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: Analytics lee oportunidades, pipelines, fases y responsables de HubSpot, y grabaciones y transcripciones de llamadas de Gong.
+    - title: Compártelo donde lee tu equipo
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: Publica un panel en un canal de Slack o exporta una tabla de oportunidades a una hoja nueva de Google Sheets de tu cuenta conectada.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+other_uses:
+  heading: Otras cosas que puedes hacer con Agent-Native Analytics
+  cards:
+    - title: Crea un panel de KPI para tu startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Pide los gráficos que sigue tu startup y tenlos en un solo panel.
+    - title: Haz tu informe semanal de marketing sin hojas de cálculo
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Pregunta cómo fue la semana en Google Analytics y HubSpot, y guarda el informe.
+    - title: Descubre dónde abandonan los nuevos usuarios
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: Mira dónde se detienen los nuevos usuarios y después ve sus sesiones para saber por qué.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Analytics es gratis?
+      a: Sí, Agent-Native Analytics es gratuito y de código abierto. El agente funciona con créditos de IA de Builder.io o con tu propia clave de IA, así que el uso de IA no es ilimitado. Las preguntas sobre llamadas también pueden consumir créditos de la API de Gong, algo que un administrador puede desactivar. Analytics está en alfa.
+    - q: ¿Con qué herramientas de CRM y de llamadas se conecta Agent-Native Analytics?
+      a: Analytics se conecta a HubSpot para tu CRM y a Gong para tus llamadas de ventas. También se conectan Apollo y Clay, para datos de contactos y empresas. Cada uno [se conecta en la página Fuentes de datos](https://www.agent-native.com/docs/template-analytics-connectors/) con su propia clave, y una sola pregunta puede usar HubSpot y Gong a la vez.
+    - q: ¿Tengo que escribir SQL?
+      a: No. Preguntas con tus palabras y el agente busca los datos en HubSpot o Gong, ejecuta la consulta y responde con una cifra, una tabla o un gráfico. Cuando guardas una respuesta en un panel, el agente configura cómo obtiene datos actualizados cada gráfico.
+    - q: ¿Puedo fiarme de las cifras?
+      a: "Sí, comprobándolas: el agente responde con datos en vivo de HubSpot y Gong y marca una cifra como «Sin verificar» cuando no sale de una consulta en vivo. Sigue las [definiciones de tu equipo en la página Capa semántica](https://www.agent-native.com/docs/template-analytics-dashboards/). Compara las primeras respuestas con HubSpot antes de confiar en ellas."
+    - q: ¿En qué se diferencia Agent-Native Analytics de la IA que incluyen HubSpot o Gong?
+      a: La IA de HubSpot o Gong está integrada en esa herramienta. Analytics responde a una misma pregunta con HubSpot y Gong a la vez, también lee Stripe y BigQuery, y guarda la respuesta en un panel que tu equipo vuelve a abrir cada semana. Sigues usando HubSpot y Gong como siempre, y Analytics lee de los dos.
+    - q: ¿Quién puede ver mis paneles?
+      a: Solo tú, hasta que compartas uno. Comparte un panel con un compañero o con toda tu organización como lector, editor o administrador. Tus compañeros ven los datos de HubSpot y Gong con su propia conexión o con una que un administrador haya configurado para la organización; sin ninguna de las dos, esos gráficos muestran un error.
