@@ -106,8 +106,30 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "adaptive",
+      display: "summarized",
     });
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("leaves display unset for models that already summarize", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-opus-4-6",
+        reasoningEffort: "high",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
   });
 
   it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
@@ -152,6 +174,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "adaptive",
+      display: "summarized",
     });
     expect(call.providerOptions.anthropic.outputConfig).toEqual({
       effort: "medium",
