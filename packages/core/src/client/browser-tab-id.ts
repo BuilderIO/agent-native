@@ -64,8 +64,27 @@ export function getBrowserTabId(): string {
     return cached;
   }
 
+  let existing: string | null;
+  let storageReadable = true;
+  try {
+    existing = sessionStorage.getItem(key);
+  } catch {
+    existing = null;
+    storageReadable = false;
+  }
+
   const pending = browserTabIdState.pendingId;
   if (pending) {
+    if (
+      existing &&
+      SAFE_BROWSER_TAB_ID_RE.test(existing) &&
+      shouldReuseStoredTabId()
+    ) {
+      browserTabIdState.pendingId = null;
+      browserTabIdState.ids.set(key, existing);
+      return existing;
+    }
+
     browserTabIdState.pendingId = null;
     try {
       sessionStorage.setItem(key, pending);
@@ -77,12 +96,7 @@ export function getBrowserTabId(): string {
     return pending;
   }
 
-  let existing: string | null;
-  try {
-    existing = sessionStorage.getItem(key);
-  } catch {
-    return getOrCreateMemoryId(key);
-  }
+  if (!storageReadable) return getOrCreateMemoryId(key);
 
   if (
     existing &&

@@ -190,7 +190,7 @@ describe("browser tab id", () => {
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(mailId);
   });
 
-  it("keeps the pending id when a stored mount id could be reused on reload", async () => {
+  it("reuses a stored mount id after a reload starts on an unresolved route", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
     ).__AGENT_NATIVE_CONFIG__ = {
@@ -201,13 +201,16 @@ describe("browser tab id", () => {
     window.history.replaceState({}, "", "/opening");
     stubNavigationType("reload");
 
-    const { getBrowserTabId } = await loadTabId();
+    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
+      await loadTabId();
     const pendingId = getBrowserTabId();
 
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
     window.history.replaceState({}, "", "/mail/inbox");
-    expect(getBrowserTabId()).toBe(pendingId);
+    expect(getBrowserTabId()).toBe("stored-mail-id");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
-      pendingId,
+      "stored-mail-id",
     );
   });
 });
