@@ -35,9 +35,12 @@ Helper invariants, checked in the same runs:
   action may be a zombie and its effect may still land.
 - A read-only cache hit may complete a dispatched step without entering the
   handler because it has no external effect.
-- `PruneWhileTurnActive = FALSE` in the checks: the retention prune only
-  reaches a turn that no worker or continuation will touch again. Finding F2
-  shows what happens without it.
+- `PruneWhileTurnActive = FALSE` in the main checks. The F2 regression check
+  sets it to TRUE so pruning can race recovery; `PruneStep` and `PruneLease`
+  preserve a live lease or any step that has not completed.
+- This is a one-step turn model: after that step is completed, the modeled turn
+  is over. A later re-submission using the same turn id after all run and step
+  rows have aged out is outside the active-turn retention guarantee.
 - Transactions are the Postgres ones the code opens, with `FOR UPDATE` and the
   turn advisory lock. Driver differences are not modelled.
 - At the coverage sync revision, terminal projection retry-order bookkeeping
@@ -94,26 +97,26 @@ and `markTurnAborted` confirms that current-turn approval admission and
 completed-pause interruption use the cross-turn scope described above. They
 do not weaken step fencing or move an effect ahead of durable dispatch.
 
-## Results against source snapshot c8190ab8
+## Results after the F2/F3 regression model update
 
 | Config                                                           | Result                          | Distinct states | Time   |
 | ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
-| `ExecutionLease.cfg` (policy `never`, prune on)                  | pass                            | 45,902          | 5.4 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely) | pass                            | 2,403,007       | 63.7 s |
-| `sufficiency/fence-alone.cfg` dispatch keeps only the fence      | P8 and P1 hold                  | 45,902          | 1.8 s  |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause    | P8 holds                        | 71,679          | 2.1 s  |
-| `mutations/a` dispatch without the fence (ownership clause kept) | P1 violated                     | 149             | 0.8 s  |
-| `mutations/b` begin replays a dispatched never step              | P8 violated                     | 19,923          | 1.1 s  |
-| `mutations/c` action starts before the dispatch commits          | P8 violated                     | 2,078           | 1.3 s  |
-| `mutations/d` claim takes a live lease from a running owner      | ClaimRespectsLiveOwner violated | 16              | 1.0 s  |
-| `mutations/e` fence check commits before the write               | P1 violated                     | 138             | 0.9 s  |
-| mutations/g reset fallback without successor fence               | P1 violated                     | 331             | 0.9 s  |
-| `findings/F2` prune reaches a turn that still sees work          | P8 violated                     | 75,455          | 2.9 s  |
-| `findings/F3` policy flip after a retry-safe dispatch            | P8Strict violated               | 1,392,684       | 32.0 s |
+| `ExecutionLease.cfg` (policy `never`, prune on)                   | pass                            | 45,848          | 2.6 s   |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely)  | pass                            | 2,403,308       | 257.6 s |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence       | P8 and P1 hold                  | 45,848          | 2.7 s   |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause     | P8 holds                        | 71,556          | 4.3 s   |
+| `mutations/a` dispatch without the fence (ownership clause kept)  | P1 violated                     | 139             | 1.2 s   |
+| `mutations/b` begin replays a dispatched never step               | P8 violated                     | 20,715          | 1.6 s   |
+| `mutations/c` action starts before the dispatch commits           | P8 violated                     | 2,274           | 1.1 s   |
+| `mutations/d` claim takes a live lease from a running owner       | ClaimRespectsLiveOwner violated | 16              | 0.9 s   |
+| `mutations/e` fence check commits before the write                | P1 violated                     | 161             | 1.0 s   |
+| `mutations/g` reset fallback without successor fence              | P1 violated                     | 322             | 1.0 s   |
+| `checks/F2` prune reaches a turn that still sees work              | pass                            | 68,440          | 12.1 s  |
+| `checks/F3` policy flip after a retry-safe dispatch                | pass                            | 2,403,308       | 122.6 s |
 
-Each mutation and finding config checks only the invariant it is meant to
-break, and the runner requires that exact invariant to be the one violated.
-All expected violations reproduced; the verifier exited 0.
+Each mutation config checks only the invariant it is meant to break, and the
+runner requires that exact invariant to be the one violated. F2 and F3 now pass
+as regression checks with the fixed protocol.
 
 Mutation g removes the successor Current(q) condition from the reset
 fallback. The resulting stale journal write violates P1, confirming that the
@@ -135,99 +138,73 @@ Observations:
 
 ## Findings
 
-**F1, lease-loss reason spelled two ways (code reading, not the model).** The
-heartbeat aborts with `execution-lease-lost` (`agent/run-manager.ts:1725`), but
-finalization only skips the terminal write for `execution_lease_lost`
-(`run-manager.ts:2452`; `server/agent-chat-plugin.ts:942` uses the underscore
-form). So on every heartbeat-detected lease loss:
+**F1, lease-loss reason spelling — resolved before this simulation change.**
+The heartbeat and finalization use the shared
+`EXECUTION_LEASE_LOST_ABORT_REASON` constant. The simulation's slow-tool lease
+loss scenario verifies the abort reason against that constant.
 
-1. The heartbeat's renew fails with `stale_execution_fence` and aborts the run
-   in memory with `execution-lease-lost`.
-2. Finalization does not match the reason, so it calls `markRunAborted` under
-   the worker's fence.
-3. The fence is stale, so the write fails, is reported, and is rethrown.
-4. The run row stays `running` until a reaper reaches it.
+**F2, retention can erase a live turn's step journal — reproduced and fixed.**
+Seed `20261026` reproduces the duplicate effect when a dispatched step is
+pruned while its lease is live. The prune now keeps execution steps for turns
+with a live lease or any non-completed step; lease cleanup also requires an
+expired lease and no non-completed step. After the lease expires, recovery
+reads the preserved `dispatched` record and refuses the `never` replay.
 
-Fix: use one shared constant for the reason.
-
-**F2, the retention prune can erase the step journal of a turn that still
-sees work** (`pruneAndRollUpPrunedRunOutcomes`, `agent/run-store.ts:5166-5188`).
-The step and lease deletes look only at age and at whether any run row of the
-turn remains; they never check the lease. Counterexample:
-
-1. Run 1 claims generation 1, begins the step, marks it dispatched, and the
-   effect runs.
-2. A stop request aborts run 1 before it completes the step, so the step stays
-   `dispatched`.
-3. After retention, the prune deletes run 1's row, then the step row, because
-   no run row of the turn remains.
-4. A continuation arrives with the same turn id (turn ids come from the
-   request, `production-agent.ts:14815-14822`, `background-automation-runner.ts:1476`)
-   and inserts run 2, which claims the lease.
-5. Run 2 begins the step, finds no row, inserts a fresh `prepared` row,
-   dispatches, and the effect runs a second time.
-
-The same erase happens through a worker that outlives retention, or through a
-low retention setting. `AGENT_RUN_RETENTION_MS` (24 h by default) and
-`AGENT_ERRORED_RUN_RETENTION_MS` (7 d) may both be 0
-(`app-config/agent.ts:95-110`), and a cutoff below the 15 s lease TTL lets the
-lease delete reach a live lease. Not yet confirmed: whether a late
-continuation re-issues the same call once its tool-call journal rows are gone
-too. Fix: skip turns with a live lease or any non-terminal step in the step
-and lease deletes, and give both retention settings a floor above the lease
-TTL plus the recovery window.
-
-**F3, a dispatched retry-safe step forgets it was dispatched after
-re-adoption** (`beginAgentExecutionStep`, `run-store.ts:795-809`).
-Counterexample, with a deploy that changes the action's replay policy between
-runs of one turn:
-
-1. Run 2 (retry-safe) dispatches the step and the effect runs.
-2. Run 2's run row ends (`completed`) before it completes the step, so the step
-   stays `dispatched`. Run 3 (retry-safe) claims, and begin re-adopts the
-   dispatched step, which is allowed for retry-safe. The step status goes back
-   to `prepared`.
-3. Run 3 stops before dispatching.
-4. Run 1, on the deploy where the action is now `never`, claims. Begin sees
-   `prepared`, adopts it, and the effect runs again, although `never`
-   promised no repeat.
-
-This needs an action's retry safety to change while a turn is in flight, so
-the practical risk is low. Fix: `dispatched_at` survives re-adoption, so begin
-can treat a `prepared` row with `dispatched_at` set as already dispatched when
-it decides whether a `never` intent may run.
+**F3, retry-safe adoption forgets dispatch — reproduced and fixed.** Seed
+`20261027` dispatches a retry-safe step, adopts and redispatches it in a second
+run, then cancels before invocation. The reset used to clear the first run's
+dispatch marker, allowing a third run whose policy changed to `never` to invoke
+the action again. `beginAgentExecutionStep` now treats non-null `dispatched_at`
+as history, and the reset preserves it only when admission reports an earlier
+dispatch. A first-attempt cancellation still clears its new marker, preserving
+the known-no-effect retry path.
 
 ## Outside the model: step identity (from review, not model-checked)
 
-P8 holds per step row. These paths can give a repeated call a different step
-row, so they need their own model or fix. Each is from code reading and was
-not reproduced.
+P8 holds per step row. These paths concern call identity or event persistence,
+which the execution-lease model does not cover.
 
-- **F4, likely: an agent-teams retry after a crash repeats a never-replay
-  call.** A retry with no prior continuation starts in "start" mode with only
-  the task description (`server/agent-teams.ts:2484-2513`). Interrupted
-  journal entries are seeded only for internal continuations
-  (`production-agent.ts:7519-7527`), and the step id hashes the turn prefix,
-  which holds the provider's tool-call ids (`production-agent.ts:8365-8372`).
-  A re-planned call therefore gets a new step row, and the effect runs again.
-  Suggested fix: seed interrupted journal entries for every turn, not only
-  internal continuations.
-- **F5, suspected: an integration task retry is a new turn.** Without durable
-  dispatch, a stuck or failed integration task is reset to pending and claimed
-  again with a new run and turn (`integrations/pending-tasks-retry-job.ts`,
-  `integrations/webhook-handler.ts:1143-1180`), so neither journal sees the
-  first attempt.
-- **F6, suspected: the integration and Google Docs poller loops do not make
-  `tool_start` durable before dispatch** (`integrations/webhook-handler.ts:1273-1283`:
-  no `beforeWrite`, and `send` does not return the persistence promise). A
-  crash after the effect leaves no interrupted entry for the next chunk.
+- **F4, not reproduced in current recovery code.** Agent-team retries set
+  `recoverCompletedExecutionSteps` after the first claim
+  (`server/agent-teams.ts`), which seeds interrupted journal entries even
+  when the retry replans from task text (`production-agent.ts`). The loop
+  matches an unambiguous repeated call to its interrupted journal step
+  (`tool-call-journal.ts`), so it does not create the new step row described
+  by the original suspicion. This task did not add a separate team retry
+  scenario; the behavior was confirmed by code-path review.
+- **F5, product contract unresolved: an integration task retry defaults to a
+  new turn.** The targeted run-manager scenario reproduces this: two attempts
+  with no explicit `turnId` receive their `runId` as the turn id, so their step
+  journals do not deduplicate. Whether task retries should share a logical turn
+  needs a product contract; the snapshot remains an expected failure.
+- **F6, not reproduced on current code.** `run-manager.ts` `send` returns the
+  publication promise from `emitRunEvent`, which settles after the SQL event
+  write; `runAgentLoop` awaits `send(tool_start)` before invoking a write
+  action. The F6 scenario verified that `tool_start` was persisted before the
+  action started. The integration loop's missing `beforeWrite` does not bypass
+  this awaited event path.
+
+## Deterministic simulation
+
+`packages/core/src/agent/run-loop.sim.spec.ts` runs the real durable-step store
+and production loop against PGlite. Vitest's virtual `Date` clock and a
+`clock_timestamp()` SQL adapter share one time source; the model provider and
+tool effects are scripted in-process. Outbound `fetch` is replaced by a
+fail-closed boundary, and the suite fails if anything attempts a network call.
+The fast-check property defaults to 24 command sequences and can be expanded
+with `AGENT_RUN_SIM_SEEDS`. A failing property includes fast-check's seed and
+the last compact event trace.
+
+The full default simulation file (24 property runs plus named scenarios and a
+concurrent-claim check) took 10.7 seconds locally. The property alone took
+63.6 seconds with 64 runs.
 
 ## Code to model map
 
 Paths are under `packages/core/src/`. Every action in `ExecutionLease.tla`
 cites the lines it models.
 
-Drift coverage (`manifest.json`, 44 entries) hashes the code in this map, the
+Drift coverage (`manifest.json`, 45 entries) hashes the code in this map, the
 step-intent and replay-policy derivation in `production-agent.ts`, and the
 helpers that compute the policy's inputs: `classifyActionCall`,
 `actionCallIntent`, `preparedCallArguments`, `actionCallIsRetrySafe`,
@@ -242,7 +219,7 @@ tests.
 | `renewExecutionLease`                                                                                      | `Renew`                                                                          |
 | `releaseTurnExecutionLease`                                                                                | `WorkerRelease`                                                                  |
 | `agent/execution-fence.ts` `withFencedExecutionWrite`, `lockAndAssertCurrentExecutionFences`               | `Current`, `FenceOK` in every fenced action                                      |
-| `beginAgentExecutionStep`                                                                                  | `BeginStep`                                                                      |
+| `beginAgentExecutionStep`                                                                                  | `BeginStep`, including durable `dispatched_at` history                           |
 | `markAgentExecutionStepDispatched`                                                                         | `MarkDispatched`                                                                 |
 | `resetAgentExecutionStepBeforeInvocation`                                                                  | `ResetBeforeInvocation` (direct fence, or locked current-owner reconciliation)   |
 | `completeAgentExecutionStep`                                                                               | `CompleteStep`                                                                   |
@@ -256,7 +233,8 @@ tests.
 | `finalizeClaimedBackgroundRunFailure`                                                                      | `FinalizeClaimedFailure`                                                         |
 | `releaseBackgroundRunBeforeStart`, `reapUnclaimedBackgroundRun`                                            | `TerminaliseUnclaimed`                                                           |
 | `insertRun`, `tryClaimRunSlot`, `attemptStaleRunRecovery`                                                  | `InsertRun`                                                                      |
-| `pruneAndRollUpPrunedRunOutcomes`                                                                          | `PruneRun`, `PruneStep`, `PruneLease`                                            |
+| `pruneAndRollUpPrunedRunOutcomes`                                                                          | `PruneRun`, `PruneStep`, `PruneLease`, including lease and unfinished-step guards |
 | `agent/production-agent.ts` `invokeAction`, `jobs/background-automation-runner.ts` `confirmAutomationWork` | `MarkDispatched`, then `InvokeHandler` before `Effect`; reset may win in between |
 | `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run             |
+| `agent/production-agent.ts` pre-invocation reset admission                                                | `ResetBeforeInvocation` history carry-forward decision                           |
 | `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                                 |

@@ -13,6 +13,12 @@
       "config": "ExecutionLeasePolicyFlip.cfg"
     },
     {
+      "config": "checks/F2-prune-under-live-lease.cfg"
+    },
+    {
+      "config": "checks/F3-policy-flip-forgets-dispatch.cfg"
+    },
+    {
       "config": "sufficiency/fence-alone.cfg"
     },
     {
@@ -51,18 +57,7 @@
       "breaks": "reset fallback writing to a successor without checking its current lease"
     }
   ],
-  "findings": [
-    {
-      "config": "findings/F2-prune-under-live-lease.cfg",
-      "invariant": "P8",
-      "finding": "F2: the retention prune deletes step rows without checking the lease"
-    },
-    {
-      "config": "findings/F3-policy-flip-forgets-dispatch.cfg",
-      "invariant": "P8Strict",
-      "finding": "F3: re-adopting a dispatched retry-safe step forgets it was dispatched"
-    }
-  ],
+  "findings": [],
   "coverage": {
     "syncCommit": "5d0a977551988461d84ffed6f663cb2d92f4d955",
     "code": [
@@ -287,6 +282,12 @@
         "file": "packages/core/src/action-arguments-identity.ts",
         "name": "snapshotActionArguments",
         "sha256": "6c010fb9669b7a96b1b7419ef8ea7f5cb552fb956da8c84a6c55d185eb1bc90a"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {",
+        "to": "executionStepAdmission.wasDispatched,",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     ]
   }

@@ -829,7 +829,8 @@ export async function beginAgentExecutionStep(
       });
       const selected = await tx.execute({
         sql: `SELECT operation_id, tool_name, input_json, replay_policy,
-                   status, run_id, generation, result_json, error_json
+                   status, run_id, generation, result_json, error_json,
+                   dispatched_at
             FROM agent_execution_steps
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
             FOR UPDATE`,
@@ -846,6 +847,7 @@ export async function beginAgentExecutionStep(
             generation?: number | string;
             result_json?: string | null;
             error_json?: string | null;
+            dispatched_at?: number | string | null;
           }
         | undefined;
       if (!row) throw new Error("Execution step intent was not persisted");
@@ -866,8 +868,9 @@ export async function beginAgentExecutionStep(
           errorJson: row.error_json ?? null,
         };
       }
-      const wasDispatched =
-        row.status === "dispatched" || row.status === "unknown";
+      const hadDispatch =
+        row.status === "dispatched" || row.dispatched_at != null;
+      const wasDispatched = hadDispatch || row.status === "unknown";
       if (row.status === "unknown") {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
@@ -875,7 +878,7 @@ export async function beginAgentExecutionStep(
             intent.replayPolicy === "retry-safe");
         if (!canReplay) return { status: "unknown" };
       }
-      if (row.status === "dispatched") {
+      if (hadDispatch) {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
           (intent.replayPolicy === "read-only" ||
@@ -940,6 +943,7 @@ export async function markAgentExecutionStepDispatched(
 
 export async function resetAgentExecutionStepBeforeInvocation(
   intent: AgentExecutionStepIntent,
+  options: { preserveDispatchHistory?: boolean } = {},
 ): Promise<void> {
   await ensureRunTables();
   const expectedFence: ExecutionFence = {
@@ -952,12 +956,15 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
       tx.execute({
         sql: `UPDATE agent_execution_steps
-              SET status = 'prepared', dispatched_at = NULL,
+              SET status = 'prepared',
+                  dispatched_at = CASE WHEN ? THEN
+                    COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                   updated_at = clock_timestamp()
               WHERE thread_id = ? AND turn_id = ? AND step_id = ?
                 AND run_id = ? AND generation = CAST(? AS BIGINT)
                 AND status IN ('prepared', 'dispatched')`,
         args: [
+          options.preserveDispatchHistory === true,
           intent.threadId,
           intent.turnId,
           intent.stepId,
@@ -1019,7 +1026,9 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const reconciled = await tx.execute({
       sql: `UPDATE agent_execution_steps
             SET status = 'prepared', run_id = ?,
-                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                generation = CAST(? AS BIGINT),
+                dispatched_at = CASE WHEN ? THEN
+                  COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                 updated_at = clock_timestamp()
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
               AND run_id = ? AND generation = CAST(? AS BIGINT)
@@ -1027,6 +1036,7 @@ export async function resetAgentExecutionStepBeforeInvocation(
       args: [
         currentLease.ownerRunId,
         currentLease.generation,
+        options.preserveDispatchHistory === true,
         intent.threadId,
         intent.turnId,
         intent.stepId,
@@ -5584,8 +5594,8 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Keep execution receipts through the longest configured recovery window,
-    // even when the run rows they belong to have already been pruned.
+    // Same-turn recovery can outlive the run row. Preserve live leases and
+    // steps that have not reached a terminal outcome.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
@@ -5593,6 +5603,18 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = s.thread_id
                   AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_leases l
+                WHERE l.thread_id = s.thread_id
+                  AND l.turn_id = s.turn_id
+                  AND l.lease_expires_at > clock_timestamp()
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = s.thread_id
+                  AND active.turn_id = s.turn_id
+                  AND active.status <> 'completed'
               )`,
       args: [erroredCutoff],
     });
@@ -5603,6 +5625,13 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = l.thread_id
                   AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )
+              AND l.lease_expires_at <= clock_timestamp()
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = l.thread_id
+                  AND active.turn_id = l.turn_id
+                  AND active.status <> 'completed'
               )`,
       args: [erroredCutoff],
     });

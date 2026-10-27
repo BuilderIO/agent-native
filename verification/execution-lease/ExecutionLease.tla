@@ -43,7 +43,8 @@ WPC == {"idle", "begin", "dispatch", "dispatch-started", "invoke",
 
 NoLease == [exists |-> FALSE, owner |-> NoRun, gen |-> 0, live |-> FALSE]
 NoStep  == [exists |-> FALSE, status |-> "none", run |-> NoRun, gen |-> 0,
-            policy |-> "none"]
+            policy |-> "none", dispatchedAt |-> FALSE,
+            wasDispatched |-> FALSE]
 
 VARIABLES
   policy,        \* intent.replayPolicy each run's deploy computes (PA:9377-9381)
@@ -83,7 +84,10 @@ JournalWrite(r) == /\ UseFence(r)
 
 StepMine(r) == step.exists /\ step.run = r /\ step.gen = wg[r]
 Adopt(r) == [exists |-> TRUE, status |-> "prepared", run |-> r,
-             gen |-> wg[r], policy |-> policy[r]]
+             gen |-> wg[r], policy |-> policy[r],
+             dispatchedAt |-> step.dispatchedAt,
+             wasDispatched |-> (step.wasDispatched \/ step.dispatchedAt
+                                 \/ step.status \in {"dispatched", "unknown"})]
 NoPresentRun == \A q \in Runs : rstatus[q] \notin Present
 
 \* History for P6: a (owner, gen) pair dies when it stops being the live lease.
@@ -177,6 +181,8 @@ BeginStep(r) ==
   /\ FenceOK(r)
   /\ LET canReplay == /\ step.policy = policy[r]
                       /\ policy[r] \in {"read-only", "retry-safe"}
+         hadDispatch == step.status = "dispatched" \/ step.dispatchedAt
+                         \/ step.wasDispatched \/ step.status = "unknown"
          execute ==
            /\ step' = Adopt(r)
            /\ wpc' = [wpc EXCEPT ![r] = IF Mutation = "c"
@@ -192,7 +198,7 @@ BeginStep(r) ==
      IN  IF ~step.exists THEN execute
          ELSE IF step.status = "completed" THEN stop(step)
          ELSE IF step.status = "unknown" /\ ~canReplay THEN stop(step)
-         ELSE IF step.status = "dispatched" /\ ~canReplay /\ Mutation # "b"
+         ELSE IF hadDispatch /\ ~canReplay /\ Mutation # "b"
               THEN stop([step EXCEPT !.status = "unknown"])
          ELSE execute
   /\ UNCHANGED <<policy, rstatus, wg, lease, effects, liveSteal>>
@@ -213,7 +219,7 @@ MarkDispatched(r) ==
   /\ Mutation = "a" \/ FenceOK(r)
   /\ step.exists /\ step.status = "prepared"
   /\ Mutation = "f" \/ StepMine(r)
-  /\ step' = [step EXCEPT !.status = "dispatched"]
+  /\ step' = [step EXCEPT !.status = "dispatched", !.dispatchedAt = TRUE]
   /\ effectPending' = effectPending
   /\ wpc' = [wpc EXCEPT ![r] = IF wpc[r] = "dispatch-started"
                                   THEN "finish"
@@ -246,7 +252,8 @@ ResetBeforeInvocation(r) ==
   /\ step.exists /\ step.status = "dispatched" /\ StepMine(r)
   /\ \/ /\ Current(r)
         /\ FenceOK(r)
-        /\ step' = [step EXCEPT !.status = "prepared"]
+        /\ step' = [step EXCEPT !.status = "prepared",
+                                  !.dispatchedAt = step.wasDispatched]
         /\ wpc' = [wpc EXCEPT ![r] = "done"]
         /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
         /\ UNCHANGED <<policy, rstatus, wg, lease, effects, liveSteal>>
@@ -259,7 +266,8 @@ ResetBeforeInvocation(r) ==
           /\ Current(q)
           /\ rstatus[q] = "running"
           /\ step' = [step EXCEPT !.status = "prepared",
-                                    !.run = q, !.gen = wg[q]]
+                                    !.run = q, !.gen = wg[q],
+                                    !.dispatchedAt = step.wasDispatched]
           /\ wpc' = [wpc EXCEPT ![r] = "done"]
           /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
           /\ staleWrite' = staleWrite \/ (step' # step /\ ~Current(q))
@@ -279,7 +287,8 @@ ResetBeforeInvocationWithoutSuccessorFence(r) ==
        /\ ~Current(q)
        /\ rstatus[q] = "running"
        /\ step' = [step EXCEPT !.status = "prepared",
-                                 !.run = q, !.gen = wg[q]]
+                                 !.run = q, !.gen = wg[q],
+                                 !.dispatchedAt = step.wasDispatched]
        /\ wpc' = [wpc EXCEPT ![r] = "done"]
        /\ effectPending' = [effectPending EXCEPT ![r] = FALSE]
        /\ staleWrite' = TRUE
@@ -461,9 +470,13 @@ TerminaliseUnclaimed(r) ==
 \* continuation, or a team attempt. The turn id comes from the request
 \* (PA:14815-14822, BAR:1476), so a continuation can also arrive after the
 \* turn's rows were pruned; that case is PruneWhileTurnActive.
+\* For this one-step model, a post-prune continuation is active only while
+\* the step is incomplete. A completed step ends the modeled turn.
 InsertRun(r) ==
   /\ rstatus[r] = "absent"
-  /\ PruneWhileTurnActive \/ \E q \in Runs : rstatus[q] \in Present
+  /\ (IF PruneWhileTurnActive
+      THEN step.exists /\ step.status # "completed"
+      ELSE \E q \in Runs : rstatus[q] \in Present)
   /\ rstatus' = [rstatus EXCEPT ![r] = "running"]
   /\ UNCHANGED <<policy, wg, lease, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
@@ -476,8 +489,8 @@ InsertRun(r) ==
 \* or AGENT_ERRORED_RUN_RETENTION_MS (7 d, RM:228); both may be set to 0
 \* (app-config/agent.ts:95-110), and the step and lease deletes use the larger
 \* (RS:5303-5305). Ages are not modelled: unless PruneWhileTurnActive, the age
-\* stands in for "the run's worker has stopped acting". With it TRUE, TLC
-\* finds the never step run again (NOTES.md, F2).
+\* stands in for run worker completion. The F2 regression check permits
+\* pruning to race recovery while an incomplete step remains.
 WorkerGone(r) == wpc[r] \in {"idle", "done"} /\ ~effectPending[r]
 PruneRun(r) ==
   /\ WithPrune
@@ -489,24 +502,28 @@ PruneRun(r) ==
   /\ RetireDead
 
 \* DELETE agent_execution_steps: older than the cutoff and no agent_runs row of
-\* the turn (RS:5166-5177). Nothing here looks at the lease.
+\* the turn (RS:5166-5177). It also keeps rows while the lease is live or any
+\* step in the turn is incomplete.
 PruneStep ==
   /\ WithPrune
   /\ step.exists
   /\ NoPresentRun
+  /\ ~lease.live
+  /\ step.status = "completed"
   /\ step' = NoStep
   /\ UNCHANGED <<policy, rstatus, wg, lease, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
   /\ RetireDead
 
 \* DELETE agent_execution_leases: updated_at older than the cutoff and no
-\* agent_runs row of the turn (RS:5178-5188). Renew rewrites updated_at, so
-\* only a cutoff below the lease TTL reaches a live lease. The next claim
-\* restarts at gen 1.
+\* agent_runs row of the turn (RS:5178-5188). The lease must be expired and
+\* the turn must have no incomplete step. The next claim restarts at gen 1.
 PruneLease ==
   /\ WithPrune
-  /\ lease.exists /\ (PruneWhileTurnActive \/ ~lease.live)
+  /\ lease.exists
+  /\ ~lease.live
   /\ NoPresentRun
+  /\ (step.status = "none" \/ step.status = "completed")
   /\ lease' = NoLease
   /\ UNCHANGED <<policy, rstatus, wg, step, wpc, effectPending, checked,
                  effects, staleWrite, liveSteal>>
@@ -551,7 +568,8 @@ TypeOK ==
                 live : BOOLEAN]
   /\ step \in [exists : BOOLEAN, status : StepStatus \cup {"none"},
                run : Runs \cup {NoRun}, gen : Gens,
-               policy : Policies \cup {"none"}]
+               policy : Policies \cup {"none"},
+               dispatchedAt : BOOLEAN, wasDispatched : BOOLEAN]
   /\ wpc \in [Runs -> WPC]
   /\ effectPending \in [Runs -> BOOLEAN]
   /\ checked \in [Runs -> BOOLEAN]
