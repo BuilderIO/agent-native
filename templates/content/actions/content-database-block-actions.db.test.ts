@@ -903,4 +903,53 @@ describe("exact Content database block actions", () => {
       bodyRevision: before.bodyRevision + 1,
     });
   });
+
+  // The backfill switches Files rows, so this writer must never reach one.
+  it("refuses a block mutation of a Files row, so no legacy-only writer reaches a page the backfill switches", async () => {
+    const state = await fixture("Alpha\nBeta");
+    const [files] = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+        itemId: schema.contentDatabaseItems.id,
+      })
+      .from(schema.contentDatabases)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, state.target.spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+          eq(
+            schema.contentDatabaseItems.documentId,
+            state.target.rowDocumentId,
+          ),
+        ),
+      );
+    expect(files).toBeDefined();
+    const before = await rowBodyState(state.target.rowDocumentId);
+
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "files-row-update"),
+          target: {
+            ...state.target,
+            databaseId: files.id,
+            databaseDocumentId: files.documentId,
+            itemId: files.itemId,
+          },
+          operation: "update",
+          blockId: state.listed.blocks[0].id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
+  });
 });
