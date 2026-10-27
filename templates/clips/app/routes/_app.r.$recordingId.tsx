@@ -532,6 +532,17 @@ interface GeneratedWorkflowState {
   error?: string;
 }
 
+type WorkflowGenerationStopInput = {
+  operation: "stop";
+  recordingId: string;
+  requestedAt: string;
+  requestId?: string;
+  tabId: string;
+  stopReason: "cancelled" | "timed_out";
+};
+
+type WorkflowGenerationStopResult = { reconciled?: boolean };
+
 function aiRequestProgressKey(kind: ClipsAiRequestKind): string {
   switch (kind) {
     case "generate-metadata":
@@ -1396,6 +1407,10 @@ export default function RecordingPage() {
     requestId?: string;
     reason: "cancelled" | "timed_out";
   } | null>(null);
+  const reconcileWorkflowGeneration = useActionMutation<
+    WorkflowGenerationStopResult,
+    WorkflowGenerationStopInput
+  >("reconcile-workflow-generation");
   const stopWorkflowGeneration = useCallback(
     async (
       workflow: GeneratedWorkflowState,
@@ -1416,17 +1431,14 @@ export default function RecordingPage() {
         const status = (error as Error & { status?: unknown }).status;
         if (status !== 404 && status !== 409) throw error;
       });
-      const result = (await callAction(
-        "reconcile-workflow-generation" as any,
-        {
-          operation: "stop",
-          recordingId,
-          requestedAt: workflow.requestedAt,
-          ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
-          tabId,
-          stopReason,
-        } as any,
-      )) as { reconciled?: boolean };
+      const result = await reconcileWorkflowGeneration.mutateAsync({
+        operation: "stop",
+        recordingId,
+        requestedAt: workflow.requestedAt,
+        ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+        tabId,
+        stopReason,
+      });
       const refreshed = await generatedWorkflowQ.refetch();
       const sameRequestStillGenerating =
         refreshed.data?.status === "generating" &&
@@ -1440,7 +1452,12 @@ export default function RecordingPage() {
       }
       return result;
     },
-    [generatedWorkflowQ.refetch, recording?.id, t],
+    [
+      generatedWorkflowQ.refetch,
+      reconcileWorkflowGeneration.mutateAsync,
+      recording?.id,
+      t,
+    ],
   );
   const cancelWorkflowGeneration = useCallback(
     (workflow: GeneratedWorkflowState) => {
@@ -1468,7 +1485,8 @@ export default function RecordingPage() {
       return;
     }
     if (
-      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      workflowStopAttempt &&
+      workflowStopAttempt.recordingId === generatedWorkflow.recordingId &&
       matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
     ) {
       return;
@@ -1492,7 +1510,8 @@ export default function RecordingPage() {
     canEdit,
     recordingId,
     generatedWorkflow?.requestId,
-    requestedAt,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     startWorkflowToast,
     t,
@@ -1627,13 +1646,16 @@ export default function RecordingPage() {
 
   useEffect(() => {
     if (
-      generatedWorkflow?.status !== "generating" ||
+      !generatedWorkflow ||
+      generatedWorkflow.status !== "generating" ||
+      !generatedWorkflow.recordingId ||
       !generatedWorkflow.requestedAt
     ) {
       return;
     }
     if (
-      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      workflowStopAttempt &&
+      workflowStopAttempt.recordingId === generatedWorkflow.recordingId &&
       matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
     ) {
       return;
@@ -1644,13 +1666,7 @@ export default function RecordingPage() {
     const action = canEdit
       ? {
           label: t("common.cancel"),
-          onClick: () =>
-            cancelWorkflowGeneration({
-              recordingId: generatedWorkflow.recordingId,
-              requestId: generatedWorkflow.requestId,
-              requestedAt: generatedWorkflow.requestedAt,
-              status: generatedWorkflow.status,
-            }),
+          onClick: () => cancelWorkflowGeneration(generatedWorkflow),
         }
       : undefined;
     const progressUpdates = [

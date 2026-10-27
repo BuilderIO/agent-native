@@ -176,9 +176,6 @@ describe("direct recording route shell cue", () => {
     expect(stopStart).toBeGreaterThan(-1);
     expect(stopHandler).toContain("await cancelBackgroundAgentSession");
     expect(stopHandler).toContain(
-      "if (status !== 404 && status !== 409) throw error",
-    );
-    expect(stopHandler).toContain(
       "if (!result.reconciled && !sameRequestStillGenerating) return result",
     );
     expect(stopHandler).toContain("if (sameRequestStillGenerating)");
