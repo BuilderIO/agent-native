@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 
 import { AgentKitClient } from "@agent-native/agentkit/client";
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentToolCall,
-  AgentTransport,
+import {
+  createAgentKitProtocolVersionOffer,
+  createCapabilityUnavailableError,
+  negotiateAgentKitProtocolVersion,
+  parseAgentCapabilitiesDiscovery,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentToolCall,
+  type AgentTransport,
 } from "@agent-native/agentkit/protocol";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -282,6 +286,111 @@ describe("assistant reply toolbar", () => {
       "Copy request ID",
     ]);
     expect(labelsOf(set(older, "secondary"))).toEqual(["Fork from here"]);
+  });
+
+  it("names each icon-only action in a tooltip on hover", async () => {
+    const { container, toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const user = container.querySelector<HTMLElement>(
+      '[data-message-id="user-2"] .agentkit-message-actions',
+    )!;
+    const hoverName = async (button: HTMLButtonElement) => {
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        const name = document.querySelector('[role="tooltip"]')?.textContent;
+        await act(async () => {
+          button.dispatchEvent(
+            new PointerEvent("pointerleave", {
+              bubbles: true,
+              pointerType: "mouse",
+            }),
+          );
+          vi.advanceTimersByTime(1000);
+        });
+        return name;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    const names: Array<string | null | undefined> = [];
+    const hoverAll = async (scope: HTMLElement) => {
+      for (const button of Array.from(scope.querySelectorAll("button"))) {
+        // The idle set is inert, so only the open set's actions can be hovered.
+        if (!button.closest("[inert]")) names.push(await hoverName(button));
+      }
+    };
+    await hoverAll(latest);
+    await press(toggle(latest));
+    await hoverAll(set(latest, "secondary")!);
+    await hoverAll(user);
+    expect(names).toEqual([
+      "Copy message",
+      "Good response",
+      "Bad response",
+      "More actions",
+      "Retry",
+      "Fork from here",
+      "Copy request ID",
+      "Copy message",
+    ]);
+  });
+
+  it("shows a degraded action's reason in its tooltip, not a second native title", async () => {
+    const reason = "Feedback is queued and may take a minute to record.";
+    const { toolbar } = await renderChat({
+      transport: {
+        async discoverCapabilities() {
+          return parseAgentCapabilitiesDiscovery({
+            protocol: negotiateAgentKitProtocolVersion(
+              createAgentKitProtocolVersionOffer(),
+            ),
+            discoveredAt: "2026-10-23T00:00:00.000Z",
+            capabilities: [
+              { id: "threadForking", state: "available" },
+              {
+                id: "feedback",
+                state: "degraded",
+                error: createCapabilityUnavailableError("feedback", {
+                  message: reason,
+                  retryable: true,
+                }),
+              },
+            ],
+          });
+        },
+      },
+    });
+    const good = thumb(toolbar("assistant-latest"), "positive");
+
+    expect(good.disabled).toBe(false);
+    expect(good.hasAttribute("title")).toBe(false);
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        good.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        vi.advanceTimersByTime(1000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+      `Good response${reason}`,
+    );
   });
 
   it("shows More as pressed while its actions are open, past its hover fill", async () => {
@@ -617,6 +726,53 @@ describe("Worked for run details", () => {
           ?.textContent,
       ).toBe("1");
     }
+
+    const charged = await renderChat({
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0.02,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [...toolWork], latestAnswer),
+    });
+    await press(
+      charged.container.querySelector(".agentkit-activities-summary"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const charge = charged.container.querySelector('[data-detail="credits"]');
+    expect(charge?.querySelector("dt")?.textContent).toBe("Cost");
+    expect(charge?.querySelector("dd")?.textContent).toBe("$0.02");
+
+    // Auto names no model, so with no steps the zero is the only detail left
+    // and still shows.
+    const alone = await renderChat({
+      followUpModel: "auto",
+      loadRunUsage: async () => ({
+        durationMs: null,
+        billing: {
+          providerCostUsd: 0,
+          providerCostSource: "reported" as const,
+          builderCredits: 0,
+          builderCreditsSource: "estimated" as const,
+          incomplete: false,
+        },
+      }),
+      events: runEvents("run-latest", [], latestAnswer),
+    });
+    await press(alone.container.querySelector(".agentkit-activities-summary"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      alone.container.querySelector('[data-detail="credits"] dd')?.textContent,
+    ).toMatch(/^0\.0\b/);
 
     const unrecorded = await renderChat({
       loadRunUsage: async () => ({ durationMs: null, billing: null }),

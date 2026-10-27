@@ -52,6 +52,7 @@ import { resolveTranscriptPresentation } from "../../shared/transcript-status.js
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
+import { isRecordingExpiredForViewer } from "./recording-page-access.js";
 import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
@@ -434,17 +435,19 @@ export async function loadPublicAgentAccess(
     };
   }
 
-  if (recording.expiresAt) {
-    const expires = new Date(recording.expiresAt).getTime();
-    if (Number.isFinite(expires) && expires < Date.now()) {
-      return {
-        ok: false,
-        failure: {
-          status: 410,
-          body: { error: "Recording has expired", expired: true },
-        },
-      };
-    }
+  if (
+    isRecordingExpiredForViewer({
+      expiresAt: recording.expiresAt,
+      viewerIsOwner,
+    })
+  ) {
+    return {
+      ok: false,
+      failure: {
+        status: 410,
+        body: { error: "Recording has expired", expired: true },
+      },
+    };
   }
 
   let apiToken: string | null = null;

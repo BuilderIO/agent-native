@@ -2,14 +2,17 @@ import { saveYDocState } from "@agent-native/core/collab";
 import { getDbExec } from "@agent-native/core/db";
 import { registerFeatureFlags } from "@agent-native/core/feature-flags";
 import { putSetting } from "@agent-native/core/settings";
+import { initProseMirrorDoc, updateYFragment } from "@tiptap/y-tiptap";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 
+import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import {
   CONTENT_FEATURE_FLAGS,
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
 } from "../../shared/feature-flags.js";
+import { nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 
 function rulesFor(emails: string[]) {
@@ -36,13 +39,27 @@ export async function liveCopyVersionOf(
   return row === undefined ? undefined : Number(row.version);
 }
 
+/** A Yjs document holding `content` as the editor stores it. */
+function seededLiveCopy(content: string): Y.Doc {
+  const schema = createContentEditorStructuralSchema();
+  const doc = new Y.Doc();
+  const fragment = doc.getXmlFragment("default");
+  const { meta } = initProseMirrorDoc(fragment, schema);
+  updateYFragment(doc, fragment, schema.nodeFromJSON(nfmToDoc(content)), meta);
+  return doc;
+}
+
 /**
  * Makes page `id` take body writes through its live copy, as the write-path
  * gate reads it: switched, both markers current, and both flags on for its
- * owner. The live copy holds an empty Yjs document, so this suits writers
- * refused before they reach it, not writes through it.
+ * owner. Without `seeded` the live copy holds an empty Yjs document, so it
+ * suits writers refused before they reach it, not writes through it; with
+ * it, the copy holds the page's body, so a write through it can commit.
  */
-export async function putPageOnLiveCopy(id: string): Promise<void> {
+export async function putPageOnLiveCopy(
+  id: string,
+  { seeded = false }: { seeded?: boolean } = {},
+): Promise<void> {
   registerFeatureFlags(CONTENT_FEATURE_FLAGS);
   const [page] = await getDb()
     .select({
@@ -53,7 +70,9 @@ export async function putPageOnLiveCopy(id: string): Promise<void> {
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
   if (!page) throw new Error(`No page ${id} to put on its live copy.`);
-  await saveYDocState(id, Y.encodeStateAsUpdate(new Y.Doc()), page.content);
+  const doc = seeded ? seededLiveCopy(page.content) : new Y.Doc();
+  await saveYDocState(id, Y.encodeStateAsUpdate(doc), page.content);
+  doc.destroy();
   const version = await liveCopyVersionOf(id);
   await getDb()
     .update(schema.documents)

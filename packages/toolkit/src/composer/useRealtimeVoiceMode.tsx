@@ -169,10 +169,19 @@ export interface RealtimeVoiceModeApi {
   setMicrophone: (deviceId: string) => Promise<void>;
   setInputMuted: (muted: boolean) => void;
   setOutputMuted: (muted: boolean) => void;
-  start: () => Promise<void>;
+  start: (options?: RealtimeVoiceStartOptions) => Promise<void>;
   end: () => void;
   /** Clears a failed session so voice chat can start again. */
   dismissError: () => void;
+}
+
+export interface RealtimeVoiceStartOptions {
+  /**
+   * The thread that receives the session's transcripts. Defaults to the
+   * thread on screen at start; pass one when the session starts before its
+   * thread is shown, such as from a page that hands off to the chat.
+   */
+  threadId?: string;
 }
 
 export interface RealtimeVoiceMicrophone {
@@ -1693,6 +1702,7 @@ function useRealtimeVoiceModeController(
   const lastUserTextRef = useRef("");
   const lastAssistantTextRef = useRef("");
   const transcriptThreadIdRef = useRef<string | undefined>(undefined);
+  const requestedTranscriptThreadIdRef = useRef<string | undefined>(undefined);
   const liveCloseDrainTimerRef = useRef<number | null>(null);
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
@@ -2337,6 +2347,7 @@ function useRealtimeVoiceModeController(
     greetingStarter.reset();
     setVoiceChangePending(false);
     transcriptThreadIdRef.current =
+      requestedTranscriptThreadIdRef.current ??
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
     transcriptSequencer.reset();
@@ -2519,6 +2530,14 @@ function useRealtimeVoiceModeController(
     transition,
   ]);
 
+  const startForThread = useCallback(
+    (options?: RealtimeVoiceStartOptions) => {
+      requestedTranscriptThreadIdRef.current = options?.threadId;
+      return start();
+    },
+    [start],
+  );
+
   const end = useCallback(() => {
     if (stateRef.current === "idle" || stateRef.current === "ending") return;
     const transcriptThreadId = transcriptThreadIdRef.current;
@@ -2644,7 +2663,7 @@ function useRealtimeVoiceModeController(
     setMicrophone,
     setInputMuted,
     setOutputMuted,
-    start,
+    start: startForThread,
     end,
     dismissError,
   };

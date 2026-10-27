@@ -1,3 +1,7 @@
+import {
+  getEngineCredentialOwner,
+  getEngineLlmConnectionSource,
+} from "../agent/engine/credential-owner.js";
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import type {
@@ -35,6 +39,7 @@ import {
   redactSensitiveFields,
 } from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
   recordAgentToolCall,
   recordGenAiChat,
@@ -633,6 +638,7 @@ export async function instrumentAgentLoop(opts: {
     typeof loopOpts.engine?.name === "string"
       ? loopOpts.engine.name
       : undefined;
+  const engineCredentialOwner = getEngineCredentialOwner(loopOpts.engine);
   const engineSupportedModels: readonly string[] | undefined = Array.isArray(
     loopOpts.engine?.supportedModels,
   )
@@ -1716,6 +1722,18 @@ export async function instrumentAgentLoop(opts: {
           browserSessionId,
           extraProperties: {
             ...trackingIdentityProperties(),
+            ...llmConnectionTrackingProperties(
+              typeof loopOpts.engine?.name === "string"
+                ? {
+                    configured: true,
+                    engine: loopOpts.engine.name,
+                    model: usage?.model ?? loopOpts.model,
+                    source:
+                      getEngineLlmConnectionSource(loopOpts.engine) ??
+                      "unknown",
+                  }
+                : null,
+            ),
             source: "agent_observability",
             run_id: runId,
             thread_id: threadId,
@@ -1827,6 +1845,7 @@ export async function instrumentAgentLoop(opts: {
           recordGenAiChat({
             requestModel: loopOpts.model,
             providerName: engineName,
+            credentialOwner: engineCredentialOwner,
             supportedModels: engineSupportedModels,
             durationMs: trip.end - trip.start,
             failed:
@@ -1849,6 +1868,7 @@ export async function instrumentAgentLoop(opts: {
           recordGenAiChat({
             requestModel: loopOpts.model,
             providerName: engineName,
+            credentialOwner: engineCredentialOwner,
             supportedModels: engineSupportedModels,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,

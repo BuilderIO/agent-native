@@ -10,6 +10,7 @@ import {
   serializeEdits,
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
@@ -21,7 +22,9 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 

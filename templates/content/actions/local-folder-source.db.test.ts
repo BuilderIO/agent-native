@@ -1262,6 +1262,74 @@ describe("local-folder Content source", () => {
     }
   });
 
+  it("retires a file deletion once the folder has the file again, so accepting it can't unlink the page", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-deletion-superseded",
+        label: "Deletion superseded",
+        createSourceBackedSpace: true,
+        truthPolicy: "database_primary",
+      }),
+    );
+    const sync = (files: Record<string, string>) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({ sourceId: connection.sourceId, files }),
+      );
+    const first = await sync({ "back.md": "Body." });
+    const documentId = first.created[0]!.id;
+    const openDeletions = () =>
+      getDb()
+        .select({ id: schema.contentDatabaseSourceChangeSets.id })
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              connection.sourceId,
+            ),
+            eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+            eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+          ),
+        );
+    await sync({});
+    const [deletion] = await openDeletions();
+    expect(deletion).toBeDefined();
+
+    await sync({ "back.md": "Body." });
+    await expect(openDeletions()).resolves.toEqual([]);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        resolveLocalFolderConflict.run({
+          changeSetId: deletion!.id,
+          decision: "accept_source",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "LOCAL_FOLDER_CONFLICT_NOT_FOUND" });
+    await expect(
+      getDb()
+        .select({ id: schema.contentDatabaseSourceRows.id })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+        ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourcePath: "back.md",
+      }),
+    ]);
+
+    // The same file gone again is proposed again.
+    await sync({});
+    await expect(openDeletions()).resolves.toEqual([{ id: deletion!.id }]);
+  });
+
   it("tracks stable-id renames and removes source-primary deletions from Files without deleting the cached page", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

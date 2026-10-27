@@ -26,13 +26,19 @@ vi.mock("@agent-native/core", () => ({
   embedApp: vi.fn(() => ({})),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (config: unknown) => config,
-  fail: (message: string, options: Record<string, unknown>) => {
-    const error = Object.assign(new Error(message), options);
-    throw error;
-  },
-}));
+vi.mock("@agent-native/core/action", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/action")>();
+  return {
+    defineAction: (config: unknown) => config,
+    fail: (message: string, options: Record<string, unknown>) => {
+      const error = Object.assign(new Error(message), options);
+      throw error;
+    },
+    NoWriteError: actual.NoWriteError,
+    isNoWriteError: actual.isNoWriteError,
+  };
+});
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
@@ -71,6 +77,12 @@ vi.mock("../shared/signature.js", () => ({
   appendSignatureToBody: mocks.appendSignatureToBody,
 }));
 
+import { isNoWriteError } from "@agent-native/core/action";
+
+import {
+  GmailQuotaCooldownError,
+  GmailQuotaRefusedError,
+} from "../server/lib/gmail-quota.js";
 import action from "./manage-draft";
 
 let appState = new Map<string, unknown>();
@@ -480,6 +492,64 @@ describe("manage-draft local fallback", () => {
   });
 });
 
+describe("manage-draft Gmail budget refusals", () => {
+  it("reports a create refused by Mail's Gmail budget as not saved", async () => {
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(23_000));
+
+    const error = await action
+      .run({
+        action: "create",
+        id: "refused-draft",
+        to: "recipient@example.com",
+        subject: "Refund",
+        body: "Draft",
+      })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "gmail_quota_cooldown",
+      statusCode: 429,
+      details: { retryAfterSeconds: 23 },
+      message: expect.stringMatching(/^The draft was not saved\. .*about 23s/),
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused update of a Gmail draft as not saved", async () => {
+    const stored = {
+      id: "gmail-draft",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Refund",
+      body: "Draft",
+      mode: "compose",
+    };
+    appState.set("compose-gmail-draft", stored);
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
+
+    const error = await action
+      .run({ action: "update", id: "gmail-draft", body: "Changed" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(appState.get("compose-gmail-draft")).toBe(stored);
+  });
+
+  it("leaves Gmail's own 429 as it was, since that request was sent", async () => {
+    const gmail429 = new GmailQuotaCooldownError(60_000);
+    mocks.saveGmailDraft.mockRejectedValue(gmail429);
+
+    await expect(
+      action.run({ action: "create", id: "sent-draft", body: "Draft" }),
+    ).rejects.toBe(gmail429);
+  });
+});
+
 describe("manage-draft deep link", () => {
   it("creates an ordinary draft deep link without fullscreen mode", async () => {
     await action.run({
@@ -496,6 +566,34 @@ describe("manage-draft deep link", () => {
       to: "/inbox",
       params: { composeDraftId: "compact-draft" },
     });
+  });
+
+  it("embeds the draft card and keeps the inbox deep link to open Mail", async () => {
+    mocks.buildDeepLink.mockReturnValue(
+      "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+    );
+
+    const created = await action.run({
+      action: "create",
+      id: "card-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+    const updated = await action.run({
+      action: "update",
+      id: "card-draft",
+      body: "Revised body",
+    });
+
+    for (const result of [created, updated]) {
+      expect(result).toMatchObject({
+        embed: true,
+        path: "/draft?id=card-draft",
+        deepLink: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+        deepLinkUrl: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+      });
+    }
   });
 });
 

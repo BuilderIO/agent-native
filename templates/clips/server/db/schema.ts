@@ -478,6 +478,7 @@ export const meetings = table("clips_meetings", {
   scheduledEnd: text("scheduled_end"),
   actualStart: text("actual_start"),
   actualEnd: text("actual_end"),
+  captureStopRevision: integer("capture_stop_revision").notNull().default(0),
   endReason: text("end_reason"),
   platform: text("platform", {
     enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],
@@ -493,6 +494,7 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  // New meetings insert true; the default stays false so older meetings never opt in.
   shareTranscript: boolean("share_transcript").notNull().default(false),
   summaryMd: text("summary_md").notNull().default(""),
   bulletsJson: text("bullets_json").notNull().default("[]"),

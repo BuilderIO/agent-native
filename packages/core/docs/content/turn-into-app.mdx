@@ -7,6 +7,15 @@ description: "The /turn-into-app skill turns a thread, skill, spreadsheet, or Cl
 
 `/turn-into-app` is a skill that turns a workflow you have already proven into an Agent-Native app. The source can be a thread, a skill, a spreadsheet, or a Claude or ChatGPT project. The app opens on your world, populated with sample data shaped like the source, with the in-app agent working behind controls on the objects it acts on. A form under a step bar is the result the skill is built to avoid.
 
+## Before you start {#before-you-start}
+
+- An AI agent that can run terminal commands, such as Claude Code, Codex, or Cursor. Claude or ChatGPT on the web can hand the job to Builder instead. See [Where it runs](#hosts).
+- [Node.js](https://nodejs.org) 22.22 or later. The installer from nodejs.org includes `npx`, which runs the install commands below. Check your version with `node --version`.
+- [pnpm](https://pnpm.io) on your `PATH`. If `pnpm --version` fails, run `corepack enable`, which ships with Node.js.
+- An empty folder for the new app, and about 45 minutes.
+
+You don't need an AI provider key to build the app. You only need one when you want the app's own agent to answer you.
+
 ## Install {#install}
 
 ```bash
@@ -43,10 +52,6 @@ A host counts as local when it has a real working directory, a terminal, and a w
 
 On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
 
-## Local prerequisites
-
-On a local host, install Node.js 22.22.0 or newer (which includes npm and npx) and pnpm before starting. Browser hosts use Dispatch and do not run these commands.
-
 ## Sources {#sources}
 
 - **Threads.** The last concrete, repeatable job is the product.
@@ -67,7 +72,7 @@ The skill saves its source brief as `docs/brief.md` and appends the surface desi
 ## How a run works {#how-it-works}
 
 1. **Brief.** It reads the whole source and writes a short brief: the job, at most three agent moments, invariants, data hazards, source of truth, and assumptions.
-2. **Design.** It decides the archetype, direction, shell, first viewport and sample data, and agent moments, and posts the brief once as a checkpoint. It continues without waiting.
+2. **Design.** It decides the archetype, direction, shell, first viewport and sample data, and agent moments, and posts the brief once as a checkpoint, with how long the rest will take. It continues without waiting.
 3. **Scaffold.** It creates the real app with the chat template and never overwrites an existing app.
 
    ```bash
@@ -82,6 +87,8 @@ The skill saves its source brief as `docs/brief.md` and appends the surface desi
 
 The skill aims for about 45 minutes. If 35 minutes have passed when the review starts, it runs one pass and lists the open criteria.
 
+If a run stops partway, invoke the skill again in the same folder. It finds the half-built app, says what is already done and what is left, and continues from the first unfinished step instead of starting a second app.
+
 ## The screenshot review loop {#review-loop}
 
 Before handoff the skill starts the dev server and screenshots `/` at desktop and phone sizes in light and dark, plus the main agent control after a click. It scores the shots against a 12-row rubric covering first-viewport impact, domain fit, hierarchy, chrome discipline, sample data, typography, color, polish, agent and UI together, 390px layout, dark mode, and accessibility.
@@ -92,7 +99,7 @@ Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report l
 
 ## Run and deploy {#run-deploy}
 
-For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. Without it, opening the app shows a "Continue as local dev" card.
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After that, the first browser to open the app is signed in automatically as the local dev account. Later fresh browsers show a "Continue as local dev" card.
 
 To run the app yourself:
 
@@ -100,7 +107,7 @@ To run the app yourself:
 pnpm dev
 ```
 
-To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in the same `.env`. Otherwise the agent sidebar shows the shared Use Builder.io or Custom keys setup.
+To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in the same `.env`. Otherwise the app still opens on its sample data, and the agent sidebar offers the shared Use Builder.io or Custom keys setup when you use the agent.
 
 The skill deploys only when you ask or the provider is already configured. A healthy local build still prints a "production configuration errors" block with exit code 0. That is the deploy checklist: a stable `BETTER_AUTH_SECRET` and a persistent `DATABASE_URL`, plus `A2A_SECRET` for an app inside a workspace. The skill reports these as the pending step and does not create placeholder values. See [Deploy an app](/docs/deploy-an-app) and [Deploy a workspace](/docs/workspace-deployment).
 

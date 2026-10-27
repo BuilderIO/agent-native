@@ -132,6 +132,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Otro",
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
+  "onboarding.builderProvisionFailedDetail":
+    "No se pudo crear tu cuenta de Builder.io. Inténtalo de nuevo o inicia sesión con una cuenta existente.",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -437,6 +439,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
+  "composer.attachmentReadFailed": "No se pudo leer este archivo",
+  "composer.attachmentTooLarge": "El archivo supera los 8 MB",
+  "composer.attachmentNotUtf8": "El archivo no es texto UTF-8",
   "composer.scrollToBottom": "Desplazarse hasta el final",
   "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
@@ -480,6 +485,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "Copiar enlace",
   "history.linkCopied": "Enlace copiado",
   "history.copyLinkFailed": "No se pudo copiar el enlace",
+  "history.onlyYou": "Solo tú",
+  "history.hide": "Ocultar de mi lista",
+  "history.hidden": "Oculto en tu lista",
+  "history.undo": "Deshacer",
+  "history.hideFailed": "No se pudo ocultar el chat",
+  "history.unhideFailed": "No se pudo recuperar el chat",
   "integrations.availableSection": "Integraciones disponibles",
   "integrations.connectedSection": "Conectado",
   "integrations.goToApiKeys": "Ir a claves de API",
@@ -1223,6 +1234,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "Crear un trabajo recurrente: ",
   "composer.selectedReferences": "Referencias seleccionadas",
   "composer.sendMessage": "Enviar mensaje",
+  "composer.select": "Seleccionar",
+  "composer.selectContextFull":
+    "El contexto está lleno. Quita un elemento antes de seleccionar otro.",
+  "composer.selectContextTooLarge":
+    "Ese objeto es demasiado grande para añadirlo como contexto.",
   "composer.skill.added": 'Habilidad "{{name}}" agregada',
   "composer.skill.back": "Atrás",
   "composer.skill.content": "Contenido",
@@ -2033,6 +2049,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Aprobado en la página de revisión de acciones del agente",
   "settings.audit.approvalMcpClient":
     "Aceptado por el cliente MCP (sin verificar)",
+  "settings.audit.approvalMcpReview":
+    "Aprobado en la página de revisión de acciones de MCP",
+  "settings.audit.approvalCliPrompt":
+    "Aprobado en el aviso de la CLI (sin verificar)",
+  "settings.audit.approvalCliFlag": "Repetido con --approved (sin verificar)",
   "settings.audit.changedBy": "Cambiado por",
   "settings.audit.close": "Cerrar",
   "settings.audit.empty": "No hay cambios en este periodo.",
@@ -2328,6 +2349,9 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo cambiar {{lab}}. Inténtalo de nuevo.",
   "settingsShell.appGroup.mcpAbout":
     "Conecta {{app}} con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en {{app}} por ti. Solo ve lo que tú puedes ver.",
+  "settingsShell.appGroup.mcpAppCards": "Tarjetas de la app en apps de chat",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Las herramientas muestran tarjetas interactivas, como un borrador de correo que puedes editar y enviar, en apps de chat compatibles con MCP Apps, como Claude y ChatGPT. Después de cambiar esto, vuelve a conectar esta app en tu app de chat.",
   "settingsShell.appGroup.mcpFootnote":
     "Para las herramientas que usa el propio agente, consulta {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Nueva automatización",

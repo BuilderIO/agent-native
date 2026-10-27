@@ -1,7 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,6 +10,7 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
@@ -122,12 +123,14 @@ export default defineAction({
       userEmail: ctx?.userEmail,
     };
     const userEmail = ctx?.userEmail ?? getRequestUserEmail();
-    const lifecycleFilter = userEmail
-      ? or(
-          isNull(schema.recordings.trashedAt),
-          ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
-        )
-      : isNull(schema.recordings.trashedAt);
+    const ownerFilter = userEmail
+      ? ownerEmailMatches(schema.recordings.ownerEmail, userEmail)
+      : sql`false`;
+    const expiry = recordingExpiryQuery(userEmail);
+    const expiryNeedsRepair = expiry.needsRepair;
+    const lifecycleFilter = sql`case when ${ownerFilter} then true else
+      ${schema.recordings.trashedAt} is null and ${expiry.available}
+    end`;
 
     const recMatches = await db
       .select({
@@ -138,6 +141,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -171,6 +175,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -208,6 +213,7 @@ export default defineAction({
         kind: schema.recordings.kind,
         mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
         trashedAt: schema.recordings.trashedAt,
+        expiryNeedsRepair,
         durationMs: schema.recordings.durationMs,
         ownerEmail: schema.recordings.ownerEmail,
         visibility: schema.recordings.visibility,
@@ -228,6 +234,12 @@ export default defineAction({
             recordingAccess,
           ),
           lifecycleFilter,
+          userEmail
+            ? or(
+                eq(schema.recordings.enableComments, true),
+                ownerEmailMatches(schema.recordings.ownerEmail, userEmail),
+              )
+            : eq(schema.recordings.enableComments, true),
           sql`lower(${schema.recordingComments.content}) LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
@@ -342,9 +354,19 @@ export default defineAction({
       return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
     });
 
+    const invalidExpiryIds = Array.from(
+      new Set(
+        [...recMatches, ...transcriptRows, ...commentRows]
+          .filter((row) => row.expiryNeedsRepair)
+          .map((row) => row.id),
+      ),
+    );
     return {
       query: args.query,
       results: results.slice(0, args.limit),
+      warnings: invalidExpiryIds.length
+        ? [{ code: "invalid_recording_expiry", recordingIds: invalidExpiryIds }]
+        : [],
     };
   },
   link: ({ result }) => {

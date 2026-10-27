@@ -1395,6 +1395,8 @@ const suggestionPrompt =
   "Summarize the accepted AgentKit release in one sentence.";
 const incompleteRetryPrompt =
   "Fail this stream once, then recover cleanly when I retry.";
+const frameworkContinuationPromptPrefix =
+  "Continue from where you left off and finish the user's original request.";
 const helloToolCallId = "call_agentkit_hello";
 const followUpCompletionPromptPrefix =
   "The final reply above has already been delivered.";
@@ -1619,7 +1621,13 @@ async function handleLoopbackCompletion(
   const tools = Array.isArray(body.tools)
     ? body.tools.map((item) => jsonRecord(item))
     : [];
-  const userMessages = messages.filter((item) => item.role === "user");
+  // A run that fails after streaming text resumes with framework continuation
+  // messages; route those to the user prompt that started the run.
+  const userMessages = messages.filter(
+    (item) =>
+      item.role === "user" &&
+      !contentText(item.content).startsWith(frameworkContinuationPromptPrefix),
+  );
   const prompt = originalUserPrompt(
     contentText(userMessages.at(-1)?.content),
     approvalPrompt,

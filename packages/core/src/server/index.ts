@@ -16,6 +16,7 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
@@ -211,6 +212,8 @@ export {
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
 export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export { JEV_DECISIONS_MODEL } from "../decisions/decide.js";
+export { OPENAI_DECISIONS_MODEL } from "../decisions/providers/openai.js";
 export type {
   DecideOptions,
   DecideResult,
@@ -219,6 +222,7 @@ export type {
   DecisionInput,
   DecisionInputPart,
   DecisionProvider,
+  DecisionQuestionFailureReason,
   DecisionQuestion,
   DecisionResult,
   DecisionsStatus,
@@ -561,6 +565,10 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {

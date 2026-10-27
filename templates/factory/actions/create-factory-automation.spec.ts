@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { runWithoutExecutionFence } from "../../../packages/core/src/agent/execution-fence.js";
+import { executeAgentToolCall } from "../../../packages/core/src/agent/production-agent.js";
+import { withMigrationRuntime } from "../../../packages/core/src/db/migrations.js";
+import { settingsStore } from "../../../packages/core/src/settings/store.js";
 
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
@@ -15,8 +20,8 @@ vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: vi.fn(() => "/factory"),
 }));
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (definition: unknown) => definition,
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   fail: (message: string, options: { statusCode?: number } = {}): never => {
     const error = new Error(message) as Error & {
       actionContractError: true;
@@ -50,6 +55,11 @@ vi.mock("../server/connectors/credentials.js", () => ({
   VaultUnavailableError: class VaultUnavailableError extends Error {},
 }));
 
+beforeAll(async () => {
+  await import("./create-factory-automation.js");
+  await withMigrationRuntime(() => settingsStore.ready());
+}, 120_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   requireWorkspaceMemberMock.mockResolvedValue({
@@ -70,6 +80,76 @@ beforeEach(() => {
 });
 
 describe("create-factory-automation", () => {
+  it.each(["mcp", "a2a"] as const)(
+    "pauses a tool over %s before creation and binds approval to exact input",
+    async (networkProtocol) => {
+      const { default: action } =
+        await import("./create-factory-automation.js");
+      const input = {
+        factoryId: "support-triage",
+        displayName: "GitHub watch",
+        source: "github",
+        repository: "example/project",
+      };
+      const call = (args = input, approvedToolCalls?: string[]) =>
+        runWithoutExecutionFence(() =>
+          executeAgentToolCall({
+            actions: { "create-factory-automation": action },
+            name: "create-factory-automation",
+            callId: "create-factory",
+            input: args,
+            caller: "tool",
+            networkProtocol,
+            ownerEmail: "owner@example.com",
+            approvedToolCalls,
+            consumeApproval: async () => true,
+          }),
+        );
+      const paused = await call();
+      expect(paused.status).toBe("approval_required");
+      expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+      if (paused.status !== "approval_required")
+        throw new Error("Missing approval");
+      expect(
+        (
+          await call({ ...input, displayName: "Different job" }, [
+            paused.approvalKey,
+          ])
+        ).status,
+      ).toBe("approval_required");
+      expect(createFactoryAutomationMock).not.toHaveBeenCalled();
+      expect((await call(input, [paused.approvalKey])).status).toBe(
+        "completed",
+      );
+      expect(createFactoryAutomationMock).toHaveBeenCalledOnce();
+      expect(createFactoryAutomationMock.mock.calls[0][4]).toMatchObject({
+        caller: "tool",
+        networkProtocol,
+      });
+    },
+  );
+
+  it.each(["frontend", "tool"] as const)(
+    "allows ordinary %s creation",
+    async (caller) => {
+      const { default: action } =
+        await import("./create-factory-automation.js");
+      if (typeof action.needsApproval !== "function")
+        throw new Error("Missing approval gate");
+      expect(await action.needsApproval({}, { caller } as never)).toBe(false);
+      await action.run(
+        {
+          factoryId: "support-triage",
+          displayName: "Watch",
+          source: "github",
+          repository: "example/project",
+        },
+        { caller, userEmail: "owner@example.com" },
+      );
+      expect(createFactoryAutomationMock).toHaveBeenCalledOnce();
+    },
+  );
+
   it("rejects include mode with empty author ids", async () => {
     const { default: action } = await import("./create-factory-automation.js");
     await expect(
@@ -227,6 +307,7 @@ describe("create-factory-automation", () => {
           slackChannelId: "C123",
         }),
       }),
+      { userEmail: "owner@example.com" },
     );
     expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
   });

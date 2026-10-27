@@ -13,7 +13,10 @@ let db: ReturnType<typeof drizzle>;
 const mocks = vi.hoisted(() => ({
   dispatchPostFinalizeJob: vi.fn(async () => undefined),
   writeAppState: vi.fn(async () => undefined),
-  assertAccess: vi.fn(async () => ({ role: "owner" })),
+  assertAccess: vi.fn(async () => ({
+    role: "owner",
+    resource: { expiresAt: null as string | null },
+  })),
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -29,7 +32,8 @@ vi.mock("@agent-native/core/action", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
 }));
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: mocks.assertAccess,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
@@ -136,6 +140,7 @@ beforeEach(async () => {
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, status TEXT NOT NULL, duration_ms INTEGER,
     title TEXT NOT NULL, title_source TEXT, description TEXT,
+    owner_email TEXT NOT NULL DEFAULT 'owner@example.com', expires_at TEXT,
     media_updated_at TEXT NOT NULL DEFAULT 'media-1'
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
@@ -161,6 +166,10 @@ beforeEach(async () => {
      VALUES ('rec_1', 'ready', 10000, 'PR 7419', 'manual', 'Chart fixes')`,
   );
   vi.clearAllMocks();
+  mocks.assertAccess.mockResolvedValue({
+    role: "owner",
+    resource: { expiresAt: null },
+  });
 });
 
 afterEach(async () => {
@@ -627,4 +636,141 @@ describe("restore-transcript-version", () => {
       compactCatalog: true,
     });
   });
+});
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses late transcript import without mutating content (%s)",
+  async (expiresAt) => {
+    await insertTranscript({
+      status: "pending",
+      fullText: "Fake original transcript",
+    });
+    const before = await readFullTranscript();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt },
+    });
+    await expect(run({ text: VTT })).rejects.toMatchObject({ statusCode: 403 });
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual([]);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "refuses late transcript restore without version churn (%s)",
+  async (expiresAt) => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Fake original transcript",
+    });
+    const imported = await run({
+      text: VTT,
+      replace: true,
+      replaceImportId: null,
+    });
+    const before = await readFullTranscript();
+    const versions = await readVersions();
+    mocks.dispatchPostFinalizeJob.mockClear();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt },
+    });
+    await expect(restore(imported.savedVersionId)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual(versions);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it.each([
+  { role: "editor", expiresAt: null },
+  { role: "owner", expiresAt: "2000-01-01T00:00:00Z" },
+  { role: "owner", expiresAt: "not-a-date" },
+])("preserves import/restore for $role ($expiresAt)", async (access) => {
+  await insertTranscript({
+    status: "ready",
+    fullText: "Fake original transcript",
+  });
+  mocks.assertAccess.mockResolvedValue({
+    role: access.role,
+    resource: { expiresAt: access.expiresAt },
+  });
+  const imported = await run({
+    text: VTT,
+    replace: true,
+    replaceImportId: null,
+  });
+  expect(await readTranscript()).toMatchObject({ source: "imported" });
+  await restore(imported.savedVersionId);
+  expect(await readTranscript()).toMatchObject({
+    full_text: "Fake original transcript",
+  });
+});
+
+it.each(["import", "restore"])(
+  "rechecks expiry on the locked recording during %s",
+  async (operation) => {
+    await insertTranscript({
+      status: "ready",
+      fullText: "Fake previous transcript",
+    });
+    let versionId: string | undefined;
+    if (operation === "restore") {
+      const imported = await run({ text: VTT, replace: true });
+      versionId = imported.savedVersionId;
+    }
+    const before = await readFullTranscript();
+    const versions = await readVersions();
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
+    mocks.dispatchPostFinalizeJob.mockClear();
+    const transaction = db.transaction.bind(db);
+    const spy = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (runTransaction) => {
+        await client.query(
+          "UPDATE recordings SET owner_email = 'other-owner@example.test', expires_at = '2000-01-01T00:00:00Z' WHERE id = 'rec_1'",
+        );
+        return transaction(runTransaction);
+      });
+    try {
+      const pending =
+        operation === "import"
+          ? run({ text: VTT, replace: true, replaceImportId: null })
+          : restore(String(versionId));
+      await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await readFullTranscript()).toEqual(before);
+    expect(await readVersions()).toEqual(versions);
+    expect(mocks.dispatchPostFinalizeJob).not.toHaveBeenCalled();
+  },
+);
+it("retains actual owner import and restore after expiry changes at the lock", async () => {
+  await insertTranscript({
+    status: "ready",
+    fullText: "Fake owner previous transcript",
+  });
+  const transaction = db.transaction.bind(db);
+  const spy = vi
+    .spyOn(db, "transaction")
+    .mockImplementationOnce(async (runTransaction) => {
+      await client.query(
+        "UPDATE recordings SET expires_at = '2000-01-01T00:00:00Z' WHERE id = 'rec_1'",
+      );
+      return transaction(runTransaction);
+    });
+  try {
+    const imported = await run({ text: VTT, replace: true });
+    await restore(imported.savedVersionId);
+    expect(await readTranscript()).toMatchObject({
+      full_text: "Fake owner previous transcript",
+    });
+  } finally {
+    spy.mockRestore();
+  }
 });
