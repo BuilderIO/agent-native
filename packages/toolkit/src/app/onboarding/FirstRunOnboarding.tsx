@@ -237,12 +237,8 @@ export function FirstRunOnboarding({
     experiment_id: typeof FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID;
     experiment_variant: "control" | "credits";
   } | null>(null);
-  const [creditsV2ExposureConfirmed, setCreditsV2ExposureConfirmed] =
+  const [creditsV2ExposureTracked, setCreditsV2ExposureTracked] =
     useState(false);
-  const [
-    creditsV2ExposureConfirmationFailed,
-    setCreditsV2ExposureConfirmationFailed,
-  ] = useState(false);
   const creditsV2Flag = useFeatureFlagState(
     FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   );
@@ -270,8 +266,6 @@ export function FirstRunOnboarding({
     creditsV2Flag.status === "ready" &&
     creditsV2Flag.enabled;
   const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
-  const creditsV2TreatmentConfirmed =
-    previewMode || !creditsV2Enabled || creditsV2ExposureConfirmed;
   const creditsV2FlagPending =
     !previewMode &&
     creditsV2FlagAppliesToApp &&
@@ -300,7 +294,7 @@ export function FirstRunOnboarding({
     setupSkippable ||
     (setupVariant === "credits" &&
       (previewMode || setupExperimentDecision === true) &&
-      creditsV2TreatmentConfirmed);
+      (!creditsV2Enabled || creditsV2ExposureTracked));
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -515,8 +509,7 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
-  // Wait until the choice can be tracked with the variant and optional state
-  // that the user actually sees.
+  // The v2 choice event waits until the rendered arm has been attributed.
   const choiceStepKnown =
     screen !== "choice" ||
     (!creditsV2FlagPending &&
@@ -524,8 +517,7 @@ export function FirstRunOnboarding({
       (setupVariant === null || setupExperimentDecision !== null) &&
       (!creditsV2Enabled ||
         setupExperimentDecision !== true ||
-        creditsV2ExposureConfirmed ||
-        creditsV2ExposureConfirmationFailed));
+        creditsV2ExposureTracked));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -597,25 +589,62 @@ export function FirstRunOnboarding({
       !firstRun ||
       !canTrackOnboardingScreen ||
       screen !== "choice" ||
-      !creditsV2ExposureConfirmed ||
+      !creditsV2Enabled ||
+      setupExperimentDecision !== true ||
       creditsV2ExposureTrackedRef.current ||
       !creditsV2Assignment
     ) {
       return;
     }
     creditsV2ExposureTrackedRef.current = true;
+    setOnboardingExperiment({
+      id: creditsV2Assignment.experiment_id,
+      variant: creditsV2Assignment.experiment_variant,
+    });
+    setCreditsV2ExposureTracked(true);
     trackOnboardingEvent("onboarding_experiment_exposed", {
       flow: "first_run",
       step_id: "choice",
       experiment_id: creditsV2Assignment.experiment_id,
       experiment_variant: creditsV2Assignment.experiment_variant,
     });
+    if (creditsV2ExposureConfirmationStartedRef.current) return;
+    creditsV2ExposureConfirmationStartedRef.current = true;
+    const persistExposure = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const { assignment } = await creditsV2Exposure.mutateAsync({
+            confirmedVariant: creditsV2Assignment.experiment_variant,
+          });
+          if (
+            assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
+            assignment.experiment_variant !==
+              creditsV2Assignment.experiment_variant
+          ) {
+            throw new Error(
+              "The server did not persist the displayed first-run Builder credits v2 assignment.",
+            );
+          }
+          return;
+        } catch (error: unknown) {
+          lastError = error;
+        }
+      }
+      console.error(
+        "Failed to persist first-run Builder credits v2 exposure:",
+        lastError,
+      );
+    };
+    void persistExposure();
   }, [
     canTrackOnboardingScreen,
     creditsV2Assignment,
-    creditsV2ExposureConfirmed,
+    creditsV2Enabled,
+    creditsV2Exposure.mutateAsync,
     firstRun,
     previewMode,
+    setupExperimentDecision,
     screen,
   ]);
   useEffect(() => {
@@ -850,74 +879,6 @@ export function FirstRunOnboarding({
     setupExperimentDecision,
     setupExperimentEligible,
     setupStatusSettled,
-  ]);
-  useEffect(() => {
-    if (
-      previewMode ||
-      !firstRun ||
-      screen !== "choice" ||
-      !creditsV2Enabled ||
-      !setupExperimentEligible ||
-      setupExperimentTimedOutRef.current ||
-      setupExperimentDecision !== true ||
-      !creditsV2Assignment ||
-      creditsV2ExposureTrackedRef.current ||
-      creditsV2ExposureConfirmationStartedRef.current
-    ) {
-      return;
-    }
-    creditsV2ExposureConfirmationStartedRef.current = true;
-    let confirmationFinished = false;
-    const confirmExposure = async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          const { assignment } = await creditsV2Exposure.mutateAsync({
-            confirmedVariant: creditsV2Assignment.experiment_variant,
-          });
-          if (confirmationFinished) return;
-          if (
-            assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
-            assignment.experiment_variant !==
-              creditsV2Assignment.experiment_variant
-          ) {
-            throw new Error(
-              "The server did not confirm the displayed first-run Builder credits v2 assignment.",
-            );
-          }
-          confirmationFinished = true;
-          setOnboardingExperiment({
-            id: creditsV2Assignment.experiment_id,
-            variant: creditsV2Assignment.experiment_variant,
-          });
-          setCreditsV2ExposureConfirmed(true);
-          return;
-        } catch (error: unknown) {
-          if (confirmationFinished) return;
-          lastError = error;
-        }
-      }
-      if (confirmationFinished) return;
-      confirmationFinished = true;
-      setCreditsV2ExposureConfirmationFailed(true);
-      console.error(
-        "Failed to confirm first-run Builder credits v2 exposure:",
-        lastError,
-      );
-    };
-    void confirmExposure();
-    return () => {
-      confirmationFinished = true;
-    };
-  }, [
-    creditsV2Assignment,
-    creditsV2Enabled,
-    creditsV2Exposure.mutateAsync,
-    firstRun,
-    previewMode,
-    screen,
-    setupExperimentDecision,
-    setupExperimentEligible,
   ]);
   // A stalled Builder status read must not leave the setup screen blank. Past
   // the limit the person gets the existing page and stays out of the
@@ -1177,26 +1138,16 @@ export function FirstRunOnboarding({
     );
 
     const inCreditsArm = setupVariant === "credits";
-    // Both arms wait for exposure so the recorded arm matches what is shown.
-    const creditsV2ConfirmationPending =
-      creditsV2Enabled &&
-      setupExperimentDecision === true &&
-      creditsV2Assignment !== null &&
-      !creditsV2ExposureConfirmed &&
-      !creditsV2ExposureConfirmationFailed;
     if (
       !previewMode &&
       (creditsV2FlagPending ||
         (creditsV2FlowEnabled && setupExperimentDecision === null) ||
-        (setupVariant && setupExperimentDecision === null) ||
-        creditsV2ConfirmationPending)
+        (setupVariant && setupExperimentDecision === null))
     ) {
       return <OnboardingSkeleton />;
     }
     const creditsEligible =
-      inCreditsArm &&
-      (previewMode || setupExperimentDecision === true) &&
-      creditsV2TreatmentConfirmed;
+      inCreditsArm && (previewMode || setupExperimentDecision === true);
 
     const builderStatusError =
       connectFlow.error && connectFlow.errorKind === "status-read" ? (

@@ -3305,7 +3305,7 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    it("retries post-render confirmation and tracks only after it succeeds", async () => {
+    it("retries exposure persistence after tracking the rendered v2 arm", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       let confirmationAttempts = 0;
       mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
@@ -3355,7 +3355,7 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
-    it("falls back to the existing setup when both post-render confirmations fail", async () => {
+    it("keeps the rendered v2 arm attributed when exposure persistence fails", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure
         .mockResolvedValueOnce({
@@ -3374,13 +3374,12 @@ describe("FirstRunOnboarding", () => {
       });
 
       expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
-      expect(q("first-run-credits-offer")).toBeNull();
-      expect(q("first-run-open-key-settings")).not.toBeNull();
-      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
         id: "first_run_builder_credits_v2",
         variant: "credits",
       });
-      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_experiment_exposed",
         expect.objectContaining({
           experiment_id: "first_run_builder_credits_v2",
@@ -3677,7 +3676,7 @@ describe("FirstRunOnboarding", () => {
       expect(q("first-run-credits-more-info")).toBeNull();
     });
 
-    it("waits for v2 confirmation before rendering and tracking its choice", async () => {
+    it("renders and attributes the v2 choice while exposure persistence is pending", async () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       mocks.useOnboarding.mockReturnValue({
@@ -3763,13 +3762,13 @@ describe("FirstRunOnboarding", () => {
       });
       expect(
         document.body.querySelector("[data-onboarding-loading='true']"),
-      ).not.toBeNull();
-      expect(q("first-run-credits-offer")).toBeNull();
-      expect(mocks.trackOnboardingEvent).not.toHaveBeenCalledWith(
+      ).toBeNull();
+      expect(q("first-run-credits-offer")).not.toBeNull();
+      expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_step_viewed",
         expect.objectContaining({ step_id: "choice" }),
       );
-      expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
+      expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
         id: "first_run_builder_credits_v2",
         variant: "credits",
       });
@@ -3810,6 +3809,7 @@ describe("FirstRunOnboarding", () => {
       );
       expect(exposureIndex).toBeGreaterThanOrEqual(0);
       expect(choiceViewIndex).toBeGreaterThan(exposureIndex);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
       expect(document.body.textContent).not.toContain("Are you sure?");
 
       click("first-run-credits-skip");
