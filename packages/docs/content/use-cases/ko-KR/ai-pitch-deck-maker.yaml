@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: AI 피치덱 메이커
-seo_title: 내 메모에서 시작하는 AI 피치덱 메이커
-meta_description: "Agent-Native Slides는 창업자를 위한 무료 AI 피치덱 메이커예요. 메모, 문서, 웹사이트를 덱으로 만들어 주고, 직접 또는 에이전트에게 요청해 편집할 수 있어요."
+title: 메모를 피치덱으로 만들어 보세요
+seo_title: 스타트업 창업자를 위한 AI 피치덱 메이커
+meta_description: "문서, 웹사이트, 대략적인 메모에서 피치덱을 시작하세요. Agent-Native Slides가 슬라이드를 한 장씩 초안으로 만들고, 직접 또는 에이전트에게 요청해 편집할 수 있어요."
 updated: 2026-10-23
 hero:
-  body: "Agent-Native Slides는 메모, 문서, PDF, 웹사이트를 스타트업 창업자를 위한 피치덱으로 만들어 줘요. 에이전트가 슬라이드를 한 장씩 만들고, 어떤 슬라이드든 직접 고치거나 요청해서 바꿀 수 있어요."
+  body: "Agent-Native Slides는 이미 가진 문서, PDF, 웹사이트, 대략적인 메모로 피치덱 초안을 만들어 줘요. 에이전트가 슬라이드를 한 장씩 만들고, 어떤 슬라이드든 직접 고치거나 요청해서 바꿀 수 있어요."
   button:
     label: 덱 만들기
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
-other_uses:
-  heading: Slides로 만들 수 있는 다른 덱
-  cards:
-    - title: AI 이사회 보고 덱 메이커
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: "지표와 메모를 분기마다 새로 고칠 수 있는 이사회 보고 덱으로 만들어 보세요."
-    - title: AI 세일즈 덱 메이커
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: "제품 메모와 웹사이트로 우리 브랜드에 맞는 세일즈 덱을 만들어 보세요."
-    - title: AI 투자자 업데이트 메이커
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: "이번 달 수치와 성과를 투자자에게 보낼 짧은 업데이트로 만들어 보세요."
 faqs:
   heading: 궁금한 점이 있으신가요? 답해 드릴게요
   items:

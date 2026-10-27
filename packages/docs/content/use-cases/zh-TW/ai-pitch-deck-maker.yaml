@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: "AI 募資簡報產生器"
-seo_title: "從你的筆記開始的 AI 募資簡報產生器"
-meta_description: "Agent-Native Slides 是為創辦人打造的免費 AI 募資簡報產生器。它能把你的筆記、文件或網站變成簡報，你可以手動編輯，也可以交給 agent 修改。"
+title: "把你的筆記變成募資簡報"
+seo_title: "為新創創辦人打造的 AI 募資簡報產生器"
+meta_description: "從一份文件、你的網站或零散的筆記開始製作募資簡報。Agent-Native Slides 會一頁一頁幫你起草，你可以手動編輯，或直接請 agent 修改。"
 updated: 2026-10-23
 hero:
-  body: "Agent-Native Slides 能把你的筆記、文件、PDF 或網站，變成新創創辦人的募資簡報。agent 會一頁一頁製作，任何一頁你都能手動編輯，或直接開口請它修改。"
+  body: "Agent-Native Slides 從你手邊已有的資料起草募資簡報：文件、PDF、你的網站或零散的筆記。agent 會一頁一頁製作，任何一頁你都能手動編輯，或直接開口請它修改。"
   button:
     label: "製作你的簡報"
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: "透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。"
-other_uses:
-  heading: "你還能用 Slides 製作的其他簡報"
-  cards:
-    - title: "AI 董事會簡報產生器"
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: "把你的指標和筆記變成每季都能更新的董事會簡報。"
-    - title: "AI 業務簡報產生器"
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: "根據你的產品筆記和網站，做出符合品牌的業務簡報。"
-    - title: "AI 投資人近況更新產生器"
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: "把這個月的數字和成果，整理成給投資人的簡短近況更新。"
 faqs:
   heading: "有問題？我們來解答"
   items:

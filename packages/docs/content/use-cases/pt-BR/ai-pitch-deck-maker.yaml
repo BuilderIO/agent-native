@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: Criador de pitch deck com IA
-seo_title: Criador de pitch deck com IA que parte das suas notas
-meta_description: O Agent-Native Slides é um criador de pitch deck com IA gratuito para fundadores. Ele transforma suas notas, docs ou site em um deck que você edita à mão ou com o agente.
+title: Transforme suas notas em um pitch deck
+seo_title: Criador de pitch deck com IA para fundadores
+meta_description: Comece seu pitch deck a partir de um doc, do seu site ou de notas soltas. O Agent-Native Slides monta o rascunho slide por slide, e você edita à mão ou pedindo ao agente.
 updated: 2026-10-23
 hero:
-  body: O Agent-Native Slides transforma suas notas, um doc, um PDF ou seu site em um pitch deck para fundadores de startups. O agente monta slide por slide, e você edita qualquer slide à mão ou pedindo.
+  body: "O Agent-Native Slides rascunha seu pitch deck a partir do que você já tem: um doc, um PDF, seu site ou notas soltas. O agente monta slide por slide, e você edita qualquer um à mão ou pedindo."
   button:
     label: Monte seu deck
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: Conecte as ferramentas que seu time usa via MCP ou adicione qualquer servidor MCP pela URL.
-other_uses:
-  heading: Outros decks que você pode fazer no Slides
-  cards:
-    - title: Criador de board deck com IA
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: Transforme suas métricas e notas em um board deck que você atualiza a cada trimestre.
-    - title: Criador de deck de vendas com IA
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: Monte um deck de vendas a partir das notas do produto e do seu site, com a sua marca.
-    - title: Criador de update para investidores com IA
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: Transforme os números e conquistas do mês em um update curto para seus investidores.
 faqs:
   heading: Dúvidas? Temos as respostas
   items:

@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: AI 融资路演 PPT 生成器
-seo_title: 从你的笔记出发的 AI 融资路演 PPT 生成器
-meta_description: Agent-Native Slides 是一款面向创始人的免费 AI 路演 PPT 生成器。它能把你的笔记、文档或官网变成一份 PPT，你可以手动编辑，也可以让 agent 来改。
+title: 把你的笔记变成融资路演 PPT
+seo_title: 面向创业公司创始人的 AI 融资路演 PPT 生成器
+meta_description: 从一份文档、你的官网或零散的笔记开始做路演 PPT。Agent-Native Slides 逐页起草，你可以手动编辑，也可以让 agent 来改。
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slides 能把你的笔记、文档、PDF 或官网，变成一份给创业公司创始人用的融资路演 PPT。agent 逐页搭建，任何一页你都可以手动修改，或者直接提要求让它改。
+  body: "Agent-Native Slides 用你手头已有的材料起草路演 PPT：文档、PDF、官网或零散的笔记。agent 逐页搭建，任何一页你都可以手动修改，或者直接提要求让它改。"
   button:
     label: 开始制作 PPT
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
-other_uses:
-  heading: 在 Slides 中还能制作的其他 PPT
-  cards:
-    - title: AI 董事会汇报 PPT 生成器
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: 把你的指标和笔记变成一份每季度都能更新的董事会汇报 PPT。
-    - title: AI 销售 PPT 生成器
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: 根据产品笔记和官网，做出一份符合品牌风格的销售 PPT。
-    - title: AI 投资人月报生成器
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: 把本月的数据和成绩整理成一份简短的投资人更新。
 faqs:
   heading: 有疑问？这里有答案
   items:

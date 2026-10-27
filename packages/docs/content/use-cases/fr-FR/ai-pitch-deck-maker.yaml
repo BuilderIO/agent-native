@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: Créateur de pitch deck par IA
-seo_title: Créateur de pitch deck par IA qui part de vos notes
-meta_description: Agent-Native Slides est un créateur de pitch deck par IA gratuit pour les fondateurs. Il transforme vos notes, docs ou site en deck à modifier vous-même ou avec l'agent.
+title: Transformez vos notes en pitch deck
+seo_title: Créateur de pitch deck par IA pour startups
+meta_description: Créez votre pitch deck à partir d'un doc, de votre site ou de notes brutes. Agent-Native Slides le rédige slide par slide, et vous le modifiez à la main ou en demandant à l'agent.
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slides transforme vos notes, un doc, un PDF ou votre site en pitch deck pour fondateurs. L'agent le crée slide par slide, et vous modifiez chaque slide à la main ou en le demandant.
+  body: "Agent-Native Slides rédige votre pitch deck à partir de ce que vous avez déjà : un doc, un PDF, votre site ou des notes brutes. L'agent le crée slide par slide, et vous modifiez chaque slide à la main ou en le demandant."
   button:
     label: Créer votre deck
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
-other_uses:
-  heading: Autres decks à créer dans Slides
-  cards:
-    - title: Créateur de board deck par IA
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: Transformez vos métriques et vos notes en board deck à actualiser chaque trimestre.
-    - title: Créateur de deck commercial par IA
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: Créez un deck commercial à partir de vos notes produit et de votre site, aux couleurs de votre marque.
-    - title: Créateur d'updates investisseurs par IA
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: Transformez les chiffres et les succès du mois en un court update pour vos investisseurs.
 faqs:
   heading: Des questions ? Nous avons les réponses
   items:

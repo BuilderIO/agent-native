@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: AIピッチデッキメーカー
-seo_title: メモから作れるAIピッチデッキメーカー
-meta_description: Agent-Native Slidesは、創業者のための無料AIピッチデッキメーカーです。メモやドキュメント、ウェブサイトからデッキを作成し、手作業でもエージェントでも編集できます。
+title: メモからピッチデッキを作成
+seo_title: スタートアップ創業者向けAIピッチデッキメーカー
+meta_description: ドキュメントやウェブサイト、ラフなメモからピッチデッキを作り始められます。Agent-Native Slidesが1枚ずつ下書きし、手作業でもエージェントへの指示でも編集できます。
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slidesは、メモやPDF、ウェブサイトから創業者向けのピッチデッキを作成します。エージェントが1枚ずつ作り、編集は手作業でも指示でも可能です。
+  body: Agent-Native Slidesは、ドキュメントやPDF、ウェブサイト、ラフなメモなど、手元の資料からピッチデッキを下書きします。エージェントが1枚ずつ作り、編集は手作業でも指示でも可能です。
   button:
     label: デッキを作成する
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
-other_uses:
-  heading: Slidesで作れるその他のデッキ
-  cards:
-    - title: AI取締役会資料メーカー
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: 指標やメモから、四半期ごとに更新できる取締役会資料を作成します。
-    - title: AI営業資料メーカー
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: 製品メモやウェブサイトから、自社ブランドの営業資料を作成します。
-    - title: AI投資家向けアップデートメーカー
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: 今月の数字や成果を、投資家向けの短いアップデートにまとめます。
 faqs:
   heading: よくある質問
   items:

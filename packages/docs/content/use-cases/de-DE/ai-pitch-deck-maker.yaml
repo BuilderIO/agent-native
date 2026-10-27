@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: KI-Pitch-Deck-Generator
-seo_title: "KI-Pitch-Deck-Generator: Ihr Deck aus Ihren Notizen"
-meta_description: Agent-Native Slides ist ein kostenloser KI-Pitch-Deck-Generator für Gründer. Er macht aus Notizen, Dokumenten oder Ihrer Website ein Deck, das Sie selbst oder mit dem Agenten bearbeiten.
+title: Aus Ihren Notizen ein Pitch Deck machen
+seo_title: KI-Pitch-Deck-Generator für Startup-Gründer
+meta_description: Starten Sie Ihr Pitch Deck mit einem Dokument, Ihrer Website oder groben Notizen. Agent-Native Slides entwirft es Folie für Folie, und Sie bearbeiten es selbst oder per Anfrage an den Agenten.
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slides macht aus Notizen, einem Dokument, einem PDF oder Ihrer Website ein Pitch Deck für Gründer. Der Agent baut es Folie für Folie, Sie ändern jede Folie von Hand oder per Anfrage.
+  body: "Agent-Native Slides entwirft Ihr Pitch Deck aus dem, was Sie schon haben: einem Dokument, einem PDF, Ihrer Website oder groben Notizen. Der Agent baut es Folie für Folie, Sie ändern jede Folie von Hand oder per Anfrage."
   button:
     label: Deck erstellen
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: Verbinden Sie die Tools Ihres Teams über MCP oder fügen Sie einen beliebigen MCP-Server per URL hinzu.
-other_uses:
-  heading: Weitere Decks, die Sie in Slides erstellen können
-  cards:
-    - title: KI-Board-Deck-Generator
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: Machen Sie aus Kennzahlen und Notizen ein Board-Deck, das Sie jedes Quartal aktualisieren können.
-    - title: KI-Sales-Deck-Generator
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: Erstellen Sie aus Produktnotizen und Website ein Sales-Deck in Ihrem Branding.
-    - title: KI-Generator für Investoren-Updates
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: Machen Sie aus den Zahlen und Erfolgen des Monats ein kurzes Update für Ihre Investoren.
 faqs:
   heading: Fragen? Wir haben Antworten
   items:

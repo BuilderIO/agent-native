@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: Creador de pitch decks con IA
-seo_title: Creador de pitch decks con IA que parte de tus notas
-meta_description: Agent-Native Slides es un creador de pitch decks con IA gratuito para fundadores. Convierte tus notas, documentos o web en un deck que editas a mano o con el agente.
+title: Convierte tus notas en un pitch deck
+seo_title: Creador de pitch decks con IA para fundadores
+meta_description: Empieza tu pitch deck a partir de un documento, tu web o unas notas sueltas. Agent-Native Slides lo redacta diapositiva a diapositiva, y tú lo editas a mano o pidiéndoselo al agente.
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slides convierte tus notas, un documento, un PDF o tu web en un pitch deck para fundadores. El agente lo crea diapositiva a diapositiva, y tú editas cualquiera a mano o pidiéndoselo.
+  body: "Agent-Native Slides redacta tu pitch deck a partir de lo que ya tienes: un documento, un PDF, tu web o unas notas sueltas. El agente lo crea diapositiva a diapositiva, y tú editas cualquiera a mano o pidiéndoselo."
   button:
     label: Crea tu deck
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
-other_uses:
-  heading: Otros decks que puedes hacer en Slides
-  cards:
-    - title: Creador de board decks con IA
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: Convierte tus métricas y notas en una presentación para el consejo que puedes actualizar cada trimestre.
-    - title: Creador de presentaciones de ventas con IA
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: Crea una presentación de ventas a partir de tus notas de producto y tu web, con tu marca.
-    - title: Creador de updates a inversores
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: Convierte las cifras y los logros de este mes en una breve actualización para tus inversores.
 faqs:
   heading: ¿Tienes preguntas? Tenemos respuestas
   items:
