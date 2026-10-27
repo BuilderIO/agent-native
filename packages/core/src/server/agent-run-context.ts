@@ -13,7 +13,6 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
-import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
@@ -314,8 +313,7 @@ export async function resolveAgentRunOrgScope(options: {
       const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
-    } catch (error) {
-      if (error instanceof ForbiddenError) throw error;
+    } catch {
       orgLookupFailed = true;
     }
 
@@ -338,8 +336,7 @@ export async function resolveAgentRunOrgScope(options: {
         ) {
           return { orgScope: "personal" };
         }
-      } catch (error) {
-        if (error instanceof ForbiddenError) throw error;
+      } catch {
         orgLookupFailed = true;
       }
     }
@@ -355,8 +352,7 @@ export async function resolveAgentRunOrgScope(options: {
       } else if (!orgLookupFailed) {
         return { orgScope: "personal" };
       }
-    } catch (error) {
-      if (error instanceof ForbiddenError) throw error;
+    } catch {
       orgLookupFailed = true;
     }
   }

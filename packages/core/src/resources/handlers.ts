@@ -874,7 +874,9 @@ export async function handleUploadResource(event: any) {
 
   if (!isText) {
     const credentialEmail =
-      owner !== SHARED_OWNER ? owner : (await getSession(event))?.email;
+      owner !== SHARED_OWNER
+        ? owner
+        : (await getSession(event).catch(() => null))?.email;
     const doUpload = () =>
       uploadFile({
         data: filePart.data,

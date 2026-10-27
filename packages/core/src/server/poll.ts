@@ -2108,9 +2108,10 @@ export function createPollHandler(
   }
   return defineEventHandler(async (event) => {
     try {
-      const session = await import("./auth.js").then(({ getSession }) =>
-        getSession(event),
-      );
+      // coercion-ok: polling must fail closed when session resolution is unavailable.
+      const session = await import("./auth.js")
+        .then(({ getSession }) => getSession(event))
+        .catch(() => null); // coercion-ok: polling must fail closed when session resolution is unavailable.
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { error: "Unauthenticated" };

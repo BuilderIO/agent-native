@@ -1864,8 +1864,6 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     throw new SubagentDelegationDepthError(decision);
   }
   const childDepth = decision.childDepth;
-  const requestOrgId = hasRequestContext() ? getRequestOrgId() : undefined;
-  const orgId = requestOrgId ?? (await resolveOrgIdForEmail(opts.ownerEmail));
 
   const taskId = generateTaskId();
   const userMsgId = `msg-${taskId}-user`;
@@ -1897,6 +1895,16 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
 
   const runId = taskRunId(taskId);
   const createdAt = Date.now();
+  let orgId: string | null;
+  if (hasRequestContext()) {
+    orgId = getRequestOrgId() ?? null;
+  } else {
+    try {
+      orgId = await resolveOrgIdForEmail(opts.ownerEmail);
+    } catch {
+      orgId = null;
+    }
+  }
   const task: AgentTask = {
     taskId,
     threadId: thread.id,

@@ -5,9 +5,12 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import { getAppConfig } from "../app-config/index.js";
-import { getDbExec, isLocalDatabase } from "../db/client.js";
+import {
+  getDbExec,
+  isLocalDatabase,
+  isTransientDatabaseError,
+} from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
-import { ForbiddenError } from "../sharing/errors.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
@@ -135,9 +138,6 @@ export class FeatureNotConfiguredError extends Error {
  * nothing to configure, they have something to retry.
  */
 export class CredentialStoreUnavailableError extends Error {
-  readonly statusCode = 503;
-  readonly headers = { "Retry-After": "5" };
-  readonly data = { code: CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE };
   readonly errorCode = CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE;
   readonly retryable = true;
 
@@ -154,8 +154,7 @@ export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
 }): void {
-  if (result.cause instanceof ForbiddenError) throw result.cause;
-  if (result.lookupFailed) {
+  if (result.lookupFailed && isTransientDatabaseError(result.cause)) {
     throw new CredentialStoreUnavailableError(result.cause);
   }
 }
@@ -444,7 +443,6 @@ async function resolveOrgIdForRequestEmail(
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return { orgId: await resolveOrgIdForEmail(email) };
   } catch (err) {
-    if (err instanceof ForbiddenError) throw err;
     return { orgId: null, cause: err };
   }
 }
@@ -706,7 +704,6 @@ async function resolveScopedBuilderCredential(
       );
     }
   } catch (err) {
-    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
@@ -890,7 +887,6 @@ async function resolveScopedBuilderCredentials(
       }
     }
   } catch (err) {
-    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
@@ -1315,7 +1311,6 @@ export async function resolveBuilderGatewayAuth(
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
     } catch (error) {
-      if (error instanceof ForbiddenError) throw error;
       throw new BuilderCredentialLookupError(error);
     }
   }
@@ -1334,7 +1329,6 @@ export async function resolveBuilderGatewayAuth(
           }
         : null;
     } catch (error) {
-      if (error instanceof ForbiddenError) throw error;
       if (error instanceof BuilderOAuthScopeError) return null;
       throw new BuilderCredentialLookupError(error);
     }
@@ -2050,7 +2044,8 @@ export async function resolveSecretPairs(
     if (lookupFailed) {
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
-      throw cause;
+      assertCredentialStoreReadable({ lookupFailed, cause });
+      return null;
     }
 
     if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
@@ -2109,7 +2104,6 @@ export async function resolveSecretPairs(
       }
     }
   } catch (error) {
-    if (error instanceof ForbiddenError) throw error;
     lookupFailed = true;
     cause = error;
   }
@@ -2318,7 +2312,6 @@ export async function resolveSecretDetailed(
         }
       }
     } catch (err) {
-      if (err instanceof ForbiddenError) throw err;
       if (traceLookup) {
         console.log(
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,

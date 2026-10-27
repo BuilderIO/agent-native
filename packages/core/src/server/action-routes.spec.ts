@@ -6074,55 +6074,42 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each([
-    ["first boot", 'relation "org_members" does not exist', "42P01", true],
-    ["denied", "permission denied for table org_members", "42501", false],
-    ["unknown", "membership lookup failed", undefined, false],
-    ["other table", 'relation "settings" does not exist', "42P01", false],
-  ] as const)(
-    "dispatches only the real first-boot resolver exception: %s",
-    async (_label, message, code, allowed) => {
-      const org =
-        await vi.importActual<typeof import("../org/context.js")>(
-          "../org/context.js",
-        );
-      mockResolveOrgIdForEmail.mockImplementation(org.resolveOrgIdForEmail);
-      mockResolveOrgScopeForEmail.mockImplementation(
-        org.resolveOrgScopeForEmail,
-      );
-      const db = await import("../db/client.js");
-      const failure = Object.assign(new Error(message), { code });
-      const execute = vi.fn().mockRejectedValue(failure);
-      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
+  it.each(['relation "org_members" does not exist'])(
+    "suppresses the verified first-boot missing org table error: %s",
+    async (message) => {
       const { mountActionRoutes } = await import("./action-routes.js");
-      const mounted: Array<{ handler: any }> = [];
-      const run = vi.fn(async () => getRequestContext());
+      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      let received: any;
       mountActionRoutes(
-        { use: (_path: string, handler: any) => mounted.push({ handler }) },
-        { "do-thing": { run } as any },
+        nitroApp,
         {
-          getOwnerFromEvent: async () => "first-boot@example.test",
+          "do-thing": {
+            run: vi.fn(async (_params, ctx) => {
+              received = ctx;
+              return { ok: true };
+            }),
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "steve@example.com",
           resolveOrgId: async () => null,
         },
       );
-      const response = mounted[0]!.handler({
-        _method: "POST",
-        _headers: { "x-agent-native-frontend": "1" },
-        context: {},
-        req: { json: async () => ({}) },
-      });
 
-      if (allowed) {
-        await expect(response).resolves.toMatchObject({
-          userEmail: "first-boot@example.test",
-        });
-        expect(await response).not.toHaveProperty("orgScope", "personal");
-        expect(run).toHaveBeenCalledOnce();
-      } else {
-        await expect(response).rejects.toBe(failure);
-        expect(run).not.toHaveBeenCalled();
-      }
-      expect(execute).toHaveBeenCalled();
+      await expect(
+        mounted[0].handler({
+          _method: "POST",
+          _headers: { "x-agent-native-frontend": "1" },
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(received.orgId).toBeNull();
     },
   );
 

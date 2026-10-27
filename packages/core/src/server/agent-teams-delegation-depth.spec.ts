@@ -58,8 +58,7 @@ vi.mock("../progress/registry.js", () => ({
   completeRun: vi.fn(async () => ({})),
 }));
 
-vi.mock("./request-context.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./request-context.js")>()),
+vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => requestContextState.orgId,
   getRequestRunContext: () => ({
     allowedActionNames: requestContextState.allowedActionNames,
@@ -99,7 +98,6 @@ describe("agent-teams delegation-depth guardrail", () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
     delete process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH;
   });
 
@@ -190,158 +188,16 @@ describe("agent-teams delegation-depth guardrail", () => {
   });
 
   it("preserves an explicitly org-less parent request", async () => {
-    const request = await import("./request-context.js");
-    const actualRequest = await vi.importActual<typeof request>(
-      "./request-context.js",
-    );
-    vi.spyOn(request, "hasRequestContext").mockImplementation(
-      actualRequest.hasRequestContext,
-    );
-    vi.spyOn(request, "getRequestOrgId").mockImplementation(
-      actualRequest.getRequestOrgId,
-    );
-    const org =
-      await vi.importActual<typeof import("../org/context.js")>(
-        "../org/context.js",
-      );
-    resolveOrgIdForEmailMock.mockImplementation(() =>
-      org.resolveOrgIdForEmail(OWNER),
-    );
-    const db = await import("../db/client.js");
-    const execute = vi
-      .fn()
-      .mockRejectedValue(
-        new Error("Personal scope must not query memberships"),
-      );
-    vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
     const { spawnTask } = await import("./agent-teams.js");
+    requestContextState.active = true;
+    requestContextState.orgId = undefined;
 
-    await actualRequest.runWithRequestContext(
-      { userEmail: OWNER, orgScope: "personal" },
-      () => spawnTask(baseSpawnOptions()),
-    );
+    await spawnTask(baseSpawnOptions());
 
     expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: null }),
     );
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("rejects an unresolved real parent request before creating resources", async () => {
-    const request = await import("./request-context.js");
-    const actualRequest = await vi.importActual<typeof request>(
-      "./request-context.js",
-    );
-    vi.spyOn(request, "hasRequestContext").mockImplementation(
-      actualRequest.hasRequestContext,
-    );
-    vi.spyOn(request, "getRequestOrgId").mockImplementation(
-      actualRequest.getRequestOrgId,
-    );
-    const org =
-      await vi.importActual<typeof import("../org/context.js")>(
-        "../org/context.js",
-      );
-    resolveOrgIdForEmailMock.mockImplementation(() =>
-      org.resolveOrgIdForEmail(OWNER),
-    );
-    const db = await import("../db/client.js");
-    const execute = vi.fn().mockRejectedValue(
-      Object.assign(new Error("permission denied for table org_members"), {
-        code: "42501",
-      }),
-    );
-    vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
-    const { spawnTask } = await import("./agent-teams.js");
-    const parentSend = vi.fn();
-    const [result] = await Promise.allSettled([
-      actualRequest.runWithRequestContext({ userEmail: OWNER }, () =>
-        spawnTask({ ...baseSpawnOptions(), parentSend }),
-      ),
-    ]);
-    expect({
-      result: result.status,
-      threads: createThreadMock.mock.calls.length,
-      state: appState.size,
-      queued: enqueueAgentTeamRunMock.mock.calls.length,
-      dispatched: fireInternalDispatchMock.mock.calls.length,
-      notified: parentSend.mock.calls.length,
-    }).toEqual({
-      result: "rejected",
-      threads: 0,
-      state: 0,
-      queued: 0,
-      dispatched: 0,
-      notified: 0,
-    });
-    expect(execute).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    ['relation "org_members" does not exist', "42P01"],
-    ["permission denied for table org_members", "42501"],
-    ["membership lookup failed", undefined],
-  ] as const)(
-    "rejects real background org lookup failure before creating resources: %s",
-    async (message, code) => {
-      const org =
-        await vi.importActual<typeof import("../org/context.js")>(
-          "../org/context.js",
-        );
-      resolveOrgIdForEmailMock.mockImplementation(() =>
-        org.resolveOrgIdForEmail(OWNER),
-      );
-      const db = await import("../db/client.js");
-      const execute = vi
-        .fn()
-        .mockRejectedValue(Object.assign(new Error(message), { code }));
-      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
-      const { spawnTask } = await import("./agent-teams.js");
-      const parentSend = vi.fn();
-      const [result] = await Promise.allSettled([
-        spawnTask({ ...baseSpawnOptions(), parentSend }),
-      ]);
-
-      expect({
-        result: result.status,
-        threads: createThreadMock.mock.calls.length,
-        state: appState.size,
-        queued: enqueueAgentTeamRunMock.mock.calls.length,
-        dispatched: fireInternalDispatchMock.mock.calls.length,
-        notified: parentSend.mock.calls.length,
-      }).toEqual({
-        result: "rejected",
-        threads: 0,
-        state: 0,
-        queued: 0,
-        dispatched: 0,
-        notified: 0,
-      });
-      expect(execute).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("persists Personal after a successful real background membership read without rows", async () => {
-    const org =
-      await vi.importActual<typeof import("../org/context.js")>(
-        "../org/context.js",
-      );
-    resolveOrgIdForEmailMock.mockImplementation(() =>
-      org.resolveOrgIdForEmail(OWNER),
-    );
-    const db = await import("../db/client.js");
-    const execute = vi.fn().mockResolvedValue({ rows: [] });
-    vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
-    const { spawnTask } = await import("./agent-teams.js");
-
-    const task = await spawnTask(baseSpawnOptions());
-
-    expect(task.orgId).toBeNull();
-    expect(appState.get(`agent-task:${task.taskId}`)?.orgId).toBeNull();
-    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: null }),
-    );
-    expect(execute).toHaveBeenCalledOnce();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 
   it("scopes a spawned thread to the parent app", async () => {

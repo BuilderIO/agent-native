@@ -154,13 +154,8 @@ export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
   readonly deliveryNote?: string;
-  constructor(
-    message: string,
-    errorCode: string,
-    deliveryNote?: string,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
+  constructor(message: string, errorCode: string, deliveryNote?: string) {
+    super(message);
     this.name = "BackgroundAutomationRunError";
     this.errorCode = errorCode;
     this.deliveryNote = deliveryNote;
@@ -247,12 +242,7 @@ export type AutomationIdentityFailureCode =
 
 export type AutomationIdentityValidation =
   | { ok: true }
-  | {
-      ok: false;
-      reason: string;
-      code: AutomationIdentityFailureCode;
-      cause?: unknown;
-    };
+  | { ok: false; reason: string; code: AutomationIdentityFailureCode };
 
 export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
@@ -299,7 +289,6 @@ export async function validateAutomationRunIdentity(
       ok: false,
       reason: `could not verify user "${ownerEmail}" for this run`,
       code: "owner_unverifiable",
-      cause: error,
     };
   }
 
@@ -313,6 +302,13 @@ export async function validateAutomationRunIdentity(
             LIMIT 1`,
       args: [orgId, ownerEmail],
     });
+    if (memberRows === null) {
+      return {
+        ok: false,
+        reason: `could not verify membership in org "${orgId}"`,
+        code: "owner_unverifiable",
+      };
+    }
     if (memberRows.length === 0) {
       return {
         ok: false,
@@ -321,13 +317,12 @@ export async function validateAutomationRunIdentity(
       };
     }
     return { ok: true };
-  } catch (cause) {
+  } catch {
     // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
     return {
       ok: false,
       reason: `could not verify membership in org "${orgId}"`,
       code: "owner_unverifiable",
-      cause,
     };
   }
 }
@@ -547,17 +542,12 @@ async function notificationEmailFor(
     return owner;
   }
   const creator = createdBy?.trim();
-  if (creator?.includes("@") && automationOwnerKind(creator) === "user") {
-    const validity = await validateAutomationRunIdentity(creator, orgId);
-    if (validity.ok) return creator;
-    if (validity.code === "owner_unverifiable") {
-      throw new BackgroundAutomationRunError(
-        `${validity.reason}${validity.cause instanceof Error ? `: ${validity.cause.message}` : ""}`,
-        validity.code,
-        undefined,
-        { cause: validity.cause },
-      );
-    }
+  if (
+    creator?.includes("@") &&
+    automationOwnerKind(creator) === "user" &&
+    (await validateAutomationRunIdentity(creator, orgId)).ok
+  ) {
+    return creator;
   }
   const admin = orgId ? await orgAdminEmail(orgId) : undefined;
   if (!admin) {
@@ -577,6 +567,12 @@ async function orgAdminEmail(orgId: string): Promise<string | undefined> {
           LIMIT 1`,
     args: [orgId],
   });
+  if (rows === null) {
+    console.error(
+      `[automations] automation_alert_no_recipient: could not read the owners of org "${orgId}".`,
+    );
+    return undefined;
+  }
   const email = rows[0]?.email;
   return typeof email === "string" && email ? email : undefined;
 }
@@ -593,69 +589,21 @@ export async function startBackgroundAutomationHistory(
   appId?: string,
   options?: StartAutomationRunOptions,
 ): Promise<string> {
-  let notificationEmail: string | undefined;
-  let lookupFailure: BackgroundAutomationRunError | undefined;
-  try {
-    notificationEmail = await notificationEmailFor(
-      automation.name,
-      ownerEmail,
-      automation.meta.createdBy,
-      orgId,
-    );
-  } catch (cause) {
-    lookupFailure =
-      cause instanceof BackgroundAutomationRunError
-        ? cause
-        : new BackgroundAutomationRunError(
-            `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}: ${cause instanceof Error ? cause.message : String(cause)}`,
-            "automation_notification_recipient_unavailable",
-            undefined,
-            { cause },
-          );
-  }
-  let historyId: string;
-  try {
-    historyId = await startAutomationRun(
-      {
-        ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
-        automation: automation.name,
-        path: automation.resource.path,
-        appId,
-        notificationEmail,
-      },
-      options,
-    );
-    if (lookupFailure) {
-      await finishAutomationRun(
-        historyId,
-        "error",
-        lookupFailure.message,
-        lookupFailure.errorCode,
-        { notify: false, requirePersisted: true, expectedRunId: null },
-      );
-    }
-  } catch (historyFailure) {
-    if (!lookupFailure) throw historyFailure;
-    throw new BackgroundAutomationRunError(
-      lookupFailure.message,
-      lookupFailure.errorCode,
-      undefined,
-      {
-        cause: new AggregateError(
-          [lookupFailure, historyFailure],
-          "Recipient lookup and failure history persistence failed",
-        ),
-      },
-    );
-  }
-  if (lookupFailure) {
-    console.error(
-      `[automations] Could not verify the alert recipient for "${automation.name}" (history "${historyId}", org "${orgId ?? "none"}"):`,
-      lookupFailure,
-    );
-    throw lookupFailure;
-  }
-  return historyId;
+  return startAutomationRun(
+    {
+      ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
+      automation: automation.name,
+      path: automation.resource.path,
+      appId,
+      notificationEmail: await notificationEmailFor(
+        automation.name,
+        ownerEmail,
+        automation.meta.createdBy,
+        orgId,
+      ),
+    },
+    options,
+  );
 }
 
 export async function runBackgroundAutomation(
@@ -675,7 +623,6 @@ export async function runBackgroundAutomation(
         deps.appId,
       );
     } catch (err) {
-      if (err instanceof BackgroundAutomationRunError) throw err;
       console.error(
         `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
         err,

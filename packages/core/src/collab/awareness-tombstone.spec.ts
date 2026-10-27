@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../server/auth.js", () => ({
-  getSession: vi.fn(async () => null),
-}));
-
 const mockReadBody = vi.fn();
 const storedRows = vi.hoisted(
   () =>

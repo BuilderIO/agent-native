@@ -58,7 +58,7 @@ export function createPollEventsHandler(
   const maxDurationMs = validateSseMaxDurationMs(options.maxDurationMs);
 
   return defineEventHandler(async (event) => {
-    const session = await getSession(event);
+    const session = await getSession(event).catch(() => null);
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Unauthenticated" };

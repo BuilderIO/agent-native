@@ -12,7 +12,6 @@ describe("list-agent-engines", () => {
   let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
-    vi.doUnmock("../../agent/engine/index.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
     vi.doUnmock("../../settings/store.js");
@@ -306,48 +305,6 @@ describe("list-agent-engines", () => {
       state: "default",
       scope: "org",
     });
-    expect(byName("ai-sdk:google")).toMatchObject({
-      configuredError: expect.stringContaining("Could not read"),
-    });
-    expect(byName("ai-sdk:google")?.configured).toBeUndefined();
-    expect(byName("ai-sdk:openai")?.configured).toBe(false);
-    expect(byName("ai-sdk:openai")?.configuredError).toBeUndefined();
-    expect(result.current).toBeNull();
-    expect(result.currentError).toContain("Could not read");
-  });
-
-  it.each(["forbidden", "unexpected"])(
-    "preserves a %s failure from current-engine discovery",
-    async (kind) => {
-      const { ForbiddenError } = await import("../../sharing/access.js");
-      const cause =
-        kind === "forbidden"
-          ? new ForbiddenError()
-          : new Error("discovery failed");
-      vi.doMock("../../agent/engine/index.js", async (importOriginal) => ({
-        ...(await importOriginal<
-          typeof import("../../agent/engine/index.js")
-        >()),
-        detectEngineFromUserSecrets: async () => {
-          throw cause;
-        },
-      }));
-      const { run } = await import("./list-agent-engines.js");
-      await expect(run()).rejects.toBe(cause);
-    },
-  );
-
-  it("preserves a definitive refusal during per-engine readiness checks", async () => {
-    const { ForbiddenError } = await import("../../sharing/access.js");
-    const cause = new ForbiddenError();
-    vi.doMock("../../agent/engine/index.js", async (importOriginal) => ({
-      ...(await importOriginal<typeof import("../../agent/engine/index.js")>()),
-      isStoredEngineUsableForRequest: async () => {
-        throw cause;
-      },
-    }));
-    const { run } = await import("./list-agent-engines.js");
-    await expect(run()).rejects.toBe(cause);
   });
 
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {

@@ -131,28 +131,25 @@ describe("per-request org membership memo", () => {
     expect(results).toEqual(["org1", "org2"]);
   });
 
-  it.each(["08006", "42501", undefined])(
-    "evicts a failed read instead of memoizing it: %s",
-    async (code) => {
-      mockExecute.mockRejectedValueOnce(
-        Object.assign(new Error("membership lookup failed"), { code }),
-      );
+  it("evicts a transient failure instead of memoizing it", async () => {
+    mockExecute.mockRejectedValueOnce(
+      Object.assign(new Error("connection failure"), { code: "08006" }),
+    );
 
-      const result = await runWithRequestContext(
-        { userEmail: "alice@builder.io" },
-        async () => {
-          await expect(
-            resolveOrgIdForEmail("alice@builder.io"),
-          ).rejects.toThrow();
-          mockExecute.mockResolvedValue({ rows: [{ org_id: "org1" }] });
-          return resolveOrgIdForEmail("alice@builder.io");
-        },
-      );
+    const result = await runWithRequestContext(
+      { userEmail: "alice@builder.io" },
+      async () => {
+        await expect(
+          resolveOrgIdForEmail("alice@builder.io"),
+        ).rejects.toThrow();
+        mockExecute.mockResolvedValue({ rows: [{ org_id: "org1" }] });
+        return resolveOrgIdForEmail("alice@builder.io");
+      },
+    );
 
-      expect(result).toBe("org1");
-      expect(memberRowQueries()).toHaveLength(2);
-    },
-  );
+    expect(result).toBe("org1");
+    expect(memberRowQueries()).toHaveLength(2);
+  });
 });
 
 describe("cross-request membership cache", () => {

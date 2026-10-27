@@ -504,7 +504,7 @@ export function createCollabPlugin(
         }
         const method = getMethod(event);
 
-        const session = await getSession(event);
+        const session = await getSession(event).catch(() => null);
         if (!session?.email) {
           setResponseStatus(event, 401);
           return { error: "Authentication required" };

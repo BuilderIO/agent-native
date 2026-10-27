@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../server/auth.js", () => ({
-  getSession: vi.fn(async () => null),
-}));
-
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRouterParam: (event: unknown, name: string) =>

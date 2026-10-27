@@ -28,7 +28,6 @@ vi.mock(
   }),
 );
 
-import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import { resolveCredential } from "./index.js";
 
 const EMAIL = "member@example.com";
@@ -83,10 +82,7 @@ describe("resolveCredential with personal API keys restricted", () => {
     await expect(
       resolveCredential("OPENAI_API_KEY", { userEmail: EMAIL }),
     ).resolves.toBeUndefined();
-    expect(mocks.isRestricted).toHaveBeenCalledWith({
-      email: EMAIL,
-      orgId: "org-1",
-    });
+    expect(mocks.isRestricted).toHaveBeenCalledWith({ email: EMAIL });
   });
 
   it("leaves other credentials and unrestricted callers alone", async () => {
@@ -105,13 +101,10 @@ describe("resolveCredential with personal API keys restricted", () => {
   });
 
   it("fails loudly when the restriction can't be read", async () => {
-    const cause = new Error("settings unavailable");
-    mocks.isRestricted.mockRejectedValue(cause);
+    mocks.isRestricted.mockRejectedValue(new Error("settings unavailable"));
     rows({ [`user:${EMAIL}:ANTHROPIC_API_KEY`]: "sk-ant-personal" });
-    const lookup = resolveCredential("ANTHROPIC_API_KEY", { userEmail: EMAIL });
-    await expect(lookup).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
-    );
-    await expect(lookup).rejects.toMatchObject({ cause, retryable: true });
+    await expect(
+      resolveCredential("ANTHROPIC_API_KEY", { userEmail: EMAIL }),
+    ).rejects.toThrow("settings unavailable");
   });
 });

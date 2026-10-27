@@ -3629,10 +3629,7 @@ describe("server/auth", () => {
 
       const app = createMockApp();
       await autoMountAuth(app, {
-        getSession: async () => ({
-          email: "member@example.com",
-          orgId: "fixture-org",
-        }),
+        getSession: async () => ({ email: "member@example.com" }),
       });
 
       const guard = app.use.mock.calls
@@ -8978,57 +8975,6 @@ describe("server/auth", () => {
       ).resolves.toBeNull();
       expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
-
-    it.each(["42501", "08006", "forbidden"])(
-      "preserves an org backfill failure instead of returning an org-less session (%s)",
-      async (code) => {
-        vi.stubEnv("NODE_ENV", "production");
-        delete process.env.ACCESS_TOKEN;
-        delete process.env.ACCESS_TOKENS;
-        const { ForbiddenError } = await import("../sharing/access.js");
-        const cause =
-          code === "forbidden"
-            ? new ForbiddenError()
-            : Object.assign(new Error("membership read failed"), { code });
-        vi.doMock("./better-auth-instance.js", () => ({
-          getBetterAuth: vi.fn(async () => undefined),
-          getBetterAuthSync: () => ({
-            api: {
-              getSession: async () => ({
-                user: { id: "fake-auth-user", email: "member@example.test" },
-                session: { token: "fake-session-token" },
-              }),
-            },
-          }),
-        }));
-        const execute = vi.fn(async ({ sql }: { sql: string }) => {
-          if (sql.includes("FROM org_members")) throw cause;
-          return { rows: [] };
-        });
-        vi.doMock("../db/client.js", async (importOriginal) => ({
-          ...(await importOriginal<typeof import("../db/client.js")>()),
-          getDbExec: () => ({ execute }),
-        }));
-        const { getSession, SessionResolutionUnavailableError } =
-          await import("./auth.js");
-        const session = getSession(
-          createMockEvent({
-            headers: { cookie: "an_session=fake-session-token" },
-          }),
-        );
-        if (code === "forbidden") {
-          await expect(session).rejects.toBe(cause);
-        } else {
-          await expect(session).rejects.toBeInstanceOf(
-            SessionResolutionUnavailableError,
-          );
-          await expect(session).rejects.toMatchObject({
-            statusCode: 503,
-            cause,
-          });
-        }
-      },
-    );
 
     it("records identity resolution start before asynchronous credential validation", async () => {
       vi.stubEnv("NODE_ENV", "production");

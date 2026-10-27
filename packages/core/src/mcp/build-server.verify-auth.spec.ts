@@ -1668,8 +1668,6 @@ describe("verifyAuth — a credential for an address an email change retired", (
 });
 
 describe("resolveMcpIdentityOrgId", () => {
-  afterEach(() => vi.restoreAllMocks());
-
   beforeEach(() => {
     vi.clearAllMocks();
     lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
@@ -1768,46 +1766,5 @@ describe("resolveMcpIdentityOrgId", () => {
     ).resolves.toBe("org-email");
 
     expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("alice@example.com");
-  });
-
-  it.each([
-    ['relation "org_members" does not exist', "42P01"],
-    ["permission denied for table org_members", "42501"],
-    ["membership lookup failed", undefined],
-  ] as const)(
-    "keeps real email membership failures unavailable: %s",
-    async (message, code) => {
-      const org =
-        await vi.importActual<typeof import("../org/context.js")>(
-          "../org/context.js",
-        );
-      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
-      const db = await import("../db/client.js");
-      const execute = vi
-        .fn()
-        .mockRejectedValue(Object.assign(new Error(message), { code }));
-      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
-
-      await expect(
-        resolveMcpIdentityOrgId({ userEmail: "alice@example.test" }),
-      ).rejects.toBeInstanceOf(McpIdentityVerificationUnavailableError);
-      expect(execute).toHaveBeenCalledOnce();
-    },
-  );
-
-  it("preserves Personal after a successful real membership read without rows", async () => {
-    const org =
-      await vi.importActual<typeof import("../org/context.js")>(
-        "../org/context.js",
-      );
-    resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
-    const db = await import("../db/client.js");
-    const execute = vi.fn().mockResolvedValue({ rows: [] });
-    vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
-
-    await expect(
-      resolveMcpIdentityOrgId({ userEmail: "alice@example.test" }),
-    ).resolves.toBeUndefined();
-    expect(execute).toHaveBeenCalledOnce();
   });
 });

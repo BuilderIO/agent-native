@@ -58,7 +58,7 @@ afterAll(() => {
 
 let counter = 0;
 async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
-  return runWithRequestContext({ userEmail: OWNER, orgScope: "personal" }, fn);
+  return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
 async function seedRowUnion() {

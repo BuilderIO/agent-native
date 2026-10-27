@@ -47,13 +47,16 @@ vi.mock("./http-response-telemetry.js", () => ({
 }));
 
 describe("poll handler", () => {
-  it("propagates session unavailability instead of reporting a missing session", async () => {
-    const error = new Error("auth unavailable");
-    mockGetSession.mockRejectedValue(error);
+  it("fails closed when session resolution throws", async () => {
+    mockGetSession.mockImplementation(() => {
+      throw new Error("auth unavailable");
+    });
     const { createPollHandler } = await import("./poll.js");
     const handler = createPollHandler() as any;
 
-    await expect(handler({ query: { since: "0" } })).rejects.toBe(error);
+    await expect(handler({ query: { since: "0" } })).resolves.toEqual({
+      error: "Unauthenticated",
+    });
   });
 
   beforeEach(() => {

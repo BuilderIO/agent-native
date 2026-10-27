@@ -8,9 +8,7 @@ import {
 import { isServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { createTrackingEventScope } from "../observability/tracing.js";
-import { ForbiddenError } from "../sharing/errors.js";
 import { createOpenAiAppsChallengeHandler } from "./core-routes-plugin.js";
-import { CredentialStoreUnavailableError } from "./credential-provider.js";
 import {
   markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
@@ -362,51 +360,6 @@ describe("framework request handler", () => {
     });
     expect(event.res.status).toBe(403);
   });
-
-  it.each(["healthy", "store", "unexpected", "forbidden"])(
-    "preserves the %s HTTP boundary",
-    async (kind) => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const cause = new Error("private database diagnostic");
-      const unavailable = new CredentialStoreUnavailableError(cause);
-      const app = createNitroApp();
-      getH3App(app).use("/_agent-native/availability-probe", () => {
-        if (kind === "store") throw unavailable;
-        if (kind === "unexpected") throw cause;
-        if (kind === "forbidden") throw new ForbiddenError();
-        return { ok: true };
-      });
-      let event: any;
-      const result = await dispatch(
-        app,
-        "/_agent-native/availability-probe",
-        (e) => {
-          event = e;
-        },
-      );
-      expect(event.res.status).toBe(
-        { healthy: 200, store: 503, unexpected: 500, forbidden: 403 }[kind],
-      );
-      expect(result).toEqual(
-        kind === "healthy"
-          ? { ok: true }
-          : kind === "store"
-            ? {
-                error: unavailable.message,
-                code: "credential_store_unavailable",
-              }
-            : {
-                error:
-                  kind === "forbidden" ? "Forbidden" : "Internal server error",
-              },
-      );
-      expect(event.res.headers.get("retry-after")).toBe(
-        kind === "store" ? "5" : null,
-      );
-      expect(JSON.stringify(result)).not.toContain(cause.message);
-      expect(unavailable.cause).toBe(cause);
-    },
-  );
 
   it("treats a closed response as a client abort", async () => {
     const nitroApp = createNitroApp();

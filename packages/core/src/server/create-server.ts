@@ -189,7 +189,7 @@ export function createServer(
       "/_agent-native/env-status",
       defineEventHandler(async (event) => {
         const { resolveSecret } = await import("./credential-provider.js");
-        const session = await getSession(event);
+        const session = await getSession(event).catch(() => null);
         const userEmail = session?.email;
         let orgId: string | undefined;
         if (userEmail) {
@@ -251,7 +251,8 @@ export function createServer(
             setResponseStatus(event, err.statusCode);
             return { error: err.message };
           }
-          throw err;
+          setResponseStatus(event, 500);
+          return { error: "Failed to save keys" };
         }
       }),
     );

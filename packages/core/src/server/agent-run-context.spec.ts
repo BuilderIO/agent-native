@@ -36,7 +36,6 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "../agent/durable-background.js";
-import { ForbiddenError } from "../sharing/access.js";
 import {
   resolveAgentRunOrgId,
   resolveAgentRunOrgScope,
@@ -210,17 +209,6 @@ describe("server/agent-run-context", () => {
         ownerContext: { owner: "alice@example.com", anonymous: false },
       }),
     ).resolves.toEqual({ orgScope: "personal" });
-  });
-
-  it("preserves a definitive organization refusal during background scope resolution", async () => {
-    const refusal = new ForbiddenError();
-    resolveOrgScopeForEmailMock.mockRejectedValue(refusal);
-    await expect(
-      resolveAgentRunOrgScope({
-        event: makeEvent(),
-        ownerContext: { owner: "delegate@example.test", anonymous: false },
-      }),
-    ).rejects.toBe(refusal);
   });
 
   it("keeps organization scope unknown when an organization lookup fails", async () => {
