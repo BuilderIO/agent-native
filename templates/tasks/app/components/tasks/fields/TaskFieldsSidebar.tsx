@@ -17,8 +17,8 @@ import { TaskTitleSection } from "./TaskTitleSection";
 type RouteSuggestion = {
   taskId: string;
   queue: string | null;
-  queueProbability: number;
-  queueConfidence: number;
+  queueProbability?: number;
+  queueConfidence?: number;
   urgentProbability: number;
 };
 
@@ -62,8 +62,8 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
   const requestSuggestion = async () => {
     try {
       setSuggestion(await suggestRoute.mutateAsync({ taskId: task.id }));
-    } catch (caught) {
-      toast.error((caught as Error)?.message ?? t("taskFields.routingError"));
+    } catch {
+      toast.error(t("taskFields.routingError"));
     }
   };
 
@@ -120,6 +120,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
             <span>
               {suggestion.queue ?? t("taskFields.noQueueMatch")}
               {suggestion.queue &&
+                suggestion.queueProbability !== undefined &&
                 ` (${Math.round(suggestion.queueProbability * 100)}%)`}
             </span>
             <span className="text-muted-foreground">

@@ -51,7 +51,7 @@ and never delete without explicit confirmation in chat.
 
 ## AI task routing
 
-- Call `suggest-task-route` for a queue suggestion, choice probability, confidence, and urgency probability. It reads an existing Queue field or uses the default Work, Personal, and Other options without changing the task.
+- Call `suggest-task-route` for a queue suggestion, optional choice probability and confidence, and urgency probability. It reads an existing Queue field or uses the default Work, Personal, and Other options without changing the task.
 - After the user accepts the queue, call `apply-task-route` with its name. The action creates the Queue field on first use. Urgency probability is a suggestion, not a stored priority.
 
 ## Deleting

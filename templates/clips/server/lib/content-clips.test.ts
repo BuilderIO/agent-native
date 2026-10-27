@@ -49,6 +49,12 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   readAppState: async (key: string) => state.blobs.get(key) ?? null,
   writeAppState: async () => {},
 }));
+vi.mock("./s3-upload-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./s3-upload-provider.js")>()),
+  // No Clip here lives in S3. The real lookup reads vault tables this
+  // database lacks, and its error would mask the provider fetch under test.
+  fetchS3ObjectByUrl: async () => null,
+}));
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async () => null,
   notifyRecordingReaction: async () => null,
@@ -735,6 +741,37 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
     expect(result.body.viewer).toMatchObject({ isOwner: true });
     const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
     expect(video.status).toBe(200);
+  });
+
+  it("answers a media URL the server blocks with a 502, never the 403 that means an expired grant", async () => {
+    await updateRecording("rec-upload", {
+      video_url: "http://127.0.0.1/rec-upload.mp4",
+    });
+    state.blobs.delete("recording-blob-rec-upload");
+
+    const result = await playback("rec-upload", await token());
+    expect(result.status).toBe(200);
+    const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
+    expect(video.status).toBe(502);
+  });
+
+  it("answers a storage provider that refuses the media with a 502, never the 403 that means an expired grant", async () => {
+    await updateRecording("rec-upload", {
+      video_url: "https://93.184.216.34/rec-upload.mp4",
+    });
+    state.blobs.delete("recording-blob-rec-upload");
+    const providerFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("denied", { status: 403 }));
+    try {
+      const result = await playback("rec-upload", await token());
+      expect(result.status).toBe(200);
+      const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
+      expect(providerFetch).toHaveBeenCalled();
+      expect(video.status).toBe(502);
+    } finally {
+      providerFetch.mockRestore();
+    }
   });
 
   it("refuses earlier-screen-time footage, which only plays through its Clip", async () => {

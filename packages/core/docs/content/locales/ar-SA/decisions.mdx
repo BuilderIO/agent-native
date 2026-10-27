@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: أسئلة مسمّاة من نوع predicate أو choice أو score.
 - **options**: إعدادات اختيارية تتضمن signal أو timeoutMs أو providers أو cacheKey.
 
-تكون قيمة result.status هي ok عند النجاح؛ وتتضمن النتيجة provider وmodel وanswers مفهرسة بأسماء الأسئلة، وقد تتضمن cached وusage اختياريًا. تتضمن حالة not_configured السبب missing_credentials وقائمة providers. وتتضمن حالة failed سببًا محدد النوع، وقد تتضمن provider وquestionNames. لا يُفعّل التخزين المؤقت إلا عند توفير cacheKey. ويشمل نطاق مفتاح التخزين المالك والمؤسسة والمزوّد والطراز وcacheKey والإدخال والأسئلة. مدة صلاحية الذاكرة المؤقتة داخل الذاكرة 60 ثانية وبحد أقصى 256 إدخالًا.
+تكون قيمة result.status هي ok عند النجاح؛ وتتضمن النتيجة provider وmodel وanswers مفهرسة بأسماء الأسئلة، وقد تتضمن cached وusage اختياريًا. تتضمن حالة not_configured السبب missing_credentials وقائمة providers. وتتضمن حالة failed سببًا محدد النوع، وقد تتضمن provider وquestionNames. لا يُفعّل التخزين المؤقت إلا عند توفير cacheKey. ويشمل نطاق مفتاح التخزين المالك والمؤسسة والمزوّد والطراز وcacheKey والإدخال والأسئلة. مدة صلاحية الذاكرة المؤقتة داخل الذاكرة 60 ثانية وبحد أقصى 256 إدخالًا. يمكن أن تتضمن نتيجة ok أيضًا questionFailures للأسئلة ذات الإجابات المفقودة أو غير الصالحة. يجب على المستدعين التعامل مع هذه الأسئلة كإخفاقات في التصنيف، لا كإجابات سلبية؛ وإذا أخفقت كل الأسئلة، فقد يكون answers فارغًا بينما تسرد questionFailures كل سؤال فاشل.
 
 ## دعم المزوّدين بحسب القدرات
 

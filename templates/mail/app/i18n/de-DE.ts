@@ -34,8 +34,12 @@ const messages = {
       newest: "Neueste",
       priority: "Priorität",
       priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+      priorityProviderRequired:
+        "Verbinde einen KI-Anbieter, um nach Priorität zu sortieren.",
+      priorityPartialFailed:
+        "Für {{count}} Nachrichten konnte keine Priorität ermittelt werden. Sie erscheinen nach den bewerteten Nachrichten.",
       priorityScoreHelp:
-        "Ein höherer Wert bedeutet, dass Jev die Nachricht für wichtiger hält.",
+        "Ein höherer Wert bedeutet, dass diese Nachricht wahrscheinlich wichtiger ist.",
       priorityFeedbackSuggestion:
         "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
       priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
@@ -747,14 +751,16 @@ const messages = {
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
       triageTitle: "KI-Triage",
-      connectJev: "Jev verbinden",
-      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      connectJev: "KI-Anbieter verbinden",
+      connectJevToRunTriage:
+        "Verbinde einen KI-Anbieter, um die Triage auszuführen",
       freeBuilderOrApiKey:
         "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
       jevAvailabilityFailed:
-        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+        "Die Verfügbarkeit eines KI-Entscheidungsanbieters konnte nicht geprüft werden.",
       connectBuilder: "Builder.io verwenden",
-      addJevApiKey: "API-Schlüssel hinzufügen",
+      addJevApiKey: "Jev-API-Schlüssel hinzufügen",
+      addOpenAiApiKey: "OpenAI-API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",
