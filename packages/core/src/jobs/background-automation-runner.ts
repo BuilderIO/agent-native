@@ -556,7 +556,7 @@ async function notificationEmailFor(
     if (validity.ok) return creator;
     if (validity.code === "owner_unverifiable") {
       throw new BackgroundAutomationRunError(
-        `${validity.reason}${validity.cause instanceof Error ? `: ${validity.cause.message}` : ""}`,
+        validity.reason,
         validity.code,
         undefined,
         { cause: validity.cause },
@@ -609,9 +609,13 @@ export async function startBackgroundAutomationHistory(
   } catch (cause) {
     const lookupCause =
       cause instanceof BackgroundAutomationRunError ? cause.cause : cause;
+    const message =
+      cause instanceof BackgroundAutomationRunError
+        ? cause.message
+        : `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}`;
     lookupFailure = isTransientDatabaseError(lookupCause)
       ? new BackgroundAutomationRunError(
-          cause instanceof Error ? cause.message : String(cause),
+          message,
           "automation_recipient_lookup_unavailable",
           undefined,
           { cause: lookupCause },
@@ -619,7 +623,7 @@ export async function startBackgroundAutomationHistory(
       : cause instanceof BackgroundAutomationRunError
         ? cause
         : new BackgroundAutomationRunError(
-            `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            message,
             "automation_notification_recipient_unavailable",
             undefined,
             { cause },

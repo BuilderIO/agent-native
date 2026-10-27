@@ -2868,13 +2868,14 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
   }
 
   it.each([
-    { deniedAt: "membership", transient: false },
-    { deniedAt: "admin", transient: false },
-    { deniedAt: "membership", transient: true },
-    { deniedAt: "admin", transient: true },
+    { deniedAt: "membership", transient: false, nonError: false },
+    { deniedAt: "admin", transient: false, nonError: false },
+    { deniedAt: "admin", transient: false, nonError: true },
+    { deniedAt: "membership", transient: true, nonError: false },
+    { deniedAt: "admin", transient: true, nonError: false },
   ])(
-    "records a failed $deniedAt lookup with transient=$transient recovery",
-    async ({ deniedAt, transient }) => {
+    "records a safe failed $deniedAt lookup with transient=$transient and nonError=$nonError",
+    async ({ deniedAt, transient, nonError }) => {
       await seedOrg([["bob@agent-native.test", "owner"]]);
       const { ensureTable } = await import("./run-history.js");
       await ensureTable();
@@ -2882,23 +2883,19 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
         await import("../agent/production-agent.js");
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
-      const name = `recipient-denied-${deniedAt}-${transient}`;
+      const name = `recipient-denied-${deniedAt}-${transient}-${nonError}`;
       const automation = precondition(name, {
         runAs: "shared",
         orgId: "acme",
         createdBy: "alice@agent-native.test",
       });
       automation.resource.owner = "__organization__:acme";
-      const denied = Object.assign(
-        new Error(
-          transient
-            ? "temporary org_members timeout"
-            : "permission denied for table org_members",
-        ),
-        {
-          code: transient ? "57014" : "42501",
-        },
-      );
+      const diagnostic = `fake-private-${deniedAt}-diagnostic`;
+      const denied = nonError
+        ? diagnostic
+        : Object.assign(new Error(diagnostic), {
+            code: transient ? "57014" : "42501",
+          });
       const execute = rawClient.execute.getMockImplementation()!;
       const queries: string[] = [];
       rawClient.execute.mockImplementation(async (input) => {
@@ -2948,7 +2945,10 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
           path: `jobs/${name}.md`,
           status: "error",
           error_code: errorCode,
-          error: expect.stringContaining(denied.message),
+          error:
+            deniedAt === "membership"
+              ? 'could not verify membership in org "acme"'
+              : `Could not resolve the alert recipient for automation "${name}" in org "acme"`,
           notification_email: null,
           run_id: null,
           thread_id: null,
@@ -2959,6 +2959,9 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
           Number(history[0].started_at),
         );
         expect(result.error).toMatchObject({ errorCode, cause: denied });
+        expect((result.error as Error).cause).toBe(denied);
+        expect((result.error as Error).message).not.toContain(diagnostic);
+        expect(JSON.stringify(history[0])).not.toContain(diagnostic);
         const failure = classifyAutomationFailure(result.error);
         const now = new Date("2026-10-27T12:00:00Z");
         const paused = applyAutomationFailure(
@@ -3059,6 +3062,8 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
         expect(error).toMatchObject({
           errorCode: "owner_unverifiable",
         });
+        expect((error as Error).message).not.toContain(denied.message);
+        expect((error as Error).message).not.toContain(historyFailure.message);
         expect((error as Error).cause).toBeInstanceOf(AggregateError);
         expect(((error as Error).cause as AggregateError).errors).toEqual([
           expect.objectContaining({

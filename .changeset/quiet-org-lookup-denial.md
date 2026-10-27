@@ -23,3 +23,5 @@ Reject unavailable integration organization contexts before admin operations, in
 Keep secret scope selection and mutation gates closed when membership is unreadable, including cached unavailable contexts. Preserve transient-vs-permanent session, integration, MCP identity, and automation-recipient lookup failures. Saved credential decryption failures remain nonretryable and retain their cause; unclassified error responses cannot forward cookies, framing headers, or private diagnostics.
 
 Do not provision a default workspace when its creation-claim, invitation, or matching-domain checks fail. Retain the original failure in cached organization context so protected consumers can distinguish retryable outages from permanent failures.
+
+Keep recipient lookup diagnostics out of persisted automation history and returned error messages. Preserve the original server-side cause, failure code, retry classification, and failed-run record, including simultaneous history-write failures.
