@@ -823,22 +823,21 @@ export async function listDispatchMcpApps(): Promise<{
           const accessible = toAccessibleApp(agent, settings);
           const mountedApp = mountedAppsById.get(normalizeAppId(agent.id));
           const mountedUrl = mountedApp?.url;
-          if (
-            !mountedApp ||
-            !mountedUrl ||
-            safeAppOrigin({ url: mountedUrl }) !== safeAppOrigin(accessible)
-          ) {
-            return mountedAppsLookup.unavailable &&
-              isDispatchAppPageUrl(accessible.url)
-              ? { ...accessible, mountedPathUnavailable: true }
-              : accessible;
-          }
-          const homeUrl = mountedWorkspaceAppHomeUrl(mountedApp);
-          if (!homeUrl) return accessible;
-          return {
-            ...accessible,
-            homeUrl,
-          };
+          const sameOriginMount =
+            !!mountedUrl &&
+            safeAppOrigin({ url: mountedUrl }) === safeAppOrigin(accessible);
+          const homeUrl =
+            mountedApp && sameOriginMount
+              ? mountedWorkspaceAppHomeUrl(mountedApp)
+              : null;
+          if (homeUrl) return { ...accessible, homeUrl };
+          // Without a verified mount, a Dispatch app-page URL must not be used as the chat base.
+          const mountUnverified =
+            (mountedAppsLookup.unavailable && !mountedApp) ||
+            (sameOriginMount && !homeUrl);
+          return mountUnverified && isDispatchAppPageUrl(accessible.url)
+            ? { ...accessible, mountedPathUnavailable: true }
+            : accessible;
         }),
     ],
   };
@@ -848,7 +847,9 @@ export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
   const { apps } = await listDispatchMcpApps();
-  return apps.filter((app) => app.granted && safeAppOrigin(app));
+  return apps.filter(
+    (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
+  );
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
@@ -878,7 +879,7 @@ export async function resolveGrantedDispatchMcpApp(
   }
   if (match.mountedPathUnavailable) {
     throw new Error(
-      `Dispatch MCP app "${match.id}" is unavailable until the Workspace app registry responds. Try again shortly.`,
+      `Dispatch MCP app "${match.id}" is unavailable until its Workspace mount resolves. Try again shortly.`,
     );
   }
   if (!safeAppOrigin(match)) {
@@ -1143,7 +1144,7 @@ export async function openGrantedDispatchMcpApp(input: {
         view,
         params: input.params,
       });
-  const url = `${appBaseUrl(target)}${relUrl}`;
+  const url = `${appHomeBaseUrl(target)}${relUrl}`;
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;

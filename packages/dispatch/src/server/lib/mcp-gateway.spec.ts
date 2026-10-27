@@ -256,7 +256,102 @@ describe("Dispatch MCP gateway app discovery", () => {
         () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
       ),
     ).rejects.toThrow(
-      'Dispatch MCP app "customer-ticket-triage" is unavailable until the Workspace app registry responds.',
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("keeps Dispatch-page apps out of the granted list while the mounted lookup is unavailable", async () => {
+    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("refuses a Dispatch-page app whose mounted path is invalid", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "//evil.example",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("builds open_app links from the mounted Workspace app path", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "customer-ticket-triage",
+          path: "/triage",
+        }),
+    );
+
+    expect(result.url).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage/triage",
     );
   });
 
