@@ -2677,7 +2677,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     it.each(["APP_URL", "WORKSPACE_GATEWAY_URL"])(
-      "uses an allowlisted non-loopback gateway for minting and renewal via %s",
+      "uses a non-loopback platform's public URL for minting and renewal via %s",
       async (key) => {
         vi.stubEnv(key, "https://workspace.example.test");
         const actual = await vi.importActual<
@@ -2697,9 +2697,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             resource: "https://workspace.example.test/_agent-native/mcp",
             issuer: "https://workspace.example.test",
           })),
-          host: "internal.gateway:8100",
-          "x-forwarded-host": "workspace.example.test",
-          "x-forwarded-proto": "https",
+          host: "workspace.example.test",
+          "x-forwarded-host": "internal.gateway:8100",
+          "x-forwarded-proto": "http",
         };
         const event = makeWebEvent({
           ip: "203.0.113.20",
@@ -2711,7 +2711,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             params: { name: "echo-thing", arguments: { value: "hello" } },
           },
         });
-        event.url = new URL("http://internal.gateway:8100/");
         const response = await handleMcpRequest(event, gatewayConfig);
         const called = await readWebResponse(response as Response);
         expect(called.result.isError).not.toBe(true);
@@ -10438,39 +10437,42 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    function unsupportedCardConfig(name: string, ticketField: string) {
+      const run = vi.fn(async () => ({
+        id: "doc-1",
+        embed: true,
+        url: "/documents/doc-1",
+        path: "/documents/doc-1",
+        [ticketField]: "/_agent-native/embed/start?ticket=previous-ticket",
+      }));
+      const serverConfig: MCPConfig = {
+        ...config,
+        connectorCatalog: [name],
+        actions: {
+          [name]: {
+            tool: {
+              description: "Read the current artifact.",
+              _meta: {
+                ui: { resourceUri: `ui://mail/${name}` },
+                "openai/outputTemplate": `ui://mail/${name}`,
+              },
+            },
+            readOnly: true,
+            mcpApp: { resource: embedApp({ title: "Artifact" }) },
+            run,
+          },
+        },
+      };
+      return { run, serverConfig };
+    }
+
     it.each([
       ["view-screen", "embedStartUrl"],
-      ["context-manifest-get", "url"],
-      ["context-preview-get", "deepLinkUrl"],
       ["unsupported-card", "startUrl"],
     ])(
       "uses a full-app link for unsupported %s and strips %s",
       async (name, ticketField) => {
-        const run = vi.fn(async () => ({
-          id: "doc-1",
-          embed: true,
-          url: "/documents/doc-1",
-          path: "/documents/doc-1",
-          [ticketField]: "/_agent-native/embed/start?ticket=previous-ticket",
-        }));
-        const serverConfig = {
-          ...config,
-          connectorCatalog: [name],
-          actions: {
-            [name]: {
-              tool: {
-                description: "Read the current artifact.",
-                _meta: {
-                  ui: { resourceUri: `ui://mail/${name}` },
-                  "openai/outputTemplate": `ui://mail/${name}`,
-                },
-              },
-              readOnly: true,
-              mcpApp: { resource: embedApp({ title: "Artifact" }) },
-              run,
-            },
-          },
-        };
+        const { run, serverConfig } = unsupportedCardConfig(name, ticketField);
         const headers = await mcpAppsAuthHeaders();
         const rpc = (
           id: number,
@@ -10514,6 +10516,48 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           embedSessionMocks.createEmbedSessionTicket,
         ).not.toHaveBeenCalled();
         expect(run).toHaveBeenCalledOnce();
+      },
+    );
+
+    // oracle-change: main excludes context runtime tools before link fallback;
+    // retain that denial instead of restoring their previous MCP exposure.
+    it.each([
+      ["context-manifest-get", "url"],
+      ["context-preview-get", "deepLinkUrl"],
+    ])(
+      "keeps excluded %s out of the link fallback",
+      async (name, ticketField) => {
+        const { run, serverConfig } = unsupportedCardConfig(name, ticketField);
+        const headers = await mcpAppsAuthHeaders();
+        const rpc = (
+          id: number,
+          method: string,
+          params: Record<string, unknown>,
+        ) =>
+          callWeb(
+            { jsonrpc: "2.0", id, method, params },
+            { config: serverConfig, headers },
+          );
+        const listed = await rpc(220, "tools/list", {});
+        expect(
+          listed.result.tools.map((tool: { name: string }) => tool.name),
+        ).not.toContain(name);
+        const resources = await rpc(221, "resources/list", {});
+        expect(resources.result.resources).toEqual([]);
+        const read = await rpc(222, "resources/read", {
+          uri: `ui://mail/${name}/shell-v65`,
+        });
+        expect(read.error?.message).toContain("MCP App resource not found");
+        const called = await rpc(223, "tools/call", { name, arguments: {} });
+        expect(called.result).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: `Unknown tool: ${name}` }],
+        });
+        expect(JSON.stringify(called.result)).not.toContain("previous-ticket");
+        expect(
+          embedSessionMocks.createEmbedSessionTicket,
+        ).not.toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled();
       },
     );
 
