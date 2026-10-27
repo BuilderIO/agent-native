@@ -1666,6 +1666,9 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
     expect(start).toHaveBeenCalledTimes(2);
+    expect(start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ provisionAccount: true }),
+    );
   });
 
   it("opens AI key settings directly from a failed Builder connection", async () => {

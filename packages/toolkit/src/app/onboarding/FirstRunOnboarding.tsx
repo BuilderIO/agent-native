@@ -1358,7 +1358,7 @@ export function FirstRunOnboarding({
               </div>
             )}
             <div className="fixed bottom-6 right-6 z-10">
-              {clipsCreditsV2 && creditsEligible ? (
+              {clipsCreditsV2 ? (
                 <button
                   type="button"
                   data-testid="first-run-credits-skip"
@@ -1781,9 +1781,7 @@ export function FirstRunOnboarding({
                   type="button"
                   data-testid="first-run-retry-builder"
                   className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
-                  onClick={() =>
-                    handleBuilder(builderConnectionMode === "provision")
-                  }
+                  onClick={() => handleBuilder(true)}
                 >
                   {t("agentChat.settingsShell.builder.retry")}
                 </button>
