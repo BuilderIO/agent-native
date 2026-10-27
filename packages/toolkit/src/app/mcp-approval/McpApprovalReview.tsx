@@ -335,13 +335,13 @@ function fill(
       (token, key: FillKey) => values[key] ?? token,
     );
   // Split first, so a client named "{time}" stays a name.
-  const [before, ...after] = message.split("{time}");
-  if (time === undefined || after.length === 0) return text(message);
+  const at = message.indexOf("{time}");
+  if (time === undefined || at < 0) return text(message);
   return (
     <>
-      {text(before ?? "")}
+      {text(message.slice(0, at))}
       {time}
-      {text(after.join("{time}"))}
+      {text(message.slice(at + "{time}".length))}
     </>
   );
 }
