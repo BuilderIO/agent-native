@@ -242,8 +242,9 @@ describe("a save that sends no body", () => {
       items: Array<{ document: Document }>;
     }>(databaseKey);
     expect({
-      list: list?.documents[0],
-      database: database?.items[0].document,
+      list: list?.documents.find((document) => document.id === "doc-1"),
+      database: database?.items.find((item) => item.document.id === "doc-1")
+        ?.document,
     }).toMatchObject({
       list: { icon: "file", updatedAt: agentEdited.updatedAt },
       database: { icon: "file", updatedAt: agentEdited.updatedAt },
