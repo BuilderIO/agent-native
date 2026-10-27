@@ -680,16 +680,20 @@ export function useComposeState() {
       const idx = currentDrafts.findIndex((d) => d.id === id);
       const remaining = currentDrafts.filter((d) => d.id !== id);
 
-      if (draft) {
-        void deleteSavedDraftAfterPendingSave(
-          draft,
-          pendingSave,
-          deleteSavedDraft,
-          (result) => reportDraftSaveResult(draft, result),
-        ).catch(() =>
-          window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT)),
-        );
-      }
+      const savedCopyDeleted = draft
+        ? deleteSavedDraftAfterPendingSave(
+            draft,
+            pendingSave,
+            deleteSavedDraft,
+            (result) => reportDraftSaveResult(draft, result),
+          ).then(
+            (result) => result.status !== "failed",
+            () => {
+              window.dispatchEvent(new Event(DRAFT_DELETE_FAILED_EVENT));
+              return false;
+            },
+          )
+        : Promise.resolve(true);
 
       if (id === resolvedActiveId) {
         const nextDraft = remaining[Math.min(idx, remaining.length - 1)];
@@ -697,9 +701,19 @@ export function useComposeState() {
       }
 
       qc.setQueryData<ComposeState[]>(["compose-drafts"], remaining);
-      void enqueueDraftMutation(pendingDraftMutationsRef.current, id, () =>
-        deleteMutation.mutateAsync(id),
-      ).catch(() => undefined);
+      const stateDeleted = enqueueDraftMutation(
+        pendingDraftMutationsRef.current,
+        id,
+        () => deleteMutation.mutateAsync(id),
+      ).then(
+        () => true,
+        () => false,
+      );
+      // The draft leaves the screen at once; this settles false if it or its
+      // saved mailbox copy is still there. The failure event has gone out.
+      return Promise.all([savedCopyDeleted, stateDeleted]).then(
+        ([saved, state]) => saved && state,
+      );
     },
     [
       qc,
@@ -907,6 +921,8 @@ export function useComposeState() {
     activeId: resolvedActiveId,
     activeDraft,
     isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
     open,
     update,
     close,

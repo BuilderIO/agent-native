@@ -1927,7 +1927,7 @@ function BodySkeleton() {
   );
 }
 
-const CollapsedMessageRow = forwardRef<
+export const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
@@ -1962,16 +1962,17 @@ const CollapsedMessageRow = forwardRef<
   );
 });
 
-const ExpandedMessageCard = forwardRef<
+export const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
     onCollapse: () => void;
-    onReply: () => void;
-    onReplyAll: () => void;
-    onForward: () => void;
+    // Leave these out to hide the reply and forward buttons.
+    onReply?: () => void;
+    onReplyAll?: () => void;
+    onForward?: () => void;
     onFocus?: () => void;
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
@@ -2122,64 +2123,66 @@ const ExpandedMessageCard = forwardRef<
           </div>
 
           {/* Reply / Reply All / Forward buttons */}
-          <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReply();
-                  }}
-                  aria-label={t("mail.compose.reply")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReplyAll();
-                  }}
-                  aria-label={t("mail.mobileActions.replyAll")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("mail.mobileActions.replyAll")}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onForward();
-                  }}
-                  aria-label={t("mail.compose.forward")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
-            </Tooltip>
-          </div>
+          {onReply && onReplyAll && onForward && (
+            <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReply();
+                    }}
+                    aria-label={t("mail.compose.reply")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReplyAll();
+                    }}
+                    aria-label={t("mail.mobileActions.replyAll")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("mail.mobileActions.replyAll")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onForward();
+                    }}
+                    aria-label={t("mail.compose.forward")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
 
           <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
             {formatEmailDate(email.date)}
