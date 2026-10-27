@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RadarCheckResult } from "./checks.ts";
 import {
   acquisitionContextForWeek,
+  captureWeeklyPrefetchResult,
   completedReportWeekEnd,
   DEFAULT_WEEKLY_MAX_TOTAL_GB,
   formatWeeklyMarkdown,
@@ -49,6 +50,16 @@ describe("weekly recovery evidence", () => {
     expect(
       recoveryStateForIssue([check("observed")], "setup-exposure|clips"),
     ).toBe("recovered");
+  });
+});
+
+describe("weekly prefetch failure", () => {
+  it("keeps the failed prefetch distinct so daily reads can be retried", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async () => {
+        throw new Error("warehouse query failed");
+      }),
+    ).resolves.toEqual({ value: undefined, failed: true });
   });
 });
 
@@ -132,6 +143,7 @@ describe("weekly funnel cohort reporting", () => {
         abReadout: false,
         replayTriage: false,
         journeySnapshot: "skipped",
+        weeklyPrefetch: { status: "failed_fallback", completedQueries: 2 },
         feedbackIngest: "agent_required",
         queryCount: 0,
         bigQueryScan: {
@@ -181,6 +193,9 @@ describe("weekly funnel cohort reporting", () => {
       "BigQuery actual bytes processed: 9.88 GB across 7 executed queries.",
     );
     expect(formatted).toContain("Dry-run estimate: 12.34 GB / 100 GB.");
+    expect(formatted).toContain(
+      "Weekly prefetch: failed_fallback; 2/4 queries completed before any daily fallback.",
+    );
   });
 });
 
