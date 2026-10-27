@@ -1627,6 +1627,53 @@ describe("home library", () => {
     ).toBe("navigation.templates");
   });
 
+  it("resets a manually selected Recent tab when the last design is removed", async () => {
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    const templates = tabs.find(
+      (tab) => tab.textContent === "navigation.templates",
+    );
+    const recent = tabs.find((tab) => tab.textContent === "home.recent");
+    if (!templates || !recent) throw new Error("Missing home library tabs");
+
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    await act(async () =>
+      recent.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    mocks.ownCount = 0;
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
   it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",

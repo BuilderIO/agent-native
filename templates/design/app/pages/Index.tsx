@@ -365,9 +365,9 @@ export default function Index() {
 
     writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
-      if (!homeLibraryTabWasSelectedRef.current) {
-        setHomeSection("templates");
-      }
+      if (isSaveTemplateGettingStarted || hasSearchResultsSection) return;
+      homeLibraryTabWasSelectedRef.current = false;
+      setHomeSection("templates");
       return;
     }
     if (homeLibraryTabWasSelectedRef.current) return;
@@ -377,6 +377,8 @@ export default function Index() {
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
+    hasSearchResultsSection,
+    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
