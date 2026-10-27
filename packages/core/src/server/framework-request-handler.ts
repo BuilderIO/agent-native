@@ -31,6 +31,7 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
   markRequestBoundaryInstalled,
@@ -844,9 +845,13 @@ function createMountedMiddleware(
       }
       return {
         error:
-          declaredStatus === undefined || e?.unhandled === true
+          e?.unhandled === true
             ? "Internal server error"
-            : e?.message || "Internal server error",
+            : err instanceof PublicServerError
+              ? err.publicMessage
+              : declaredStatus !== undefined && status < 500
+                ? e?.message || "Internal server error"
+                : "Internal server error",
         // Clients name a failure by its code (no model connected, run slot
         // busy); a bare HTTP status reaches them as an unnamed "forbidden".
         ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),

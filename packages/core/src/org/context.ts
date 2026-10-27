@@ -74,13 +74,15 @@ export function getOrgScopeResolutionError(event: {
 function markOrgScopeResolutionUnavailable(
   event: H3Event,
   failure?: { cause: unknown },
-): void {
+): Error {
   const context = event.context as Record<string, unknown>;
-  context[ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY] = true;
-  context[ORG_SCOPE_RESOLUTION_ERROR_KEY] = failure
+  const error = failure
     ? sessionResolutionFailure(failure.cause)
-    : (context[ORG_SCOPE_RESOLUTION_ERROR_KEY] ??
+    : (getOrgScopeResolutionError(event) ??
       new SessionResolutionUnavailableError());
+  context[ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY] = true;
+  context[ORG_SCOPE_RESOLUTION_ERROR_KEY] = error;
+  return error;
 }
 
 export async function queryOrgMembers(query: {
@@ -89,12 +91,6 @@ export async function queryOrgMembers(query: {
 }): Promise<Record<string, unknown>[]> {
   const { rows } = await getDbExec().execute(query);
   return rows as Record<string, unknown>[];
-}
-
-function normalizeOrgRole(value: unknown): OrgRole | null {
-  return value === "owner" || value === "admin" || value === "member"
-    ? value
-    : null;
 }
 
 function delegatedOrgMemberScope(email?: string | null): string | undefined {
@@ -163,8 +159,11 @@ const nanoid = (): string =>
 export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const ctx = event.context as {
     __anOrgContextCache?: Promise<OrgContext>;
-  };
-  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event).catch(
+  } & Record<string, unknown>;
+  if (ctx.__anOrgContextCache) return ctx.__anOrgContextCache;
+  delete ctx[ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY];
+  delete ctx[ORG_SCOPE_RESOLUTION_ERROR_KEY];
+  return (ctx.__anOrgContextCache = resolveOrgContextUncached(event).catch(
     (err) => {
       delete ctx.__anOrgContextCache;
       throw err;
@@ -353,10 +352,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     (typeof session.orgId === "string" && session.orgId.trim()
       ? session.orgId.trim()
       : null);
-  const sessionOrgRole = isDelegatedOrgMember
-    ? "member"
-    : normalizeOrgRole(session.orgRole);
-
   const verifiedServiceIdentity = getVerifiedServiceIdentityFromEvent(event);
   const serviceRole = implicitServiceOrgRole({
     email,
@@ -407,37 +402,13 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   try {
     memberships = await loadMembershipsForEvent(event, email);
   } catch (err) {
-    // A transient membership read must not downgrade an authenticated request
-    // to a private/solo scope when the session already carries its org.
-    if (sessionOrgId && isTransientDatabaseError(err)) {
-      markOrgScopeResolutionUnavailable(event, { cause: err });
-      if (isDelegatedOrgMember) {
-        return { email, orgId: null, orgName: null, role: null };
-      }
-      return {
-        email,
-        orgId: sessionOrgId,
-        orgName: null,
-        role: sessionOrgRole,
-      };
-    }
-    throw err;
+    // Session claims identify the org but cannot authorize it without membership.
+    if (err instanceof ForbiddenError) throw err;
+    throw markOrgScopeResolutionUnavailable(event, { cause: err });
   }
   if (memberships === null) {
     // A null membership read is unavailable scope, not proof of a solo user.
-    markOrgScopeResolutionUnavailable(event);
-    if (isDelegatedOrgMember) {
-      return { email, orgId: null, orgName: null, role: null };
-    }
-    if (sessionOrgId) {
-      return {
-        email,
-        orgId: sessionOrgId,
-        orgName: null,
-        role: sessionOrgRole,
-      };
-    }
-    return { email, orgId: null, orgName: null, role: null };
+    throw markOrgScopeResolutionUnavailable(event);
   }
 
   const activeOrgSetting = await activeOrgSettingPromise;
@@ -605,9 +576,6 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   ) {
     const created = await tryCreateDefaultOrg(exec, email, session, event);
     if (created) return created;
-    // Creation failed (race / DB error); fall through with an empty org context
-    // so non-blocking invite/domain UI can still surface recovery options.
-    markOrgScopeResolutionUnavailable(event);
   }
 
   if (memberships.length === 0) {
@@ -1113,9 +1081,9 @@ async function tryCreateDefaultOrg(
 
     return { email, orgId, orgName, role: "owner" };
   } catch (cause) {
-    markOrgScopeResolutionUnavailable(event, { cause });
+    const failure = markOrgScopeResolutionUnavailable(event, { cause });
     if (ownsClaim) await releaseClaim(exec, claimKey);
-    return null;
+    throw failure;
   }
 }
 

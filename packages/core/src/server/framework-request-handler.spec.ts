@@ -18,12 +18,14 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
   getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
+import { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -433,6 +435,84 @@ describe("framework request handler", () => {
       }
     },
   );
+
+  it.each([500, 502, 503])(
+    "redacts a declared %s diagnostic without losing its status and code",
+    async (statusCode) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const app = createNitroApp();
+      const diagnostic = "fake private route diagnostic";
+      const error = createError({
+        statusCode,
+        message: diagnostic,
+        data: { code: "FAKE_BACKEND_FAILURE" },
+      });
+      getH3App(app).use("/_agent-native/declared-failure", () => {
+        throw error;
+      });
+      let response: { status: number; headers: Headers } | undefined;
+
+      const result = await dispatch(
+        app,
+        "/_agent-native/declared-failure",
+        (e: { res: { status: number; headers: Headers } }) => {
+          response = e.res;
+        },
+      );
+
+      expect(response?.status).toBe(statusCode);
+      expect(result).toEqual({
+        error: "Internal server error",
+        code: "FAKE_BACKEND_FAILURE",
+      });
+      expect(JSON.stringify(result)).not.toContain(diagnostic);
+    },
+  );
+
+  it("retains the safe typed session-unavailable message and retry header", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error("fake private session diagnostic");
+    const failure = new SessionResolutionUnavailableError({ cause });
+    const app = createNitroApp();
+    getH3App(app).use("/_agent-native/safe-session-failure", () => {
+      throw failure;
+    });
+    let response: { status: number; headers: Headers } | undefined;
+
+    const result = await dispatch(
+      app,
+      "/_agent-native/safe-session-failure",
+      (e: { res: { status: number; headers: Headers } }) => {
+        response = e.res;
+      },
+    );
+
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get("retry-after")).toBe("5");
+    expect(result).toEqual({ error: "Session unavailable" });
+    expect(failure.cause).toBe(cause);
+    expect(JSON.stringify(result)).not.toContain(cause.message);
+  });
+
+  it("uses an explicitly public error's safe text instead of later diagnostics", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const cause = new Error("fake private original diagnostic");
+    const error = Object.assign(
+      new PublicServerError("Safe retry instruction", { cause }),
+      { statusCode: 503, message: "fake private replacement diagnostic" },
+    );
+    const app = createNitroApp();
+    getH3App(app).use("/_agent-native/explicit-public-error", () => {
+      throw error;
+    });
+
+    const result = await dispatch(app, "/_agent-native/explicit-public-error");
+
+    expect(result).toEqual({ error: "Safe retry instruction" });
+    expect(error.cause).toBe(cause);
+    expect(JSON.stringify(result)).not.toContain(cause.message);
+    expect(JSON.stringify(result)).not.toContain(error.message);
+  });
 
   it.each(["healthy", "store", "unexpected", "forbidden"])(
     "preserves the %s HTTP boundary",

@@ -25,3 +25,5 @@ Keep secret scope selection and mutation gates closed when membership is unreada
 Do not provision a default workspace when its creation-claim, invitation, or matching-domain checks fail. Retain the original failure in cached organization context so protected consumers can distinguish retryable outages from permanent failures.
 
 Keep recipient lookup diagnostics out of persisted automation history and returned error messages. Preserve the original server-side cause, failure code, retry classification, and failed-run record, including simultaneous history-write failures.
+
+Return organization roles only after membership verification; unreadable membership or default-workspace preparation rejects with its classified cause instead of returning cached authority or Personal scope. Pending invitations, matching domains, and a lost creation claim remain normal no-organization outcomes. Redact declared server-error messages unless an explicit safe error type supplies public text, while retaining HTTP status, safe error codes, retry headers, and private server-side causes.

@@ -1,7 +1,8 @@
 import { isTransientDatabaseError } from "../db/errors.js";
 import { ForbiddenError } from "../sharing/errors.js";
+import { PublicServerError } from "./public-server-error.js";
 
-export class SessionResolutionUnavailableError extends Error {
+export class SessionResolutionUnavailableError extends PublicServerError {
   readonly statusCode = 503;
   readonly headers = { "Retry-After": "5" };
 
@@ -11,7 +12,7 @@ export class SessionResolutionUnavailableError extends Error {
   }
 }
 
-export class SessionResolutionLookupError extends Error {
+export class SessionResolutionLookupError extends PublicServerError {
   readonly statusCode = 500;
 
   constructor(cause: unknown) {

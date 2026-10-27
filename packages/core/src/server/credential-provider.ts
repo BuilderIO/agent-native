@@ -25,6 +25,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
 } from "./personal-provider-key-policy.js";
+import { PublicServerError } from "./public-server-error.js";
 export {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -136,7 +137,7 @@ export class FeatureNotConfiguredError extends Error {
  * A credential-store availability failure. Failed lookups are distinct from
  * absent credentials; only availability failures should invite a timed retry.
  */
-export class CredentialStoreUnavailableError extends Error {
+export class CredentialStoreUnavailableError extends PublicServerError {
   readonly statusCode = 503;
   readonly headers = { "Retry-After": "5" };
   readonly data = { code: CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE };
@@ -152,7 +153,7 @@ export class CredentialStoreUnavailableError extends Error {
   }
 }
 
-export class CredentialStoreLookupError extends Error {
+export class CredentialStoreLookupError extends PublicServerError {
   readonly statusCode = 500;
   readonly errorCode = "credential_store_lookup_failed";
   readonly data = { code: this.errorCode };
