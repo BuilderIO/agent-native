@@ -58,6 +58,15 @@ describe("upload rejection evidence routing", () => {
           status: "413",
           rejected_recorders: 2,
           unidentified_rejections: 0,
+          rejected_session_ids: ["recording-1", "recording-2"],
+        },
+        {
+          app: "clips",
+          reason: "network",
+          status: "502",
+          rejected_recorders: 1,
+          unidentified_rejections: 0,
+          rejected_session_ids: ["recording-1"],
         },
       ],
     });
@@ -76,8 +85,18 @@ describe("upload rejection evidence routing", () => {
       expect.objectContaining({ cache: false, fresh: true }),
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
-      expect.stringContaining("FROM session_recordings r"),
-      ["2026-10-25", "2026-10-25", "org-id"],
+      expect.stringContaining("jsonb_array_elements($4::jsonb)"),
+      [
+        "2026-10-25",
+        "2026-10-25",
+        "org-id",
+        {
+          __radarJsonbParameter: true,
+          value: [
+            { app: "clips", session_ids: ["recording-1", "recording-2"] },
+          ],
+        },
+      ],
       { fresh: true },
     );
     expect(queryMocks.runPostgresQuery.mock.calls[0]?.[0]).not.toContain(
@@ -89,6 +108,14 @@ describe("upload rejection evidence routing", () => {
         reason: "storage",
         status: "413",
         rejected_recorders: 2,
+        unidentified_rejections: 0,
+        recorders: 8,
+      },
+      {
+        app: "clips",
+        reason: "network",
+        status: "502",
+        rejected_recorders: 1,
         unidentified_rejections: 0,
         recorders: 8,
       },

@@ -103,4 +103,10 @@ describe("completed report week boundary", () => {
       /partial and future weeks are unavailable/,
     );
   });
+
+  it("rejects impossible dates that normalize to a Monday", () => {
+    expect(() => completedReportWeekEnd("2026-02-30", "2026-10-26")).toThrow(
+      /must be a Monday/,
+    );
+  });
 });

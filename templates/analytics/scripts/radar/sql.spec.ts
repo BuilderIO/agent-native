@@ -115,7 +115,10 @@ describe("first-touch SQL helpers", () => {
     expect(upload).toContain(
       "count(*) FILTER (WHERE session_id IS NULL)::int AS unidentified_rejections",
     );
-    expect(buildUploadRecorderCountsSql()).toContain("session_recordings r");
+    const recorderCounts = buildUploadRecorderCountsSql();
+    expect(recorderCounts).toContain("session_recordings r");
+    expect(recorderCounts).toContain("jsonb_array_elements($4::jsonb)");
+    expect(recorderCounts).toContain("UNION");
   });
 
   it("uses the session event, trouble, friction, and performance indexes without user content", () => {

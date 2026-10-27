@@ -23,6 +23,7 @@ import {
   RADAR_TMP_DIR,
   closeRadarQueries,
   ensureRadarPrivateDirectory,
+  radarJsonbParam,
   radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
@@ -202,30 +203,63 @@ export async function loadUploadRejectionRows(
   }
 
   const table = await resolveRadarBigQueryEventsTable();
-  const [rejected, recorders] = await Promise.all([
-    runBigQuery(buildBigQueryUploadRejectionSql(table), {
-      params: [
-        { name: "start_date", type: "DATE", value: date },
-        { name: "end_date", type: "DATE", value: date },
-        { name: "org_id", type: "STRING", value: orgId },
-      ],
-      fresh: true,
-      cache: false,
-    }),
-    runPostgresQuery(buildUploadRecorderCountsSql(), [date, date, orgId], {
-      fresh: true,
-    }),
-  ]);
+  const rejected = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
+    params: [
+      { name: "start_date", type: "DATE", value: date },
+      { name: "end_date", type: "DATE", value: date },
+      { name: "org_id", type: "STRING", value: orgId },
+    ],
+    fresh: true,
+    cache: false,
+  });
+  const rejectedRows = rejected.rows as QueryRow[];
+  const rejectedSessionIdsByApp = new Map<string, Set<string>>();
+  for (const row of rejectedRows) {
+    const sessionIds = row.rejected_session_ids;
+    if (
+      !Array.isArray(sessionIds) ||
+      sessionIds.some(
+        (sessionId) => typeof sessionId !== "string" || !sessionId,
+      )
+    ) {
+      throw new RadarQueryError(
+        "BigQuery returned invalid replay rejection session ids.",
+        1,
+      );
+    }
+    const app = String(row.app ?? "unknown");
+    const uniqueIds = rejectedSessionIdsByApp.get(app) ?? new Set<string>();
+    for (const sessionId of sessionIds) uniqueIds.add(sessionId);
+    rejectedSessionIdsByApp.set(app, uniqueIds);
+  }
+  const recorders = await runPostgresQuery(
+    buildUploadRecorderCountsSql(),
+    [
+      date,
+      date,
+      orgId,
+      radarJsonbParam(
+        [...rejectedSessionIdsByApp].map(([app, sessionIds]) => ({
+          app,
+          session_ids: [...sessionIds],
+        })),
+      ),
+    ],
+    { fresh: true },
+  );
   const recordersByApp = new Map(
     (recorders.rows as QueryRow[]).map((row) => [
       String(row.app ?? "unknown"),
       row.recorders,
     ]),
   );
-  return (rejected.rows as QueryRow[]).map((row) => ({
-    ...row,
-    recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? null,
-  }));
+  return rejectedRows.map((row) => {
+    const { rejected_session_ids: _sessionIds, ...summary } = row;
+    return {
+      ...summary,
+      recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? null,
+    };
+  });
 }
 
 export function uploadRejectionCheck(

@@ -130,6 +130,9 @@ describe("radar query safety", () => {
     );
     expect(isReadOnlySql("SELECT pg_advisory_unlock_all()")).toBe(false);
     expect(isReadOnlySql("SELECT \"pg_read_file\"('/etc/passwd')")).toBe(false);
+    expect(
+      isReadOnlySql(String.raw`SELECT U&"pg\005fread_file"('/etc/passwd')`),
+    ).toBe(false);
     expect(isReadOnlySql('SELECT "pg_advisory_unlock_shared"(1, 2)')).toBe(
       false,
     );

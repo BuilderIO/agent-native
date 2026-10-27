@@ -526,14 +526,31 @@ ORDER BY x.app, x.rejected_recorders DESC`;
 
 export function buildUploadRecorderCountsSql(): string {
   const app = recorderAppSql("r");
-  return `SELECT ${app} AS app, count(DISTINCT r.session_id)::int AS recorders
-FROM session_recordings r
-WHERE r.org_id = $3
-  AND r.started_at::timestamptz >= $1::date
-  AND r.started_at::timestamptz < ($2::date + interval '1 day')
-  AND ${recorderIdentityFilters("r")}
-  AND lower(${app}) IN ('design', 'slides', 'clips')
-GROUP BY ${app}`;
+  return `WITH recorded AS (
+  SELECT ${app} AS app, r.session_id
+  FROM session_recordings r
+  WHERE r.org_id = $3
+    AND r.started_at::timestamptz >= $1::date
+    AND r.started_at::timestamptz < ($2::date + interval '1 day')
+    AND ${recorderIdentityFilters("r")}
+    AND lower(${app}) IN ('design', 'slides', 'clips')
+  GROUP BY ${app}, r.session_id
+), rejected AS (
+  SELECT app_sessions.value ->> 'app' AS app, session_ids.session_id
+  FROM jsonb_array_elements($4::jsonb) AS app_sessions(value)
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    app_sessions.value -> 'session_ids'
+  ) AS session_ids(session_id)
+  WHERE app_sessions.value ->> 'app' IN ('design', 'slides', 'clips')
+    AND nullif(session_ids.session_id, '') IS NOT NULL
+), population AS (
+  SELECT app, session_id FROM recorded
+  UNION
+  SELECT app, session_id FROM rejected
+)
+SELECT app, count(DISTINCT session_id)::int AS recorders
+FROM population
+GROUP BY app`;
 }
 
 export function buildErrorIssuesSql(): string {

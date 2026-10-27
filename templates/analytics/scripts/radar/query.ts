@@ -302,6 +302,7 @@ export function isReadOnlySql(sql: string): boolean {
     if (char === "'" || char === '"' || char === "`") {
       if (statementEnded) return false;
       const quote = char;
+      if (quote === '"' && /u\s*&\s*$/i.test(sql.slice(0, index))) return false;
       const escapeBackslashes =
         quote === "'" &&
         /^[eE]$/.test(sql[index - 1] ?? "") &&
