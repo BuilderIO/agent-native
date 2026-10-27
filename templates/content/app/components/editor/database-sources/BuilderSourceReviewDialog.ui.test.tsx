@@ -203,7 +203,7 @@ describe("BuilderSourceReviewDialog row selection", () => {
     const confirmationCta = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) =>
-      button.textContent?.includes("database.builderPushVerbCreateOne"),
+      button.textContent.includes("database.builderPushVerbCreateOne"),
     );
     expect(confirmationCta?.disabled).toBe(false);
     act(() => confirmationCta?.click());

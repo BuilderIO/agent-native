@@ -1110,7 +1110,7 @@ function gateComparablePayload(
   if (!isBuilderCmsUnpublishedSaveEffect(rest.effect) || !rest.request) {
     return rest;
   }
-  const { autoSaveOnly: _autoSaveOnly, ...query } = rest.request.query ?? {};
+  const { autoSaveOnly: _autoSaveOnly, ...query } = rest.request.query;
   return {
     ...rest,
     effect: "autosave",

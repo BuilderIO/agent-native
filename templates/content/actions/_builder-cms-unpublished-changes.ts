@@ -73,6 +73,13 @@ function hasKey(
   return !!record && Object.prototype.hasOwnProperty.call(record, key);
 }
 
+function ownValue<V>(
+  record: Record<string, V> | null | undefined,
+  key: string,
+): V | undefined {
+  return record && hasKey(record, key) ? record[key] : undefined;
+}
+
 function epochMs(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string" || !value.trim()) return null;
@@ -394,11 +401,10 @@ function sourceValuesKeepingUnpublishedChanges(
     console.error(
       "A Builder row's unpublished-changes record is unreadable, so Builder's values win; the next save from Content replaces the record.",
     );
-    return {
-      ...args.incoming,
-      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]:
-        args.existing[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY],
-    };
+    const record = ownValue(args.existing, BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+    return record === undefined
+      ? args.incoming
+      : { ...args.incoming, [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: record };
   }
   if (read.state !== "pending" || !args.existing) {
     return withBuilderCmsUnpublishedChanges(args.incoming, null);
@@ -450,10 +456,10 @@ function sourceValuesKeepingUnpublishedChanges(
         }));
     if (!builderStillLive) continue;
     for (const keptKey of [key, referenceKey]) {
-      if (hasKey(existing, keptKey)) next[keptKey] = existing[keptKey];
-      if (hasKey(recorded.liveValues, keptKey)) {
-        liveValues[keptKey] = recorded.liveValues[keptKey];
-      }
+      const kept = ownValue(existing, keptKey);
+      if (kept !== undefined) next[keptKey] = kept;
+      const live = ownValue(recorded.liveValues, keptKey);
+      if (live !== undefined) liveValues[keptKey] = live;
     }
   }
   const bodyKept = readPredatesSave
@@ -461,8 +467,9 @@ function sourceValuesKeepingUnpublishedChanges(
     : builderCmsBodyStillSavedOver(recorded, builder);
   if (bodyKept) {
     for (const key of BUILDER_CMS_BODY_BASELINE_KEYS) {
-      if (hasKey(existing, key)) next[key] = existing[key];
-      else delete next[key];
+      const kept = ownValue(existing, key);
+      if (kept === undefined) delete next[key];
+      else next[key] = kept;
     }
   }
   return withBuilderCmsUnpublishedChanges(next, {
@@ -520,13 +527,11 @@ export function builderCmsUnpublishedChangesAfterWrite(args: {
     for (const key of args.writtenFieldKeys) {
       // A field the live entry lacks is recorded as null, which a refresh
       // that also lacks it reads as unchanged.
-      liveValues[key] = hasKey(live, key) ? live[key] : null;
+      liveValues[key] = ownValue(live, key) ?? null;
       const referenceKey = builderCmsReferenceIdKey(key);
-      if (hasKey(live, referenceKey)) {
-        liveValues[referenceKey] = live[referenceKey];
-      } else {
-        delete liveValues[referenceKey];
-      }
+      const liveReference = ownValue(live, referenceKey);
+      if (liveReference === undefined) delete liveValues[referenceKey];
+      else liveValues[referenceKey] = liveReference;
     }
     liveLastUpdated = args.live.lastUpdated ?? undefined;
     if (args.wroteBody) {

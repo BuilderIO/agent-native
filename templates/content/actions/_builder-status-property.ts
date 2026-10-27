@@ -53,7 +53,7 @@ function builderStatusValueId(propertyId: string, documentId: string) {
 }
 
 async function builderStatusTarget(db: Db, sourceId: string) {
-  const [target] = await db
+  const [target = null] = await db
     .select({
       databaseId: schema.contentDatabases.id,
       ownerEmail: schema.contentDatabases.ownerEmail,
@@ -73,11 +73,11 @@ async function builderStatusTarget(db: Db, sourceId: string) {
       ),
     )
     .limit(1);
-  return target ?? null;
+  return target;
 }
 
 async function existingBuilderStatusPropertyId(db: Db, databaseId: string) {
-  const [definition] = await db
+  const [definition = null] = await db
     .select({ id: schema.documentPropertyDefinitions.id })
     .from(schema.documentPropertyDefinitions)
     .where(
@@ -103,7 +103,7 @@ async function createBuilderStatusProperty(args: {
         args.target.databaseId,
       );
       if (existing) return existing;
-      const [minPosition] = await db
+      const [minPosition = null] = await db
         .select({ min: sql<unknown>`MIN(position)` })
         .from(schema.documentPropertyDefinitions)
         .where(
