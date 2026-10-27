@@ -2843,7 +2843,9 @@ export default function RecordingPage() {
                 {isEmbedBacked ? null : (
                   <>
                     <DropdownMenuItem
-                      disabled={backgroundAiBusy}
+                      disabled={
+                        backgroundAiBusy || transcriptStatus !== "ready"
+                      }
                       onSelect={() => {
                         beginAiRequest("remove-filler-words");
                         removeFillerWords.mutate({
@@ -2854,7 +2856,9 @@ export default function RecordingPage() {
                       {t("recordingPage.removeFillerWords")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={backgroundAiBusy}
+                      disabled={
+                        backgroundAiBusy || transcriptStatus !== "ready"
+                      }
                       onSelect={() => {
                         beginAiRequest("remove-silences");
                         removeSilences.mutate({

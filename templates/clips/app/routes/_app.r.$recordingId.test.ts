@@ -132,6 +132,7 @@ describe("direct recording route shell cue", () => {
     expect(menuStart).toBeGreaterThan(-1);
     expect(menu).toContain('t("recordingPage.removeFillerWords")');
     expect(menu).toContain('t("recordingPage.removeSilences")');
+    expect(menu.match(/transcriptStatus !== "ready"/g)).toHaveLength(2);
     expect(menu).toContain("<DropdownMenuSub>");
     expect(menu).toContain('t("recordingPage.enhanceRecording")');
     expect(menu).toContain('t("recordingPage.createFromClip")');

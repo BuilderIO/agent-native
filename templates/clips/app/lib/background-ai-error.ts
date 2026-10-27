@@ -8,7 +8,8 @@ export function shouldOfferTranscriptRegeneration(
   return (
     kind === "remove-silences" &&
     Boolean(recordingId) &&
-    (errorCode === "transcript_unreadable" ||
+    (errorCode === "transcript_not_ready" ||
+      errorCode === "transcript_unreadable" ||
       errorCode === "timestamped_transcript_required")
   );
 }

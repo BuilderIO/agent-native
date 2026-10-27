@@ -3,18 +3,15 @@ import { describe, expect, it } from "vitest";
 import { shouldOfferTranscriptRegeneration } from "./background-ai-error.js";
 
 describe("shouldOfferTranscriptRegeneration", () => {
-  it.each(["transcript_unreadable", "timestamped_transcript_required"])(
-    "offers regeneration for silence errors: %s",
-    (errorCode) => {
-      expect(
-        shouldOfferTranscriptRegeneration(
-          "remove-silences",
-          errorCode,
-          "rec_1",
-        ),
-      ).toBe(true);
-    },
-  );
+  it.each([
+    "transcript_not_ready",
+    "transcript_unreadable",
+    "timestamped_transcript_required",
+  ])("offers regeneration for silence errors: %s", (errorCode) => {
+    expect(
+      shouldOfferTranscriptRegeneration("remove-silences", errorCode, "rec_1"),
+    ).toBe(true);
+  });
 
   it.each([
     ["remove-filler-words", "timestamped_transcript_required", "rec_1"],

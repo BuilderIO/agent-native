@@ -72,6 +72,28 @@ describe("remove-filler-words", () => {
     expect(mocks.queueBackgroundAiRequest).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["missing", null],
+    ["pending", { status: "pending", segmentsJson: "[]" }],
+    ["failed", { status: "failed", segmentsJson: "[]" }],
+  ] as const)(
+    "returns a typed prerequisite error for a %s transcript",
+    async (_description, transcript) => {
+      returnRows(
+        [{ kind: "video", videoUrl: "https://store.example/clip.webm" }],
+        transcript ? [transcript] : [],
+      );
+
+      await expect(
+        removeFillerWords.run({ recordingId: "rec_1" }),
+      ).rejects.toMatchObject({
+        errorCode: "transcript_not_ready",
+        statusCode: 409,
+      });
+      expect(mocks.queueBackgroundAiRequest).not.toHaveBeenCalled();
+    },
+  );
+
   it("queues the request for a Clips-hosted video with a ready transcript", async () => {
     returnRows(
       [{ kind: "video", videoUrl: "https://store.example/clip.webm" }],

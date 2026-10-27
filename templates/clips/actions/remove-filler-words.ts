@@ -40,8 +40,9 @@ export default defineAction({
       .limit(1);
 
     if (!transcript || transcript.status !== "ready") {
-      throw new Error(
+      fail(
         "Transcript must be ready before removing filler words. Call request-transcript first.",
+        { errorCode: "transcript_not_ready", statusCode: 409 },
       );
     }
 
