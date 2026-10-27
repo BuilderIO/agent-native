@@ -118,6 +118,44 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("recognizes DbExec factory calls through a core namespace import", () => {
+    const safe = source([
+      'import * as coreDb from "./db/index.js";',
+      "coreDb.getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+    const unrelated = source([
+      'import * as coreDb from "./other.js";',
+      "coreDb.getDbExec().execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, safe, new Set([2])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, unrelated, new Set([2])),
+    ).toEqual([]);
+  });
+
+  it("recognizes bound and call-wrapped DbExec execute methods", () => {
+    const text = source([
+      "const database = getDbExec();",
+      "database.execute.bind(database)(`SELECT * FROM records WHERE id = ${recordId}`);",
+      "database.execute.call(database, `SELECT * FROM records WHERE id = ${recordId}`);",
+      'database["execute"]["bind"](database)(`SELECT * FROM records WHERE id = ${recordId}`);',
+      'database["execute"]["call"](database, `SELECT * FROM records WHERE id = ${recordId}`);',
+      "const boundExecute = database.execute.bind(database);",
+      "boundExecute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([2, 3, 4, 5, 7]),
+      ).map((finding) => finding.line),
+    ).toEqual([2, 3, 4, 5, 7]);
+  });
+
   it("does not treat a non-DbExec execute method as a SQL sink", () => {
     const text = source([
       'import { sql } from "drizzle-orm";',

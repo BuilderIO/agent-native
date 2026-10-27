@@ -47,7 +47,20 @@ function isExecuteCall(
     const symbol = checker.getSymbolAtLocation(expression);
     return symbol !== undefined && aliases.has(symbol);
   }
-  return isExecuteReference(expression, checker, sourceFile);
+  return (
+    isExecuteMethodWrapper(expression, "call", checker, sourceFile) ||
+    isExecuteReference(expression, checker, sourceFile)
+  );
+}
+
+function executeArgument(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): ts.Expression | undefined {
+  return isExecuteMethodWrapper(call.expression, "call", checker, sourceFile)
+    ? call.arguments[1]
+    : call.arguments[0];
 }
 
 function staticStringPropertyName(
@@ -246,6 +259,54 @@ function isImportedSqlNamespace(
   );
 }
 
+function isImportedDbExecNamespace(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isNamespaceImport(declaration)) return false;
+      const importClause = declaration.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreDbExecModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isImportedDbExecNamespaceFactory(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "getDbExec" &&
+    ts.isIdentifier(expression.expression)
+  ) {
+    return isImportedDbExecNamespace(
+      expression.expression,
+      checker,
+      sourceFile,
+    );
+  }
+  return (
+    ts.isElementAccessExpression(expression) &&
+    staticStringPropertyName(expression.argumentExpression) === "getDbExec" &&
+    ts.isIdentifier(expression.expression) &&
+    isImportedDbExecNamespace(expression.expression, checker, sourceFile)
+  );
+}
+
 function isImportedSqlNamespaceAccess(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -269,11 +330,15 @@ function isImportedSqlNamespaceAccess(
 }
 
 function isImportedDbExecFactory(
-  identifier: ts.Identifier,
+  expression: ts.Expression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
-  const symbol = checker.getSymbolAtLocation(identifier);
+  if (isImportedDbExecNamespaceFactory(expression, checker, sourceFile)) {
+    return true;
+  }
+  if (!ts.isIdentifier(expression)) return false;
+  const symbol = checker.getSymbolAtLocation(expression);
   return (
     symbol?.declarations?.some((declaration) => {
       if (!ts.isImportSpecifier(declaration)) return false;
@@ -378,7 +443,6 @@ function isDbExecExpression(
   }
   if (
     ts.isCallExpression(current) &&
-    ts.isIdentifier(current.expression) &&
     isImportedDbExecFactory(current.expression, checker, sourceFile)
   ) {
     return true;
@@ -547,11 +611,36 @@ function isSafeSqlHelperCall(
   );
 }
 
+function isExecuteMethodWrapper(
+  expression: ts.Expression,
+  method: "bind" | "call",
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === method
+  ) {
+    return isExecuteReference(expression.expression, checker, sourceFile);
+  }
+  return (
+    ts.isElementAccessExpression(expression) &&
+    staticStringPropertyName(expression.argumentExpression) === method &&
+    isExecuteReference(expression.expression, checker, sourceFile)
+  );
+}
+
 function isExecuteReference(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
+  if (
+    ts.isCallExpression(expression) &&
+    isExecuteMethodWrapper(expression.expression, "bind", checker, sourceFile)
+  ) {
+    return true;
+  }
   if (ts.isPropertyAccessExpression(expression)) {
     return (
       expression.name.text === "execute" &&
@@ -1540,7 +1629,7 @@ export function findRawSqlInterpolationViolations(
         analysis.executeAliases,
       )
     ) {
-      const argument = node.arguments[0];
+      const argument = executeArgument(node, checker, sourceFile);
       if (argument) reportUnsafeSqlValue(node, argument);
     }
     if (

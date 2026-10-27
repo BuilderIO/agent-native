@@ -818,6 +818,7 @@ export function toPostgresParams(
   let mode:
     | "normal"
     | "single"
+    | "escape-single"
     | "double"
     | "line-comment"
     | "block-comment"
@@ -847,8 +848,13 @@ export function toPostgresParams(
       continue;
     }
 
-    if (mode === "single") {
+    if (mode === "single" || mode === "escape-single") {
       out += ch;
+      if (mode === "escape-single" && ch === "\\" && i + 1 < sql.length) {
+        out += next;
+        i += 2;
+        continue;
+      }
       if (ch === "'" && next === "'") {
         out += next;
         i += 2;
@@ -899,7 +905,12 @@ export function toPostgresParams(
     if (ch === "'") {
       out += ch;
       i++;
-      mode = "single";
+      const prefix = sql[i - 2];
+      const previous = sql.charAt(i - 3);
+      mode =
+        (prefix === "E" || prefix === "e") && !/[A-Za-z0-9_$]/.test(previous)
+          ? "escape-single"
+          : "single";
       continue;
     }
     if (ch === '"') {
