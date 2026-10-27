@@ -2091,6 +2091,9 @@ jobs:
       - name: Test untracked-imports guard
         run: pnpm test:no-untracked-imports
 
+      - name: Test deferred server counts guard
+        run: pnpm test:no-deferred-server-counts
+
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 

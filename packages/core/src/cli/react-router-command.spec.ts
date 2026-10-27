@@ -4,11 +4,9 @@ import path from "path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
-import {
-  findReactRouterInvocation,
-  reactRouterTypegenEnv,
-} from "./react-router-command.js";
+// oracle-change: reactRouterTypegenEnv and its test are gone because
+// typecheck's typegen gets an empty Vite config, so no Core plugin reads it.
+import { findReactRouterInvocation } from "./react-router-command.js";
 
 const roots: string[] = [];
 
@@ -74,18 +72,6 @@ describe("findReactRouterInvocation", () => {
       command: "react-router",
       args: ["build"],
       shell: process.platform === "win32",
-    });
-  });
-});
-
-describe("reactRouterTypegenEnv", () => {
-  it("uses development mode and preserves the caller's environment", () => {
-    expect(
-      reactRouterTypegenEnv({ NODE_ENV: "production", DATABASE_URL: "test" }),
-    ).toEqual({
-      NODE_ENV: "development",
-      DATABASE_URL: "test",
-      [AGENT_NATIVE_TYPEGEN_ENV]: "1",
     });
   });
 });
