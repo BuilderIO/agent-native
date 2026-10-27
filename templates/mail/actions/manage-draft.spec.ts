@@ -868,6 +868,9 @@ describe("manage-draft create when the draft write throws", () => {
   });
 
   it("keeps the Gmail draft and says so when the outcome can't be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     mocks.compareAndSetAppState.mockImplementationOnce(async () => {
       mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
       throw writeError;
@@ -881,9 +884,16 @@ describe("manage-draft create when the draft write throws", () => {
       message: expect.stringContaining(
         "kept the Gmail draft it saved (gmail-new)",
       ),
-      cause: writeError,
+      errorCode: "draft_store_unconfirmed",
+      statusCode: 503,
+      details: { draftId: "fresh", gmailDraftId: "gmail-new" },
     });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("write and reread both failed"),
+      writeError,
+    );
     expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("rethrows the write error when Gmail cleanup also fails", async () => {
@@ -940,6 +950,9 @@ describe("manage-draft local create when the draft write throws", () => {
   });
 
   it("says to check before creating again when the outcome can't be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     mocks.compareAndSetAppState.mockImplementationOnce(async () => {
       mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
       throw writeError;
@@ -952,7 +965,10 @@ describe("manage-draft local create when the draft write throws", () => {
     expect(error).toMatchObject({
       message:
         'Mail couldn\'t confirm whether draft "fresh" was stored. Check for draft "fresh" before creating it again.',
-      cause: writeError,
+      errorCode: "draft_store_unconfirmed",
+      statusCode: 503,
+      details: { draftId: "fresh" },
     });
+    consoleError.mockRestore();
   });
 });

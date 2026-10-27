@@ -228,15 +228,23 @@ async function storeNewComposeDraft(
     try {
       stored = await readAppState(key);
     } catch {
+      console.error(
+        `[manage-draft] draft ${draft.id} write and reread both failed:`,
+        error,
+      );
       const kept = newGmailDraft
         ? `, so it kept the Gmail draft it saved (${newGmailDraft.draftId})`
         : "";
-      // Mail's ES2020 lib has no Error options, so cause is set directly.
-      throw Object.assign(
-        new Error(
-          `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
-        ),
-        { cause: error },
+      fail(
+        `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
+        {
+          errorCode: "draft_store_unconfirmed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            ...(newGmailDraft ? { gmailDraftId: newGmailDraft.draftId } : {}),
+          },
+        },
       );
     }
     // A Gmail draft ID belongs to this call alone. Without one, only the
