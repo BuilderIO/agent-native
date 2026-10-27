@@ -37,22 +37,24 @@ const schema = getSchema(createVisualEditorExtensions());
 function cell(spec: string) {
   const header = spec.startsWith("h:");
   const text = header ? spec.slice(2) : spec;
-  return (header ? schema.nodes.tableHeader : schema.nodes.tableCell).create(
+  return schema.node(
+    header ? "tableHeader" : "tableCell",
     null,
-    schema.nodes.paragraph.create(null, text ? schema.text(text) : null),
+    schema.node("paragraph", null, text ? schema.text(text) : undefined),
   );
 }
 
 function table(rows: string[][], attrs: Record<string, unknown> = {}) {
-  return schema.nodes.table.create(
+  return schema.node(
+    "table",
     attrs,
-    rows.map((row) => schema.nodes.tableRow.create(null, row.map(cell))),
+    rows.map((row) => schema.node("tableRow", null, row.map(cell))),
   );
 }
 
 function docWith(...tables: ProseMirrorNode[]) {
-  return schema.nodes.doc.create(null, [
-    schema.nodes.paragraph.create(null, schema.text("Before")),
+  return schema.node("doc", null, [
+    schema.node("paragraph", null, schema.text("Before")),
     ...tables,
   ]);
 }
@@ -315,21 +317,23 @@ describe("rows", () => {
 describe("a merged cell's rows and columns", () => {
   // A table whose first cell spans `span` columns or rows.
   function withMergedCell(span: "colspan" | "rowspan", rows: string[][]) {
-    const merged = schema.nodes.tableCell.create(
+    const merged = schema.node(
+      "tableCell",
       { [span]: 2 },
-      schema.nodes.paragraph.create(null, schema.text("A")),
+      schema.node("paragraph", null, schema.text("A")),
     );
-    const node = schema.nodes.table.create(
+    const node = schema.node(
+      "table",
       null,
       rows.map((row, index) =>
-        schema.nodes.tableRow.create(null, [
+        schema.node("tableRow", null, [
           ...(index === 0 ? [merged] : []),
           ...row.map(cell),
         ]),
       ),
     );
     const map = TableMap.get(node);
-    return { node, span: map.findCell(map.map[0]) };
+    return { node, span: map.findCell(map.positionAt(0, 0, node)) };
   }
 
   it("colours and deletes every column the cell covers", () => {

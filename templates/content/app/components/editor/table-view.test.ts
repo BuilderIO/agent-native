@@ -35,13 +35,15 @@ function table(
   cells: Array<{ colspan?: number; colwidth?: number[] | null }>,
   attrs: Record<string, unknown> | null = null,
 ) {
-  return schema.nodes.table.create(attrs, [
-    schema.nodes.tableRow.create(
+  return schema.node("table", attrs, [
+    schema.node(
+      "tableRow",
       null,
       cells.map((attrs) =>
-        schema.nodes.tableCell.create(
+        schema.node(
+          "tableCell",
           { colspan: 1, colwidth: null, ...attrs },
-          schema.nodes.paragraph.create(),
+          schema.node("paragraph"),
         ),
       ),
     ),
