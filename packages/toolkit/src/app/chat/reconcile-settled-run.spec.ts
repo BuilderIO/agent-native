@@ -4,6 +4,7 @@ import type { AgentThreadState } from "@agent-native/agentkit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isWaitingOnApprovalRequest,
   isWaitingOnConnectionRequest,
   reconcileSettledRun,
 } from "./reconcile-settled-run.js";
@@ -161,6 +162,55 @@ describe("isWaitingOnConnectionRequest", () => {
       isWaitingOnConnectionRequest({
         ...waiting("awaiting_input", "requested"),
         activeRunIds: [],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isWaitingOnApprovalRequest", () => {
+  const waiting = (runStatus = "awaiting_approval") =>
+    ({
+      activeRunIds: ["run-1"],
+      runs: { "run-1": { status: runStatus } },
+      approvals: { "approval-1": { id: "approval-1" } },
+      approvalRunIds: { "approval-1": "run-1" },
+    }) as unknown as AgentThreadState;
+
+  it("is true while an active run has an unresolved approval", () => {
+    expect(isWaitingOnApprovalRequest(waiting())).toBe(true);
+  });
+
+  it("is false when the approval or its run is no longer pending", () => {
+    expect(isWaitingOnApprovalRequest(waiting("running"))).toBe(false);
+    expect(
+      isWaitingOnApprovalRequest({
+        ...waiting(),
+        approvals: {},
+      }),
+    ).toBe(false);
+    expect(
+      isWaitingOnApprovalRequest({
+        ...waiting(),
+        approvalRunIds: { "approval-1": "run-0" },
+      }),
+    ).toBe(false);
+  });
+
+  it("requires every active run to be waiting on an approval", () => {
+    expect(
+      isWaitingOnApprovalRequest({
+        ...waiting(),
+        activeRunIds: [],
+      }),
+    ).toBe(false);
+    expect(
+      isWaitingOnApprovalRequest({
+        ...waiting(),
+        activeRunIds: ["run-1", "run-2"],
+        runs: {
+          "run-1": { status: "awaiting_approval" },
+          "run-2": { status: "running" },
+        },
       }),
     ).toBe(false);
   });

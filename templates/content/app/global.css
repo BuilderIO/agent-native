@@ -920,6 +920,25 @@
   border: 1px solid hsl(var(--border));
 }
 
+/* A table nobody has resized sizes its columns to their content. */
+.content-editor table[data-column-sizing="content"] {
+  table-layout: auto;
+}
+
+/* The page lets any word break anywhere, which tells the browser every column
+   can shrink to a letter, so short columns would be squeezed. Words here break
+   only when they can't fit; links and code, which can be long, still may. */
+.content-editor
+  table[data-column-sizing]
+  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label) {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.content-editor table[data-column-sizing] :is(td, th) :is(a, code) {
+  overflow-wrap: anywhere;
+}
+
 .content-editor table td,
 .content-editor table th {
   border-right: 1px solid hsl(var(--border));
@@ -2757,6 +2776,44 @@ audio.media-block__content {
 .comment-ai-resolved-mark:hover,
 .comment-ai-resolved-mark:focus-visible {
   animation-play-state: paused;
+}
+
+/* A folded stack's new front comes up out of the sheets, over the card it
+   replaces; that card is drawn first, so it stays underneath as it sinks back. */
+@keyframes comment-stack-front-in {
+  from {
+    transform: translateY(14px) scale(0.95);
+  }
+}
+@keyframes comment-stack-front-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes comment-stack-front-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes comment-stack-front-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.comment-stack-front-enter {
+  animation: comment-stack-front-in 220ms var(--ease-drawer);
+}
+.comment-stack-front-leave {
+  animation: comment-stack-front-out 220ms var(--ease-drawer) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .comment-stack-front-enter {
+    animation: comment-stack-front-fade-in 120ms linear;
+  }
+  .comment-stack-front-leave {
+    animation: comment-stack-front-fade-out 120ms linear forwards;
+  }
 }
 
 .slash-command-menu {

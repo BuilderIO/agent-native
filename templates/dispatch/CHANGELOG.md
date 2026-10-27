@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- Workspace app sharing is managed only by app owners and organization admins.
+
 ## 2026-10-21
 
 ### Added

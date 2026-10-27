@@ -37,6 +37,9 @@ import {
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
+import { describeFlowContainer } from "./nudge-intent";
+import { isPasteContainer } from "./paste-placement";
 import { hidePenPathFill } from "./pen-path-paint";
 import type { DesignFile } from "./types";
 
@@ -313,11 +316,122 @@ function inlineBorderInset(element: Element): { x: number; y: number } {
   return { x: read(style.borderLeftWidth), y: read(style.borderTopWidth) };
 }
 
+const POSITIONED = new Set(["absolute", "fixed", "relative", "sticky"]);
+
+interface CreationHost {
+  element: Element;
+  x: number;
+  y: number;
+  border: { x: number; y: number };
+  live: Element | null;
+}
+
+// Paste and draw must agree on what holds a layer, so this is paste's rule
+// plus the layer-state exclusions a hit test applies.
+function isCreationParent(element: Element): boolean {
+  if (
+    element.closest(
+      '[data-agent-native-locked="true"],[data-agent-native-hidden="true"]',
+    )
+  ) {
+    return false;
+  }
+  const display = (element as HTMLElement).style?.display;
+  return isPasteContainer({
+    tag: element.localName,
+    hasElementChildren: element.children.length > 0,
+    hasText: Boolean(element.textContent?.trim()),
+    container: describeFlowContainer({
+      style: display ? { display } : {},
+      classes: (element.getAttribute("class") ?? "").split(/\s+/),
+    }),
+    primitiveKind: element.getAttribute("data-an-primitive"),
+  });
+}
+
+function containsPoint(
+  rect: { x: number; y: number; w: number; h: number },
+  x: number,
+  y: number,
+) {
+  return (
+    x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h
+  );
+}
+
+function uniqueLiveNode(live: Document, nodeId: string): Element | null {
+  const matches = live.querySelectorAll(
+    `[data-agent-native-node-id="${CSS.escape(nodeId)}"]`,
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+function liveDocumentRect(element: Element) {
+  const rect = element.getBoundingClientRect();
+  const view = element.ownerDocument.defaultView;
+  return {
+    x: rect.left + (view?.scrollX ?? 0),
+    y: rect.top + (view?.scrollY ?? 0),
+    w: rect.width,
+    h: rect.height,
+  };
+}
+
+/**
+ * Authored layouts carry no inline geometry, so the rendered screen decides
+ * which container a point is over. Document order puts every descendant and
+ * every later-painted sibling after the element it covers, so the last
+ * container hit is the one on top.
+ */
+function liveCreationHost(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document,
+): CreationHost | null {
+  // null marks an id the rendered screen repeats, which names no one element.
+  const liveById = new Map<string, Element | null>();
+  for (const live of Array.from(
+    liveDocument.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    const id = live.getAttribute("data-agent-native-node-id") ?? "";
+    liveById.set(id, liveById.has(id) ? null : live);
+  }
+  let host: CreationHost | null = null;
+  for (const element of Array.from(
+    root.querySelectorAll("[data-agent-native-node-id]"),
+  )) {
+    if (!isCreationParent(element)) continue;
+    const live = liveById.get(
+      element.getAttribute("data-agent-native-node-id") ?? "",
+    );
+    if (!live) continue;
+    const rect = liveDocumentRect(live);
+    if (!(rect.w > 0 && rect.h > 0) || !containsPoint(rect, x, y)) continue;
+    const computed = liveDocument.defaultView?.getComputedStyle(live);
+    const read = (value: string | undefined) => {
+      const parsed = Number.parseFloat(value ?? "");
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    host = {
+      element,
+      x: rect.x - live.scrollLeft,
+      y: rect.y - live.scrollTop,
+      border: {
+        x: read(computed?.borderLeftWidth),
+        y: read(computed?.borderTopWidth),
+      },
+      live,
+    };
+  }
+  return host;
+}
+
 function deepestFrameContaining(
   root: Element,
   x: number,
   y: number,
-): { element: Element; x: number; y: number } | null {
+): CreationHost | null {
   const contained = Array.from(
     root.querySelectorAll('[data-an-primitive="frame"]'),
   )
@@ -328,18 +442,74 @@ function deepestFrameContaining(
       ): candidate is {
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
-      } =>
-        candidate.rect !== null &&
-        x >= candidate.rect.x &&
-        y >= candidate.rect.y &&
-        x <= candidate.rect.x + candidate.rect.w &&
-        y <= candidate.rect.y + candidate.rect.h,
+      } => candidate.rect !== null && containsPoint(candidate.rect, x, y),
     )
     .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
   const best = contained[0];
   return best
-    ? { element: best.element, x: best.rect.x, y: best.rect.y }
+    ? {
+        element: best.element,
+        x: best.rect.x,
+        y: best.rect.y,
+        border: inlineBorderInset(best.element),
+        live: null,
+      }
     : null;
+}
+
+function creationHostAt(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument: Document | null | undefined,
+): CreationHost | null {
+  return (
+    (liveDocument?.body ? liveCreationHost(root, x, y, liveDocument) : null) ??
+    deepestFrameContaining(root, x, y)
+  );
+}
+
+/** The in-flow child a layer dropped at the point goes before, in the host's flow order. */
+function flowInsertionReference(
+  host: CreationHost,
+  x: number,
+  y: number,
+): Element | null {
+  const live = host.live;
+  const view = live?.ownerDocument.defaultView;
+  if (!live || !view) return null;
+  const computed = view.getComputedStyle(live);
+  const direction = computed.flexDirection || "row";
+  const column = direction.startsWith("column");
+  const reversed =
+    direction.endsWith("-reverse") !==
+    (!column && computed.direction === "rtl");
+  const rowsOfItems =
+    computed.display.includes("grid") ||
+    (computed.flexWrap !== "" && computed.flexWrap !== "nowrap");
+  for (const child of Array.from(host.element.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const liveChild: Element | null = id
+      ? uniqueLiveNode(live.ownerDocument, id)
+      : null;
+    if (!liveChild || liveChild.parentElement !== live) continue;
+    const position = view.getComputedStyle(liveChild).position;
+    if (position === "absolute" || position === "fixed") continue;
+    const rect = liveDocumentRect(liveChild);
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + rect.h / 2;
+    const before = column
+      ? reversed
+        ? centerY < y
+        : y < centerY
+      : rowsOfItems && (y < rect.y || rect.y + rect.h < y)
+        ? y < rect.y
+        : reversed
+          ? centerX < x
+          : x < centerX;
+    if (before) return child;
+  }
+  return null;
 }
 
 function elementsFromPointIncludingPointerTransparent(
@@ -876,8 +1046,8 @@ function adoptEnclosedLayers(
     ) {
       continue;
     }
-    style.left = `${left - box.left - border.x}px`;
-    style.top = `${top - box.top - border.y}px`;
+    style.left = `${Math.round(left - box.left - border.x)}px`;
+    style.top = `${Math.round(top - box.top - border.y)}px`;
     frame.appendChild(child);
   }
 }
@@ -886,6 +1056,7 @@ export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
   preserveNegativePosition = false,
+  liveDocument?: Document | null,
 ): { kind: "body" } | { kind: "frame"; nodeId: string } | null {
   if (typeof window === "undefined" || isStandaloneHttpUrl(content))
     return null;
@@ -898,7 +1069,7 @@ export function canvasPrimitiveInsertionHostNodeId(
     const top = preserveNegativePosition
       ? Math.round(primitive.geometry.y)
       : Math.max(0, Math.round(primitive.geometry.y));
-    const host = deepestFrameContaining(doc.body, left, top)?.element;
+    const host = creationHostAt(doc.body, left, top, liveDocument)?.element;
     if (!host) return { kind: "body" };
     const id = host.getAttribute("data-agent-native-node-id");
     return id ? { kind: "frame", nodeId: id } : null;
@@ -941,13 +1112,13 @@ export function appendCanvasPrimitiveToHtml(
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
-    const host = deepestFrameContaining(doc.body, left, top);
+    const host = creationHostAt(doc.body, left, top, options?.liveDocument);
     const hostOrBody: Element = host?.element ?? doc.body;
-    const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
-    const hostLeft = host ? left - host.x - hostBorder.x : left;
-    const hostTop = host ? top - host.y - hostBorder.y : top;
+    const hostLeft = host ? left - host.x - host.border.x : left;
+    const hostTop = host ? top - host.y - host.border.y : top;
     const finishPrimitive = (element: Element): string => {
-      if (options?.positioning === "flow") {
+      const flow = options?.positioning === "flow";
+      if (flow) {
         const style = (element as HTMLElement | SVGElement).style;
         for (const property of [
           "position",
@@ -964,7 +1135,24 @@ export function appendCanvasPrimitiveToHtml(
           );
         }
       }
-      hostOrBody.appendChild(element);
+      const hostPosition =
+        host?.live?.ownerDocument.defaultView?.getComputedStyle(
+          host.live,
+        ).position;
+      if (
+        host &&
+        !flow &&
+        hostPosition !== undefined &&
+        !POSITIONED.has(hostPosition)
+      ) {
+        patchElementInlineStyle(host.element as HTMLElement, [
+          { property: "position", value: "relative" },
+        ]);
+      }
+      hostOrBody.insertBefore(
+        element,
+        flow && host ? flowInsertionReference(host, left, top) : null,
+      );
       const content = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
       return primitive.kind === "text"
         ? ensureGoogleFontLinkInHtml(content, "Inter")

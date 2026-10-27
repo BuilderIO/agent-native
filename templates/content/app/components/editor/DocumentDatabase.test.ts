@@ -12,7 +12,8 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
-import { describe, expect, it } from "vitest";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DATABASE_NAVIGATION_STATE_MAX_BYTES,
@@ -1798,6 +1799,55 @@ describe("new database item defaults", () => {
       ),
     ).toEqual({});
   });
+
+  it("seeds the day a relative date filter names and nothing for ranges", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 23, 30));
+      const dueProperty = property("due", "Due", "date");
+      const titleProperty = property("summary", "Summary", "text");
+      const due = (
+        operator: DatabaseFilter["operator"],
+        value: string,
+      ): DatabaseFilter => ({ key: "due", label: "Due", operator, value });
+
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "today")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-22", includeTime: false } });
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "tomorrow")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-23", includeTime: false } });
+      for (const filter of [
+        due("on_or_before", "today"),
+        due("on_or_after", "2026-10-22"),
+        due("is_within", "next_7_days"),
+      ]) {
+        expect(
+          databasePropertyValuesForNewItem([filter], [dueProperty]),
+        ).toEqual({});
+      }
+      for (const operator of [
+        "does_not_contain",
+        "starts_with",
+        "ends_with",
+      ] as const) {
+        expect(
+          databasePropertyValuesForNewItem(
+            [{ key: "summary", label: "Summary", operator, value: "Draft" }],
+            [titleProperty],
+          ),
+        ).toEqual({});
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("database column sizing", () => {
@@ -2405,23 +2455,33 @@ describe("database item preview", () => {
 
   it("finds the duplicated row returned by a duplicate database item action", () => {
     const alpha = item("alpha", "Alpha", {});
-    const beta = item("beta", "Beta", {});
+    const beta = item("beta", "Beta", { number: 2 });
 
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
         duplicatedItemId: beta.id,
       })?.document.title,
     ).toBe("Beta");
     expect(
       databaseDuplicatedItemFromResponse({
+        items: compactContentDatabaseItems([alpha, beta]),
+        properties,
+        duplicatedItemId: beta.id,
+      }),
+    ).toEqual(beta);
+    expect(
+      databaseDuplicatedItemFromResponse({
         items: [alpha],
+        properties,
         duplicatedItemId: "missing",
       }),
     ).toBeNull();
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
       }),
     ).toBeNull();
   });

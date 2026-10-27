@@ -91,8 +91,14 @@ function boardBodyId(nodes: Map<string, SavedNode>) {
   return body.id;
 }
 
+// The board file is created lazily, sometimes by the draw itself, so its
+// html and body can be new without being layers anyone drew.
+const DOCUMENT_TAGS = new Set(["html", "head", "body"]);
+
 function newIds(before: Map<string, SavedNode>, after: Map<string, SavedNode>) {
-  return [...after.keys()].filter((id) => !before.has(id));
+  return [...after.entries()]
+    .filter(([id, node]) => !before.has(id) && !DOCUMENT_TAGS.has(node.tag))
+    .map(([id]) => id);
 }
 
 /** Below 100% zoom one page pixel spans several design pixels, so drawn and dropped geometry rounds. */
@@ -123,7 +129,7 @@ async function openOnBoard(app: App, id: string) {
   await app.page.goto(appPath(`/design/${id}?view=overview&zoom=30`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible({ timeout: 30_000 });
+  await expect(app.page.locator(LIVE_SCREEN)).toBeVisible();
   await expect(app.node("page")).toBeVisible();
   await expect(app.page.getByRole("tree", { name: "Layers" })).toBeVisible();
 }
@@ -155,7 +161,7 @@ function boardNode(page: Page, nodeId: string) {
 async function clickCenter(
   app: App,
   nodeId: string,
-  modifiers: ("Shift" | "Alt")[] = [],
+  modifiers: ("Shift" | "Alt" | typeof MOD)[] = [],
 ) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
@@ -506,7 +512,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     await app.zoomToFit();
     const before = await app.savedNodes(id);
 
-    await clickCenter(app, "album-art");
+    await clickCenter(app, "album-art", [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["album-art"]);
     await chooseWidthMenuItem(page, /^Fill/i);
     await app.settled();
@@ -537,7 +543,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
     expectOnlyChanged(filled, end, ["card"]);
     expect(await app.designRect("card")).toEqual(card);
-    await expect(minWidth).toHaveValue("200px");
+    await expect(minWidth).toHaveValue("200");
     expect(
       await minWidth.evaluate(
         (input: HTMLInputElement) => input.scrollWidth <= input.clientWidth,

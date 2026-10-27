@@ -138,9 +138,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     const designId = await createEmptyDesign(app);
 
     await page.goto(appPath(`/design/${designId}`));
-    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
     await expect(page.locator("html")).toHaveClass(new RegExp(theme));
     const { x: sampleX, y: sampleY } = await sampleXY(page);
     expect(await pixelAt(page, sampleX, sampleY)).toBe(expectedCanvasRgb);

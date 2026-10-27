@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core";
 import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
@@ -56,6 +57,7 @@ import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
+import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
@@ -99,6 +101,13 @@ function writerRefusal(documentId: string, error: unknown): unknown {
     error.docId === documentId
   )
     return error;
+  if (
+    error instanceof ActionContractError &&
+    error.errorCode === "LIVE_BODY_WRITE_PATH_CHANGED" &&
+    error.details?.documentId === documentId &&
+    error.details.reason === "live_copy"
+  )
+    return error;
   return undefined;
 }
 
@@ -118,15 +127,34 @@ async function acceptOnLegacyWriter<T>(
     resourceType: context.resourceType,
     resourceId: context.resourceId,
   });
+  const db = getDbExec();
+  if (!db.transaction)
+    throw new Error(
+      "Suggestion decisions require an atomic database transaction",
+    );
   const result = await withPreparedYDocMutation(
     context.resourceId,
     acceptedSuggestionRequestSource(context.ctx?.requestSource),
     (ydoc) =>
-      run({
-        ydoc,
-        sync,
-        deferPersistence: context.proposalDecision === true,
-      } satisfies ContentDecisionCoordination),
+      // A conversion locks the Page, then the suggestions it moves onto the
+      // new body. Core's decision claims the suggestion before `apply`
+      // locks the Page, so the Page is locked first here, in the transaction
+      // the decision then runs in; the other order deadlocks.
+      db.transaction!(async (tx) => {
+        // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+        await tx.execute({
+          sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+          args: [context.resourceId],
+        });
+        return run(
+          {
+            ydoc,
+            sync,
+            deferPersistence: context.proposalDecision === true,
+          } satisfies ContentDecisionCoordination,
+          { transaction: tx },
+        );
+      }),
   );
   publishPersistedAcceptedSuggestion(sync, result);
   return result;
@@ -770,6 +798,14 @@ async function commitAcceptedContent(input: {
   }
   const applied = await commitCanonicalDocumentBodyMutation({
     write: async () => {
+      // The Page may have switched since the gate chose this writer. The
+      // decision's transaction is not `getDbExec()`, so the lock reads on `tx`.
+      await lockLegacyBodyWrites(identityTx, [documentId], {
+        operation: "accept-suggestion",
+        routed: true,
+        content: null,
+        exec: tx,
+      });
       const updated = await tx.execute({
         sql: "UPDATE documents SET content = ?, body_revision = ?, collab_body_revision = ?, updated_at = ? WHERE id = ? AND body_revision = ? AND updated_at = ? AND content = ?",
         args: [

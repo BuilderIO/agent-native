@@ -18,7 +18,16 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { trackAgentConnected } from "./agent-connected.js";
+import {
+  connectionApp,
+  connectionClientKey,
+  trackAgentConnected,
+} from "./agent-connected.js";
+import {
+  trackMcpOAuthAuthorizeOpened,
+  trackMcpOAuthLoginWallShown,
+  type McpAnalyticsContext,
+} from "./analytics.js";
 import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
@@ -827,6 +836,53 @@ async function readOAuthParams(
   return {};
 }
 
+interface AuthorizeAnalyticsInput {
+  issuer: string;
+  options: McpOAuthRouteOptions;
+  clientName: string | null;
+  redirectUri: string;
+  resource: string;
+  userId?: string;
+}
+
+function trackAuthorizeStage(
+  stage: "opened" | "login_wall",
+  input: AuthorizeAnalyticsInput,
+): void {
+  // The authorize page is the only way into a connection, so a tracking fault
+  // must not turn a sign-in into a failure.
+  try {
+    const ctx: McpAnalyticsContext = {
+      source: "http",
+      serverName:
+        input.options.appName || input.options.appId || "Agent-Native",
+      appId: connectionApp(input.issuer, input.options.appId),
+      ...(input.clientName ? { clientName: input.clientName } : {}),
+      // The key agent_connected reports, so a client's starts and finished
+      // connections join on it.
+      clientKey: connectionClientKey(input.clientName ?? "unknown"),
+      // Host only: the redirect URI's path and query can carry per-attempt values.
+      ...(URL.canParse(input.redirectUri)
+        ? { redirectHost: new URL(input.redirectUri).hostname }
+        : {}),
+      ...(input.userId ? { userId: input.userId } : {}),
+    };
+    const route = input.resource.endsWith(MCP_DIRECTORY_ROUTE_PREFIX)
+      ? "directory"
+      : "mcp";
+    if (stage === "opened") {
+      trackMcpOAuthAuthorizeOpened(ctx, {
+        route,
+        signedIn: Boolean(input.userId),
+      });
+    } else {
+      trackMcpOAuthLoginWallShown(ctx, { route });
+    }
+  } catch (error) {
+    console.error("[mcp-oauth-analytics] Failed to record authorize:", error);
+  }
+}
+
 async function handleAuthorize(
   event: H3Event,
   options: McpOAuthRouteOptions,
@@ -890,6 +946,13 @@ async function handleAuthorize(
   }
 
   const session = await getSession(event);
+  const analyticsInput: AuthorizeAnalyticsInput = {
+    issuer,
+    options,
+    clientName: client.clientName,
+    redirectUri,
+    resource,
+  };
   if (!session?.email) {
     if (params.prompt === "none") {
       return redirectWithOAuthError({
@@ -900,6 +963,13 @@ async function handleAuthorize(
       });
     }
     const loginPage = getConfiguredLoginHtml(event);
+    // Only the real sign-in page (200) is a login wall; 503 is the deploy's
+    // setup-required page. The consent POST is the same visit continuing, not
+    // a second open.
+    if (loginPage?.status === 200) {
+      if (method === "GET") trackAuthorizeStage("opened", analyticsInput);
+      trackAuthorizeStage("login_wall", analyticsInput);
+    }
     return loginPage
       ? html(loginPage.html, loginPage.status)
       : oauthError("login_required", "Sign in required", 401);
@@ -924,6 +994,10 @@ async function handleAuthorize(
   );
 
   if (method === "GET") {
+    trackAuthorizeStage("opened", {
+      ...analyticsInput,
+      userId: session.email,
+    });
     return html(
       renderConsentPage({
         appName: options.appName || options.appId || "Agent-Native",

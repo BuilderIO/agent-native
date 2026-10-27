@@ -157,8 +157,9 @@ export default defineAction({
     "file (cheaper, faster, and it preserves everything you don't touch). Each " +
     "edit's `search` must match the current file exactly and uniquely, so " +
     "include enough surrounding context. Read the file first with " +
-    "`get-design-snapshot`. Wrapping an element is just a search/replace whose " +
-    "`replace` adds the wrapper around the original text. For broad copy-only " +
+    "`get-design-snapshot`. Prefer restyling an existing parent over adding a " +
+    "wrapper; add one only when no existing element can hold the layout. Keep " +
+    "every px length a whole number. For broad copy-only " +
     'changes such as translating all visible text, use `mode: "replace-file"` ' +
     "with `replacementContent`: the complete updated file content copied from " +
     "the snapshot with only the requested copy changed. After a variant pick " +

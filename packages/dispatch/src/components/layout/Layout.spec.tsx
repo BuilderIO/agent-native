@@ -1256,7 +1256,7 @@ describe("Dispatch NavContent", () => {
 
   async function clickText(scope: ParentNode, text: string) {
     const button = [
-      ...scope.querySelectorAll<HTMLButtonElement>("button"),
+      ...scope.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
     ].find((button) => button.textContent?.trim() === text);
     expect(button, text).toBeDefined();
     await act(async () => {
@@ -1488,6 +1488,29 @@ describe("Dispatch NavContent", () => {
     },
   );
 
+  it.each([false, true])(
+    "renders app row actions as text-only menu items (chat-first %s)",
+    async (chatFirstMode) => {
+      await renderHistory(chatFirstMode);
+      await openThreadMenu("Earlier Dispatch work");
+      const items = [
+        ...document.body.querySelectorAll<HTMLElement>(
+          ".an-chat-history-row__menu-item",
+        ),
+      ];
+      const labels = items.map((item) => item.textContent?.trim());
+      expect(labels).toEqual(
+        expect.arrayContaining(["Rename chat", "Pin", "Archive"]),
+      );
+      expect(items.length).toBeGreaterThan(3);
+      for (const item of items) {
+        expect(item.tagName).not.toBe("BUTTON");
+        expect(item.getAttribute("role")).toBe("menuitem");
+        expect(item.querySelector("svg")).toBeNull();
+      }
+    },
+  );
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(
@@ -1503,7 +1526,8 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Current Dispatch work");
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
-    expect(container.textContent).toContain("5m ago");
+    // Rail rows show no relative time; it stays in the popover list.
+    expect(container.textContent).not.toContain("5m ago");
     expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
     const sourceToggle = container.querySelector(
       "[data-dispatch-chat-source-toggle]",
@@ -1513,10 +1537,9 @@ describe("Dispatch NavContent", () => {
       sourceToggle.click();
     });
     expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
-    const age = [...container.querySelectorAll("span")].find(
-      (element) => element.textContent === "5m ago",
-    );
-    expect(age?.className).toContain("an-chat-history-row__timestamp");
+    expect(
+      container.querySelector(".an-chat-history-row__timestamp"),
+    ).toBeNull();
     const historyList = container.querySelector(
       '[data-agent-native="chat-history-list"]',
     );

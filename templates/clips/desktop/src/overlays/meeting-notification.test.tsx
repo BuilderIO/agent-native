@@ -201,4 +201,28 @@ describe("meeting notification recovery", () => {
       vi.useRealTimers();
     }
   });
+
+  it("skips the snapshot when the rendered card belongs to another meeting", async () => {
+    vi.useFakeTimers();
+    Object.assign(document, { elementFromPoint: () => null });
+    try {
+      await act(async () => {
+        await tauriEvents.emit(
+          "meetings:show-notification",
+          calendarCard("meeting-a", true),
+        );
+      });
+      // A commit for the next card can land before the old timer's cleanup.
+      host
+        .querySelector(".meeting-notification")!
+        .setAttribute("data-meeting-id", "meeting-b");
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(snapshotCalls()).toHaveLength(0);
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+      vi.useRealTimers();
+    }
+  });
 });

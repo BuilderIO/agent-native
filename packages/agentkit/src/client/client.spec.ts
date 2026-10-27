@@ -21,6 +21,7 @@ import {
   AgentKitCapabilityError,
   AgentKitClient as AgentKitClientImplementation,
   AgentKitOperationError,
+  AgentKitQueueOrderStaleError,
   AgentKitUploadError,
   AgentRunHandle,
   AgentKitRunSlotBusyError,
@@ -7855,6 +7856,98 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual(queued);
   });
 
+  it("reorders the whole queue optimistically and persists the new order", async () => {
+    const queued = ["one", "two", "three"].map((id, index) => ({
+      id,
+      threadId: "thread-1",
+      text: id,
+      createdAt: `2026-08-29T00:00:0${index}.000Z`,
+    }));
+    let finish: () => void = () => undefined;
+    const reorderQueuedMessages = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: queued[0]!.createdAt,
+      updatedAt: queued[0]!.createdAt,
+      messages: [],
+      queuedMessages: queued,
+    });
+    transport.reorderQueuedMessages = reorderQueuedMessages;
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    expect(client.supportsQueuedMessageOrdering()).toBe(true);
+    const pending = client.reorderQueuedMessages("thread-1", [
+      "two",
+      "three",
+      "one",
+    ]);
+    await vi.waitFor(() =>
+      expect(reorderQueuedMessages).toHaveBeenCalledWith(
+        { threadId: "thread-1", messageIds: ["two", "three", "one"] },
+        expect.anything(),
+      ),
+    );
+    expect(
+      client.getThread("thread-1").queuedMessages.map(({ id }) => id),
+    ).toEqual(["two", "three", "one"]);
+    finish();
+    await pending;
+    expect(
+      client.getThread("thread-1").queuedMessages.map(({ id }) => id),
+    ).toEqual(["two", "three", "one"]);
+  });
+
+  it("rolls a failed reorder back and rejects a stale message set", async () => {
+    const queued = ["one", "two"].map((id, index) => ({
+      id,
+      threadId: "thread-1",
+      text: id,
+      createdAt: `2026-08-29T00:00:0${index}.000Z`,
+    }));
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: queued[0]!.createdAt,
+      updatedAt: queued[0]!.createdAt,
+      messages: [],
+      queuedMessages: queued,
+    });
+    const reorderQueuedMessages = vi.fn(async () => {
+      throw new Error("write failed");
+    });
+    transport.reorderQueuedMessages = reorderQueuedMessages;
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    await expect(
+      client.reorderQueuedMessages("thread-1", ["two", "one"]),
+    ).rejects.toThrow("write failed");
+    expect(client.getThread("thread-1").queuedMessages).toEqual(queued);
+
+    await expect(
+      client.reorderQueuedMessages("thread-1", ["two"]),
+    ).rejects.toBeInstanceOf(AgentKitQueueOrderStaleError);
+    await expect(
+      client.reorderQueuedMessages("thread-1", ["two", "gone"]),
+    ).rejects.toMatchObject({ code: "queue_order_stale", retryable: false });
+    expect(reorderQueuedMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports queue ordering as unsupported without a transport operation", async () => {
+    const client = new AgentKitClient({ transport: createTransport([]) });
+    expect(client.supportsQueuedMessageOrdering()).toBe(false);
+    await expect(
+      client.reorderQueuedMessages("thread-1", []),
+    ).rejects.toBeInstanceOf(AgentKitOperationError);
+  });
+
   it("preserves feedback trace identifiers and reason in the transport input", async () => {
     const submitFeedback = vi.fn(async () => undefined);
     const transport = createTransport([]);
@@ -8085,6 +8178,178 @@ describe("AgentKitClient", () => {
         ],
       }),
     );
+  });
+
+  it("keeps a Send now message queued until the running turn takes it", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Use the blue theme",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const steerQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["steerQueuedMessage"]>
+    >(async () => ({ delivery: "steering" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+      },
+    });
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    await expect(
+      client.steerQueuedMessage("thread-1", queued.id, undefined, {
+        deliverInActiveRun: true,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(steerQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id, deliverInActiveRun: true },
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      { ...queued, delivery: "steering" },
+    ]);
+    expect(client.getThread("thread-1").messages).toEqual([]);
+    expect(client.snapshot.error).toBeUndefined();
+    await client.shutdown();
+  });
+
+  it("keeps a Send now row on screen until the run delivers it", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Use the blue theme",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    let snapshotState: "queued" | "claimed" = "queued";
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: { resumableRuns: true, messageQueue: true },
+      async steerQueuedMessage() {
+        return { delivery: "steering" };
+      },
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: queued.createdAt,
+          updatedAt: queued.createdAt,
+          messages: [],
+          queuedMessages: snapshotState === "queued" ? [queued] : [],
+          activeRunIds: ["run-1"],
+          runs: [
+            {
+              id: "run-1",
+              threadId: "thread-1",
+              status: "running",
+              lastSequence: 0,
+            },
+          ],
+        };
+      },
+      async *subscribeToRun({ signal }) {
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+    await client.steerQueuedMessage("thread-1", queued.id, undefined, {
+      deliverInActiveRun: true,
+    });
+
+    snapshotState = "claimed";
+    await client.loadThread("thread-1");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      { ...queued, delivery: "steering" },
+    ]);
+
+    await client.shutdown();
+  });
+
+  it("moves a message the run took from the queue into the transcript at that point", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Fix the deck",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      delivery: "steering",
+    };
+    const delivered = Promise.withResolvers<void>();
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: { resumableRuns: true, messageQueue: true },
+      async queueMessage() {
+        return { message: queued };
+      },
+      async *subscribeToRun() {
+        yield protocolEvent(1, { type: "run.started" });
+        yield protocolEvent(2, {
+          type: "message.created",
+          message: { id: "reply-1", role: "assistant", parts: [] },
+        });
+        yield protocolEvent(3, {
+          type: "message.delta",
+          messageId: "reply-1",
+          text: "Checking.",
+        });
+        await delivered.promise;
+        yield protocolEvent(4, {
+          type: "message.completed",
+          message: { id: "reply-1", role: "assistant", parts: [] },
+        });
+        // The same words as the prompt; it is still its own message.
+        yield protocolEvent(5, {
+          type: "message.created",
+          message: {
+            id: queued.id,
+            role: "user",
+            status: "complete",
+            parts: [{ type: "text", text: "Fix the deck" }],
+          },
+        });
+        yield protocolEvent(6, {
+          type: "message.created",
+          message: { id: "reply-2", role: "assistant", parts: [] },
+        });
+        yield protocolEvent(7, {
+          type: "message.delta",
+          messageId: "reply-2",
+          text: "Done.",
+        });
+        yield protocolEvent(8, { type: "run.completed" });
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Fix the deck",
+    });
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").queuedMessages).toHaveLength(1),
+    );
+
+    delivered.resolve();
+    await run?.completed;
+
+    const thread = client.getThread("thread-1");
+    expect(thread.queuedMessages).toEqual([]);
+    expect(
+      thread.messages.map((message) => [message.role, message.id]),
+    ).toEqual([
+      ["user", expect.not.stringMatching(/^queued-1$/)],
+      ["assistant", "reply-1"],
+      ["user", "queued-1"],
+      ["assistant", "reply-2"],
+    ]);
+    await client.shutdown();
   });
 
   it("treats steering a queue item already promoted into history as success", async () => {
@@ -9406,6 +9671,60 @@ describe("AgentKitClient", () => {
       messages: [expect.objectContaining({ id: queuedMessageId })],
       queuedMessages: [],
     });
+
+    await client.shutdown();
+  });
+
+  it("sends a steered draft into the running turn instead of stopping it", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-steer-draft",
+      threadId: "thread-1",
+      text: "Use the blue theme",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const cancelRun = vi.fn(async () => undefined);
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => ({ message: { ...queued, id: id ?? queued.id } }),
+    );
+    const steerQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["steerQueuedMessage"]>
+    >(async () => ({ delivery: "steering" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+        async *subscribeToRun({ signal }) {
+          yield protocolEvent(1, { type: "run.started" });
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+        cancelRun,
+        steerQueuedMessage,
+      },
+    });
+    await client.sendMessage({ threadId: "thread-1", text: "Fix the deck" });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      deliverInActiveRun: true,
+    });
+
+    expect(handle.runId).toBe("run-1");
+    expect(queueMessage.mock.calls[0]?.[0]).not.toHaveProperty(
+      "interruptActiveRun",
+    );
+    const queuedId = queueMessage.mock.calls[0]?.[0].id;
+    expect(steerQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queuedId, deliverInActiveRun: true },
+      expect.anything(),
+    );
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      expect.objectContaining({ id: queuedId, delivery: "steering" }),
+    ]);
 
     await client.shutdown();
   });
