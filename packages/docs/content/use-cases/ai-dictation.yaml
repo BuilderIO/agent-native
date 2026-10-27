@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: Questions? We have answers
   items:
-    - q: Is Clips free?
+    - q: Is Agent-Native Clips free?
       a: Yes. Agent-Native Clips is free and open source, and voice dictation is on by default in the desktop app. AI cleanup runs on Builder.io AI credits or your own key, so it isn't unlimited. Clips is in alpha, so expect changes as it grows.
     - q: How is Clips different from the dictation built into my computer?
       a: Built-in dictation needs no setup, but it doesn't keep a [searchable history of what you said](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). Clips saves every dictation with its original and cleaned text, learns your words and tidies the text with AI. The Clips agent can find what you said and rework it, like turning a ramble into bullet points.
