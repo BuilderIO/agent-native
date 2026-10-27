@@ -3,6 +3,7 @@ import {
   deletePrivateBlob,
   getActivePrivateBlobProviderForRequest,
   isPrivateBlobConfiguredForRequest,
+  isPrivateBlobError,
   putPrivateBlob,
   resolveAttachment,
   type PrivateBlobHandle,
@@ -31,7 +32,18 @@ export type ReplayScreenshotStorage =
 export async function resolveReplayScreenshotStorage(
   allowEncryptedPublicUploadFallback: boolean,
 ): Promise<ReplayScreenshotStorage> {
-  const provider = await getActivePrivateBlobProviderForRequest();
+  const provider = await getActivePrivateBlobProviderForRequest().catch(
+    (error: unknown) => {
+      // Saved storage settings that can't be used, with the reason.
+      if (isPrivateBlobError(error) && error.kind === "not_configured") {
+        fail(error.message, {
+          errorCode: "private_blob_provider_required",
+          statusCode: 503,
+        });
+      }
+      throw error;
+    },
+  );
   if (provider) return { kind: "private-provider", providerId: provider.id };
   if (
     allowEncryptedPublicUploadFallback === true &&

@@ -799,11 +799,15 @@ function isAgentKitRunSlotBusyError(
 
 function submittedRunIdFromError(error: unknown): RunId | undefined {
   const submittedRunId = errorProperty(error, "submittedRunId");
+  const code = errorProperty(error, "code");
+  const isSubmissionReceiptError =
+    isAgentKitRunSlotBusyError(error) ||
+    code === "queued_message_already_submitted" ||
+    (code === undefined && errorProperty(error, "status") === 409);
   if (
     typeof submittedRunId !== "string" ||
     submittedRunId.length === 0 ||
-    (!isAgentKitRunSlotBusyError(error) &&
-      errorProperty(error, "status") !== 409)
+    !isSubmissionReceiptError
   ) {
     return undefined;
   }

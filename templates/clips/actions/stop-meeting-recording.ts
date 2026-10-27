@@ -113,6 +113,7 @@ export default defineAction({
       .update(schema.meetings)
       .set({
         actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
+        captureStopRevision: sql`${schema.meetings.captureStopRevision} + 1`,
         updatedAt: sql`case when ${schema.meetings.actualEnd} is null then ${nowIso} else ${schema.meetings.updatedAt} end`,
         transcriptStatus: sql`case when ${schema.meetings.actualEnd} is null then ${hasTranscript ? "ready" : "failed"} else ${schema.meetings.transcriptStatus} end`,
         ...(args.reason

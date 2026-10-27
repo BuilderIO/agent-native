@@ -15,6 +15,7 @@ import {
   RealtimeVoiceModeProvider,
   useRealtimeVoiceMode,
   type RealtimeVoiceModeApi,
+  type RealtimeVoiceStartOptions,
 } from "./useRealtimeVoiceMode.js";
 
 interface FakeChannel {
@@ -76,6 +77,7 @@ afterEach(() => {
 
 async function startSession(
   readAppState: (key: string) => unknown = () => undefined,
+  startOptions?: RealtimeVoiceStartOptions,
   trackEvent: (
     name: string,
     properties: Record<string, unknown>,
@@ -107,7 +109,7 @@ async function startSession(
     );
   });
   await act(async () => {
-    void api!.start();
+    void api!.start(startOptions);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   return {
@@ -302,7 +304,7 @@ describe("realtime voice session controls", () => {
 
   it("reports each turn's timing without the words spoken", async () => {
     const trackEvent = vi.fn();
-    const session = await startSession(undefined, trackEvent);
+    const session = await startSession(undefined, undefined, trackEvent);
 
     await session.send({ type: "input_audio_buffer.speech_started" });
     await session.send({ type: "input_audio_buffer.speech_stopped" });
@@ -409,6 +411,57 @@ describe("realtime voice session controls", () => {
     // Every update of a turn shares its message id.
     expect(received[0]!.id).toBe(received[2]!.id);
     unregister();
+    session.unmount();
+  });
+
+  it("streams into the thread it was started for until that thread is shown", async () => {
+    const onScreen: RealtimeVoiceTranscriptMessage[] = [];
+    const unregisterOnScreen = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-on-screen",
+      active: true,
+      append: (message) => {
+        onScreen.push(message);
+        return true;
+      },
+    });
+    const session = await startSession(undefined, {
+      threadId: "thread-handoff",
+    });
+
+    await session.send({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-handoff",
+      transcript: "Plan my week.",
+    });
+    expect(onScreen).toEqual([]);
+
+    const handedOff: RealtimeVoiceTranscriptMessage[] = [];
+    const unregisterHandoff = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-handoff",
+      active: true,
+      append: (message) => {
+        handedOff.push(message);
+        return true;
+      },
+    });
+
+    expect(
+      handedOff.map(({ threadId, role, text, status }) => ({
+        threadId,
+        role,
+        text,
+        status,
+      })),
+    ).toEqual([
+      {
+        threadId: "thread-handoff",
+        role: "user",
+        text: "Plan my week.",
+        status: "complete",
+      },
+    ]);
+    unregisterHandoff();
+    unregisterOnScreen();
     session.unmount();
   });
 

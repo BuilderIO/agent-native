@@ -216,6 +216,7 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   realtimeVoice: SLIDES_REALTIME_VOICE,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "Latest-message rule: a newer user message or correction supersedes unresolved earlier work. Before any write after a correction or ambiguous target, call view-screen again and use its slide/selection IDs; never infer a slide from semantic wording or prior tool output. If update-slide rejects a stale target, do not retry that slideId — re-read view-screen and rebase once. " +

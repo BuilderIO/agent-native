@@ -301,6 +301,7 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   realtimeVoice: DESIGN_REALTIME_VOICE,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     keyToolNames: ["get-visual-edit-pending"],
     instructions:

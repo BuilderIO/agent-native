@@ -5221,6 +5221,42 @@ function AgentMessageTimestamp({
   );
 }
 
+/**
+ * Names an icon-only message action on hover and keyboard focus. Below the
+ * button, so it never covers the message it acts on.
+ */
+function MessageActionButton({
+  title,
+  ...props
+}: ComponentPropsWithoutRef<typeof IconButton>) {
+  // A disabled button gets no pointer events, so only a native title can
+  // explain it; an enabled one shows the reason in its tooltip instead, so a
+  // degraded action never opens both.
+  const inactive = Boolean(props.disabled || props.pending);
+  const reason = inactive ? undefined : title;
+  return (
+    <Tooltip
+      content={
+        reason ? (
+          <>
+            {props.label}
+            <span className="block text-muted-foreground">{reason}</span>
+          </>
+        ) : (
+          props.label
+        )
+      }
+      placement="bottom"
+      trigger={
+        <IconButton
+          {...props}
+          {...(inactive && title !== undefined ? { title } : {})}
+        />
+      }
+    />
+  );
+}
+
 export const AgentMessageActions = memo(function AgentMessageActions({
   value: message,
   threadId,
@@ -5434,7 +5470,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     regenerateAction.error;
   const placement = isAssistant ? "inline" : undefined;
   const copyButton = (
-    <IconButton
+    <MessageActionButton
       label={copied ? labels.copied : labels.copy}
       icon={
         copied ? (
@@ -5458,7 +5494,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           .replace("{{index}}", String(branchNavigation.index))
           .replace("{{count}}", String(branchNavigation.count))}
       >
-        <IconButton
+        <MessageActionButton
           label={labels.previousBranch}
           icon={<IconChevronLeft aria-hidden="true" />}
           size="compact"
@@ -5483,7 +5519,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             .replace("{{index}}", String(branchNavigation.index))
             .replace("{{count}}", String(branchNavigation.count))}
         </span>
-        <IconButton
+        <MessageActionButton
           label={labels.nextBranch}
           icon={<IconChevronRight aria-hidden="true" />}
           size="compact"
@@ -5543,7 +5579,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             ? (["positive", "negative"] as const).map((value) => {
                 const chosen = feedback === value;
                 return (
-                  <IconButton
+                  <MessageActionButton
                     key={value}
                     label={
                       value === "positive"
@@ -5589,7 +5625,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             inert={!moreActionsOpen}
           >
             {showRetry ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.regenerateResponse}
                 icon={<IconRefresh aria-hidden="true" />}
                 size="compact"
@@ -5601,14 +5637,16 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                   position.active ||
                   !forkingCapability.enabled
                 }
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 onPress={() =>
                   void regenerateAction.execute().catch(() => undefined)
                 }
               />
             ) : null}
             {showFork ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.forkFromHere}
                 icon={<IconArrowFork aria-hidden="true" />}
                 size="compact"
@@ -5623,7 +5661,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               />
             ) : null}
             {requestId ? (
-              <IconButton
+              <MessageActionButton
                 label={requestIdCopied ? labels.copied : labels.copyRequestId}
                 icon={
                   requestIdCopied ? (
@@ -5645,7 +5683,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         ) : null}
       </div>
       {hasSecondaryActions ? (
-        <IconButton
+        <MessageActionButton
           elementRef={moreToggleRef}
           label={labels.moreMessageActions}
           icon={<IconDots aria-hidden="true" />}
@@ -5696,13 +5734,15 @@ export const AgentMessageActions = memo(function AgentMessageActions({
             message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
-              <IconButton
+              <MessageActionButton
                 label={labels.editMessage}
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
                 className="size-6"
                 disabled={position.active || !forkingCapability.enabled}
-                title={forkingCapability.reason}
+                {...(forkingCapability.reason === undefined
+                  ? {}
+                  : { title: forkingCapability.reason })}
                 aria-pressed={editContext.message?.id === message.id}
                 onPress={() => editContext.setMessage(message)}
               />
@@ -6069,6 +6109,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onSlashCommand"
     | "plusMenuMode"
     | "voiceEnabled"
+    | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
     | "isReferenceTarget"
@@ -6167,6 +6208,7 @@ export function AgentKitComposer({
   onSlashCommand,
   plusMenuMode,
   voiceEnabled = false,
+  onVoiceChatStart,
   autoFocus = true,
   toolbarSlot,
   disabled,
@@ -6423,7 +6465,7 @@ export function AgentKitComposer({
     <div
       role="group"
       aria-labelledby={editingLabelId}
-      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+      className="agentkit-editing-row flex h-6 min-w-0 items-center gap-2 text-xs text-muted-foreground"
       data-agentkit-editing-row="true"
     >
       <Tooltip
@@ -6432,7 +6474,7 @@ export function AgentKitComposer({
         trigger={
           <span
             tabIndex={0}
-            className="inline-flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <IconPencil aria-hidden="true" className="size-4 shrink-0" />
             <span id={editingLabelId} className="truncate">
@@ -6923,6 +6965,7 @@ export function AgentKitComposer({
             slashSkills,
             onSlashCommand,
             voiceEnabled,
+            onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
             initialText: composerInitialText,

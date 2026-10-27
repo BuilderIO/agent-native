@@ -46,6 +46,7 @@ import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -251,6 +252,14 @@ export default defineEventHandler(async (event) => {
       })
     : null;
   const viewerIsOwner = viewerAccess?.role === "owner";
+
+  if (
+    isRecordingTrashedForViewer({ trashedAt: rec.trashedAt, viewerIsOwner })
+  ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
 
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {

@@ -133,6 +133,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io アカウントを作成できませんでした。もう一度試すか、既存のアカウントでサインインしてください。",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
@@ -765,6 +767,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "リンクをコピー",
   "history.linkCopied": "リンクをコピーしました",
   "history.copyLinkFailed": "リンクをコピーできませんでした",
+  "history.onlyYou": "自分のみ",
+  "history.hide": "自分のリストで非表示",
+  "history.hidden": "リストで非表示にしました",
+  "history.undo": "元に戻す",
+  "history.hideFailed": "チャットを非表示にできませんでした",
+  "history.unhideFailed": "チャットを元に戻せませんでした",
   "integrations.availableSection": "利用可能な連携",
   "integrations.connectedSection": "接続済み",
   "integrations.goToApiKeys": "API キーへ移動",
@@ -1917,6 +1925,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalA2AReview":
     "エージェントアクションの確認ページで承認",
   "settings.audit.approvalMcpClient": "MCP クライアントが承諾（未検証）",
+  "settings.audit.approvalMcpReview": "MCP アクションの確認ページで承認",
+  "settings.audit.approvalCliPrompt": "CLI の確認で承認（未検証）",
+  "settings.audit.approvalCliFlag": "--approved 付きで再実行（未検証）",
   "settings.audit.changedBy": "変更者",
   "settings.audit.close": "閉じる",
   "settings.audit.empty": "この期間に変更はありません。",
@@ -2189,6 +2200,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} を変更できませんでした。もう一度お試しください。",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
+  "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps に対応したチャットアプリ（Claude や ChatGPT など）で、ツールが操作できるカードを表示します。たとえば、編集して送信できるメールの下書きです。変更したら、チャットアプリでこのアプリを再接続してください。",
   "settingsShell.appGroup.mcpFootnote":
     "エージェント自身が使うツールについては、{{integrations}} を参照してください。",
   "settingsShell.appGroup.newAutomation": "新しい自動化",

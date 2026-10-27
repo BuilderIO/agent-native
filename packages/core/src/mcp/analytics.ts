@@ -27,6 +27,7 @@ export interface McpAnalyticsContext {
   redirectHost?: string;
   protocolVersion?: string;
   userId?: string;
+  anonymousId?: string;
   sessionId?: string;
 }
 
@@ -129,8 +130,7 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
   // `$mcp_vendor_source` says whether the host gave the same label. Neither
   // proves who the client is.
   const hostVendor = vendorForRedirectHost(ctx.redirectHost);
-  const vendor =
-    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ?? hostVendor;
+  const vendor = mcpVendorForContext(ctx);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
@@ -156,6 +156,18 @@ function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
   };
 }
 
+export function mcpVendorForContext(
+  ctx: Pick<
+    McpAnalyticsContext,
+    "clientName" | "clientUserAgent" | "redirectHost"
+  >,
+): string | undefined {
+  return (
+    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
+    vendorForRedirectHost(ctx.redirectHost)
+  );
+}
+
 function emit(
   event: string,
   ctx: McpAnalyticsContext,
@@ -165,7 +177,11 @@ function emit(
     track(
       event,
       { ...contextProperties(ctx), ...properties },
-      { userId: ctx.userId, sessionId: ctx.sessionId },
+      {
+        ...(ctx.userId ? { userId: ctx.userId } : {}),
+        ...(ctx.anonymousId ? { anonymousId: ctx.anonymousId } : {}),
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      },
     );
   } catch (err) {
     console.error(`[mcp-analytics] Failed to emit ${event}:`, err);

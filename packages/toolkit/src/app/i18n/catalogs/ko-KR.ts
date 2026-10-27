@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io 계정을 만들지 못했습니다. 다시 시도하거나 기존 계정으로 로그인하세요.",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
@@ -744,6 +746,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "링크 복사",
   "history.linkCopied": "링크를 복사했어요",
   "history.copyLinkFailed": "링크를 복사하지 못했어요",
+  "history.onlyYou": "나만",
+  "history.hide": "내 목록에서 숨기기",
+  "history.hidden": "목록에서 숨겼어요",
+  "history.undo": "실행 취소",
+  "history.hideFailed": "채팅을 숨기지 못했어요",
+  "history.unhideFailed": "채팅을 다시 표시하지 못했어요",
   "integrations.availableSection": "사용 가능한 연동",
   "integrations.connectedSection": "연결됨",
   "integrations.goToApiKeys": "API 키로 이동",
@@ -1883,6 +1891,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "에이전트 채팅에서 승인됨",
   "settings.audit.approvalA2AReview": "에이전트 작업 검토 페이지에서 승인됨",
   "settings.audit.approvalMcpClient": "MCP 클라이언트가 수락함(확인되지 않음)",
+  "settings.audit.approvalMcpReview": "MCP 작업 검토 페이지에서 승인함",
+  "settings.audit.approvalCliPrompt":
+    "CLI 확인 프롬프트에서 승인함(확인되지 않음)",
+  "settings.audit.approvalCliFlag": "--approved로 다시 실행함(확인되지 않음)",
   "settings.audit.changedBy": "변경한 사람",
   "settings.audit.close": "닫기",
   "settings.audit.empty": "이 기간에는 변경 사항이 없습니다.",
@@ -2151,6 +2163,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
+  "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps를 지원하는 채팅 앱(예: Claude, ChatGPT)에서 도구가 대화형 카드를 표시합니다. 예를 들어 편집하고 보낼 수 있는 이메일 초안이 있습니다. 이 설정을 바꾼 후에는 채팅 앱에서 이 앱을 다시 연결하세요.",
   "settingsShell.appGroup.mcpFootnote":
     "에이전트가 직접 사용하는 도구는 {{integrations}}에서 확인하세요.",
   "settingsShell.appGroup.newAutomation": "새 자동화",

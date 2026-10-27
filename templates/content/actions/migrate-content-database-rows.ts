@@ -754,6 +754,12 @@ export async function runMigration(args: MigrationInput) {
           await tx
             .delete(schema.documentPropertyValues)
             .where(inArray(schema.documentPropertyValues.propertyId, ids));
+          // After the values: deleting them records a tombstone for each one.
+          await tx
+            .delete(schema.documentPropertyValueTombstones)
+            .where(
+              inArray(schema.documentPropertyValueTombstones.propertyId, ids),
+            );
           await tx
             .delete(schema.documentPropertyDefinitions)
             .where(inArray(schema.documentPropertyDefinitions.id, ids));
@@ -827,6 +833,15 @@ export async function runMigration(args: MigrationInput) {
         await tx
           .delete(schema.documentPropertyValues)
           .where(inArray(schema.documentPropertyValues.propertyId, legacyIds));
+        // After the values: deleting them records a tombstone for each one.
+        await tx
+          .delete(schema.documentPropertyValueTombstones)
+          .where(
+            inArray(
+              schema.documentPropertyValueTombstones.propertyId,
+              legacyIds,
+            ),
+          );
         await tx
           .delete(schema.documentPropertyDefinitions)
           .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));

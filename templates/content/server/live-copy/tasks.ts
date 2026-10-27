@@ -108,18 +108,30 @@ function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
 
 function replaceBodyInput(
   input: unknown,
-): { content: string; expected?: string } | LiveCopyTaskRefusal {
+):
+  | { content: string; expected?: string; keepLiveEdits?: true }
+  | LiveCopyTaskRefusal {
   if (typeof input !== "object" || input === null) {
-    return refused("invalid_input", "expected { content, expected? }");
+    return refused(
+      "invalid_input",
+      "expected { content, expected?, keepLiveEdits? }",
+    );
   }
-  const { content, expected } = input as Record<string, unknown>;
+  const { content, expected, keepLiveEdits } = input as Record<string, unknown>;
   if (typeof content !== "string") {
     return refused("invalid_input", "content must be a string");
   }
   if (expected !== undefined && typeof expected !== "string") {
     return refused("invalid_input", "expected must be a string");
   }
-  return expected === undefined ? { content } : { content, expected };
+  if (keepLiveEdits !== undefined && keepLiveEdits !== true) {
+    return refused("invalid_input", "keepLiveEdits must be true");
+  }
+  return {
+    content,
+    ...(expected === undefined ? {} : { expected }),
+    ...(keepLiveEdits ? { keepLiveEdits } : {}),
+  };
 }
 
 type BodyEdit = {
@@ -249,7 +261,9 @@ const liveCopyTasks = defineLiveCopyTasks({
     /**
      * Makes the body `content`, editing only the blocks that differ so open
      * editors keep their place. With `expected`, refuses `base_changed`
-     * unless the current body is exactly that text.
+     * unless the current body is exactly that text. With `keepLiveEdits`,
+     * refuses `live_edits` unless the current body already reads as
+     * `content` does in the editor, so the edit removes nothing a tab typed.
      */
     "replace-body"(doc, field, input) {
       const parsed = replaceBodyInput(input);
@@ -261,6 +275,17 @@ const liveCopyTasks = defineLiveCopyTasks({
       }
       const root = buildBody(parsed.content);
       if (isRefusal(root)) return root;
+      if (parsed.keepLiveEdits) {
+        const current = deriveBody(doc, field);
+        // An empty copy was never seeded. The editor keeps at least one
+        // block, so a tab that deleted everything left an empty paragraph,
+        // which is compared below.
+        if (isRefusal(current)) {
+          if (current.reason !== "empty") return current;
+        } else if (current !== docToNfm(root.toJSON())) {
+          return refused("live_edits");
+        }
+      }
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());
       updateYFragment(doc, fragment, root, meta);

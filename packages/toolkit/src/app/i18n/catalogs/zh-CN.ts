@@ -125,6 +125,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
+  "onboarding.builderProvisionFailedDetail":
+    "无法创建你的 Builder.io 账户。请重试，或使用现有账户登录。",
   "onboarding.saveRoleError": "无法保存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
   "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
@@ -707,6 +709,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "复制链接",
   "history.linkCopied": "链接已复制",
   "history.copyLinkFailed": "无法复制链接",
+  "history.onlyYou": "仅自己",
+  "history.hide": "从我的列表中隐藏",
+  "history.hidden": "已从你的列表中隐藏",
+  "history.undo": "撤销",
+  "history.hideFailed": "无法隐藏聊天",
+  "history.unhideFailed": "无法恢复聊天",
   "integrations.availableSection": "可用集成",
   "integrations.connectedSection": "已连接",
   "integrations.goToApiKeys": "前往 API 密钥",
@@ -1775,6 +1783,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "已在智能体聊天中批准",
   "settings.audit.approvalA2AReview": "已在智能体操作审核页面批准",
   "settings.audit.approvalMcpClient": "由 MCP 客户端接受（未验证）",
+  "settings.audit.approvalMcpReview": "在 MCP 操作审核页面上批准",
+  "settings.audit.approvalCliPrompt": "在 CLI 提示中批准（未验证）",
+  "settings.audit.approvalCliFlag": "使用 --approved 重新运行（未验证）",
   "settings.audit.changedBy": "更改者",
   "settings.audit.close": "关闭",
   "settings.audit.empty": "此期间没有更改。",
@@ -2018,6 +2029,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",
+  "settingsShell.appGroup.mcpAppCards": "聊天应用中的应用卡片",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "在支持 MCP Apps 的聊天应用（如 Claude 和 ChatGPT）中，工具会显示可交互的卡片，例如可以编辑并发送的邮件草稿。更改此设置后，请在聊天应用中重新连接此应用。",
   "settingsShell.appGroup.mcpFootnote":
     "如需了解智能体自身使用的工具，请参阅{{integrations}}。",
   "settingsShell.appGroup.newAutomation": "新建自动化",

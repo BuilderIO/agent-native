@@ -42,7 +42,7 @@ description: "持久的、仅附加的记录，记录谁更改了哪些应用数
 - **主体**：`actor_email` 是调用运行时所用的账号。它不能证明有人批准了这次调用。
 - **执行来源**：`caller` 表示调用来自哪个入口。通过 `mcp`、`webmcp` 或 `a2a` 的调用，其 `actor_kind` 为 `agent`。组织自己的服务主体则为 `service`。
 - **客户端**：对于 `mcp` 调用，`reported_client_name` 和 `reported_client_version` 保存客户端随当前 `tools/call` 请求发送的 MCP `clientInfo` 值。这些值由客户端自行决定，应视为自报信息。`oauth_client_id` 是凭据签发给的 OAuth 客户端（如有）。不会沿用先前仅在 `initialize` 消息中发送的值。
-- **授权信号**：`approval` 记录与该调用关联的授权信号。`agent-chat` 记录有人在代理聊天中批准。`a2a-review` 记录所有者在审核页面上批准了暂停的 A2A 调用。`mcp-client-accepted` 记录 MCP 客户端接受了请求；服务器无法验证是谁回应。无需批准的调用，`approval` 为空。
+- **授权信号**：`approval` 记录与该调用关联的授权信号。`agent-chat` 记录有人在代理聊天中批准。`a2a-review` 记录所有者在审核页面上批准了暂停的 A2A 调用。`mcp-review` 记录已登录的所有者在审核页面上批准了直接 MCP 调用。`mcp-client-accepted` 记录 MCP 客户端接受了请求；服务器无法验证是谁回应。无需批准的调用，`approval` 为空。
 
 旧行永远不会被改写。在这些列出现之前写入的行，即使调用已获批准，客户端和批准字段也为空。以 `human` 或 `system` 存储的旧 `mcp`、`webmcp` 和 `a2a` 行会按 `agent` 读取，因此筛选和导出会像对待新行一样对待它们。
 

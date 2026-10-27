@@ -237,6 +237,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "agentChat.history.accessDirect": "Shared with you",
       "agentChat.history.accessOrganization": "Shared with your organization",
       "agentChat.history.copyLink": "Copy link",
+      "agentChat.history.onlyYou": "Only you",
+      "agentChat.history.hide": "Hide from my list",
       "agentChat.history.showAll": "Show all",
       "agentChat.history.showLess": "Show less",
       "agentChat.history.loadMore": "Load more",
@@ -1339,7 +1341,6 @@ describe("Dispatch NavContent", () => {
         ownerEmail: "colleague@example.com",
         accessBasis: index === 0 ? "direct" : "organization",
         visibility: "organization",
-        pinnedAt: Date.now(),
       }));
       clientState.sharedHasMore = true;
       await renderHistory(chatFirstMode, "/chat/shared-0");
@@ -1395,8 +1396,14 @@ describe("Dispatch NavContent", () => {
       const actions = [
         ...document.body.querySelectorAll(".an-chat-history-row__menu-item"),
       ].map((item) => item.textContent);
-      expect(actions).toContain("Copy link");
-      for (const ownerAction of ["Rename chat", "Pin", "Unpin", "Archive"]) {
+      expect(actions).toEqual(
+        expect.arrayContaining([
+          "PinOnly you",
+          "Copy link",
+          "Hide from my list",
+        ]),
+      );
+      for (const ownerAction of ["Rename chat", "Archive"]) {
         expect(actions).not.toContain(ownerAction);
       }
     },
