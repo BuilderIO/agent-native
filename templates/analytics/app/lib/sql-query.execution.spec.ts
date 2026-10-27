@@ -60,16 +60,24 @@ describe("SQL execution boundary with the real cost counter", () => {
     },
   );
 
-  it.each([undefined, null, 0, -1, Number.NaN, Infinity, "4096"])(
-    "does not invent a scan for bytes %s",
-    async (bytesProcessed) => {
+  it.each([
+    [undefined, 1],
+    [null, 1],
+    [0, 0],
+    [-1, 0],
+    [Number.NaN, 0],
+    [Infinity, 0],
+    ["4096", 0],
+  ])(
+    "does not invent scan bytes for %s and tallies %s unknown scans",
+    async (bytesProcessed, unknownScans) => {
       callAction.mockResolvedValue({ rows: [], bytesProcessed });
 
       await executeSqlQuery("SELECT 1", "bigquery");
 
       expect(callAction).toHaveBeenCalledTimes(1);
       expect(getTotalBytes()).toBe(0);
-      expect(getUnknownScans()).toBe(0);
+      expect(getUnknownScans()).toBe(unknownScans);
     },
   );
 

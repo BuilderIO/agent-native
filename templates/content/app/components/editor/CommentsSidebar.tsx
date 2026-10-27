@@ -35,6 +35,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
 import {
   commentMentionsForText,
   findCommentMentions,
@@ -80,6 +81,11 @@ import {
   primaryBlockFieldEditor,
 } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  commentThreadAt,
+  commentThreadMarkSelector,
+  commentThreadQuote,
+} from "./comment-block-anchors";
 import {
   draftMention,
   useCommentDraft,
@@ -290,7 +296,9 @@ export function findThreadPosition(
   )
     return null;
   const marked = (fieldEditor ?? scrollContainer).querySelector(
-    `${anchorAttribute === "data-suggestion-id" && !fieldEditor ? ".ProseMirror " : ""}[${anchorAttribute}="${cssEscape(threadId)}"]`,
+    anchorAttribute === "data-comment-thread"
+      ? commentThreadMarkSelector(threadId)
+      : `${fieldEditor ? "" : ".ProseMirror "}[${anchorAttribute}="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked && !inHiddenBlockFieldPanel(marked)) {
     return anchorPosition(
@@ -547,6 +555,53 @@ export function layoutCommentThreads<T extends ThreadLayoutIdentity>(
     previousBottom = top + heightFor(thread);
     return item;
   });
+}
+
+/**
+ * An open stack laid out as one block: its Collapse row, then its cards, each
+ * at an offset from the block's top. The card in focus, selected or a new
+ * comment, sits level with its highlight, under the cards before it when they
+ * fit above it. Near the top of the margin they don't, and pushing them above
+ * it would leave the Collapse row where nothing can scroll to it, so the card
+ * in focus comes first and the rest follow in document order.
+ */
+export function arrangeOpenStack(
+  cards: readonly { threadId: string; height: number }[],
+  focusId: string | null,
+  positions: ReadonlyMap<string, CommentThreadPosition>,
+  headerHeight: number,
+  gap = 12,
+): { offsets: Map<string, number>; height: number; layoutTop: number | null } {
+  const focusIndex = cards.findIndex((card) => card.threadId === focusId);
+  const focus = focusIndex >= 0 ? cards[focusIndex] : undefined;
+  const focusTop = focus
+    ? (positions.get(focus.threadId)?.layoutTop ?? null)
+    : null;
+  const above = cards
+    .slice(0, Math.max(0, focusIndex))
+    .reduce((sum, card) => sum + card.height + gap, headerHeight + gap);
+  const order =
+    focus && focusTop !== null && focusTop < above
+      ? [focus, ...cards.filter((_, index) => index !== focusIndex)]
+      : cards;
+  const offsets = new Map<string, number>();
+  let bottom = headerHeight;
+  for (const card of order) {
+    offsets.set(card.threadId, bottom + gap);
+    bottom += gap + card.height;
+  }
+  const anchor = focusTop !== null ? focus : cards[0];
+  const anchorTop = anchor
+    ? (positions.get(anchor.threadId)?.layoutTop ?? null)
+    : null;
+  return {
+    offsets,
+    height: bottom,
+    layoutTop:
+      anchor && anchorTop !== null
+        ? anchorTop - (offsets.get(anchor.threadId) ?? 0)
+        : null,
+  };
 }
 
 export function scrollToCommentAnchor(
@@ -854,7 +909,9 @@ export type PendingCommentSelection = {
   quotedText: string;
   offsetTop: number;
   anchor?: CommentTextAnchor;
-  range?: { from: number; to: number };
+  range?: { from: number; to: number; blockId?: string };
+  /** Set when the comment is on a whole block, such as a video. */
+  block?: { blockId: string; blockType: CommentAnchorBlockType };
   /** The Blocks field tab the quoted text is in; absent is the page body. */
   fieldId?: string | null;
   /** Set when the comment is on a Property value instead of quoted text. */
@@ -993,6 +1050,11 @@ interface CommentsSidebarOptions {
   onMaterializeDraft?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  /** Shows the decision on a draft at once, then saves and decides it. */
+  onDecideDraftSuggestion?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   canDecideSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
   onDecideSuggestion?: (
@@ -1080,6 +1142,7 @@ export function CommentsSidebar({
   suggestions = NO_SUGGESTIONS,
   draftSuggestions = NO_DRAFT_SUGGESTIONS,
   onMaterializeDraft,
+  onDecideDraftSuggestion,
   canDecideSuggestions = false,
   decidingSuggestion = () => false,
   onDecideSuggestion,
@@ -1393,6 +1456,10 @@ export function CommentsSidebar({
     alignToAnchors &&
     !visibleThreadId;
   const [threadBlocks, setThreadBlocks] = useState(NO_BLOCKS);
+  // The open threads the blocks were measured for. A thread the margin hasn't
+  // measured yet sits outside its stack, so until then a stack's front is
+  // only provisional: a posted comment's saved copy, say, before its highlight.
+  const [placedThreadIds, setPlacedThreadIds] = useState<string | null>(null);
   // The block a new comment's text is in, once measured; `key` is null for
   // text in no block, such as a Property.
   const [pendingBlock, setPendingBlock] = useState<{
@@ -1406,6 +1473,9 @@ export function CommentsSidebar({
   // When each thread was last touched, so a folded stack shows that one.
   // Thread ids are unique across tabs, so a touch never crosses tabs.
   const [stackTouches, setStackTouches] = useState(NO_TOUCHES);
+  // The thread each folded card last showed in front, by its stack's threads,
+  // so a card that comes back with another thread in front plays the change.
+  const [shownStackFronts] = useState(() => new Map<string, string>());
   const touchCountRef = useRef(0);
   const touchThread = useCallback((threadId: string) => {
     touchCountRef.current += 1;
@@ -1419,6 +1489,10 @@ export function CommentsSidebar({
     () => (stacksEnabled ? groupCommentStacks(openThreads, threadBlocks) : []),
     [openThreads, stacksEnabled, threadBlocks],
   );
+  const openThreadIds = useMemo(
+    () => openThreads.map((thread) => thread.threadId).join(","),
+    [openThreads],
+  );
   const stackOfThread = useMemo(() => {
     const stacks = new Map<string, CommentStack<CommentThread>>();
     for (const stack of commentStacks) {
@@ -1428,6 +1502,8 @@ export function CommentsSidebar({
   }, [commentStacks]);
   const stackOfThreadRef = useRef(stackOfThread);
   stackOfThreadRef.current = stackOfThread;
+  const openThreadIdRef = useRef(hoveredThreadId ?? selectedThreadId);
+  openThreadIdRef.current = hoveredThreadId ?? selectedThreadId;
   const pendingStackKey =
     displayedPendingComment && pendingBlock?.id === displayedPendingComment.id
       ? pendingBlock.key
@@ -1460,6 +1536,18 @@ export function CommentsSidebar({
       ),
     );
   }, []);
+  // Cards closed by a resolve still saving. One is passed over once the
+  // selection leaves the thread that opened in its place or a new comment
+  // starts, so a failed resolve doesn't take back what came after.
+  const closedResolvesRef = useRef(
+    new Set<{ selection: string | null; passedOver: boolean }>(),
+  );
+  useEffect(() => {
+    for (const closed of closedResolvesRef.current) {
+      if ((selectedThreadId ?? null) !== closed.selection || pendingComment)
+        closed.passedOver = true;
+    }
+  }, [pendingComment, selectedThreadId]);
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -1510,9 +1598,7 @@ export function CommentsSidebar({
     const container = scrollContainerRef?.current;
     if (!stacksEnabled || !container) return;
     const openFromHighlight = (event: MouseEvent) => {
-      const threadId = (event.target as Element | null)
-        ?.closest?.("[data-comment-thread]")
-        ?.getAttribute("data-comment-thread");
+      const threadId = commentThreadAt(event.target, openThreadIdRef.current);
       if (!threadId || !stackOfThreadRef.current.has(threadId)) return;
       touchThread(threadId);
       openStackOn(threadId);
@@ -1521,32 +1607,22 @@ export function CommentsSidebar({
     return () => container.removeEventListener("click", openFromHighlight);
   }, [openStackOn, scrollContainerRef, stacksEnabled, touchThread]);
   // Resting on a highlight brings its thread to the front of a folded stack;
-  // passing over one on the way to the margin doesn't.
+  // passing over one on the way to the margin doesn't. It does so once per
+  // rest, so a thread touched while the pointer stays put, like a comment
+  // just posted, keeps the front.
+  const peekedThreadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hoveredThreadId) return;
+    if (peekedThreadRef.current !== hoveredThreadId)
+      peekedThreadRef.current = null;
+    if (!hoveredThreadId || peekedThreadRef.current) return;
     const stack = stackOfThread.get(hoveredThreadId);
     if (!stack || stack === expandedStack) return;
-    // Touching the stack's last-touched thread again would only rerun this.
-    const touch = stackTouches.get(hoveredThreadId);
-    if (
-      touch !== undefined &&
-      stack.threads.every(
-        (member) => (stackTouches.get(member.threadId) ?? 0) <= touch,
-      )
-    )
-      return;
-    const timer = setTimeout(
-      () => touchThread(hoveredThreadId),
-      STACK_HOVER_INTENT_MS,
-    );
+    const timer = setTimeout(() => {
+      peekedThreadRef.current = hoveredThreadId;
+      touchThread(hoveredThreadId);
+    }, STACK_HOVER_INTENT_MS);
     return () => clearTimeout(timer);
-  }, [
-    expandedStack,
-    hoveredThreadId,
-    stackOfThread,
-    stackTouches,
-    touchThread,
-  ]);
+  }, [expandedStack, hoveredThreadId, stackOfThread, touchThread]);
   const expandedStackKey = expandedStack?.key ?? null;
   const selectedInExpandedStack =
     !!selectedThreadId &&
@@ -1939,15 +2015,23 @@ export function CommentsSidebar({
               propertyId: pendingComment.property.propertyId,
               databaseId: pendingComment.databaseId ?? undefined,
             }
-          : {
-              quotedText: pendingComment.quotedText,
-              anchorPrefix: pendingComment.anchor?.prefix,
-              anchorSuffix: pendingComment.anchor?.suffix,
-              anchorStartOffset: pendingComment.anchor?.startOffset,
-              ...(pendingComment.fieldId
-                ? { fieldId: pendingComment.fieldId }
-                : {}),
-            }),
+          : pendingComment.block
+            ? {
+                blockId: pendingComment.block.blockId,
+                blockType: pendingComment.block.blockType,
+                ...(pendingComment.fieldId
+                  ? { fieldId: pendingComment.fieldId }
+                  : {}),
+              }
+            : {
+                quotedText: pendingComment.quotedText,
+                anchorPrefix: pendingComment.anchor?.prefix,
+                anchorSuffix: pendingComment.anchor?.suffix,
+                anchorStartOffset: pendingComment.anchor?.startOffset,
+                ...(pendingComment.fieldId
+                  ? { fieldId: pendingComment.fieldId }
+                  : {}),
+              }),
         mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
@@ -2222,6 +2306,7 @@ export function CommentsSidebar({
         ? measureCommentBlocks(container, openThreads)
         : NO_BLOCKS;
     setThreadBlocks((prev) => (sameBlocks(prev, blocks) ? prev : blocks));
+    setPlacedThreadIds(openThreadIds);
     if (stacksEnabled && container && pendingCommentId) {
       const highlight = pendingOnProperty
         ? null
@@ -2263,7 +2348,11 @@ export function CommentsSidebar({
     // the text would reshuffle page order, so the last places measured stay.
     if (presentation === "history" && !highlightsVisible) return;
     if (highlightsReturningRef.current) {
-      if (!container.querySelector(".ProseMirror [data-comment-thread]"))
+      if (
+        !container.querySelector(
+          ".ProseMirror [data-comment-thread], .ProseMirror [data-comment-block-threads]",
+        )
+      )
         return;
       highlightsReturningRef.current = false;
     }
@@ -2313,6 +2402,7 @@ export function CommentsSidebar({
     hasPendingComment,
     highlightsVisible,
     measuredThreads,
+    openThreadIds,
     openThreads,
     pendingCommentId,
     pendingFieldId,
@@ -2367,7 +2457,11 @@ export function CommentsSidebar({
           subtree: true,
           characterData: true,
           attributes: true,
-          attributeFilter: ["hidden", "data-comment-thread"],
+          attributeFilter: [
+            "hidden",
+            "data-comment-thread",
+            "data-comment-block-threads",
+          ],
         });
       }
     } else {
@@ -2378,7 +2472,7 @@ export function CommentsSidebar({
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ["data-comment-thread"],
+        attributeFilter: ["data-comment-thread", "data-comment-block-threads"],
       });
     }
     const resizeObserver =
@@ -2484,24 +2578,6 @@ export function CommentsSidebar({
     documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
     layoutTop: pendingAnchorTop,
   };
-  // An open stack's Collapse row is laid out like a card above its first one.
-  const stackHeaderLayout: ThreadLayoutIdentity | null = expandedStack
-    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
-    : null;
-  const firstStackAnchor = expandedStack
-    ? [
-        ...expandedStack.threads.map((member) =>
-          threadPositions.get(member.threadId),
-        ),
-        pendingInExpandedStack ? pendingAnchor : undefined,
-      ].reduce<CommentThreadPosition | null>(
-        (first, position) =>
-          position && (!first || position.documentTop < first.documentTop)
-            ? position
-            : first,
-        null,
-      )
-    : null;
   const layoutPositions = new Map(threadPositions);
   const layoutHeights = new Map(threadCardHeights);
   if (pendingLayout) {
@@ -2511,75 +2587,124 @@ export function CommentsSidebar({
       pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
     );
   }
-  if (stackHeaderLayout) {
-    if (firstStackAnchor) {
+  const layoutFocusId = pendingLayout
+    ? PENDING_COMMENT_LAYOUT_ID
+    : selectedLayoutThreadId;
+  // An open stack is laid out as one block, its Collapse row on top: its
+  // threads' cards, and a new comment in it.
+  // The stack has its threads in document order, which their highlights'
+  // tops can't give when two share a line.
+  const stackOrder = new Map(
+    expandedStack?.threads.map((member, index) => [member.threadId, index]),
+  );
+  const documentTopOf = (thread: ThreadLayoutIdentity) =>
+    layoutPositions.get(thread.threadId)?.documentTop ?? Infinity;
+  const stackCards: ThreadLayoutIdentity[] = layoutThreads
+    .filter((thread) => stackOrder.has(thread.threadId))
+    .sort(
+      (left, right) =>
+        (stackOrder.get(left.threadId) ?? 0) -
+        (stackOrder.get(right.threadId) ?? 0),
+    );
+  if (pendingInExpandedStack && pendingLayout) {
+    const pendingTop = documentTopOf(pendingLayout);
+    const after = stackCards.findIndex(
+      (card) => documentTopOf(card) > pendingTop,
+    );
+    stackCards.splice(
+      after === -1 ? stackCards.length : after,
+      0,
+      pendingLayout,
+    );
+  }
+  const stackTop = Math.min(...stackCards.map(documentTopOf));
+  const openStackLayout =
+    stackCards.length > 0
+      ? arrangeOpenStack(
+          stackCards.map((card) => ({
+            threadId: card.threadId,
+            height:
+              layoutHeights.get(card.threadId) ??
+              estimateThreadCardHeight(card),
+          })),
+          layoutFocusId ?? null,
+          layoutPositions,
+          STACK_HEADER_HEIGHT,
+        )
+      : null;
+  const stackLayout: ThreadLayoutIdentity | null = openStackLayout
+    ? { threadId: STACK_HEADER_LAYOUT_ID, comments: [] }
+    : null;
+  if (openStackLayout) {
+    if (Number.isFinite(stackTop)) {
       layoutPositions.set(STACK_HEADER_LAYOUT_ID, {
-        documentTop: firstStackAnchor.documentTop - 0.5,
-        layoutTop:
-          firstStackAnchor.layoutTop === null
-            ? null
-            : firstStackAnchor.layoutTop - STACK_HEADER_HEIGHT - 12,
+        documentTop: stackTop - 0.5,
+        layoutTop: openStackLayout.layoutTop,
       });
     }
-    layoutHeights.set(STACK_HEADER_LAYOUT_ID, STACK_HEADER_HEIGHT);
+    layoutHeights.set(STACK_HEADER_LAYOUT_ID, openStackLayout.height);
   }
   const anchoredItems = layoutCommentThreads<
     LayoutThread | ThreadLayoutIdentity
   >(
     [
-      ...layoutThreads,
-      ...(pendingLayout ? [pendingLayout] : []),
-      ...(stackHeaderLayout ? [stackHeaderLayout] : []),
+      ...layoutThreads.filter((thread) => !stackOrder.has(thread.threadId)),
+      ...(pendingLayout && !pendingInExpandedStack ? [pendingLayout] : []),
+      ...(stackLayout ? [stackLayout] : []),
     ],
     layoutPositions,
     layoutHeights,
-    pendingLayout ? PENDING_COMMENT_LAYOUT_ID : selectedLayoutThreadId,
+    stackCards.some((card) => card.threadId === layoutFocusId)
+      ? STACK_HEADER_LAYOUT_ID
+      : layoutFocusId,
   );
-  // Keeping the selected card level with its highlight pushes the cards above
-  // it upward. Near the top of a page that would put an open stack's Collapse
-  // row and first cards above the margin, where nothing can scroll to them, so
-  // the stack starts at the top instead.
+  // Keeping a card lower down level with its highlight pushes the cards above
+  // it upward, and could push an open stack's Collapse row above the margin,
+  // where nothing can scroll to it. The stack starts at the top instead.
   const stackOverflow = Math.max(
     0,
-    -(
-      anchoredItems.find((item) => item.thread === stackHeaderLayout)?.top ?? 0
-    ),
+    -(anchoredItems.find((item) => item.thread === stackLayout)?.top ?? 0),
   );
-  const selectedItems = stackOverflow
-    ? anchoredItems.map((item) => ({ ...item, top: item.top + stackOverflow }))
-    : anchoredItems;
-  const pendingTop =
-    selectedItems.find((item) => item.thread === pendingLayout)?.top ??
-    pendingAnchorTop;
-  const stackHeaderTop = selectedItems.find(
-    (item) => item.thread === stackHeaderLayout,
-  )?.top;
-  const items = selectedItems.filter(
-    (item): item is CommentLayoutItem<LayoutThread> =>
-      item.thread !== pendingLayout && item.thread !== stackHeaderLayout,
+  const tops = new Map(
+    anchoredItems.map((item) => [
+      item.thread.threadId,
+      item.top + stackOverflow,
+    ]),
   );
-  // The guide beside an open stack spans its cards, and a new comment in it.
-  const stackSpans = expandedStack
-    ? selectedItems
-        .filter((item) =>
-          item.thread === pendingLayout
-            ? pendingInExpandedStack
-            : expandedStack.threads.some(
-                (member) => member.threadId === item.thread.threadId,
-              ),
-        )
-        .map((item) => ({
-          top: item.top,
-          bottom:
-            item.top +
-            (layoutHeights.get(item.thread.threadId) ??
-              estimateThreadCardHeight(item.thread)),
-        }))
-    : [];
-  const stackGuideTop = Math.min(...stackSpans.map((span) => span.top)) + 16;
+  const stackHeaderTop = stackLayout
+    ? tops.get(STACK_HEADER_LAYOUT_ID)
+    : undefined;
+  if (openStackLayout && stackHeaderTop !== undefined) {
+    for (const [threadId, offset] of openStackLayout.offsets)
+      tops.set(threadId, stackHeaderTop + offset);
+  }
+  const pendingTop = tops.get(PENDING_COMMENT_LAYOUT_ID) ?? pendingAnchorTop;
+  // Cards keep the resting layout's order, since their places in the flow
+  // follow it, and move by their offset from there.
+  const items = restingItems.map((item) => ({
+    ...item,
+    top: tops.get(item.thread.threadId) ?? item.top,
+  }));
+  // The guide beside an open stack spans its cards.
+  const stackGuideTop = (stackHeaderTop ?? 0) + STACK_HEADER_HEIGHT + 12 + 16;
   const stackGuideHeight =
-    Math.max(...stackSpans.map((span) => span.bottom)) - 16 - stackGuideTop;
+    (stackHeaderTop ?? 0) + (openStackLayout?.height ?? 0) - 16 - stackGuideTop;
 
+  // Resolving the open thread closes its card; staying selected would keep it
+  // in the margin with no highlight to sit by. In an open stack the next
+  // thread opens in its place, so the stack stays open for the rest.
+  const closeResolvedThread = (threadId: string) => {
+    const members = expandedStack?.threads ?? [];
+    const index = members.findIndex((member) => member.threadId === threadId);
+    const rest = members.filter((member) => member.threadId !== threadId);
+    const next =
+      index >= 0 && rest.length >= 2
+        ? (rest[Math.min(index, rest.length - 1)]?.threadId ?? null)
+        : null;
+    setReplyingThreadId(null);
+    onSelectedThreadChange?.(next);
+    return next;
+  };
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
       !canResolve ||
@@ -2590,6 +2715,13 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
+    const closed =
+      resolved &&
+      presentation === "inline" &&
+      thread.threadId === selectedThreadId
+        ? { selection: closeResolvedThread(thread.threadId), passedOver: false }
+        : null;
+    if (closed) closedResolvesRef.current.add(closed);
     try {
       await resolveComment.mutateAsync({
         id: thread.comments[0].id,
@@ -2597,10 +2729,15 @@ export function CommentsSidebar({
         resolved,
       });
     } catch (error) {
+      // A failed resolve reopens the thread, so its card opens again too,
+      // unless the selection has moved or a new comment started since.
+      if (closed && !closed.passedOver)
+        onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
+      if (closed) closedResolvesRef.current.delete(closed);
       finishResolution(thread.threadId);
     }
   };
@@ -2635,7 +2772,9 @@ export function CommentsSidebar({
         heightId={layoutId}
         threads={stack.threads}
         front={front}
-        quote={threadQuotes.get(front.threadId) ?? front.quotedText}
+        frontPlaced={placedThreadIds === openThreadIds}
+        shownFronts={shownStackFronts}
+        quotes={threadQuotes}
         isActive={stack.threads.some(
           (member) => member.threadId === activeThreadId,
         )}
@@ -2864,7 +3003,9 @@ export function CommentsSidebar({
         onClose={onClose}
         threadActions={renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
-        quote={threadQuotes.get(thread.threadId) ?? thread.quotedText}
+        quote={
+          threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
+        }
         showQuote={inStack}
         propertyTarget={
           thread.property
@@ -2873,7 +3014,7 @@ export function CommentsSidebar({
         }
         anchorUnavailable={
           measuredThreadIds.has(thread.threadId) &&
-          !!thread.quotedText &&
+          (!!thread.quotedText || !!thread.block) &&
           !thread.resolved &&
           !threadPositions.has(thread.threadId) &&
           !hiddenTabThreadIds.has(thread.threadId)
@@ -3074,8 +3215,10 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
+      deciding={decidingSuggestion(suggestion.id)}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
+      onDecideDraft={onDecideDraftSuggestion}
       onActivateSaved={(saved) => {
         replyDrafts.setOpenReply(saved.threadId, saved.id);
         onActivateSuggestion?.(saved.id);
@@ -3433,7 +3576,7 @@ export function CommentsSidebar({
           t={t}
         />
       ) : null}
-      {expandedStack && stackSpans.length > 0 ? (
+      {expandedStack && openStackLayout && stackHeaderTop !== undefined ? (
         <CommentStackGuide top={stackGuideTop} height={stackGuideHeight} />
       ) : null}
       {/* Pending new comment — positioned at the selection Y offset */}
@@ -3985,8 +4128,10 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
+  deciding,
   onActivate,
   onMaterialize,
+  onDecideDraft,
   onActivateSaved,
   onDecide,
   surface = "rail",
@@ -4004,10 +4149,15 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
+  deciding: boolean;
   onActivate: () => void;
   onMaterialize?: (
     suggestion: DraftSuggestion,
   ) => Promise<ResourceSuggestion | null>;
+  onDecideDraft?: (
+    suggestion: DraftSuggestion,
+    decision: SuggestionDecision,
+  ) => void;
   onActivateSaved: (suggestion: ResourceSuggestion) => void;
   onDecide: (
     suggestion: ResourceSuggestion,
@@ -4096,9 +4246,17 @@ function DraftSuggestionThreadView({
                           ? "editor.acceptSuggestion"
                           : "editor.rejectSuggestion",
                       )}
-                      disabled={isSaving || !onMaterialize}
+                      disabled={
+                        isSaving ||
+                        deciding ||
+                        (!onDecideDraft && !onMaterialize)
+                      }
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (onDecideDraft) {
+                          onDecideDraft(suggestion, decision);
+                          return;
+                        }
                         void materialize().then((saved) => {
                           if (saved) onDecide(saved, decision);
                         });

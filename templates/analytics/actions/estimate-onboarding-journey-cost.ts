@@ -54,6 +54,12 @@ export default defineAction({
       .describe(
         'Builder employee filter, matching get-onboarding-journey: "exclude_builder" (default), "only_builder", or "all".',
       ),
+    excludeNonProductionHosts: z
+      .boolean()
+      .optional()
+      .describe(
+        "Exclude beta and localhost hosts, matching the journey query.",
+      ),
     followUpMode: z
       .enum(["session", "person"])
       .optional()
@@ -109,6 +115,9 @@ export default defineAction({
       dateTo: args.dateTo,
       app: args.app,
       emailFilter: args.emailFilter,
+      ...(args.excludeNonProductionHosts
+        ? { excludeNonProductionHosts: true }
+        : {}),
     };
     try {
       return await estimateOnboardingJourneyEventQueryCost(

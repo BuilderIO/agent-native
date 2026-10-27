@@ -630,6 +630,30 @@ describe("exact Content database block actions", () => {
     expect(storedAdditional?.content).toBe("Notes A changed\nNotes B");
   });
 
+  it("refuses inserting a copy of a video with its id", async () => {
+    const video =
+      '<video src="https://example.com/a.mp4" id="video-original"></video>';
+    const state = await fixture(`Alpha\n${video}`);
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "video-copy"),
+          operation: "insert",
+          block: { kind: "video", nfm: video },
+          position: { placement: "end" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      details: { blockId: "video-original" },
+    });
+    const [stored] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+    expect(stored?.content).toBe(`Alpha\n${video}`);
+  });
+
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
     const state = await fixture("Before\nSibling");
     await getDb()
@@ -878,5 +902,54 @@ describe("exact Content database block actions", () => {
       content: "Agent write\nBeta",
       bodyRevision: before.bodyRevision + 1,
     });
+  });
+
+  // The backfill switches Files rows, so this writer must never reach one.
+  it("refuses a block mutation of a Files row, so no legacy-only writer reaches a page the backfill switches", async () => {
+    const state = await fixture("Alpha\nBeta");
+    const [files] = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+        itemId: schema.contentDatabaseItems.id,
+      })
+      .from(schema.contentDatabases)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, state.target.spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+          eq(
+            schema.contentDatabaseItems.documentId,
+            state.target.rowDocumentId,
+          ),
+        ),
+      );
+    expect(files).toBeDefined();
+    const before = await rowBodyState(state.target.rowDocumentId);
+
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "files-row-update"),
+          target: {
+            ...state.target,
+            databaseId: files.id,
+            databaseDocumentId: files.documentId,
+            itemId: files.itemId,
+          },
+          operation: "update",
+          blockId: state.listed.blocks[0].id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await rowBodyState(state.target.rowDocumentId)).toEqual(before);
   });
 });

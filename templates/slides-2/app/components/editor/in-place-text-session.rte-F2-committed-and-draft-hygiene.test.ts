@@ -68,7 +68,7 @@ const SHAPE =
 const SHAPE_ROWS =
   '<div style="display:flex;flex-direction:column;gap:12px;font-size:24px">' +
   `<div ${ROW}>${SHAPE}<span>Alpha beta</span></div>` +
-  `<div ${ROW}>${SHAPE}<span>Gamma</span></div></div>`;
+  `<div ${ROW}>${SHAPE}<span>Three</span></div></div>`;
 
 /** Mounts `html` with the caret at the end of the element, as a fresh focus leaves it. */
 function boot(html: string) {

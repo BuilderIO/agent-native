@@ -2,6 +2,7 @@ import { compareAndSetAppState } from "@agent-native/core/application-state";
 import {
   deleteAttachment,
   getActivePrivateBlobProviderForRequest,
+  isPrivateBlobError,
   mintAttachmentRef,
 } from "@agent-native/core/private-blob";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
@@ -146,7 +147,15 @@ export default defineEventHandler(async (event) => {
         dimensions.height !== output.height
       )
         reject(422, "Native PNG dimensions do not match the claimed viewport");
-      const provider = await getActivePrivateBlobProviderForRequest();
+      const provider = await getActivePrivateBlobProviderForRequest().catch(
+        (error: unknown) => {
+          // Saved storage settings that can't be used, with the reason.
+          if (isPrivateBlobError(error) && error.kind === "not_configured") {
+            reject(503, error.message);
+          }
+          throw error;
+        },
+      );
       if (!provider) reject(503, "Private PNG storage is not configured");
       if (state.attachmentRef)
         reject(409, "This native PNG request already has an attachment");

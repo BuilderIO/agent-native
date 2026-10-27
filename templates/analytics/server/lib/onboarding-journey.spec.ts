@@ -39,6 +39,7 @@ import {
   onboardingJourneyEventDateRange,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog";
+import type { JourneyEventRow } from "./journey-steps";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
@@ -48,6 +49,7 @@ import {
   ONBOARDING_EVENT_READ_DEADLINE_MS,
   parseJourneyEventRow,
   parseJourneyTimestampMs,
+  partitionOnboardingJourneyCohorts,
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
@@ -98,6 +100,21 @@ function eventRow(
     action: null,
     ...extra,
   };
+}
+
+function cohortEvent(
+  sessionId: string | null,
+  eventName: string,
+  offsetSeconds: number,
+  extra: Record<string, unknown> = {},
+): JourneyEventRow {
+  const raw = eventRow(sessionId ?? "sessionless", eventName, offsetSeconds, {
+    ...extra,
+    ...(sessionId === null ? { session_id: null } : {}),
+  });
+  const parsed = parseJourneyEventRow(raw);
+  if (!parsed) throw new Error("The cohort event fixture must be valid.");
+  return parsed;
 }
 
 function journeyRows() {
@@ -266,7 +283,123 @@ describe("parseJourneyEventRow", () => {
   });
 });
 
+describe("partitionOnboardingJourneyCohorts", () => {
+  it("assigns only exposure events and crosses Design first-touch trees with each arm", () => {
+    const rows = [
+      cohortEvent("web-control", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("web-control", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("oauth-credits", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("oauth-credits", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 1, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent(
+        "conflicting-path-control",
+        "onboarding_experiment_exposed",
+        2,
+        {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "control",
+        },
+      ),
+      cohortEvent("conflicting-arm", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 2, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "signup", 0, {
+        first_touch_path: "/signup",
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "onboarding_step_viewed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("invalid-exposure", "signup", 0),
+      cohortEvent("invalid-exposure", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "other",
+      }),
+      cohortEvent(null, "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+    ];
+
+    const partition = partitionOnboardingJourneyCohorts(rows, {
+      experimentId: "first_run_builder_credits",
+      splitDesignFirstTouch: true,
+    });
+
+    expect(partition.experiment).toMatchObject({
+      assignedSessions: 3,
+      exposureSessions: 5,
+      unassignedSessions: 2,
+      conflictingSessions: 1,
+    });
+    expect([...partition.experiment!.arms.control].sort()).toEqual([
+      "conflicting-path-control",
+      "web-control",
+    ]);
+    expect([...partition.experiment!.arms.credits]).toEqual(["oauth-credits"]);
+    expect(partition.designFirstTouch!.cohorts.web.has("unexposed")).toBe(true);
+    expect(
+      partition.designFirstTouch!.cohorts["mcp-oauth"].has("oauth-credits"),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.cohorts.unknown.has(
+        "conflicting-path-control",
+      ),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.conflictingSessions,
+    ).toBe(1);
+    expect(partition.sessionlessMcpOauthSignupEvents).toBe(1);
+  });
+});
+
 describe("getOnboardingJourney", () => {
+  it.each([
+    [
+      "experiment arms",
+      { app: "clips", experimentId: "first_run_builder_credits" },
+    ],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)(
+    "rejects person follow-up with %s before reading events",
+    async (_label, cohort) => {
+      await expect(
+        getOnboardingJourney(scope, {
+          ...ARGS,
+          ...cohort,
+          followUpMode: "person",
+        }),
+      ).rejects.toThrow(
+        "Person follow-up is not available with cohort splits.",
+      );
+      expect(mocks.queryFirstPartyAnalytics).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns exactly the JourneyTree contract", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: journeyRows(),

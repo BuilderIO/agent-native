@@ -13,6 +13,15 @@
       "config": "ExecutionLeasePolicyFlip.cfg"
     },
     {
+      "config": "checks/F2-prune-under-live-lease.cfg"
+    },
+    {
+      "config": "checks/F3-policy-flip-forgets-dispatch.cfg"
+    },
+    {
+      "config": "checks/F2-late-effect-after-cutoff.cfg"
+    },
+    {
       "config": "sufficiency/fence-alone.cfg"
     },
     {
@@ -49,22 +58,27 @@
       "config": "mutations/g-reset-without-successor-fence.cfg",
       "invariant": "P1",
       "breaks": "reset fallback writing to a successor without checking its current lease"
+    },
+    {
+      "config": "mutations/h-prune-incomplete-step.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning a dispatched step while its old handler can still complete"
+    },
+    {
+      "config": "mutations/i-ignore-recovery-cutoff.cfg",
+      "invariant": "P8",
+      "breaks": "retention pruning a recent unresolved receipt before the recovery cutoff after its lease expires"
     }
   ],
   "findings": [
     {
-      "config": "findings/F2-prune-under-live-lease.cfg",
-      "invariant": "P8",
-      "finding": "F2: the retention prune deletes step rows without checking the lease"
-    },
-    {
-      "config": "findings/F3-policy-flip-forgets-dispatch.cfg",
+      "config": "findings/F7-post-retention-same-turn-replay.cfg",
       "invariant": "P8Strict",
-      "finding": "F3: re-adopting a dispatched retry-safe step forgets it was dispatched"
+      "finding": "replaying a turn id after retention prunes its journal can start a fresh effect while a prior handler may still land"
     }
   ],
   "coverage": {
-    "syncCommit": "2fcbccda69c55fcd7b47fd7cf0d1e5ec1677b25e",
+    "syncCommit": "09e84312ed4c1262da10996f5acbdb1c4f102d87",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -89,7 +103,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "beginAgentExecutionStep",
-        "sha256": "cff9b204dc26a240f6c6aa000d143ce503a1fa2263fc70e089ae516893129fee"
+        "sha256": "1ef9a154909460e1b290822062f487967d45a3d7cac8eecf7e02a0a3a3aefc97"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -99,7 +113,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "resetAgentExecutionStepBeforeInvocation",
-        "sha256": "77980f0770a6141e7a354e693f09ba7b643b6d7c8c2b7d061dd1ba3d0cd8d56a"
+        "sha256": "d60cca7e2db7367d22f85816a804b8d4514c0c92b4a6be98dddfe29bad95db8d"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -189,7 +203,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "pruneAndRollUpPrunedRunOutcomes",
-        "sha256": "034be8dfe4ef43f866b0c601437f9c15fe01727024acf305c5a7fcd77f14c364"
+        "sha256": "e7c46c645f0e23b3ad2e1e09111be258f17d8d245a60cc15d4b669f407bba3c2"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -209,13 +223,13 @@
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
         "name": "confirmAutomationWork",
-        "sha256": "0214bfb2dfb7efd2738142d3b7d8c638f00845ab476e5d9674d21c1e106b204a"
+        "sha256": "36cf9d9ff22400f37fb938cbfa84e358bbfa59ec7cad5c6435a8fa33cf363fef"
       },
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "from": "const executionFence = currentExecutionFence();",
         "to": "? await beginAgentExecutionStep(executionStepIntent)",
-        "sha256": "33f555f580487826c05b7efc449557e398f4b1d98f601771f2c5e07e27fbcb04"
+        "sha256": "2523a512cffb1241265ea26195a5765c5bbe3410350558820db39acc437f3582"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -287,6 +301,12 @@
         "file": "packages/core/src/action-arguments-identity.ts",
         "name": "snapshotActionArguments",
         "sha256": "6c010fb9669b7a96b1b7419ef8ea7f5cb552fb956da8c84a6c55d185eb1bc90a"
+      },
+      {
+        "file": "packages/core/src/agent/production-agent.ts",
+        "from": "await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {",
+        "to": "executionStepAdmission.wasDispatched,",
+        "sha256": "e1431d90525841eaf258b1c9fe60a53d46906b8495a33a85d73379d19feb31b6"
       }
     ]
   }

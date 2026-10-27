@@ -296,6 +296,7 @@ const databaseMessages = {
   drag: "Drag",
   headerColumn: "Header column",
   headerRow: "Header row",
+  fitToWidth: "Fit to width",
   hideEmptyGroups: "Hide empty groups",
   insertAbove: "Insert above",
   insertBelow: "Insert below",
@@ -1456,6 +1457,14 @@ const enUS = {
       "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
     proposalUnplaceable:
       "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
+    suggestionAcceptFailed: "Couldn't accept this suggestion",
+    suggestionRejectFailed: "Couldn't reject this suggestion",
+    proposalAcceptFailed: "Couldn't accept these suggestions",
+    proposalRejectFailed: "Couldn't reject these suggestions",
+    suggestionDecisionReverted:
+      "It's back to pending. Anything you typed since is kept.",
+    proposalDecisionReverted:
+      "They're back to pending. Anything you typed since is kept.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
@@ -1480,6 +1489,16 @@ const enUS = {
       purple: "Purple",
       pink: "Pink",
       red: "Red",
+      defaultText: "Default text",
+      defaultBackground: "Default background",
+      textChoice: "{{color}} text",
+      backgroundChoice: "{{color}} background",
+    },
+    blockMenu: {
+      label: "Block actions",
+      duplicate: "Duplicate",
+      delete: "Delete",
+      insertBelow: "Insert block below",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",

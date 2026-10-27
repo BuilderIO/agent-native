@@ -254,6 +254,7 @@ import {
   declaredMcpToolNames,
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
+import { preferMcpAppActions } from "../mcp/framework-tools.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -2635,6 +2636,15 @@ export function createAgentChatPlugin(
       const externalFullActions = mcpFullActions
         ? { ...mcpOnlyActions, ...mcpFullActions }
         : undefined;
+      const mcpAppActions = {
+        ...discoveredActions,
+        ...templateScripts,
+        ...mcpOnlyActions,
+      };
+      const mcpActions = preferMcpAppActions(externalActions, mcpAppActions);
+      const mcpProductionActions = externalFullActions
+        ? preferMcpAppActions(externalFullActions, mcpAppActions)
+        : undefined;
       reservedActionRegistries.push(
         templateScriptsAll,
         discoveredActionsAll,
@@ -3609,6 +3619,7 @@ export function createAgentChatPlugin(
         mountMCP(nitroApp, {
           createLocalAgentTaskClient: (event) =>
             createMcpAgentTaskClient(localA2AConfig, event),
+          appApprovalPage: mcpOptions.appApprovalPage,
           name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
@@ -3620,8 +3631,8 @@ export function createAgentChatPlugin(
           websiteUrl: mcpOptions.websiteUrl,
           widgetDomain: mcpOptions.widgetDomain,
           icons: mcpOptions.icons,
-          actions: externalActions,
-          productionActions: externalFullActions,
+          actions: mcpActions,
+          productionActions: mcpProductionActions,
           widgetReadActions: selectMcpDirectoryWidgetReadActions(
             mcpOptions.directoryProfile,
             templateScriptsAll,
@@ -7489,7 +7500,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // whether a run whose stream closed is still going. `runId` names
           // the turn by one of its runs (a reloaded page knows the run, not
           // its turn) and wins over `turnId`.
-          if (method === "GET" && url.includes("/runs/latest")) {
+          // Match both full URL (/runs/latest) and h3 prefix-stripped (/latest)
+          const latestMatch =
+            url.match(/\/runs\/latest(?:[/?]|$)/) ||
+            url.match(/^\/latest(?:[/?]|$)/);
+          if (latestMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             const runIdQuery = query.runId ? String(query.runId) : undefined;
@@ -7596,7 +7611,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           // Route: GET /runs/active?threadId=X
-          if (method === "GET") {
+          // Only this path: a GET for a route above that fails to match must not
+          // be answered with this route's legacy status shape.
+          const activeMatch =
+            url.match(/\/runs\/active(?:[/?]|$)/) ||
+            url.match(/^\/active(?:[/?]|$)/);
+          if (activeMatch && method === "GET") {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
             if (!threadId) {

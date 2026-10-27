@@ -2,6 +2,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   organizationIdFromResourceOwner,
   resourcePutIfAbsent,
@@ -577,7 +578,7 @@ async function runDelete(
 }
 
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-jobs": {
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
@@ -697,5 +698,5 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
         }
       },
     },
-  };
+  });
 }

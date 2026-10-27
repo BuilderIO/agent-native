@@ -25,6 +25,11 @@ import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "../server/origin-allowlist.js";
+import { getUserSetting } from "../settings/user-settings.js";
+import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
 } from "../shared/embed-auth.js";
@@ -56,6 +61,26 @@ vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
+// People who turned on the "App cards in chat apps" lab. Other labs read the
+// real store.
+const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
+
+vi.mock("../labs/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../labs/store.js")>();
+  return {
+    ...actual,
+    getUserLabEnabled: vi.fn(
+      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
+        const [email, lab] = args;
+        const key = typeof lab === "string" ? lab : lab.key;
+        return key === "mcp-app-cards"
+          ? appCardsLab.optedIn.has(email)
+          : actual.getUserLabEnabled(...args);
+      },
+    ),
+  };
+});
+
 const auditMocks = vi.hoisted(() => ({
   record: vi.fn(async (_input: unknown) => {}),
 }));
@@ -74,6 +99,20 @@ vi.mock("../audit/record.js", async (importOriginal) => {
 
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
+  // A grant the client has not answered and nobody has used, before it expires.
+  const open = (grant: any) => {
+    const existing = grants.get(grant.nonce);
+    return existing &&
+      !existing.consumed &&
+      existing.answer === undefined &&
+      existing.expiresAt >= Date.now() &&
+      existing.appId === grant.appId &&
+      existing.callerKey === grant.callerKey &&
+      existing.actionName === grant.actionName &&
+      existing.argumentsHash === grant.argumentsHash
+      ? existing
+      : undefined;
+  };
   return {
     grants,
     create: vi.fn(async (grant: any) => {
@@ -81,20 +120,38 @@ const approvalStoreMocks = vi.hoisted(() => {
       grants.set(grant.nonce, { ...grant, consumed: false });
     }),
     consume: vi.fn(async (grant: any) => {
-      const existing = grants.get(grant.nonce);
-      if (
-        !existing ||
-        existing.consumed ||
-        existing.expiresAt < Date.now() ||
-        existing.callerKey !== grant.callerKey ||
-        existing.actionName !== grant.actionName ||
-        existing.argumentsHash !== grant.argumentsHash
-      ) {
-        return false;
-      }
+      const existing = open(grant);
+      if (!existing) return false;
       existing.consumed = true;
       return true;
     }),
+    answer: vi.fn(async (grant: any, answer: string) => {
+      const existing = open(grant);
+      if (!existing) return false;
+      existing.answer = answer;
+      return true;
+    }),
+    // A grant its owner approved on the review page (`reviewed`), used once
+    // by the identical call.
+    consumeReviewed: vi.fn(async (call: any, nonce?: string) => {
+      for (const existing of grants.values()) {
+        if (
+          existing.reviewed === "approved" &&
+          !existing.consumed &&
+          existing.expiresAt >= Date.now() &&
+          existing.appId === call.appId &&
+          existing.callerKey === call.callerKey &&
+          existing.actionName === call.actionName &&
+          existing.argumentsHash === call.argumentsHash &&
+          (nonce === undefined || existing.nonce === nonce)
+        ) {
+          existing.consumed = true;
+          return { ...existing, status: "approved" };
+        }
+      }
+      return null;
+    }),
+    recordRun: vi.fn(async () => {}),
   };
 });
 
@@ -107,9 +164,35 @@ vi.mock("../audit/store.js", async (importOriginal) => ({
   },
 }));
 
-vi.mock("./approval-store.js", () => ({
-  createMcpApprovalGrant: approvalStoreMocks.create,
-  consumeMcpApprovalGrant: approvalStoreMocks.consume,
+vi.mock("./approval-store.js", async () => {
+  const actual = await vi.importActual<typeof import("./approval-store.js")>(
+    "./approval-store.js",
+  );
+  return {
+    mcpApprovalAppId: actual.mcpApprovalAppId,
+    storedApprovalArguments: actual.storedApprovalArguments,
+    normalizeApprovalEmail: actual.normalizeApprovalEmail,
+    createMcpApprovalGrant: approvalStoreMocks.create,
+    consumeMcpApprovalGrant: approvalStoreMocks.consume,
+    answerMcpApprovalPrompt: approvalStoreMocks.answer,
+    consumeReviewedMcpApprovalGrant: approvalStoreMocks.consumeReviewed,
+    findRecentMcpApprovalRun: vi.fn(async () => null),
+    recordMcpApprovalRun: approvalStoreMocks.recordRun,
+  };
+});
+
+vi.mock("./approval-route.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./approval-route.js")>();
+  return {
+    ...actual,
+    mountMcpApprovalRoute: vi.fn(actual.mountMcpApprovalRoute),
+  };
+});
+
+// No saved localization: approval prompts are in the default locale.
+vi.mock("../settings/user-settings.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
+  getUserSetting: vi.fn(async () => null),
 }));
 
 vi.mock("./builtin-tools.js", () => ({
@@ -347,7 +430,8 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
   };
 });
 
-const { handleMcpRequest } = await import("./server.js");
+const { handleMcpRequest, mountMCP } = await import("./server.js");
+const { mountMcpApprovalRoute } = await import("./approval-route.js");
 const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
@@ -450,7 +534,7 @@ vi.mock("../server/h3-helpers.js", () => ({
 }));
 
 vi.mock("../server/framework-request-handler.js", () => ({
-  getH3App: () => ({ use: () => {} }),
+  getH3App: (nitroApp: any) => nitroApp?.h3 ?? { use: () => {} },
 }));
 
 // Framework actions the runtime merges into every app that a directory
@@ -650,7 +734,10 @@ async function callWeb(
     opts.routePath,
   );
   expect(res).toBeInstanceOf(Response);
-  const response = res as Response;
+  return rpcResponse(res as Response);
+}
+
+async function rpcResponse(response: Response): Promise<any> {
   const ct = response.headers.get("content-type") || "";
   const text = await response.text();
   if (ct.includes("text/event-stream")) {
@@ -671,6 +758,8 @@ async function createModernClient(
     declineApproval?: boolean;
     manualInputRequired?: boolean;
     supportsElicitation?: boolean;
+    /** Declares exactly these elicitation modes instead of form. */
+    elicitation?: { form?: object; url?: object };
     requestHeaders?: Record<string, string>;
     routePath?: string;
   } = {},
@@ -729,7 +818,9 @@ async function createModernClient(
         : {}),
     },
   );
-  if (
+  if (options.elicitation) {
+    client.registerCapabilities({ elicitation: options.elicitation } as any);
+  } else if (
     options.supportsElicitation ||
     options.approvalDecision ||
     options.declineApproval
@@ -749,6 +840,52 @@ async function createModernClient(
   await client.connect(transport);
   return { client, wireResponses, wireContentTypes };
 }
+
+const APPROVAL_REVIEW_URL =
+  /^https:\/\/mail\.agent-native\.com\/_agent-native\/mcp\/approvals\/([0-9a-f-]{36})$/;
+
+/**
+ * The review page link an approval result carries: its URL, the grant it
+ * names, and the result's first line, which says why the page has to decide.
+ */
+function approvalReviewLink(result: any): {
+  url: string;
+  nonce: string;
+  status: string;
+} {
+  expect(result.isError).toBe(true);
+  const review = result._meta?.["agent-native/approvalReview"];
+  expect(review).toEqual({
+    url: expect.stringMatching(APPROVAL_REVIEW_URL),
+    actionName: expect.any(String),
+    expiresAt: expect.any(Number),
+  });
+  return {
+    url: review.url,
+    nonce: APPROVAL_REVIEW_URL.exec(review.url)![1],
+    status: result.content[0].text.split("\n")[0],
+  };
+}
+
+const sendEmailConfig = (run: (...args: any[]) => Promise<unknown>) => ({
+  ...config,
+  actions: {
+    "send-email": {
+      tool: {
+        description: "Send an email",
+        parameters: {
+          type: "object" as const,
+          properties: {
+            to: { type: "array", items: { type: "string" } },
+            subject: { type: "string" },
+          },
+        },
+      },
+      needsApproval: true,
+      run,
+    },
+  },
+});
 
 async function mcpAppsAuthHeaders(
   options: {
@@ -879,6 +1016,7 @@ async function directoryWidgetTemplateConfig(
 async function mcpAppsFullCatalogHeaders(
   options: {
     clientId?: string;
+    ownerEmail?: string;
     scope?: string;
   } = {},
 ) {
@@ -888,8 +1026,13 @@ async function mcpAppsFullCatalogHeaders(
   };
 }
 
+// The shared ACCESS_TOKEN carries no email, so tests that expect cards name an
+// owner who turned on the "App cards in chat apps" lab.
+const CARDS_OWNER = { "x-agent-native-owner-email": "cards-owner@example.com" };
+
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
+    vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://mail.agent-native.com");
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
@@ -898,8 +1041,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    appCardsLab.optedIn = new Set([
+      "oauth@example.com",
+      CARDS_OWNER["x-agent-native-owner-email"],
+    ]);
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
     embedSessionMocks.renewalTickets.clear();
@@ -914,14 +1059,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    appCardsLab.optedIn.clear();
     mockOAuthClients.clear();
     vi.clearAllMocks();
     builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
@@ -1922,7 +2067,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("serves only the directory allowlist with explicit annotations and app UI metadata", async () => {
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+    // The directory catalog serves cards whether or not the lab is on.
+    appCardsLab.optedIn.clear();
     const directoryAction = defineAction({
       description: "Create one workspace artifact.",
       parameters: {},
@@ -5457,9 +5603,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       );
 
-      await expect(
-        client.callTool({ name: "throwing", arguments: {} }),
-      ).rejects.toMatchObject({ code: -32021 });
+      // Failing closed asks for approval, which this client cannot show, so
+      // it gets the review page's link to a pending grant.
+      const throwing = await client.callTool({
+        name: "throwing",
+        arguments: {},
+      });
+      const link = approvalReviewLink(throwing);
+      expect(link.status).toBe(
+        `throwing needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${link.url}`,
+      );
+      expect(approvalStoreMocks.grants.get(link.nonce)).toMatchObject({
+        actionName: "throwing",
+        consumed: false,
+      });
       expect(throwingRun).not.toHaveBeenCalled();
       expect(client.getDiscoverResult()?.capabilities).not.toHaveProperty(
         "elicitation",
@@ -5470,6 +5627,487 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ],
       ).toBeUndefined();
     } finally {
+      await client.close();
+    }
+  });
+
+  it("links a client that cannot show a prompt to the review page, and runs the identical call once after its owner approves there", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const run = vi.fn(async (_args: unknown, ctx: any) => {
+      await recordOrgAdminAuditEvent({
+        action: "send-email",
+        targetType: "setting",
+        summary: "Sent an email",
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+        attribution: auditAttribution(ctx),
+      });
+      return { sent: true };
+    });
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    const send = (to: string) =>
+      client.callTool({ name: "send-email", arguments: { to: [to] } });
+    try {
+      const first = approvalReviewLink(await send("ana@example.com"));
+      expect(first.status).toBe(
+        `send-email needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${first.url}`,
+      );
+      expect(approvalStoreMocks.grants.get(first.nonce)).toMatchObject({
+        ownerEmail: "oauth@example.com",
+        oauthClientId: "client-123",
+        argumentsJson: JSON.stringify({ to: ["ana@example.com"] }),
+        consumed: false,
+      });
+
+      // The owner approves on the review page. Only the identical call uses it.
+      approvalStoreMocks.grants.get(first.nonce).reviewed = "approved";
+      const other = approvalReviewLink(await send("bo@example.com"));
+      expect(other.nonce).not.toBe(first.nonce);
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await send("ana@example.com");
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(approvalStoreMocks.recordRun).toHaveBeenCalledWith(
+        first.nonce,
+        "completed",
+      );
+      expect(auditInserts.filter((row) => row.action === "send-email")).toEqual(
+        [
+          expect.objectContaining({
+            actorEmail: "oauth@example.com",
+            oauthClientId: "client-123",
+            approval: "mcp-review",
+          }),
+        ],
+      );
+
+      const replay = approvalReviewLink(await send("ana@example.com"));
+      expect(replay.nonce).not.toBe(first.nonce);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("uses a review page approval only in the app that asked for it, when apps share a database", async () => {
+    const mailRun = vi.fn(async () => ({ sent: true }));
+    const crmRun = vi.fn(async () => ({ sent: true }));
+    const requestHeaders = await mcpAppsAuthHeaders();
+    const { client: mail } = await createModernClient(
+      sendEmailConfig(mailRun),
+      {
+        requestHeaders,
+      },
+    );
+    const { client: crm } = await createModernClient(
+      { ...sendEmailConfig(crmRun), name: "agent-native-crm", appId: "crm" },
+      { requestHeaders },
+    );
+    const sendFrom = (client: typeof mail) =>
+      client.callTool({
+        name: "send-email",
+        arguments: { to: ["ana@example.com"] },
+      });
+    try {
+      const asked = approvalReviewLink(await sendFrom(mail));
+      expect(approvalStoreMocks.grants.get(asked.nonce)).toMatchObject({
+        appId: "mail",
+      });
+      approvalStoreMocks.grants.get(asked.nonce).reviewed = "approved";
+
+      const elsewhere = approvalReviewLink(await sendFrom(crm));
+      expect(elsewhere.nonce).not.toBe(asked.nonce);
+      expect(approvalStoreMocks.grants.get(elsewhere.nonce)).toMatchObject({
+        appId: "crm",
+      });
+      expect(crmRun).not.toHaveBeenCalled();
+
+      expect((await sendFrom(mail)).isError).not.toBe(true);
+      expect(mailRun).toHaveBeenCalledTimes(1);
+      expect(crmRun).not.toHaveBeenCalled();
+    } finally {
+      await mail.close();
+      await crm.close();
+    }
+  });
+
+  it("links a stateless legacy HTTP call to the review page", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "send-email", arguments: { to: ["ana@example.com"] } },
+      },
+      {
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "1",
+          "mcp-protocol-version": "2025-06-18",
+        },
+        config: sendEmailConfig(run),
+      },
+    );
+    expect(called.error).toBeUndefined();
+    const link = approvalReviewLink(called.result);
+    expect(link.status).toBe(
+      `send-email needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${link.url}`,
+    );
+    expect(approvalStoreMocks.grants.get(link.nonce)).toMatchObject({
+      actionName: "send-email",
+      consumed: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("links the review page on the route prefix the app mounts it under", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, sendEmailConfig(run), "/custom");
+    const mounted = new Map<string, any>(use.mock.calls);
+    expect([...mounted.keys()]).toEqual([
+      "/custom/mcp/approvals",
+      "/custom/mcp",
+    ]);
+
+    const response: Response = await mounted.get("/custom/mcp")(
+      makeWebEvent({
+        method: "POST",
+        body: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "send-email",
+            arguments: { to: ["ana@example.com"] },
+          },
+        },
+        headers: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "1",
+          "mcp-protocol-version": "2025-06-18",
+        },
+      }),
+    );
+    const called = await rpcResponse(response);
+    const [grant] = [...approvalStoreMocks.grants.values()];
+    expect(called.result._meta["agent-native/approvalReview"].url).toBe(
+      `https://mail.agent-native.com/custom/mcp/approvals/${grant.nonce}`,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("reads a review's action from the actions a signed-in caller runs", () => {
+    const listed = sendEmailConfig(vi.fn());
+    const signedIn = {
+      ...listed.actions,
+      "create-event": listed.actions["send-email"],
+    };
+    mountMCP(
+      { h3: { use: vi.fn() } },
+      { ...listed, productionActions: signedIn },
+    );
+    expect(vi.mocked(mountMcpApprovalRoute).mock.lastCall?.[1].actions).toBe(
+      signedIn,
+    );
+  });
+
+  it("links a declined approval prompt to a new grant's review page without running", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      declineApproval: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const link = approvalReviewLink(
+        await client.callTool({
+          name: "send-email",
+          arguments: { to: ["ana@example.com"] },
+        }),
+      );
+      const [prompted, replacement] = [...approvalStoreMocks.grants.values()];
+      expect(prompted).toMatchObject({ answer: "declined", consumed: false });
+      expect(link.nonce).toBe(replacement.nonce);
+      expect(replacement).toMatchObject({
+        argumentsHash: prompted.argumentsHash,
+        consumed: false,
+      });
+      expect(replacement).not.toHaveProperty("answer");
+      expect(link.status).toBe(
+        `send-email was not approved. If the user did not see an approval prompt, they can review it here: ${link.url}`,
+      );
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("answers a declined prompt with a tool error when the reader's language can't be read", async () => {
+    for (const key of [
+      ...EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+      ...WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+      "BETTER_AUTH_TRUSTED_ORIGINS",
+    ])
+      vi.stubEnv(key, "");
+    let languageReads = 0;
+    vi.mocked(getUserSetting).mockImplementation(async (_email, key) => {
+      if (key === "localization" && ++languageReads > 1) {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      declineApproval: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const result = (await client.callTool({
+        name: "send-email",
+        arguments: { to: ["ana@example.com"] },
+      })) as any;
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("settings store unavailable");
+      expect(languageReads).toBe(2);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getUserSetting).mockImplementation(async () => null);
+      await client.close();
+    }
+  });
+
+  it("asks a client that can only open links to approve on the review page, and never runs on its answer", async () => {
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      manualInputRequired: true,
+      elicitation: { url: {} },
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    const args = { to: ["ana@example.com"] };
+    try {
+      const first = (await client.callTool(
+        { name: "send-email", arguments: args },
+        { allowInputRequired: true } as any,
+      )) as any;
+      const [grant] = [...approvalStoreMocks.grants.values()];
+      const url = `https://mail.agent-native.com/_agent-native/mcp/approvals/${grant.nonce}`;
+      expect(first).toMatchObject({
+        resultType: "input_required",
+        inputRequests: {
+          actionApproval: {
+            method: "elicitation/create",
+            params: {
+              mode: "url",
+              url,
+              message:
+                "Send email needs your approval before it runs. Open the review page, check what it will do, then choose Approve or Deny.",
+            },
+          },
+        },
+      });
+
+      // Opening the page decides nothing, whatever the client sends with it.
+      const opened = approvalReviewLink(
+        await client.callTool({
+          name: "send-email",
+          arguments: args,
+          requestState: first.requestState,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      );
+      expect(opened).toEqual({
+        url,
+        nonce: grant.nonce,
+        status: `send-email is waiting for the user's decision on its review page: ${url}`,
+      });
+      expect(grant).toMatchObject({ answer: "opened", consumed: false });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it.each(["approved", "expired", "denied"] as const)(
+    "checks a URL continuation against its %s stored grant after the original prompt deadline",
+    async (state) => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      const run = vi.fn(async () => ({ sent: true }));
+      const { client } = await createModernClient(sendEmailConfig(run), {
+        manualInputRequired: true,
+        elicitation: { url: {} },
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      const args = { to: ["ana@example.com"] };
+      try {
+        const first = (await client.callTool(
+          { name: "send-email", arguments: args },
+          { allowInputRequired: true } as any,
+        )) as any;
+        const [grant] = [...approvalStoreMocks.grants.values()];
+        // A page decision at minute nine grants another ten minutes to use it.
+        clock.mockReturnValue(now + 9 * 60_000);
+        grant.reviewed = state === "denied" ? "denied" : "approved";
+        if (state !== "expired") grant.expiresAt = Date.now() + 10 * 60_000;
+        clock.mockReturnValue(now + 11 * 60_000);
+        const retry = () =>
+          client.callTool({
+            name: "send-email",
+            arguments: args,
+            requestState: first.requestState,
+            inputResponses: {
+              actionApproval: {
+                action: "accept",
+                content: { decision: "approve" },
+              },
+            },
+          } as any);
+        const result = await retry();
+        if (state === "approved") {
+          expect(result.isError).not.toBe(true);
+          expect(run).toHaveBeenCalledTimes(1);
+          expect((await retry()).isError).toBe(true);
+          expect(run).toHaveBeenCalledTimes(1);
+        } else {
+          expect(result.isError).toBe(true);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        await client.close();
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it.each(
+    [
+      {
+        locale: "en-US",
+        note: "Relative link: resolve it against this MCP server's origin. No public URL is configured; set APP_URL.",
+      },
+      {
+        locale: "fr-FR",
+        note: "Lien relatif : utilisez l’origine de ce serveur MCP. Aucune URL publique n’est configurée ; définissez APP_URL.",
+      },
+    ].flatMap((item) =>
+      ["none", "url", "form"].map((mode) => ({ ...item, mode })),
+    ),
+  )(
+    "explains relative review links in $locale when mode=$mode",
+    async ({ locale, note, mode }) => {
+      for (const key of [
+        ...EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+        ...WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+        "BETTER_AUTH_TRUSTED_ORIGINS",
+      ])
+        vi.stubEnv(key, "");
+      vi.mocked(getUserSetting).mockImplementation(async (email, key) =>
+        email === "oauth@example.com" && key === "localization"
+          ? { locale }
+          : null,
+      );
+      const run = vi.fn(async () => ({ sent: true }));
+      const { client } = await createModernClient(sendEmailConfig(run), {
+        manualInputRequired: true,
+        ...(mode === "none" ? {} : { elicitation: { [mode]: {} } }),
+        requestHeaders: await mcpAppsAuthHeaders(),
+      });
+      try {
+        const result = (await client.callTool(
+          {
+            name: "send-email",
+            arguments: {
+              to: ["ana@example.com"],
+              subject: "visible ".repeat(50),
+            },
+          },
+          { allowInputRequired: true } as any,
+        )) as any;
+        const [grant] = [...approvalStoreMocks.grants.values()];
+        if (mode === "form") {
+          expect(result.inputRequests.actionApproval.params).toMatchObject({
+            mode: "form",
+            message: expect.stringContaining(note),
+          });
+          expect(result.inputRequests.actionApproval.params.message).toContain(
+            `/_agent-native/mcp/approvals/${grant.nonce}`,
+          );
+        } else {
+          expect(result).toMatchObject({
+            isError: true,
+            _meta: {
+              "agent-native/approvalReview": {
+                url: `/_agent-native/mcp/approvals/${grant.nonce}`,
+              },
+            },
+          });
+          expect(result.content[0]).toMatchObject({
+            type: "text",
+            text: expect.stringContaining(note),
+          });
+        }
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        vi.mocked(getUserSetting).mockImplementation(async () => null);
+        await client.close();
+      }
+    },
+  );
+
+  it("asks for approval in the owner's saved language, summarizing the call's own arguments", async () => {
+    vi.mocked(getUserSetting).mockImplementation(async (email, key) =>
+      email === "oauth@example.com" && key === "localization"
+        ? { locale: "fr-FR" }
+        : null,
+    );
+    const run = vi.fn(async () => ({ sent: true }));
+    const { client } = await createModernClient(sendEmailConfig(run), {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "send-email",
+          arguments: {
+            to: ["ana@example.com", "bo@example.com"],
+            subject: "Hi",
+          },
+        },
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.inputRequests.actionApproval.params).toMatchObject({
+        mode: "form",
+        message: [
+          "Send email a besoin de votre approbation pour s'exécuter. Vérifiez ce qu'elle va faire, puis choisissez Approuver ou Refuser.",
+          "Destinataires: ana@example.com, bo@example.com",
+          "Subject: Hi",
+        ].join("\n"),
+        requestedSchema: {
+          properties: {
+            decision: {
+              title: "Exécuter Send email ?",
+              description:
+                "Approuver exécute cette demande exacte une seule fois. Refuser empêche son exécution.",
+            },
+          },
+        },
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      vi.mocked(getUserSetting).mockImplementation(async () => null);
       await client.close();
     }
   });
@@ -6361,7 +6999,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
@@ -7172,7 +7810,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { config: compactSurfaceDefaultConfig },
+      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -7201,7 +7839,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { config: compactSurfaceDefaultConfig },
+      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
     );
 
     expect(resourcesOut.error).toBeUndefined();
@@ -7542,9 +8180,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
 
-  it("omits MCP App resources when the inline kill switch is off", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+  it("omits MCP App resources for a caller who has not turned on the lab", async () => {
+    appCardsLab.optedIn.clear();
     const list = await callWeb(
       { jsonrpc: "2.0", id: 41, method: "resources/list", params: {} },
       { headers: await mcpAppsFullCatalogHeaders() },
@@ -7570,11 +8207,23 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
+
+    // A card's URI is easy to guess, so reading it directly is refused too.
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 50,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(read.result).toBeUndefined();
+    expect(read.error?.message).toContain("MCP App resource not found");
   });
 
-  it("serves MCP App resources when an authenticated first-party caller requests inline apps", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+  it("serves MCP App resources to an authenticated first-party caller without the lab", async () => {
+    appCardsLab.optedIn.clear();
     const list = await callWeb(
       { jsonrpc: "2.0", id: 45, method: "resources/list", params: {} },
       { headers: await firstPartyMcpAuthHeaders() },
@@ -7595,12 +8244,24 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(call.error).toBeUndefined();
     expect(JSON.stringify(call)).toContain("openai/outputTemplate");
+
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 51,
+        method: "resources/read",
+        params: { uri: "ui://mail/echo-thing/shell-v65" },
+      },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(read.error).toBeUndefined();
+    expect(read.result.contents).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+    ]);
   });
 
-  it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {
-    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS =
-      "someone@else.com, oauth@example.com";
+  it("serves cards to the caller who turned the lab on and plain results to everyone else", async () => {
+    appCardsLab.optedIn = new Set(["oauth@example.com"]);
     const list = await callWeb(
       { jsonrpc: "2.0", id: 43, method: "resources/list", params: {} },
       { headers: await mcpAppsFullCatalogHeaders() },
@@ -7609,6 +8270,39 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.result.resources).toEqual([
       expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
     ]);
+
+    const otherHeaders = await mcpAppsFullCatalogHeaders({
+      ownerEmail: "someone@else.com",
+    });
+    const otherList = await callWeb(
+      { jsonrpc: "2.0", id: 47, method: "resources/list", params: {} },
+      { headers: otherHeaders },
+    );
+    expect(otherList.error).toBeUndefined();
+    expect(otherList.result.resources).toEqual([]);
+    const otherTools = await callWeb(
+      { jsonrpc: "2.0", id: 48, method: "tools/list", params: {} },
+      { headers: otherHeaders },
+    );
+    expect(otherTools.error).toBeUndefined();
+    expect(JSON.stringify(otherTools)).not.toContain("ui://mail/");
+  });
+
+  it("ignores the retired inline env vars", async () => {
+    appCardsLab.optedIn.clear();
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS = "oauth@example.com";
+    try {
+      const list = await callWeb(
+        { jsonrpc: "2.0", id: 49, method: "resources/list", params: {} },
+        { headers: await mcpAppsFullCatalogHeaders() },
+      );
+      expect(list.error).toBeUndefined();
+      expect(list.result.resources).toEqual([]);
+    } finally {
+      delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+      delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    }
   });
 
   it("handles `resources/templates/list` with MCP App templates", async () => {
@@ -8203,7 +8897,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "echo-thing", arguments: { value: "hello" } },
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
@@ -9103,7 +9797,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-app-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9182,7 +9876,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-app-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9307,7 +10001,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-embed-only", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9358,7 +10052,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-url-only-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9374,7 +10068,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "url-only-ticket",
     );
     expect(out.result.structuredContent.openLink).toBeUndefined();
-    expect(out.result.structuredContent.url).toBeUndefined();
+    // The widget's open-link picker skips the placeholder.
+    expect(out.result.structuredContent.url).toBe("[hidden embed URL]");
   });
 
   it("uses a durable root open link for root-path embed starts", async () => {
@@ -9411,7 +10106,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-root-embed", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -9548,6 +10243,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
@@ -9594,6 +10290,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.structuredContent).toEqual({
+      startUrl: "[hidden embed URL]",
       payload: "x".repeat(3000),
       receipt: { id: "operation-42", verified: true },
     });
@@ -9742,6 +10439,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       id: "record-42",
       status: "failed",
       message: "The request failed",
+      url: "[hidden embed URL]",
       steps: [
         {
           kind: "network",
@@ -9755,6 +10453,113 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("top-level-ticket");
     expect(out.result.content[0].text).not.toContain("nested-ticket");
     expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("reads a hidden value back as the placeholder under its key", async () => {
+    const path =
+      "objectives/tasks/Fix chat failing because the embed start URL is redacted.md";
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-row": {
+          tool: { description: "Read a collection row" },
+          readOnly: true,
+          mcpApp: { structuredContent: true },
+          run: async () => ({
+            readback: {
+              title: "Row",
+              propertyValues: { path, status: "inbox" },
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    const readback = {
+      title: "Row",
+      propertyValues: { path: "[hidden embed URL]", status: "inbox" },
+    };
+    expect(out.result.structuredContent).toEqual({ readback });
+    expect(JSON.parse(out.result.content[0].text)).toEqual({ readback });
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
+  it("writes the tool text from the next field when a message is hidden", async () => {
+    const saveConfig = {
+      ...config,
+      actions: {
+        "save-row": {
+          tool: { description: "Save a collection row" },
+          run: async () => ({
+            id: "row-1",
+            title: "Row",
+            message: "Saved the note about the embed start URL.",
+            url: "/rows/row-1",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "save-row", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: saveConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content[0].text).toBe(
+      "Row (row-1) is ready. /rows/row-1",
+    );
+    expect(JSON.stringify(out.result)).not.toMatch(/embed.?start/i);
+  });
+
+  it("leaves out an open link whose URL is hidden, rather than pointing it at the placeholder", () => {
+    const start =
+      "https://mail.agent-native.com/_agent-native/embed/start?ticket=link-ticket";
+    const inbox = "https://mail.agent-native.com/inbox";
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        { "agent-native/openLink": { webUrl: start, label: "Open" } },
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      mcpBuildServer.mcpAppStructuredContent(
+        { ok: true },
+        {
+          "agent-native/openLink": {
+            webUrl: inbox,
+            desktopUrl: start,
+            label: "Open",
+          },
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      openLink: { webUrl: inbox, label: "Open" },
+      url: inbox,
+    });
   });
 
   it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {
@@ -9959,7 +10764,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-thread", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10021,7 +10826,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-deck-by-name", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10094,7 +10899,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-thread-route", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10113,7 +10918,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         params: { name: "open-route-with-params", arguments: {} },
       },
       {
-        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" },
         config: embedConfig,
       },
     );
@@ -10448,7 +11253,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("returns modern tools/call results as one JSON response", async () => {
     const { client, wireContentTypes, wireResponses } =
-      await createModernClient();
+      await createModernClient(config, {
+        requestHeaders: CARDS_OWNER,
+      });
     try {
       const result = await client.callTool({
         name: "echo-thing",

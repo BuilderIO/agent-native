@@ -138,7 +138,14 @@ collection on with `configure-content-collection`, check it with
 
 Metrics are `ga4_pageviews` (per blog article) and `search_console_clicks` /
 `search_console_impressions` (per article, plus non-article pages stored as
-`search_console` items). Search Console data is two to three days late, so the
+`search_console` items). GA4 reads the collection's `ga4.propertyId`, set with
+`configure-content-collection --ga4PropertyId <numeric-id>`; it never falls back
+to the shared `GA4_PROPERTY_ID` used by other dashboards. An unset property
+reports `not_configured` without querying. Changing the property starts a fresh
+90-day backfill; its first successful save replaces the previous property's
+pageview history, including dates outside that window. Failed replacements
+keep the saved history. Pass `ga4PropertyId: null` to clear it; omitted settings keep
+their saved values. Search Console data is two to three days late, so the
 newest days have no row yet; read them as still arriving. Search Console
 collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
@@ -155,14 +162,20 @@ dry-runs first, stops as `cost_limited` without querying when the estimate is
 over the cap, and runs the join with that cap as BigQuery's billing limit.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
-tables: start from its panels before writing new content SQL. Its Articles
-panel shows why a metric is missing (`failed`, `not set up`, `still
-arriving`) in a column next to the blank number; keep that pattern. The
+tables: start from its panels before writing new content SQL. Its Missing
+data callout has no `tab`, so it shows on every tab. It joins the expected
+sources to their latest run in the last 30 days, so it names each source whose
+run failed, hit the cost cap or isn't connected, and each one with no run in
+that window; keep that pattern rather than letting a missing row read as
+"nothing missing". The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
-instead of a scalar subquery inside `CASE`. Its trend chart uses wide rows
-(`yKeys`), not `pivot`: a pivot fills a missing series with 0, so a day a
-source didn't report would draw as a zero instead of a gap. Content is a
+instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
+lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
+compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
+rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
+uncollected day would draw as a zero instead of a gap. Pivot only where a
+missing row is a real zero, like an author's week without signups. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.
@@ -657,6 +670,41 @@ Read `custom-blocks` before creating, embedding, cloning, or repairing one.
   ],
 }
 ```
+
+## Value Formats
+
+Metric tiles, chart axes and tooltips take `config.yFormatter` (and
+`rightYFormatter`): `"number"`, `"currency"`, `"percent"`, or `"duration"`.
+Table columns take `config.columns[].format`: `"number"`, `"currency"`,
+`"percent"`, `"delta"`, `"date"`, `"link"`, `"text"`, or `"duration"`.
+
+For a time span (time to merge, CI run time, session length), return a number
+of **seconds** and use `"duration"`. It shows "45 sec", "16 min", "7.4 hours"
+or "3.1 days", a table sorts it by the number, and an empty cell shows "–".
+Don't turn durations into text such as "16 min" in SQL or a Data Program: text
+sorts "16 min" before "2 min".
+
+## Metric Tile Comparisons
+
+A metric tile can show its change from the period before: a chip such as
+"↘ 71%" or "↗ 5.1 hours" and "vs the 7 days before", with the previous value
+in the hover text. Set `config.comparison` and return the previous value in
+each row:
+
+```sql
+SELECT 170 AS value, 588 AS previous_value, 'the 7 days before' AS period
+```
+
+- `previousKey` names the previous-value column (default `previous_value`).
+  No previous value in a row means no comparison.
+- `periodKey` names the column that says which period that was (default
+  `period`); `label` names it when the rows don't.
+- `better` is `"higher"` (the default), `"lower"` (time to merge, failures) or
+  `"neither"`. It colors the change green or red, so a slower merge time shows
+  red.
+
+Percent tiles show the change in points, duration tiles as a duration, and a
+previous value of 0 as the change itself.
 
 ## Filters And Variables
 

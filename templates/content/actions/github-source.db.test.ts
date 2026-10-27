@@ -75,6 +75,10 @@ const github = vi.hoisted(() => {
     hangHead: false,
     /** What GitHub says about the saved connection. */
     connected: true as boolean | null,
+    /** The workspace each branch and file read ran in. */
+    readOrgIds: [] as Array<string | undefined>,
+    /** The workspace each upload and file storage lookup ran in. */
+    storageOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
   return {
@@ -106,6 +110,8 @@ const github = vi.hoisted(() => {
       state.hangBatchesAfter = null;
       state.hangHead = false;
       state.connected = true;
+      state.readOrgIds = [];
+      state.storageOrgIds = [];
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -124,6 +130,8 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       typeof import("../server/lib/github-source-client.js")
     >();
   const { GitHubSourceDeadlineError, GitHubSourceError } = original;
+  const { getRequestOrgId } =
+    await import("@agent-native/core/server/request-context");
   // A request GitHub never answers, until the sync's deadline ends it.
   const hang = (signal?: AbortSignal) =>
     new Promise<never>((_, reject) => {
@@ -150,6 +158,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       target: { branch: string; signal?: AbortSignal },
       etag?: string | null,
     ) => {
+      github.state.readOrgIds.push(getRequestOrgId());
       if (github.state.failure) throw github.state.failure;
       if (github.state.hangHead) await hang(target.signal);
       if (target.branch !== "main") {
@@ -181,6 +190,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     },
     readGitHubBlob: async (target: { sha: string; signal?: AbortSignal }) => {
       github.state.blobReads += 1;
+      github.state.readOrgIds.push(getRequestOrgId());
       const hangAfter = github.state.hangAfterBlobReads;
       if (hangAfter !== null && github.state.blobReads > hangAfter) {
         await hang(target.signal);
@@ -309,34 +319,41 @@ vi.mock("./_github-source.js", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/file-upload", () => ({
-  getActiveFileUploadProviderForRequest: async () =>
-    github.state.noStorage ? null : { id: "test" },
-  uploadFile: async (input: { filename: string }) => {
-    if (github.state.noStorage) return null;
-    github.state.uploadAttempts.push(input.filename);
-    if (github.state.emptyUploads > 0) {
-      github.state.emptyUploads -= 1;
-      return null;
-    }
-    if (github.state.storageDown) {
-      github.state.uploadFailures += 1;
-      throw new Error("S3 PutObject failed (503): Service Unavailable");
-    }
-    if (input.filename === github.state.rejectFilename) {
-      github.state.uploadFailures += 1;
-      throw new Error("S3 PutObject failed (400): EntityTooLarge");
-    }
-    github.state.uploads += 1;
-    const after = github.state.afterUpload;
-    github.state.afterUpload = null;
-    after?.();
-    return {
-      url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
-      provider: "test",
-    };
-  },
-}));
+vi.mock("@agent-native/core/file-upload", async () => {
+  const { getRequestOrgId } =
+    await import("@agent-native/core/server/request-context");
+  return {
+    getActiveFileUploadProviderForRequest: async () => {
+      github.state.storageOrgIds.push(getRequestOrgId());
+      return github.state.noStorage ? null : { id: "test" };
+    },
+    uploadFile: async (input: { filename: string }) => {
+      if (github.state.noStorage) return null;
+      github.state.uploadAttempts.push(input.filename);
+      github.state.storageOrgIds.push(getRequestOrgId());
+      if (github.state.emptyUploads > 0) {
+        github.state.emptyUploads -= 1;
+        return null;
+      }
+      if (github.state.storageDown) {
+        github.state.uploadFailures += 1;
+        throw new Error("S3 PutObject failed (503): Service Unavailable");
+      }
+      if (input.filename === github.state.rejectFilename) {
+        github.state.uploadFailures += 1;
+        throw new Error("S3 PutObject failed (400): EntityTooLarge");
+      }
+      github.state.uploads += 1;
+      const after = github.state.afterUpload;
+      github.state.afterUpload = null;
+      after?.();
+      return {
+        url: `https://files.example.test/${github.state.uploads}/${input.filename}`,
+        provider: "test",
+      };
+    },
+  };
+});
 
 // The change events background syncs and stale reads send to open pages.
 const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
@@ -1545,6 +1562,40 @@ describe("GitHub folder source", () => {
       "Three, edited",
       "Four",
     ]);
+  });
+
+  it("reads GitHub from the workspace it was linked from when the collection has none, and stores images in the collection's own", async () => {
+    github.commit({ "docs/1.md": "# One\n" });
+    const database = await newCollection();
+    expect(database.orgId ?? null).toBeNull();
+    await runWithRequestContext({ userEmail: owner, orgId: "org-linker" }, () =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    github.state.readOrgIds = [];
+    github.state.noStorage = true;
+
+    // A background sync runs with no request of its own.
+    const id = await sourceId(database.id);
+    const synced = await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
+    expect(synced).toMatchObject({ state: "synced", updated: 1 });
+    expect(github.state.readOrgIds.length).toBeGreaterThan(0);
+    expect(new Set(github.state.readOrgIds)).toEqual(new Set(["org-linker"]));
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+    ]);
+
+    // Once storage is set up, the next sync finds it and adds the waiting
+    // image, both in the collection's own context, with no workspace.
+    github.state.noStorage = false;
+    github.state.storageOrgIds = [];
+    await syncGitHubSource({ sourceId: id, budgetMs: 30_000 });
+    expect(github.state.uploads).toBe(1);
+    expect(github.state.storageOrgIds.length).toBeGreaterThan(1);
+    expect(new Set(github.state.storageOrgIds)).toEqual(new Set([undefined]));
   });
 
   it("keeps GitHub pages view only for agents and records specific problems", async () => {

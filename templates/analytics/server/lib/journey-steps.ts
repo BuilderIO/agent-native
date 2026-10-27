@@ -11,6 +11,7 @@ export { normalizeJourneyPath };
 
 export interface JourneyEventRow {
   id: string;
+  /** Empty only for an OAuth signup that has no first-party web session. */
   sessionId: string;
   journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
@@ -28,6 +29,9 @@ export interface JourneyEventRow {
   action: string | null;
   aliasId?: string | null;
   attemptId?: string | null;
+  firstTouchPath?: string | null;
+  experimentId?: string | null;
+  experimentVariant?: string | null;
   sessionReplayId?: string | null;
   sessionReplayStartedAt?: string | null;
 }
@@ -148,6 +152,11 @@ export const JOURNEY_INTEGRATION_EVENT_NAMES: readonly string[] = [
   "integration_method_outcome",
 ];
 
+/** Cohort metadata events are selected for partitioning but do not become steps. */
+export const JOURNEY_COHORT_PARTITION_EVENT_NAMES: readonly string[] = [
+  "onboarding_experiment_exposed",
+];
+
 /** Slides reports request and attempt outcomes separately from saved outputs. */
 export const SLIDES_GENERATION_ATTEMPT_EVENT_NAMES: readonly string[] = [
   "generation_started",
@@ -159,7 +168,7 @@ export const SLIDES_GENERATION_ATTEMPT_EVENT_NAMES: readonly string[] = [
   "generation_abandoned",
 ];
 
-/** Every event name that can become a step; the SQL selects exactly these. */
+/** Event names that can become visible journey steps. */
 export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "pageview",
   "signup",
