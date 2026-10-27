@@ -9364,6 +9364,37 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("does not replay a refused prompt when only the model list guessed setup was missing", async () => {
+    chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
+    chatMocks.failureError = {
+      code: "missing_credentials",
+      message: "No LLM provider is connected.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-refused",
+        role: "user",
+        parts: [{ type: "text", text: "Old prompt" }],
+      },
+    ];
+    const props = baseProps({});
+    await mount(props);
+    await act(async () =>
+      chatMocks.composerProps.onModelConnectionRequiredChange(true),
+    );
+    await flush();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("does not replay a refused prompt when the thread reopens already connected", async () => {
     chatMocks.readiness = { canChat: false, missing: false, state: "unknown" };
     chatMocks.failureError = {

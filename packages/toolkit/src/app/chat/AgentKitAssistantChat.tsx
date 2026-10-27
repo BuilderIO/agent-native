@@ -1460,6 +1460,8 @@ interface AgentKitSurfaceContextValue {
   hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
+  /** Only the server's readiness answer, never the model list's early guess. */
+  setupConfirmedMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
   modelListUnavailable: boolean;
   retryProviderStatus: () => void;
@@ -2348,12 +2350,15 @@ const AgentKitAssistantChatBody = forwardRef<
   const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
   const [composerSetupRequired, setComposerSetupRequired] = useState(false);
+  const setupConfirmedMissing =
+    providerChecksEnabled && effectiveReadiness === "missing";
   // The composer's model list knows nothing is connected well before the
   // readiness check answers; an answer of "configured" still wins.
   const setupMissing =
-    providerChecksEnabled &&
-    (effectiveReadiness === "missing" ||
-      (effectiveReadiness !== "configured" && composerSetupRequired));
+    setupConfirmedMissing ||
+    (providerChecksEnabled &&
+      effectiveReadiness !== "configured" &&
+      composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -4958,6 +4963,7 @@ const AgentKitAssistantChatBody = forwardRef<
     hasRenderedMessages,
     canChat,
     setupMissing,
+    setupConfirmedMissing,
     providerStatus,
     modelListUnavailable,
     retryProviderStatus,
@@ -6884,7 +6890,9 @@ function useResumeAfterAiSetup(
 ): () => void {
   const surface = useAgentKitSurface();
   const sawSetupMissingRef = useRef(false);
-  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  // A resend fires without a fresh user action, so only the server's answer
+  // arms it; the model list's early guess can be briefly wrong.
+  if (surface.setupConfirmedMissing) sawSetupMissingRef.current = true;
   const latestRef = useRef({ resendKey, enabled, resend });
   latestRef.current = { resendKey, enabled, resend };
   const resumed = surface.resumedAfterSetup;
