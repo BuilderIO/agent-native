@@ -1,6 +1,10 @@
 template: v2
 slug: ai-prototype-generator
 app: design
+roles:
+  - product
+  - design
+  - founders
 title: Turn a brief into a clickable prototype
 seo_title: AI prototype generator for product briefs
 meta_description: Paste a product or design brief and Agent-Native Design builds working screens you can click. Ask the AI agent for directions, then refine the one you pick.
