@@ -10,6 +10,7 @@ import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIntentMarker,
   builderCmsExecutionIdempotencyKey,
+  builderCmsPayloadForLivePublication,
   resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter";
@@ -247,6 +248,85 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("saves a draft entry without autosave so Builder's reads show the edit", () => {
+    const stageOnly = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "stage_only",
+      pushMode: "autosave",
+      allowedWriteModes: ["autosave"],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...stageOnly,
+        rows: stageOnly.rows.map((row) => ({
+          ...row,
+          sourceValues: { published: "draft", "data.title": "Old title" },
+        })),
+      },
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        effect: "save_draft",
+        request: {
+          method: "PATCH",
+          query: { triggerWebhooks: "false" },
+        },
+      },
+    });
+    expect(plan.payload.request.query).not.toHaveProperty("autoSaveOnly");
+    expect(plan.payload.request.body).not.toHaveProperty("published");
+  });
+
+  it("re-picks the unpublished save from Builder's live publication state", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "stage_only",
+        pushMode: "autosave",
+        allowedWriteModes: ["autosave"],
+      }),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("autosave");
+
+    const asDraft = builderCmsPayloadForLivePublication(plan.payload, "draft");
+    expect(asDraft).toMatchObject({
+      effect: "save_draft",
+      request: {
+        method: plan.payload.request.method,
+        path: plan.payload.request.path,
+        body: plan.payload.request.body,
+        query: { triggerWebhooks: "false" },
+      },
+    });
+    expect(asDraft.request.query).not.toHaveProperty("autoSaveOnly");
+    expect(builderCmsPayloadForLivePublication(asDraft, "published")).toEqual(
+      plan.payload,
+    );
+    expect(builderCmsPayloadForLivePublication(plan.payload, null)).toBe(
+      plan.payload,
+    );
+  });
+
+  it("leaves non-unpublished saves alone when re-picking from live state", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+      }),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "publish",
+    });
+    expect(plan.payload.effect).toBe("update_in_place");
+    expect(builderCmsPayloadForLivePublication(plan.payload, "draft")).toBe(
+      plan.payload,
+    );
   });
 
   it("keeps production-model title updates from changing Builder root names", () => {
@@ -1372,6 +1452,36 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("validates a stored autosave gate against a rebuilt draft save", () => {
+    const stored = buildBuilderCmsExecutionPlan({
+      source: source(false, BUILDER_CMS_SAFE_WRITE_MODEL),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    const draftSource = source(false, BUILDER_CMS_SAFE_WRITE_MODEL);
+    const rebuilt = buildBuilderCmsExecutionPlan({
+      source: {
+        ...draftSource,
+        rows: draftSource.rows.map((row) => ({
+          ...row,
+          sourceValues: { published: "draft" },
+        })),
+      },
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    expect(stored.payload.effect).toBe("autosave");
+    expect(rebuilt.payload.effect).toBe("save_draft");
+
+    expect(
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: stored.payload,
+        plan: rebuilt,
+        now: "2026-06-08T01:00:00.000Z",
+      }),
+    ).toMatchObject({ dryRun: { status: "validated", mismatches: [] } });
+  });
+
   it("marks a stored dry-run payload stale when the request no longer matches", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(false),
@@ -1402,6 +1512,36 @@ describe("Builder CMS write adapter plan", () => {
         ],
       },
     });
+  });
+
+  it("marks a stored autosave payload stale when its request has no query", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(false),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("autosave");
+    const { query: _query, ...requestWithoutQuery } = plan.payload.request;
+
+    for (const request of [
+      requestWithoutQuery,
+      { ...requestWithoutQuery, query: null },
+    ]) {
+      expect(
+        validateBuilderCmsExecutionDryRun({
+          storedPayload: { ...plan.payload, request },
+          plan,
+          now: "2026-06-08T01:00:00.000Z",
+        }),
+      ).toMatchObject({
+        dryRun: {
+          status: "stale",
+          mismatches: [
+            "Stored Builder request no longer matches the approved change.",
+          ],
+        },
+      });
+    }
   });
 
   it("preserves stale stored payloads instead of self-healing them", () => {
