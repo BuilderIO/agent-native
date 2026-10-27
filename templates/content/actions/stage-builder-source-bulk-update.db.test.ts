@@ -1095,9 +1095,12 @@ describe("stage-builder-source-bulk-update", () => {
             decision: "reject",
           }),
         ),
-      ).rejects.toThrow(
-        "Cannot reject an approved change-set after an execution gate has been prepared.",
-      );
+      ).rejects.toMatchObject({
+        message:
+          "Cannot reject an approved change-set after an execution gate has been prepared.",
+        statusCode: 409,
+        errorCode: "source_change_set_push_prepared",
+      });
     } finally {
       databaseLock.beforeNextLock = null;
     }
@@ -1133,6 +1136,7 @@ describe("stage-builder-source-bulk-update", () => {
       .where(changeSetFilter);
     const triggerName = `fail_staged_value_${counter}`;
     const functionName = `${triggerName}_fn`;
+    // raw-sql-ok: DDL takes no bound values; the names and id are this test's own.
     await getDbExec().execute(
       `CREATE FUNCTION ${functionName}() RETURNS trigger
        LANGUAGE plpgsql AS $stage$
@@ -1141,6 +1145,7 @@ describe("stage-builder-source-bulk-update", () => {
        END;
        $stage$`,
     );
+    // raw-sql-ok: DDL takes no bound values; the names and id are this test's own.
     await getDbExec().execute(
       `CREATE TRIGGER ${triggerName}
        BEFORE INSERT OR UPDATE ON document_property_values
@@ -1153,9 +1158,11 @@ describe("stage-builder-source-bulk-update", () => {
         stage([editedRow.itemId, stagedRow.itemId], "Developers"),
       ).rejects.toThrow(/insert into "document_property_values"/);
     } finally {
+      // raw-sql-ok: DDL takes no bound values; the names are this test's own.
       await getDbExec().execute(
         `DROP TRIGGER IF EXISTS ${triggerName} ON document_property_values`,
       );
+      // raw-sql-ok: DDL takes no bound values; the name is this test's own.
       await getDbExec().execute(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
 

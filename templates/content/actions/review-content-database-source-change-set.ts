@@ -100,8 +100,9 @@ export default defineAction({
           )
           .limit(1);
         if (execution) {
-          throw new Error(
+          fail(
             "Cannot reject an approved change-set after an execution gate has been prepared.",
+            { errorCode: "source_change_set_push_prepared", statusCode: 409 },
           );
         }
       }
