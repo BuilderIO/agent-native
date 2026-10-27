@@ -18,6 +18,8 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getRequestHeaders: (event: { _headers?: Record<string, string> }) =>
+    event._headers ?? {},
   getRequestIP: () => "127.0.0.1",
   getRequestURL: (event: any) =>
     new URL(`http://${event._headers?.host ?? "localhost"}/`),
