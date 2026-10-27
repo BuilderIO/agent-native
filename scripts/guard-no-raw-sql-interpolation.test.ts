@@ -72,6 +72,88 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("finds interpolated templates assigned to a variable before execute", () => {
+    const text = source([
+      "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "const alias = statement;",
+      "database.execute(alias);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 1,
+        snippet:
+          "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      },
+    ]);
+  });
+
+  it("finds a new execute call that reuses an existing interpolated template", () => {
+    const text = source([
+      "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 2,
+          snippet: "database.execute(statement);",
+        },
+      ],
+    );
+  });
+
+  it("finds an interpolated template aliased into a sql property", () => {
+    const text = source([
+      "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "const query = { sql: statement };",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 2,
+          snippet: "const query = { sql: statement };",
+        },
+      ],
+    );
+  });
+
+  it("tracks interpolated templates assigned after variable declaration", () => {
+    const text = source([
+      'let statement = "";',
+      "statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toEqual([
+      {
+        file: FILE,
+        line: 2,
+        snippet: "statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      },
+    ]);
+  });
+
+  it("leaves tagged SQL fragments to the tag's binding rules", () => {
+    const text = source([
+      "const statement = sql`SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2])),
+    ).toEqual([]);
+  });
+
   it("ignores unchanged SQL templates and added lines outside the property", () => {
     const text = source([
       "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",

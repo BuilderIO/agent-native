@@ -66,6 +66,122 @@ function lineNumberAt(sourceFile: ts.SourceFile, position: number): number {
   return sourceFile.getLineAndCharacterOfPosition(position).line + 1;
 }
 
+function containsInterpolatedTemplate(expression: ts.Expression): boolean {
+  let found = false;
+  const visit = (node: ts.Node) => {
+    const isTaggedTemplate =
+      ts.isTemplateExpression(node) &&
+      ts.isTaggedTemplateExpression(node.parent) &&
+      node.parent.template === node;
+    if (
+      ts.isTemplateExpression(node) &&
+      node.templateSpans.length > 0 &&
+      !isTaggedTemplate
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression);
+  return found;
+}
+
+function createChecker(sourceFile: ts.SourceFile): ts.TypeChecker {
+  const absoluteFile = path.resolve(sourceFile.fileName);
+  const options: ts.CompilerOptions = {
+    allowJs: true,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const baseHost = ts.createCompilerHost(options);
+  const host: ts.CompilerHost = {
+    ...baseHost,
+    fileExists: (fileName) => path.resolve(fileName) === absoluteFile,
+    getSourceFile: (fileName) =>
+      path.resolve(fileName) === absoluteFile ? sourceFile : undefined,
+    readFile: (fileName) =>
+      path.resolve(fileName) === absoluteFile ? sourceFile.text : undefined,
+  };
+  return ts.createProgram([absoluteFile], options, host).getTypeChecker();
+}
+
+interface TaintedAssignment {
+  symbol: ts.Symbol;
+  node: ts.Node;
+  expression: ts.Expression;
+}
+
+function findTaintedSqlValues(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+): Map<ts.Symbol, Set<ts.Node>> {
+  const assignments: TaintedAssignment[] = [];
+  const collectAssignments = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
+      const symbol = checker.getSymbolAtLocation(node.name);
+      if (symbol)
+        assignments.push({ symbol, node, expression: node.initializer });
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      const symbol = checker.getSymbolAtLocation(node.left);
+      if (symbol) assignments.push({ symbol, node, expression: node.right });
+    }
+    ts.forEachChild(node, collectAssignments);
+  };
+  collectAssignments(sourceFile);
+
+  const tainted = new Map<ts.Symbol, Set<ts.Node>>();
+  const referencedTaintedSymbols = (expression: ts.Expression) => {
+    const symbols = new Set<ts.Symbol>();
+    const visit = (node: ts.Node) => {
+      if (ts.isIdentifier(node)) {
+        const symbol = checker.getSymbolAtLocation(node);
+        if (symbol && tainted.has(symbol)) symbols.add(symbol);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(expression);
+    return symbols;
+  };
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const assignment of assignments) {
+      const sources = containsInterpolatedTemplate(assignment.expression)
+        ? [assignment.node]
+        : [...referencedTaintedSymbols(assignment.expression)].flatMap(
+            (symbol) => [...(tainted.get(symbol) ?? [])],
+          );
+      if (sources.length === 0) continue;
+
+      const existing = tainted.get(assignment.symbol) ?? new Set<ts.Node>();
+      let addedSource = false;
+      for (const source of sources) {
+        if (!existing.has(source)) {
+          existing.add(source);
+          addedSource = true;
+        }
+      }
+      if (addedSource) {
+        tainted.set(assignment.symbol, existing);
+        changed = true;
+      }
+    }
+  }
+  return tainted;
+}
+
 function hasPragma(
   lines: string[],
   startLine: number,
@@ -91,7 +207,7 @@ export function findRawSqlInterpolationViolations(
   }
 
   const sourceFile = ts.createSourceFile(
-    file,
+    path.resolve(file),
     source,
     ts.ScriptTarget.Latest,
     true,
@@ -112,14 +228,24 @@ export function findRawSqlInterpolationViolations(
 
   const lines = source.split(/\r?\n/);
   const findings: RawSqlInterpolationFinding[] = [];
+  const reportedLines = new Set<string>();
+  const checker = createChecker(sourceFile);
+  const taintedSqlValues = findTaintedSqlValues(sourceFile, checker);
+
+  const touchesAddedLines = (node: ts.Node) => {
+    const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+    const endLine = lineNumberAt(sourceFile, node.end);
+    return [...addedLines].some((line) => line >= startLine && line <= endLine);
+  };
 
   const reportIfAdded = (node: ts.Node) => {
     const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
     const endLine = lineNumberAt(sourceFile, node.end);
-    const touched = [...addedLines].some(
-      (line) => line >= startLine && line <= endLine,
-    );
+    const touched = touchesAddedLines(node);
     if (!touched || hasPragma(lines, startLine, endLine)) return;
+    const key = `${file}:${startLine}`;
+    if (reportedLines.has(key)) return;
+    reportedLines.add(key);
 
     findings.push({
       file,
@@ -128,11 +254,32 @@ export function findRawSqlInterpolationViolations(
     });
   };
 
+  const reportTaintedSqlValue = (
+    symbol: ts.Symbol | undefined,
+    sink: ts.Node,
+  ) => {
+    const sources = symbol ? taintedSqlValues.get(symbol) : undefined;
+    if (!sources || sources.size === 0) return;
+
+    const changedSources = [...sources].filter(touchesAddedLines);
+    if (changedSources.length > 0) {
+      for (const source of changedSources) reportIfAdded(source);
+    } else {
+      reportIfAdded(sink);
+    }
+  };
+
   const visit = (node: ts.Node) => {
     if (ts.isPropertyAssignment(node) && isSqlPropertyName(node.name)) {
       const template = interpolatedTemplate(node.initializer);
       if (template && template.templateSpans.length > 0) {
         reportIfAdded(node);
+      }
+      if (ts.isIdentifier(node.initializer)) {
+        reportTaintedSqlValue(
+          checker.getSymbolAtLocation(node.initializer),
+          node,
+        );
       }
     }
     if (ts.isCallExpression(node) && isExecuteCall(node.expression)) {
@@ -140,6 +287,9 @@ export function findRawSqlInterpolationViolations(
       const template = argument ? interpolatedTemplate(argument) : undefined;
       if (template && template.templateSpans.length > 0) {
         reportIfAdded(node);
+      }
+      if (argument && ts.isIdentifier(argument)) {
+        reportTaintedSqlValue(checker.getSymbolAtLocation(argument), node);
       }
     }
     ts.forEachChild(node, visit);
