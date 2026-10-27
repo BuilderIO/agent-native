@@ -355,6 +355,8 @@ const messages = {
     fillerQueued: "필러 단어 제거 중…",
     silenceQueued: "무음 제거 중…",
     workflowQueued: "워크플로 생성 중…",
+    workflowStillGenerating: "워크플로를 계속 생성하고 있어요…",
+    workflowTakingLonger: "평소보다 시간이 더 걸리고 있어요…",
     pageTitle: "클립 녹화 · Clips",
     loomMissingUrl: "이 Loom 녹음에는 소스 URL가 없습니다.",
     finalizeFailed: "마무리 실패({{status}})",

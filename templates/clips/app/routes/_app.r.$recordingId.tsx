@@ -54,8 +54,10 @@ import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isRecentWorkflowGeneration,
   type WorkflowKind,
+  workflowGenerationProgressAt,
   workflowGenerationStaleAt,
   workflowSessionTabId,
+  WORKFLOW_GENERATION_PROGRESS_MS,
 } from "@shared/workflow";
 import {
   IconCalendar,
@@ -1548,6 +1550,66 @@ export default function RecordingPage() {
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     playCompletionCue,
+    startWorkflowToast,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (
+      generatedWorkflow?.status !== "generating" ||
+      !generatedWorkflow.requestedAt
+    ) {
+      return;
+    }
+    const requestedAt = Date.parse(generatedWorkflow.requestedAt);
+    if (!Number.isFinite(requestedAt)) return;
+
+    const action = {
+      label: t("common.cancel"),
+      onClick: () =>
+        cancelWorkflowGeneration({
+          recordingId: generatedWorkflow.recordingId,
+          requestId: generatedWorkflow.requestId,
+          requestedAt: generatedWorkflow.requestedAt,
+          status: generatedWorkflow.status,
+        }),
+    };
+    const progressUpdates = [
+      {
+        stage: "still_generating" as const,
+        afterMs: WORKFLOW_GENERATION_PROGRESS_MS.stillGenerating,
+        message: t("recordingPage.workflowStillGenerating"),
+      },
+      {
+        stage: "taking_longer" as const,
+        afterMs: WORKFLOW_GENERATION_PROGRESS_MS.takingLonger,
+        message: t("recordingPage.workflowTakingLonger"),
+      },
+    ];
+    const timers = progressUpdates.map(({ stage, afterMs, message }) =>
+      window.setTimeout(
+        () => {
+          if (
+            workflowGenerationProgressAt({
+              status: generatedWorkflow.status,
+              requestedAt: generatedWorkflow.requestedAt,
+            }) !== stage
+          ) {
+            return;
+          }
+          startWorkflowToast(message, { action });
+        },
+        Math.max(0, requestedAt + afterMs - Date.now()),
+      ),
+    );
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [
+    cancelWorkflowGeneration,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
     startWorkflowToast,
     t,
   ]);

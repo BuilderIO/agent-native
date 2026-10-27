@@ -351,6 +351,8 @@ const messages = {
     fillerQueued: "भराव शब्द हटाए जा रहे हैं…",
     silenceQueued: "मौन हटाया जा रहा है…",
     workflowQueued: "वर्कफ़्लो बनाया जा रहा है…",
+    workflowStillGenerating: "वर्कफ़्लो अभी भी बनाया जा रहा है…",
+    workflowTakingLonger: "इसमें सामान्य से अधिक समय लग रहा है…",
     pageTitle: "क्लिप रिकॉर्डिंग · Clips",
     loomMissingUrl: "इस Loom रिकॉर्डिंग में इसका स्रोत URL गायब है।",
     finalizeFailed: "अंतिम रूप देना विफल ({{status}})",

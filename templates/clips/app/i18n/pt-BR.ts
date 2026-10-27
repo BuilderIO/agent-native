@@ -363,6 +363,8 @@ const messages = {
     fillerQueued: "Removendo palavras de preenchimento…",
     silenceQueued: "Removendo silêncios…",
     workflowQueued: "Gerando fluxo de trabalho…",
+    workflowStillGenerating: "O fluxo de trabalho ainda está sendo gerado…",
+    workflowTakingLonger: "Isso está demorando mais do que o esperado…",
     pageTitle: "Gravação de clipe · Clips",
     loomMissingUrl: "Esta gravação Loom não tem a fonte URL.",
     finalizeFailed: "Falha na finalização ({{status}})",

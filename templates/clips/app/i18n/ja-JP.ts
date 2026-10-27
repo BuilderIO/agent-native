@@ -360,6 +360,8 @@ const messages = {
     fillerQueued: "フィラーワードを削除中…",
     silenceQueued: "無音部分を削除中…",
     workflowQueued: "ワークフローを生成中…",
+    workflowStillGenerating: "ワークフローを引き続き生成中…",
+    workflowTakingLonger: "通常より時間がかかっています…",
     pageTitle: "クリップ録画・Clips",
     loomMissingUrl: "この Loom 録音にはソース URL がありません。",
     finalizeFailed: "ファイナライズに失敗しました ({{status}})",

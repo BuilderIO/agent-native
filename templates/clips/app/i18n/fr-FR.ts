@@ -365,6 +365,8 @@ const messages = {
     fillerQueued: "Suppression des mots de remplissage…",
     silenceQueued: "Suppression des silences…",
     workflowQueued: "Génération du workflow…",
+    workflowStillGenerating: "Le workflow est toujours en cours de création…",
+    workflowTakingLonger: "La création prend plus de temps que d’habitude…",
     pageTitle: "Enregistrement de clips · Clips",
     loomMissingUrl: "Cet enregistrement Loom n'a pas sa source URL.",
     finalizeFailed: "Échec de la finalisation ({{status}})",

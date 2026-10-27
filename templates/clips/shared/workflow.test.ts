@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isRecentWorkflowGeneration,
+  workflowGenerationProgressAt,
   workflowGenerationStaleAt,
   workflowSessionTabId,
 } from "./workflow.js";
@@ -78,5 +79,42 @@ describe("isRecentWorkflowGeneration", () => {
         now,
       ),
     ).toBe(false);
+  });
+});
+
+describe("workflowGenerationProgressAt", () => {
+  const requestedAt = "2026-10-18T19:59:00.000Z";
+
+  it("reports a long-running generation after thirty seconds", () => {
+    expect(
+      workflowGenerationProgressAt(
+        { status: "generating", requestedAt },
+        Date.parse("2026-10-18T19:59:30.000Z"),
+      ),
+    ).toBe("still_generating");
+  });
+
+  it("marks a generation taking longer after two minutes", () => {
+    expect(
+      workflowGenerationProgressAt(
+        { status: "generating", requestedAt },
+        Date.parse("2026-10-18T20:01:00.000Z"),
+      ),
+    ).toBe("taking_longer");
+  });
+
+  it("does not report progress for terminal or malformed workflows", () => {
+    expect(
+      workflowGenerationProgressAt(
+        { status: "ready", requestedAt },
+        Date.parse("2026-10-18T20:01:00.000Z"),
+      ),
+    ).toBeNull();
+    expect(
+      workflowGenerationProgressAt(
+        { status: "generating", requestedAt: "invalid" },
+        Date.parse("2026-10-18T20:01:00.000Z"),
+      ),
+    ).toBeNull();
   });
 });

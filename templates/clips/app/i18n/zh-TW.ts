@@ -340,6 +340,8 @@ const messages = {
     fillerQueued: "正在移除填充詞…",
     silenceQueued: "正在移除靜音…",
     workflowQueued: "正在產生工作流…",
+    workflowStillGenerating: "仍在產生工作流程…",
+    workflowTakingLonger: "這次比平常花費更久…",
     pageTitle: "剪輯錄製 · Clips",
     loomMissingUrl: "此 Loom 錄影缺少其來源 URL。",
     finalizeFailed: "完成失敗 ({{status}})",

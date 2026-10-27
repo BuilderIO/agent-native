@@ -369,6 +369,8 @@ const messages = {
     fillerQueued: "Füllwörter werden entfernt…",
     silenceQueued: "Pausen werden entfernt…",
     workflowQueued: "Workflow wird erstellt…",
+    workflowStillGenerating: "Workflow wird weiterhin erstellt…",
+    workflowTakingLonger: "Das dauert länger als üblich…",
     pageTitle: "Clip-Aufnahme · Clips",
     loomMissingUrl: "Dieser Loom-Aufnahme fehlt die Quelle URL.",
     finalizeFailed: "Finalisierung fehlgeschlagen ({{status}})",

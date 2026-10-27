@@ -348,6 +348,8 @@ const messages = {
     fillerQueued: "جارٍ إزالة الكلمات الحشوية…",
     silenceQueued: "جارٍ إزالة فترات الصمت…",
     workflowQueued: "جارٍ إنشاء سير العمل…",
+    workflowStillGenerating: "لا يزال إنشاء سير العمل جارياً…",
+    workflowTakingLonger: "استغرق هذا وقتاً أطول من المعتاد…",
     pageTitle: "تسجيل مقطع · Clips",
     loomMissingUrl: "يفتقد تسجيل Loom هذا مصدره URL.",
     finalizeFailed: "فشل الإنهاء ({{status}})",
