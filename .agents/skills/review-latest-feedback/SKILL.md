@@ -56,8 +56,9 @@ about who does what next, or that handed them work. Each reply must be:
   owner:", "Open - no question:"), and any mention of this workflow.
 - **Clear on who does what next:** "I'll ..." or a named person ("Sid will
   decide ..."). Never "the team", "product", "the framework team", "the
-  owner", or "someone". If you don't know who owns it, say you've passed it
-  to Steve. Never @-mention anyone.
+  owner", or "someone". If no one else clearly owns it, say Steve will take
+  a look (or decide). Replies post from Steve's account, so never "I've passed
+  it to Steve". Never @-mention anyone.
 - **Not a to-do list for them:** look things up yourself first (the
   message's time and author, their account and recent activity, logs, the
   linked page or screenshot). Ask only when nothing else can unblock it, and
@@ -80,15 +81,15 @@ in five seconds, know who does what next, and feel we did the legwork?
 
 Good (each is the first line; the footer goes on the line below it):
 
-- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
-- `thanks - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>); it's in review now.`
-- `thanks - moving that button is a product call, so I've passed it to Steve.`
+- `thanks - the export keeps your column order now; the <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
+- `thanks - once this <https://github.com/BuilderIO/agent-native/pull/1234|fix> merges, the export will keep your column order; it's in review now.`
+- `thanks - Steve will decide where that button should go.`
 - `thanks - I couldn't find which deck this was; could you paste its link?`
 
 So a full reply looks like:
 
 ```text
-thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
+thanks - the export keeps your column order now; the <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
 **This was sent from a bot**
 ```
 
@@ -98,8 +99,8 @@ Real replies that missed, and what to send instead:
 | --- | --- |
 | "Could you send the recording link, approximate time, and browser so we can trace whether the clip produced media before it tried to save?" | Find the recording from the reporter and message time first. If you still can't: "thanks - I couldn't find which recording this was; could you paste its link?" |
 | "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge) | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now." |
-| "I've left moving it somewhere easier to find for product to decide." | "thanks - where the editor lives is a product call, so I've passed it to Steve." |
-| "The framework team needs to decide whether multi-step work should be gathered into one request or handled through the agent's usual back-and-forth." | "thanks - this needs a design decision, so I've passed it to Steve." |
+| "I've left moving it somewhere easier to find for product to decide." | "thanks - Steve will decide where the editor should live." |
+| "The framework team needs to decide whether multi-step work should be gathered into one request or handled through the agent's usual back-and-forth." | "thanks - Steve will decide how this should work." |
 | "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix." | Nothing: the thread was a joke. |
 | Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone. | One reply, one question, only for what you can't look up. The message's own timestamp already says when. |
 
@@ -268,10 +269,10 @@ next sweep. Otherwise:
   run must end): reply that a fix (PR linked) is in review. Don't mention
   beta yet. The next run adds ✅ once it's merged, with no second reply.
 - **Needs a person:** add 🎫 and say in plain words what's needed and who has
-  it now, by name (Steve if no one else clearly owns it).
+  it now, by name ("Steve will take a look" if no one else clearly owns it).
 - **Couldn't reproduce:** add 🎫. If one small answer from the reporter would
   unblock it and you couldn't find it yourself, ask for just that. Otherwise
-  say you couldn't reproduce it and that you've passed it to Steve. Never ask
+  say you couldn't reproduce it and that Steve will take a look. Never ask
   for anything already in the thread.
 
 GitHub issues fixed by the merged PR get a one-line thank-you comment linking
