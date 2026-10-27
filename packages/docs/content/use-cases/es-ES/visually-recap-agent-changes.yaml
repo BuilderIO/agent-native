@@ -1,7 +1,7 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
-title: Obtén un resumen visual de los cambios de tu agente de código
+title: Mira un resumen visual de los cambios de tu agente
 seo_title: Resumen visual de los cambios de tu agente
 meta_description: Agent-Native Plan muestra los cambios de tu agente con pantallas de antes y después, campos de datos señalados, un mapa de archivos y diffs para comentar.
 updated: 2026-10-27
@@ -88,7 +88,7 @@ integrations:
 other_uses:
   heading: Otras cosas que puedes hacer con Agent-Native Plan
   cards:
-    - title: Revisa el plan de tu agente de código antes de que programe
+    - title: Revisa el plan de tu agente antes de que programe
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Lee el plan de tu agente de código como diagramas y código comentado, y corrígelo antes de que empiece.
     - title: Planifica pantallas nuevas con tu agente de código

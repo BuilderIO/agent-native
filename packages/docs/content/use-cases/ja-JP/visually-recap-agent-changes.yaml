@@ -68,7 +68,7 @@ integrations:
         - name: GitHub Copilot
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
           mono: true
-      body: 1つのインストールコマンドで、Claude Code、Codex、Cursor、OpenCode、GitHub Copilotに`/visual-recap`が設定され、チャットから要約を開けます。
+      body: コマンド1つでClaude Code、Codex、Cursor、OpenCode、GitHub Copilotに`/visual-recap`を追加。チャットから要約を開けます。
     - title: すべてのプルリクエストに要約
       logos:
         - name: GitHub
@@ -76,7 +76,7 @@ integrations:
         - name: OpenAI
         - name: DeepSeek
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
-      body: GitHub Actionが、各プルリクエストにビジュアル要約を投稿します。ご自身のAnthropic、OpenAI、DeepSeekのキーか、OpenAI互換のモデルを使います。
+      body: GitHub Actionが各プルリクエストに要約を投稿します。Anthropic、OpenAI、DeepSeekのキーか、OpenAI互換モデルを使います。
     - title: MCPであらゆるツールと連携
       logos:
         - name: Linear

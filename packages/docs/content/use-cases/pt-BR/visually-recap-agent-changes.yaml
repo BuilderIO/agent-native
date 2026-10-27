@@ -68,7 +68,7 @@ integrations:
         - name: GitHub Copilot
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
           mono: true
-      body: Um comando de instalação configura o `/visual-recap` no Claude Code, no Codex, no Cursor, no OpenCode ou no GitHub Copilot, e o resumo abre a partir do chat.
+      body: Um comando instala o `/visual-recap` no Claude Code, Codex, Cursor, OpenCode ou GitHub Copilot, e o resumo abre a partir do chat.
     - title: Um resumo em cada pull request
       logos:
         - name: GitHub
@@ -76,7 +76,7 @@ integrations:
         - name: OpenAI
         - name: DeepSeek
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
-      body: Uma GitHub Action publica um resumo visual em cada pull request, com sua própria chave da Anthropic, da OpenAI ou da DeepSeek, ou outro modelo compatível com a OpenAI.
+      body: Uma GitHub Action publica um resumo visual em cada pull request com sua chave Anthropic, OpenAI, DeepSeek ou outro modelo compatível com OpenAI.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Linear
@@ -88,7 +88,7 @@ integrations:
 other_uses:
   heading: Outras coisas que você pode fazer com o Agent-Native Plan
   cards:
-    - title: Revise o plano do agente de código antes de ele programar
+    - title: Revise o plano do agente antes de ele programar
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Leia o plano do seu agente de código como diagramas e código anotado, e corrija antes que o agente comece.
     - title: Planeje novas telas com seu agente de código

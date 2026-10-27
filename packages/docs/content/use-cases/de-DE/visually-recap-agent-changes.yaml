@@ -1,7 +1,7 @@
 template: v2
 slug: visually-recap-agent-changes
 app: plans
-title: Änderungen Ihres Coding-Agenten visuell nachvollziehen
+title: Agenten-Änderungen visuell nachvollziehen
 seo_title: Visueller Rückblick auf Änderungen Ihres Agenten
 meta_description: Agent-Native Plan zeigt, was Ihr Coding-Agent geändert hat, als Vorher-nachher-Screens, markierte Datenfelder, Dateiübersicht und kommentierbare Diffs.
 updated: 2026-10-27
@@ -76,7 +76,7 @@ integrations:
         - name: OpenAI
         - name: DeepSeek
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
-      body: Eine GitHub Action postet zu jedem Pull Request einen visuellen Rückblick, mit Ihrem Anthropic-, OpenAI- oder DeepSeek-Schlüssel oder einem OpenAI-kompatiblen Modell.
+      body: Eine GitHub Action postet zu jedem PR einen visuellen Rückblick, mit Ihrem Anthropic-, OpenAI- oder DeepSeek-Key oder einem kompatiblen Modell.
     - title: Alles per MCP verbinden
       logos:
         - name: Linear
@@ -88,7 +88,7 @@ integrations:
 other_uses:
   heading: Was Sie sonst noch mit Agent-Native Plan tun können
   cards:
-    - title: Den Plan Ihres Coding-Agenten vor dem Coden prüfen
+    - title: Den Plan Ihres Agenten vor dem Coden prüfen
       url: https://www.agent-native.com/use-cases/visual-plan-mode/
       body: Lesen Sie den Plan Ihres Coding-Agenten als Diagramme und kommentierten Code, und korrigieren Sie ihn, bevor der Agent startet.
     - title: Neue Screens mit Ihrem Coding-Agenten planen
