@@ -1,0 +1,105 @@
+template: v2
+slug: visual-plan-mode
+app: plans
+title: 在程式開發 agent 寫程式前，先審查計畫
+seo_title: Claude Code、Codex 和 Cursor 的視覺化計畫模式
+meta_description: Agent-Native Plan 把程式開發 agent 的計畫變成一個可以審查的頁面，附上圖表、檔案樹和加註解的程式碼，讓你在它寫任何程式之前先看過。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Plan 把 agent 寫的計畫變成一頁圖表、檔案樹和加註解的程式碼。你可以針對任何部分留言，agent 會修改計畫，在你核准之前不會動任何程式碼。
+  button:
+    label: 規劃你的開發
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faad0afc668dc461f9023eeba3ba55800
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c2e3c83e79248e69829bb38f71a6704
+    alt: 在 Plan 中開啟的一份新增團隊邀請的計畫。圖表顯示邀請流程，從設定頁面經過 API 和邀請資料表，到邀請電子郵件。下方的檔案樹標出會變更的五個檔案。一位隊友給 agent 的留言釘在電子郵件步驟上。
+how_to:
+  heading: 如何搭配程式開發 agent 使用視覺化計畫模式
+  steps:
+    - title: 要求一份視覺化計畫
+      body: 用[一行安裝指令](https://www.agent-native.com/docs/plan-plugin/)把 Plan 加到 Claude Code、Codex 或 Cursor。接著輸入 `/visual-plan` 和任務，agent 會讀取你的程式碼，並貼出計畫的連結。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
+        alt: 程式開發 agent 的對話，使用者輸入 /visual-plan 和新增團隊邀請的任務。agent 列出它讀過的檔案，發布計畫，並回覆計畫的連結。
+    - title: 針對要修改的地方留言
+      body: 選取一個句子或圖表上的一處，寫下該怎麼改。[把留言設為](https://www.agent-native.com/docs/template-plan-review-workflow/) **代理** 交給 agent 修正，或設為 **真人** 交給隊友。也順便回答計畫中的待解問題。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8a16bd566384f4080dde591a1b30c3f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
+        alt: 計畫圖表中邀請電子郵件步驟上一則新留言的特寫，「代理」與「真人」切換設為「代理」，留言已輸入。
+    - title: 把留言傳給 agent
+      body: 點選 **傳送給代理**，選擇 **複製給您的代理**，把留言複製成提示。貼到 agent 的對話中更新計畫。計畫沒問題後，在對話中核准，agent 就會開始開發。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8
+        alt: 計畫的「傳送給代理」按鈕特寫，選單已展開：「複製給您的代理」和「傳送給內嵌代理」，各附一行說明。
+features:
+  heading: 審查 agent 計畫所需的一切
+  items:
+    - title: 把做法畫成圖表
+      body: 請求流程、資料模型和 API 端點都會畫出來，錯誤的端點或缺少的資料表在開發之前就一目了然。
+    - title: 看出哪些檔案會變更
+      body: 檔案樹和加註解的程式碼會顯示工作落在哪裡，以及每個步驟沿用了程式碼庫中的哪些部分。
+    - title: 附預設答案的問題
+      body: agent 無法從程式碼判斷的決定，會集中在最後的一張表單，每題都附上它建議的答案。
+    - title: 從計畫模式開始
+      body: 已經有來自 Claude Code、Codex 或 Markdown 檔案的計畫？`/visual-plan` 會直接用它建立頁面，不必從頭來過。
+    - title: 核准之前不寫程式
+      body: Plan 的指示讓 agent 在規劃期間只讀取你的程式碼。你核准計畫之後，它才會開始編輯。
+    - title: 和隊友一起審查
+      body: 把計畫的連結傳給隊友。他們能以訪客身分閱讀和編輯，登入 Agent-Native 帳號後就能留言。
+integrations:
+  heading: 將 Plan 連接到你已在用的工具
+  cards:
+    - title: 程式開發 agent 的外掛程式
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: 在 Claude Code 或 Codex 中把 Plan 安裝為外掛程式，在你平常工作的對話中使用 `/visual-plan`。
+    - title: 其他 agent 只要一行指令
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 一行安裝指令就能在 Cursor、OpenCode 或 VS Code 的 GitHub Copilot 中設定 Plan，其他 MCP agent 則可用網址加入。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Context7
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Plan 做的其他事
+  cards:
+    - title: 用視覺化回顧看懂程式開發 agent 的變更
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: 把 pull request、commit 或 diff 變成一份視覺化的變更導覽。
+    - title: 和程式開發 agent 一起規劃新畫面
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: 讓程式開發 agent 畫出畫面的線框圖，在它動手開發之前提供意見。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Plan 是免費的嗎？
+      a: 是的，Agent-Native Plan 免費且開源。每份計畫都以你的程式開發 agent 的一個工作階段執行，使用你選擇的模型。這會用到 agent 的 token，計畫越大用得越多。Plan 目前是 alpha 版，功能會持續調整。
+    - q: Plan 支援哪些程式開發 agent？
+      a: Claude Code 和 Codex 可以用外掛程式安裝。一行安裝指令也能在 Cursor、OpenCode、VS Code 的 GitHub Copilot 和 Claude Cowork 中設定 Plan。其他 MCP 主機，例如 Cline 或 Goose，可以用網址加入 Plan 的連接器。每份計畫都在你的瀏覽器中審查。
+    - q: Plan 和程式開發 agent 內建的計畫模式有什麼不同？
+      a: Claude Code、Codex、Cursor 或 OpenCode 的計畫模式，會在對話中以文字給你計畫。Plan 則把這份計畫，或 Markdown 檔案中的計畫，變成有圖表、檔案樹和加註解程式碼的頁面。你可以在頁面上針對確切的部分留言、回答 agent 的問題，並邀請隊友加入。
+    - q: agent 在規劃時會更動我的程式碼嗎？
+      a: 不會。在撰寫或修改計畫期間，Plan 的指示讓 agent 只讀取你的程式碼。你核准計畫後它才開始編輯，而且在每個主要步驟之前都會重新讀取已核准的計畫。
+    - q: 隊友沒有帳號也能審查計畫嗎？
+      a: 部分可以。任何拿到連結的人都能以訪客身分開啟和編輯計畫。留言、儲存和分享則需要 Agent-Native 帳號，所以想留言的隊友要先登入。
+    - q: 我可以把計畫留在自己的電腦上嗎？
+      a: 可以。[本機檔案模式](https://www.agent-native.com/docs/template-plan-local-and-desktop/)會把計畫以 MDX 檔案存在你的電腦上，內容不會傳到託管的應用程式。相對地，本機計畫無法分享，也不能在瀏覽器中留言，它的連結只能在你的電腦上開啟。本機檔案模式不會改變程式開發 agent 的 AI 模型在哪裡執行。
