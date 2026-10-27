@@ -92,12 +92,16 @@ the invocation gives), plus 14 days for open items.
   root showing `eyes`, `white_check_mark`, `ticket`, or `mag`. Don't rely on
   `hasmy:` searches, which have returned nothing for roots that do carry
   Steve's marks.
-- **Open items first.** Every run posts as Steve, so any 👀 from Steve's
-  account is this workflow's, whichever earlier run added it. A root with
-  Steve's 👀 and no ✅ or 🎫, or with a human reply newer than our last reply,
-  comes first in this run. A reply like "still broken" after a ✅ means the
-  earlier fix failed. Find what that fix changed and why it didn't hold before
-  trying again.
+- **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
+  hand to things he is working on himself, so a 👀 from his account is not
+  enough to make a root this workflow's. Treat it as the workflow's only when
+  the thread already has a reply from Steve's account ending in
+  `this was sent from a bot.`, or when the root is listed under "Claimed, not
+  yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
+  has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
+  with a human reply newer than our last reply, comes first in this run. A
+  reply like "still broken" after a ✅ means the earlier fix failed. Find what
+  that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. Read the thread for every root
   that looks like a report. Open screenshots and attachments, since the error
   text in a screenshot is often the whole diagnosis.
@@ -138,7 +142,10 @@ Put each report in one bucket:
   reaction and no reply.
 
 Then add 👀 to every Fix, Build, and Needs-a-person root in one pass, before you
-investigate.
+investigate. In an automation run, immediately list those roots (channel and
+ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
+once it has its reply. That list is how the next run tells an unfinished claim
+apart from Steve's own 👀.
 
 ## 3. Fix as many as you can
 
