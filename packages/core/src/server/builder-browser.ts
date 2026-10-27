@@ -2678,7 +2678,7 @@ function redactBuilderDiagnosticText(value: string): string {
     .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
     .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
     .replace(
-      /(["']?[\w.-]*(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,}&;]+)/gi,
+      /(["']?[\w.-]*(?:authorization|access[_-]?(?:key|token)|session[_-]?key|signing[_-]?key|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|jwt|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}&;]+)/gi,
       "$1[redacted]",
     )
     .slice(0, 512);

@@ -47,6 +47,7 @@ import {
 import {
   createConsentHandler,
   createConsentRegionHandler,
+  requestAllowsConsentCategory,
 } from "./consent-route.js";
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
@@ -279,6 +280,7 @@ import {
 } from "./magic-link-attribution.js";
 import {
   hasMcpSignupAttributionCookie,
+  MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME,
   readMcpSignupContextFromCookieHeader,
 } from "./mcp-signup-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
@@ -5339,8 +5341,16 @@ async function mountBetterAuthRoutes(
           getHeader(event, "cookie") ?? null,
         );
         const signupCookieHeader = getHeader(event, "cookie") ?? null;
-        const signupAnonymousId = readAnalyticsAnonymousId(signupCookieHeader);
-        const signupSessionId = readAnalyticsSessionId(signupCookieHeader);
+        const performanceAllowed = requestAllowsConsentCategory(
+          event,
+          "performance",
+        );
+        const signupAnonymousId = performanceAllowed
+          ? readAnalyticsAnonymousId(signupCookieHeader)
+          : undefined;
+        const signupSessionId = performanceAllowed
+          ? readAnalyticsSessionId(signupCookieHeader)
+          : undefined;
         const mcpSignupAttribution = hasMcpSignupAttributionCookie(
           signupCookieHeader,
         )
@@ -5364,6 +5374,16 @@ async function mountBetterAuthRoutes(
           signupSessionId,
           mcpSignupAttribution: mcpSignupAttribution ?? undefined,
         });
+        const mcpSignupCookie = hasMcpSignupAttributionCookie(
+          signupCookieHeader,
+        )
+          ? (() => {
+              deleteCookie(event, MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME, {
+                path: "/",
+              });
+              return event.res.headers.getSetCookie().at(-1);
+            })()
+          : undefined;
         const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -5395,9 +5415,11 @@ async function mountBetterAuthRoutes(
           // 200 status (no Location header), which broke the popup-based
           // Google sign-in in production. Web `Response` is the proven idiom
           // here — `oauthCallbackResponse`/`oauthErrorPage` use it and work.
+          const headers = new Headers({ Location: authUrl });
+          if (mcpSignupCookie) headers.append("Set-Cookie", mcpSignupCookie);
           return new Response(null, {
             status: 302,
-            headers: { Location: authUrl },
+            headers,
           });
         }
         return { url: authUrl };
@@ -6896,11 +6918,20 @@ async function mountBetterAuthRoutes(
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
         const signupCookieHeader = getHeader(event, "cookie") ?? null;
-        const signupContext =
+        const performanceAllowed = requestAllowsConsentCategory(
+          event,
+          "performance",
+        );
+        const browserSignupContext =
           signupAttributionContextFromCookieHeader(signupCookieHeader);
-        const mcpSignupAttribution = hasMcpSignupAttributionCookie(
-          signupCookieHeader,
-        )
+        const signupContext = performanceAllowed
+          ? browserSignupContext
+          : browserSignupContext
+            ? { attribution: browserSignupContext.attribution }
+            : undefined;
+        const hasMcpSignupCookie =
+          hasMcpSignupAttributionCookie(signupCookieHeader);
+        const mcpSignupAttribution = hasMcpSignupCookie
           ? readMcpSignupContextFromCookieHeader(
               signupCookieHeader,
               getAuthSecret(),
@@ -6938,6 +6969,11 @@ async function mountBetterAuthRoutes(
           },
           headers: event.headers,
         });
+        if (hasMcpSignupCookie) {
+          deleteCookie(event, MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME, {
+            path: "/",
+          });
+        }
         return {
           ok: true,
           ...(desktopFlow ?? {}),

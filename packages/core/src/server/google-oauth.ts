@@ -23,6 +23,7 @@ import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
+import { requestAllowsConsentCategory } from "./consent-route.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
@@ -36,6 +37,7 @@ import {
   isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
   isNetlifyDeployPermalinkGoogleOAuthClientRequest,
 } from "./identity-sso-store.js";
+import { filterMcpSignupAttributionByConsent } from "./mcp-signup-attribution.js";
 import {
   applyMcpSignupAttribution,
   sanitizeMcpSignupAttribution,
@@ -885,21 +887,31 @@ export async function createOAuthSession(
     }
     if (shouldTrackSignup && opts.trackSignup) {
       const signupCookieHeader = getHeader(event, "cookie") ?? null;
+      const performanceAllowed = requestAllowsConsentCategory(
+        event,
+        "performance",
+      );
       const baseAttribution =
         opts.trackSignup.attribution ??
         signupAttributionFromCookieHeader(signupCookieHeader);
+      const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        opts.trackSignup.mcpSignupAttribution,
+        signupCookieHeader,
+      );
       const attribution = applyMcpSignupAttribution(
         baseAttribution,
-        opts.trackSignup.mcpSignupAttribution,
+        mcpSignupAttribution,
       );
-      const anonymousId =
-        opts.trackSignup.signupAnonymousId ??
-        opts.trackSignup.mcpSignupAttribution?.anonymousId ??
-        readAnalyticsAnonymousId(signupCookieHeader);
-      const sessionId =
-        opts.trackSignup.signupSessionId ??
-        opts.trackSignup.mcpSignupAttribution?.sessionId ??
-        readAnalyticsSessionId(signupCookieHeader);
+      const anonymousId = performanceAllowed
+        ? (opts.trackSignup.signupAnonymousId ??
+          mcpSignupAttribution?.anonymousId ??
+          readAnalyticsAnonymousId(signupCookieHeader))
+        : undefined;
+      const sessionId = performanceAllowed
+        ? (opts.trackSignup.signupSessionId ??
+          mcpSignupAttribution?.sessionId ??
+          readAnalyticsSessionId(signupCookieHeader))
+        : undefined;
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;

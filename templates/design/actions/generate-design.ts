@@ -913,7 +913,7 @@ const generateDesignAction = defineAction({
       string,
       Awaited<ReturnType<typeof readLiveSourceFile>>
     >();
-    for (const file of files) {
+    for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (!existing) continue;
       const workspaceFile: SourceWorkspaceFile = {

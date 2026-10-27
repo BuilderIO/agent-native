@@ -3199,4 +3199,33 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
     expect(mocks.seededCollabText.size).toBe(0);
   });
+
+  it("preflights the annotated HTML that will be persisted", async () => {
+    const existing =
+      '<html><body><section data-agent-native-node-id="section"><div data-agent-native-node-id="wrapper"><div data-agent-native-locked="true" data-agent-native-node-id="locked">Legal</div></div><p>Before</p></section></body></html>';
+    setExistingFile(existing);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Update the page copy",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content:
+              '<html><body><section data-agent-native-node-id="section"><div data-agent-native-node-id="wrapper"><div data-agent-native-locked="true" data-agent-native-node-id="locked">Legal</div></div><p>After</p></section></body></html>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+      statusCode: 409,
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+  });
 });

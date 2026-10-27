@@ -161,21 +161,28 @@ export function readMcpSignupContextFromCookieHeader(
   secret: string,
   now = Date.now(),
 ): McpSignupAttribution | null | undefined {
-  const cookies = parseCookieHeader(cookieHeader);
-  const consent = parseConsent(cookies[CONSENT_COOKIE_NAME]);
-  const context = readMcpSignupAttributionFromCookieHeader(
+  return filterMcpSignupAttributionByConsent(
+    readMcpSignupAttributionFromCookieHeader(cookieHeader, secret, now),
     cookieHeader,
-    secret,
-    now,
   );
+}
+
+export function filterMcpSignupAttributionByConsent(
+  context: McpSignupAttribution | null | undefined,
+  cookieHeader: string | null | undefined,
+): McpSignupAttribution | null | undefined {
   if (!context) return context;
 
+  const consent = parseConsent(
+    parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
+  );
   const allowedContext = { ...context };
   if (consent?.performance === false) {
     delete allowedContext.anonymousId;
     delete allowedContext.sessionId;
   }
   if (consent?.targeting === false) {
+    delete allowedContext.vendor;
     delete allowedContext.vendorHint;
     allowedContext.firstTouchPathAllowed = false;
   }

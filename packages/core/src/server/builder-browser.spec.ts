@@ -269,7 +269,7 @@ describe("Builder account provisioning", () => {
               code: "upstream_failure",
               message: "sessionToken=private-session-value",
               detail:
-                "webhookSecret: private-webhook-value; signing_secret=private-signing-value",
+                "webhookSecret: private-webhook-value; signing_secret=private-signing-value, accessKey: private access key value, sessionKey=private session key value, signingKey: private signing key value, jwt: private jwt payload",
               error: "Authorization: Basic private-basic-credential",
             }),
             { status: 502, headers: { "Content-Type": "application/json" } },
@@ -291,10 +291,18 @@ describe("Builder account provisioning", () => {
     expect(diagnostic).toContain("webhookSecret: [redacted]");
     expect(diagnostic).toContain("signing_secret=[redacted]");
     expect(diagnostic).toContain("Authorization: [redacted]");
+    expect(diagnostic).toContain("accessKey: [redacted]");
+    expect(diagnostic).toContain("sessionKey=[redacted]");
+    expect(diagnostic).toContain("signingKey: [redacted]");
+    expect(diagnostic).toContain("jwt: [redacted]");
     expect(diagnostic).not.toContain("private-session-value");
     expect(diagnostic).not.toContain("private-webhook-value");
     expect(diagnostic).not.toContain("private-signing-value");
     expect(diagnostic).not.toContain("private-basic-credential");
+    expect(diagnostic).not.toContain("private access key value");
+    expect(diagnostic).not.toContain("private session key value");
+    expect(diagnostic).not.toContain("private signing key value");
+    expect(diagnostic).not.toContain("private jwt payload");
   });
 
   it("classifies existing-account errors across runtime boundaries", () => {

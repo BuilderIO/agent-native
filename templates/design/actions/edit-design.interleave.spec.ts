@@ -187,7 +187,7 @@ describe("edit-design conflict retry", () => {
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
-  it("classifies a retry no-match as no-write and accepts a corrected call", async () => {
+  it("preserves a retry no-match after checkpointing and accepts a corrected call", async () => {
     mocks.readLiveSourceFile
       .mockResolvedValueOnce({
         content: "<main>Hello base</main>",
@@ -218,7 +218,10 @@ describe("edit-design conflict retry", () => {
         filename: "index.html",
         edits: [{ search: "Hello", replace: "Hi" }],
       } as never),
-    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+    ).rejects.toMatchObject({
+      name: "Error",
+      message: expect.stringContaining("text was not found"),
+    });
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
@@ -234,6 +237,37 @@ describe("edit-design conflict retry", () => {
     expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
       "<main>Recovered</main>",
     );
+  });
+
+  it("does not label a retry miss as no-write after checkpointing", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Hello base</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent replacement</main>",
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile.mockRejectedValueOnce(
+      new SourceWorkspaceEditConflictError(),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "Error",
+      message: expect.stringContaining("text was not found"),
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
   });
 
   it("does not retry replace-file mode on conflict", async () => {

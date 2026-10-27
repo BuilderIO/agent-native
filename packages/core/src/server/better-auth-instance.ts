@@ -90,6 +90,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import { CONSENT_COOKIE_NAME, parseConsent } from "../shared/consent.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -106,6 +107,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   type SignupOrigin,
+  parseCookieHeader,
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
@@ -138,8 +140,7 @@ import {
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 import {
   applyMcpSignupAttribution,
-  hasMcpSignupAttributionCookie,
-  readMcpSignupContextFromCookieHeader,
+  filterMcpSignupAttributionByConsent,
 } from "./mcp-signup-attribution.js";
 import {
   getConfiguredOriginAllowlist,
@@ -288,9 +289,16 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
-  const requestSessionId = normalizeAnalyticsSessionId(
-    requestHeaders.get("x-agent-native-session-id"),
+  const cookieHeader = requestHeaders.get("cookie");
+  const consent = parseConsent(
+    parseCookieHeader(cookieHeader)[CONSENT_COOKIE_NAME],
   );
+  const performanceAllowed = consent?.performance !== false;
+  const requestSessionId = performanceAllowed
+    ? normalizeAnalyticsSessionId(
+        requestHeaders.get("x-agent-native-session-id"),
+      )
+    : undefined;
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
@@ -302,29 +310,35 @@ export async function emitSignupEventForCreatedUser(
     | ReturnType<typeof readMagicLinkSignupAttribution>
     | undefined;
   let mcpSignupAttribution:
-    | ReturnType<typeof readMcpSignupContextFromCookieHeader>
+    | ReturnType<typeof filterMcpSignupAttributionByConsent>
     | undefined;
   try {
     magicLinkAttribution = context?.request?.url?.includes("newUserCallbackURL")
       ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
       : undefined;
-    mcpSignupAttribution =
-      magicLinkAttribution?.mcpSignupAttribution ??
-      (hasMcpSignupAttributionCookie(requestHeaders.get("cookie"))
-        ? readMcpSignupContextFromCookieHeader(
-            requestHeaders.get("cookie"),
-            getAuthSecret(),
-          )
-        : undefined);
+    if (magicLinkAttribution) {
+      mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        magicLinkAttribution.mcpSignupAttribution,
+        cookieHeader,
+      );
+      magicLinkAttribution = {
+        ...magicLinkAttribution,
+        ...(performanceAllowed
+          ? {}
+          : { anonymousId: undefined, sessionId: undefined }),
+        mcpSignupAttribution: mcpSignupAttribution ?? undefined,
+      };
+    }
     const browser =
       magicLinkAttribution ??
       scoped?.signupAttribution ??
       signupAttributionContextFromHeaders(requestHeaders) ??
-      signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
+      signupAttributionContextFromCookieHeader(cookieHeader);
     attribution = browser?.attribution;
-    anonymousId = browser?.anonymousId;
-    sessionId =
-      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
+    anonymousId = performanceAllowed ? browser?.anonymousId : undefined;
+    sessionId = performanceAllowed
+      ? (normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId)
+      : undefined;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }

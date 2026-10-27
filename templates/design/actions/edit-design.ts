@@ -393,6 +393,7 @@ export default defineAction({
             edits ?? [],
           ));
         } catch (error) {
+          if (checkpointed) throw error;
           throw new NoWriteError(
             error instanceof Error ? error.message : "Design edit failed",
           );

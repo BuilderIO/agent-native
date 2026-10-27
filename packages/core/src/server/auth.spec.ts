@@ -644,6 +644,8 @@ describe("server/auth", () => {
       const { autoMountAuth } = await import("./auth.js");
       const { readMagicLinkSignupAttribution } =
         await import("./magic-link-attribution.js");
+      const { encodeMcpSignupAttribution } =
+        await import("./mcp-signup-attribution.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -653,15 +655,21 @@ describe("server/auth", () => {
       const firstTouch = encodeURIComponent(
         JSON.stringify({ ref: "external", utm_campaign: "launch" }),
       );
-      await expect(
-        handler(
-          createJsonPostEvent(
-            "/_agent-native/auth/magic-link",
-            { email: "new@example.com", callbackURL: "/welcome" },
-            { cookie: `an_aid=anon_123; an_ft=${firstTouch}` },
-          ),
-        ),
-      ).resolves.toEqual({ ok: true });
+      const mcpSignup = encodeMcpSignupAttribution(
+        { vendor: "openai", sessionId: "session_magic_mcp" },
+        secret,
+      );
+      const magicLinkEvent = createJsonPostEvent(
+        "/_agent-native/auth/magic-link",
+        { email: "new@example.com", callbackURL: "/welcome" },
+        {
+          cookie: `an_aid=anon_123; an_ft=${firstTouch}; an_mcp_signup=${mcpSignup}`,
+        },
+      );
+      await expect(handler(magicLinkEvent)).resolves.toEqual({ ok: true });
+      expect(magicLinkEvent.res.headers.getSetCookie()).toContainEqual(
+        expect.stringContaining("an_mcp_signup=; Max-Age=0"),
+      );
 
       const request = signInMagicLink.mock.calls[0]?.[0];
       const callback = new URL(request.body.newUserCallbackURL);
@@ -682,6 +690,10 @@ describe("server/auth", () => {
           utm_campaign: "launch",
         },
         anonymousId: "anon_123",
+        mcpSignupAttribution: expect.objectContaining({
+          vendorHint: "openai",
+          sessionId: "session_magic_mcp",
+        }),
       });
 
       // A browser holding only a last touch still signs it into the link.
@@ -2761,14 +2773,16 @@ describe("server/auth", () => {
       const authUrlHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/google/auth-url",
       )?.[1];
-      const result = await authUrlHandler(
-        createMockEvent({
-          path: "/_agent-native/google/auth-url",
-          query: { mobile: "1" },
-          headers: {
-            cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p1.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
-          },
-        }),
+      const authStartEvent = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        query: { mobile: "1" },
+        headers: {
+          cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p1.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
+        },
+      });
+      const result = await authUrlHandler(authStartEvent);
+      expect(authStartEvent.res.headers.getSetCookie()).toContainEqual(
+        expect.stringContaining("an_mcp_signup=; Max-Age=0"),
       );
 
       expect(new URL(result.url).searchParams.get("client_id")).toBe(
@@ -2793,6 +2807,29 @@ describe("server/auth", () => {
           sessionId: "session_mcp_auth_url",
         },
       });
+
+      const revokedResult = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: { mobile: "1" },
+          headers: {
+            cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p0.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
+          },
+        }),
+      );
+      const revokedState = decodeOAuthState(
+        new URL(revokedResult.url).searchParams.get("state") ?? undefined,
+        "http://localhost/_agent-native/google/callback",
+      );
+      expect(revokedState.signupAnonymousId).toBeUndefined();
+      expect(revokedState.signupSessionId).toBeUndefined();
+      expect(revokedState.mcpSignupAttribution).toMatchObject({
+        vendorHint: "openai",
+      });
+      expect(revokedState.mcpSignupAttribution).not.toHaveProperty(
+        "anonymousId",
+      );
+      expect(revokedState.mcpSignupAttribution).not.toHaveProperty("sessionId");
     });
 
     it("maps an invite-only Google callback rejection to the public auth error page", async () => {
@@ -11310,6 +11347,70 @@ describe("server/auth", () => {
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",
       });
+    });
+
+    it("drops signed Google OAuth visitor ids when callback performance consent is denied", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_NAME", "plan");
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : query.sql || "";
+        if (/SELECT 1 FROM sessions WHERE email = \?/i.test(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => false,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const trackSignupEvent = vi.fn(async () => {});
+      vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "test-auth-secret"),
+        getBetterAuth: vi.fn(),
+        getBetterAuthSync: vi.fn(),
+        getBetterAuthUserIdForEmail: vi.fn(async () => "better-auth-user-id"),
+        hasBetterAuthUserEmail: vi.fn(async () => false),
+        trackSignupEvent,
+      }));
+
+      const { createOAuthSession } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        headers: {
+          "x-forwarded-proto": "https",
+          cookie: "an_consent=1.p0.t0",
+        },
+      });
+
+      await createOAuthSession(event, "user@gmail.com", {
+        hasProductionSession: false,
+        trackSignup: {
+          authProvider: "google",
+          authUserId: "google-user-1",
+          name: "Google User",
+          attribution: { first_touch_path: "/mcp/oauth/authorize" },
+          signupAnonymousId: "anon_state_denied",
+          signupSessionId: "session_state_denied",
+          mcpSignupAttribution: {
+            vendor: "openai",
+            anonymousId: "anon_state_denied",
+            sessionId: "session_state_denied",
+          },
+        },
+      });
+
+      expect(trackSignupEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          origin: "mcp_oauth",
+          anonymousId: undefined,
+          sessionId: undefined,
+        }),
+      );
+      expect(
+        trackSignupEvent.mock.calls[0]?.[0].attribution,
+      ).not.toHaveProperty("$mcp_vendor_client_hint");
     });
 
     it("does not track Google OAuth signup for an existing legacy session email", async () => {
