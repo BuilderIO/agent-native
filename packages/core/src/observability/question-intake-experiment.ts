@@ -22,6 +22,23 @@ export interface QuestionIntakeExperimentAssignment {
     | typeof QUESTION_INTAKE_TREATMENT_VARIANT;
 }
 
+export function treatmentInstructionsForQuestionIntake(
+  config: QuestionIntakeExperimentConfig | undefined,
+  assignment: QuestionIntakeExperimentAssignment | null,
+): string | undefined {
+  if (
+    !configured(config) ||
+    assignment?.experimentId !== config.experimentId ||
+    assignment.variantId !== QUESTION_INTAKE_TREATMENT_VARIANT
+  ) {
+    return undefined;
+  }
+  return [
+    "For this assigned experiment treatment, follow the instructions below over any earlier conflicting instructions about whether to ask intake questions.",
+    config.treatmentInstructions.trim(),
+  ].join("\n");
+}
+
 function configured(
   config: QuestionIntakeExperimentConfig | undefined,
 ): config is QuestionIntakeExperimentConfig {
@@ -70,19 +87,28 @@ export async function assignQuestionIntakeExperimentOnSignup(
 ): Promise<QuestionIntakeExperimentAssignment | null> {
   if (!configured(config) || !authUserId?.trim()) return null;
 
-  const existing = await getAssignment(config.experimentId, authUserId);
-  if (existing) {
-    return assignmentFromStored(config, authUserId, existing.variantId);
-  }
+  const assign = async () => {
+    const existing = await getAssignment(config.experimentId, authUserId);
+    if (existing) {
+      return assignmentFromStored(config, authUserId, existing.variantId);
+    }
 
-  const variantId = variantForUser(config.experimentId, authUserId);
-  await upsertAssignment({
-    experimentId: config.experimentId,
-    userId: authUserId,
-    variantId,
-    assignedAt: Date.now(),
-  });
-  return { authUserId, experimentId: config.experimentId, variantId };
+    const variantId = variantForUser(config.experimentId, authUserId);
+    await upsertAssignment({
+      experimentId: config.experimentId,
+      userId: authUserId,
+      variantId,
+      assignedAt: Date.now(),
+    });
+    return { authUserId, experimentId: config.experimentId, variantId };
+  };
+
+  try {
+    return await assign();
+  } catch {
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    return assign();
+  }
 }
 
 /** Reads an existing signup assignment; agent runs never enroll older users. */

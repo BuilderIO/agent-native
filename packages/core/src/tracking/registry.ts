@@ -209,8 +209,10 @@ export function track(
             assignment ?? undefined,
           ),
         () => {
-          console.error("[tracking] question-intake assignment lookup failed");
-          emitTrackedEvent(name, experimentProperties, source);
+          console.error("[tracking] question-intake assignment lookup failed", {
+            experimentId: config.experimentId,
+            eventName: name,
+          });
         },
       )
       .catch(() => {
@@ -257,6 +259,10 @@ function emitTrackedEvent(
   const safeProperties = { ...(properties ?? {}) };
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
+  if (telemetryOrigin === "client") {
+    delete safeProperties.experiment_id;
+    delete safeProperties.experiment_variant;
+  }
   if (authUserId) safeProperties.auth_user_id = authUserId;
   const firstRunExperiment =
     authUserId && FIRST_RUN_EXPERIMENT_EVENT_NAMES.has(name)

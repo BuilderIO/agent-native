@@ -143,7 +143,10 @@ import {
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
 } from "../observability/hosted-model-experiment.js";
-import { resolveQuestionIntakeExperimentAssignment } from "../observability/question-intake-experiment.js";
+import {
+  resolveQuestionIntakeExperimentAssignment,
+  treatmentInstructionsForQuestionIntake,
+} from "../observability/question-intake-experiment.js";
 import {
   isFirstPartyHostedAgentNative,
   shouldInferSentimentForTurn,
@@ -13931,6 +13934,12 @@ export function createProductionAgentHandler(
         );
     } catch {
       console.error("[agent-chat] question-intake assignment lookup failed");
+      setResponseStatus(event, 503);
+      return {
+        error: "The agent run failed.",
+        code: "question_intake_assignment_unavailable",
+        retryable: true,
+      };
     }
     if (questionIntakeAssignment) {
       const runContext = ensureRequestRunContext();
@@ -15248,10 +15257,10 @@ export function createProductionAgentHandler(
             typeof options.systemPrompt === "function"
               ? await options.systemPrompt(event)
               : options.systemPrompt;
-          const treatmentInstructions =
-            questionIntakeAssignment?.variantId === "no_questions"
-              ? questionIntakeConfig?.treatmentInstructions.trim()
-              : undefined;
+          const treatmentInstructions = treatmentInstructionsForQuestionIntake(
+            questionIntakeConfig,
+            questionIntakeAssignment,
+          );
           return treatmentInstructions
             ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
             : built;

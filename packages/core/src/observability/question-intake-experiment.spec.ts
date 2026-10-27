@@ -12,6 +12,7 @@ import {
   QUESTION_INTAKE_CONTROL_VARIANT,
   QUESTION_INTAKE_TREATMENT_VARIANT,
   resolveQuestionIntakeExperimentAssignment,
+  treatmentInstructionsForQuestionIntake,
   type QuestionIntakeExperimentConfig,
 } from "./question-intake-experiment.js";
 
@@ -29,6 +30,23 @@ beforeEach(() => {
 });
 
 describe("signup-time question-intake assignments", () => {
+  it("makes treatment instructions override conflicting intake directives", () => {
+    expect(
+      treatmentInstructionsForQuestionIntake(config, {
+        authUserId: "user-1",
+        experimentId: "design_no_questions",
+        variantId: "no_questions",
+      }),
+    ).toContain("over any earlier conflicting instructions");
+    expect(
+      treatmentInstructionsForQuestionIntake(config, {
+        authUserId: "user-1",
+        experimentId: "design_no_questions",
+        variantId: "control",
+      }),
+    ).toBeUndefined();
+  });
+
   it("creates a stable user-keyed assignment in the existing assignment store", async () => {
     const first = await assignQuestionIntakeExperimentOnSignup(
       config,
@@ -48,6 +66,30 @@ describe("signup-time question-intake assignments", () => {
       assignedAt: expect.any(Number),
     });
   });
+
+  it.each(["read", "write"] as const)(
+    "retries a transient signup assignment %s failure",
+    async (failedOperation) => {
+      if (failedOperation === "read") {
+        store.getAssignment.mockRejectedValueOnce(new Error("db unavailable"));
+      } else {
+        store.upsertAssignment.mockRejectedValueOnce(
+          new Error("db unavailable"),
+        );
+      }
+
+      await expect(
+        assignQuestionIntakeExperimentOnSignup(config, "user-1"),
+      ).resolves.toMatchObject({
+        authUserId: "user-1",
+        experimentId: "design_no_questions",
+      });
+      expect(store.getAssignment).toHaveBeenCalledTimes(2);
+      expect(store.upsertAssignment).toHaveBeenCalledTimes(
+        failedOperation === "write" ? 2 : 1,
+      );
+    },
+  );
 
   it("splits a large stable user-id range evenly between the two variants", async () => {
     const counts = new Map<string, number>([

@@ -28,6 +28,10 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  resetAppConfigForTests,
+  setAppConfigLayer,
+} from "../app-config/store.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
 import type { TextAttachmentStorage } from "../file-upload/attachment-text.js";
@@ -48,6 +52,7 @@ import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as questionIntakeExperiment from "../observability/question-intake-experiment.js";
 import * as appRoles from "../org/app-roles.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
@@ -4435,6 +4440,60 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed retryable failure when an experiment assignment cannot be read", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(new Error("assignment store unavailable"));
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(503);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_unavailable",
+        retryable: true,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
   it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
     const threadId = "thread-durable-admission";
     const messageId = "message-durable-admission";

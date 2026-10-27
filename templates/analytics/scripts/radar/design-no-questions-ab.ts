@@ -525,7 +525,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    `The denominator for the 24-hour design-ready, export, and second-prompt metrics is the mature exposed cohort. The return metric includes only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
+    `Design-ready and completed-export rates use the mature exposed cohort. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
   );
   return lines.join("\n");
 }
