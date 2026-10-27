@@ -2360,6 +2360,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible de modifier {{lab}}. Réessayez.",
   "settingsShell.appGroup.mcpAbout":
     "Connectez {{app}} à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans {{app}} pour vous. Elle ne voit que ce que vous pouvez voir.",
+  "settingsShell.appGroup.mcpAppCards":
+    "Cartes d’application dans les applications de chat",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Les outils affichent des cartes interactives, comme un brouillon d’e-mail que vous pouvez modifier et envoyer, dans les applications de chat compatibles avec MCP Apps, comme Claude et ChatGPT. Après avoir modifié ce réglage, reconnectez cette application dans votre application de chat.",
   "settingsShell.appGroup.mcpFootnote":
     "Pour les outils que l’agent utilise lui-même, consultez {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Nouvelle automatisation",

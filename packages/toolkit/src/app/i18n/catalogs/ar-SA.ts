@@ -2345,6 +2345,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
+  "settingsShell.appGroup.mcpAppCards": "بطاقات التطبيق في تطبيقات الدردشة",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "تعرض الأدوات بطاقات تفاعلية، مثل مسودة بريد إلكتروني يمكنك تعديلها وإرسالها، في تطبيقات الدردشة التي تدعم MCP Apps، مثل Claude وChatGPT. بعد تغيير هذا الإعداد، أعد ربط هذا التطبيق في تطبيق الدردشة.",
   "settingsShell.appGroup.mcpFootnote":
     "للاطلاع على الأدوات التي يستخدمها الوكيل نفسه، راجع {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "أتمتة جديدة",
