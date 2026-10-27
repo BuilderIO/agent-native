@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   RadarQueryError,
   REPO_ROOT,
+  radarJsonbParam,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   runBigQuery,
@@ -107,7 +108,12 @@ export function campaignPostgresParams(
   endDate: string,
   orgId: string,
 ): unknown[] {
-  return [JSON.stringify(recipients), startDate, endDate, orgId];
+  const recipientRows = recipients.map((recipient) => ({
+    email: recipient.email,
+    sent_at: recipient.sent_at,
+    app: recipient.app,
+  }));
+  return [radarJsonbParam(recipientRows), startDate, endDate, orgId];
 }
 
 interface BigQueryCampaignActivityRow extends Record<string, unknown> {

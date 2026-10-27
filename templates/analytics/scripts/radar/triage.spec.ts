@@ -58,13 +58,16 @@ describe("BigQuery triage metadata parameters", () => {
       unknown[],
     ];
     expect(sql).toContain("jsonb_to_recordset($1::jsonb)");
-    expect(JSON.parse(String(params[0]))).toEqual([
-      {
-        session_id: "session-1",
-        app: "clips",
-        signup_at: "2026-10-26T12:00:00.000Z",
-      },
-    ]);
+    expect(params[0]).toMatchObject({
+      __radarJsonbParameter: true,
+      value: [
+        {
+          session_id: "session-1",
+          app: "clips",
+          signup_at: "2026-10-26T12:00:00.000Z",
+        },
+      ],
+    });
     expect(params[1]).toBe("org-1");
     expect(params[2]).toBe("2026-10-27T00:00:00.000Z");
   });

@@ -21,13 +21,16 @@ describe("campaign follow-up summaries", () => {
       "org-1",
     );
 
-    expect(JSON.parse(String(params[0]))).toEqual([
-      {
-        email: "person@example.test",
-        sent_at: "2026-10-26T12:00:00.000Z",
-        app: "clips",
-      },
-    ]);
+    expect(params[0]).toMatchObject({
+      __radarJsonbParameter: true,
+      value: [
+        {
+          email: "person@example.test",
+          sent_at: "2026-10-26T12:00:00.000Z",
+          app: "clips",
+        },
+      ],
+    });
   });
 
   it("aggregates recipient counts by activity app without repeating denominators", () => {

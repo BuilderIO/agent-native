@@ -7,6 +7,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
+  radarJsonbParam,
   radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
@@ -41,7 +42,7 @@ export function triageMetadataParams(
   orgId: string,
   windowEnd: string,
 ): unknown[] {
-  return [JSON.stringify(selected), orgId, windowEnd];
+  return [radarJsonbParam(selected), orgId, windowEnd];
 }
 
 function addDays(date: string, amount: number): string {

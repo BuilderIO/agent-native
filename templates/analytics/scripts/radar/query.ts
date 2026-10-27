@@ -32,6 +32,35 @@ export interface BqParameter {
   value: string | number | boolean;
 }
 
+export interface RadarJsonbParameter {
+  readonly __radarJsonbParameter: true;
+  readonly value: postgres.JSONValue;
+}
+
+export function radarJsonbParam(
+  value: postgres.JSONValue,
+): RadarJsonbParameter {
+  return { __radarJsonbParameter: true, value };
+}
+
+export function bindRadarPostgresParams(
+  params: readonly unknown[],
+  json: (value: postgres.JSONValue) => unknown,
+): unknown[] {
+  return params.map((param) =>
+    isRadarJsonbParameter(param) ? json(param.value) : param,
+  );
+}
+
+function isRadarJsonbParameter(value: unknown): value is RadarJsonbParameter {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "__radarJsonbParameter" in value &&
+    value.__radarJsonbParameter === true
+  );
+}
+
 export interface RadarQueryResult {
   rows: Record<string, unknown>[];
   bytesProcessed: number | null;
@@ -603,6 +632,9 @@ export async function runPostgresQuery(
   requireReadOnly(query);
   const db = getPostgres();
   const key = queryKey("postgres", query, [...params]);
+  const boundParams = bindRadarPostgresParams(params, (value) =>
+    db.json(value),
+  );
   const cacheEnabled = options.cache !== false;
   if (cacheEnabled && !options.fresh) {
     const cached = readCache(key, options.cacheTtlMs ?? CACHE_TTL_MS);
@@ -622,7 +654,7 @@ export async function runPostgresQuery(
     const rows = await db.begin("read only", async (tx) => {
       await tx.unsafe("SET LOCAL statement_timeout = '120s'");
       return collectPostgresRows(
-        tx.unsafe(query, [...params] as never[]).cursor(1),
+        tx.unsafe(query, boundParams as never[]).cursor(1),
       );
     });
     const result: RadarQueryResult = {

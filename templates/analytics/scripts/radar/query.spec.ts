@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bqRequest,
   appendBigQueryRows,
+  bindRadarPostgresParams,
   collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
   isReadOnlySql,
@@ -14,10 +15,23 @@ import {
   parseRadarBigQueryTableParts,
   radarCliExitCode,
   radarRunCliExitCode,
+  radarJsonbParam,
   RadarQueryError,
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("binds explicit JSONB parameters through postgres.js JSON serialization", () => {
+    const roster = [{ email: "recipient@example.test", app: "clips" }];
+    const json = vi.fn((value: unknown) => ({ type: 3802, value }));
+    const params = bindRadarPostgresParams(
+      [radarJsonbParam(roster), "org-1"],
+      json,
+    );
+
+    expect(params).toEqual([{ type: 3802, value: roster }, "org-1"]);
+    expect(json).toHaveBeenCalledExactlyOnceWith(roster);
+  });
+
   it("rejects malformed configured BigQuery table references instead of defaulting", () => {
     expect(parseRadarBigQueryTableParts(undefined)).toEqual([]);
     expect(parseRadarBigQueryTableParts("analytics.events")).toEqual([

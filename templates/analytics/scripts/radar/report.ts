@@ -72,6 +72,7 @@ export interface RadarWeeklyReport {
   };
   dailyRuns: DailyEntry[];
   triageSummary: TriageRun["byAppOutcome"] | null;
+  triageError: string | null;
   abReadout: AbReadout | null;
   campaignFollowup: CampaignFollowupResult | null;
   campaignAnnotations: RadarWatchRun["campaignAnnotations"];
@@ -323,11 +324,16 @@ export async function buildWeeklyReport(
   }
 
   let triage: TriageRun | null = null;
+  let triageError: string | null = null;
   try {
     triage = await runTriage({ date: weekEnd });
     queryCount += 2;
-  } catch {
+  } catch (error) {
     triage = null;
+    triageError =
+      error instanceof RadarQueryError
+        ? error.message
+        : "Replay triage could not run.";
   }
 
   let abReadout: AbReadout | null = null;
@@ -401,6 +407,7 @@ export async function buildWeeklyReport(
     },
     dailyRuns,
     triageSummary: triage?.byAppOutcome ?? null,
+    triageError,
     abReadout,
     campaignFollowup,
     campaignAnnotations,
@@ -537,7 +544,10 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
           .join(", ")}`,
       );
     }
-  } else lines.push("Replay triage was unavailable.");
+  } else
+    lines.push(
+      `Replay triage was unavailable: ${report.triageError ?? "no diagnostic was recorded"}.`,
+    );
   lines.push(
     "",
     "## Journey snapshot",
