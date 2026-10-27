@@ -238,18 +238,9 @@ export function configureClientRouterBasename(): boolean {
   return true;
 }
 
-function externalEmbedTargetBasePath(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  const target = (
-    window as Window & {
-      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
-    }
-  ).__AGENT_NATIVE_EXTERNAL_EMBED?.target;
-  if (typeof target !== "string" || !target.startsWith("/")) {
-    return undefined;
-  }
+export function resolveExternalEmbedTargetAppBasePath(target: string): string {
   const mounts = workspaceAppMountPaths();
-  const basePath = resolveExternalEmbedTargetBasePath(target, {
+  return resolveExternalEmbedTargetBasePath(target, {
     workspaceRuntime: isWorkspaceRuntime(),
     routerBasePath: routerContextBasePath(),
     workspaceAppPath: workspaceAppConfiguredPath(),
@@ -257,11 +248,63 @@ function externalEmbedTargetBasePath(): string | undefined {
     explicitRootPath: hasExplicitWorkspaceRootPath(),
     frameworkRoutePrefix: frameworkRoutePrefix(),
   });
-  const pathname = window.location?.pathname;
-  if (typeof pathname !== "string" || !pathname.startsWith("/")) {
+}
+
+type ExternalEmbedPathState = {
+  target: string;
+  initialPathname: string;
+  navigated: boolean;
+};
+
+type ExternalEmbedConfig = {
+  target?: unknown;
+  __agentNativePathState?: unknown;
+};
+
+function externalEmbedTargetBasePath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const externalEmbed = (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  if (!externalEmbed || typeof externalEmbed !== "object") return undefined;
+  const config = externalEmbed as ExternalEmbedConfig;
+  const target = config.target;
+  if (typeof target !== "string" || !target.startsWith("/")) {
+    return undefined;
+  }
+  const basePath = resolveExternalEmbedTargetAppBasePath(target);
+  const pathname = window.location.pathname;
+  if (!pathname.startsWith("/")) {
     return basePath;
   }
 
+  const storedPathState = config.__agentNativePathState;
+  let pathState =
+    storedPathState && typeof storedPathState === "object"
+      ? (storedPathState as Partial<ExternalEmbedPathState>)
+      : undefined;
+  if (
+    !pathState ||
+    pathState.target !== target ||
+    typeof pathState.initialPathname !== "string" ||
+    typeof pathState.navigated !== "boolean"
+  ) {
+    const nextPathState: ExternalEmbedPathState = {
+      target,
+      initialPathname: pathname,
+      navigated: false,
+    };
+    config.__agentNativePathState = nextPathState;
+    pathState = nextPathState;
+  } else if (pathState.initialPathname !== pathname) {
+    pathState.navigated = true;
+  }
+  // Keep the target for handoff, then follow later route changes.
+  if (!pathState.navigated || !pathname.startsWith("/")) return basePath;
+
+  const mounts = workspaceAppMountPaths();
   const currentMount = resolveWorkspaceAppMountPath(pathname, {
     workspaceAppMountPaths: mounts ? [...mounts] : undefined,
     frameworkRoutePrefix: frameworkRoutePrefix(),

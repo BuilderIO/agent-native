@@ -25,6 +25,7 @@ import {
   frameworkRoutePrefix,
   isWorkspaceRuntime,
   resolveAppBasePath,
+  resolveExternalEmbedTargetAppBasePath,
 } from "./api-path.js";
 
 let installed = false;
@@ -78,12 +79,26 @@ function memoryTokenFor(storageKey: string): string | null {
 function externalEmbedToken(win: Window): string | null {
   const config = (
     win as Window & {
-      __AGENT_NATIVE_EXTERNAL_EMBED?: { token?: unknown };
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown; token?: unknown };
     }
   ).__AGENT_NATIVE_EXTERNAL_EMBED;
   return typeof config?.token === "string" && config.token
     ? config.token
     : null;
+}
+
+function externalEmbedTokenStorageKey(win: Window): string | null {
+  const config = (
+    win as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  const target = config?.target;
+  if (typeof target !== "string" || !target.startsWith("/")) return null;
+  return embedTokenStorageKey(
+    resolveExternalEmbedTargetAppBasePath(target),
+    isWorkspaceRuntime(),
+  );
 }
 
 function currentUrl(win: Window): URL | null {
@@ -260,6 +275,8 @@ export function getEmbedAuthToken(): string | null {
   if (stored) return stored;
   const external = externalEmbedToken(win);
   if (!external) return null;
+  // The frame config outlives navigation, but its token belongs to one mount.
+  if (externalEmbedTokenStorageKey(win) !== storageKey) return null;
   storeToken(external, win, storageKey);
   return external;
 }

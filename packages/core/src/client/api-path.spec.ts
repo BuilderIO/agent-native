@@ -191,47 +191,47 @@ describe("agentNativePath", () => {
     );
   });
 
-  it(
-    "uses the current workspace mount after navigating away from an external target",
-    () => {
-      vi.stubGlobal("window", {
-        location: { pathname: "/calendar/events" },
-        __AGENT_NATIVE_CONFIG__: {
-          workspaceRuntime: true,
-          workspaceAppPath: "/mail/inbox",
-          workspaceAppMountPaths: ["/mail/inbox", "/calendar"],
-        },
-        __AGENT_NATIVE_EXTERNAL_EMBED: {
-          target: "/mail/inbox/threads",
-        },
-      });
+  it("uses the current workspace mount after navigating away from an external target", () => {
+    const win = {
+      location: { pathname: "/mail/inbox/threads" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox", "/calendar"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    };
+    vi.stubGlobal("window", win);
 
-      expect(appBasePath()).toBe("/calendar");
-      expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
-        "/calendar/_agent-native/agent-engine/status",
-      );
-    },
-  );
+    expect(appBasePath()).toBe("/mail/inbox");
+    win.location.pathname = "/calendar/events";
+    expect(appBasePath()).toBe("/calendar");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/calendar/_agent-native/agent-engine/status",
+    );
+  });
 
-  it(
-    "does not keep a root external target when the current path belongs to a mounted app",
-    () => {
-      vi.stubGlobal("window", {
-        location: { pathname: "/mail/threads" },
-        __AGENT_NATIVE_CONFIG__: {
-          workspaceRuntime: true,
-          workspaceAppPath: "/",
-          workspaceAppMountPaths: ["/mail"],
-        },
-        __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/reports" },
-      });
+  it("does not keep a root external target when the current path belongs to a mounted app", () => {
+    const win = {
+      location: { pathname: "/reports/overview" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/mail"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/reports" },
+    };
+    vi.stubGlobal("window", win);
 
-      expect(appBasePath()).toBe("/mail");
-      expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
-        "/mail/_agent-native/agent-engine/status",
-      );
-    },
-  );
+    expect(appBasePath()).toBe("");
+    win.location.pathname = "/mail/threads";
+    expect(appBasePath()).toBe("/mail");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/_agent-native/agent-engine/status",
+    );
+  });
 
   it("keeps a configured workspace base when the current path matches it", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");

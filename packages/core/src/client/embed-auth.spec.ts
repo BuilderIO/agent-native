@@ -89,7 +89,10 @@ describe("embed auth client", () => {
       workspaceAppPath: "/dispatch",
       workspaceAppMountPaths: ["/dispatch", "/event-finder"],
     };
-    sessionStorage.setItem(STORAGE_KEY, "legacy-child-token");
+    // Older signed tokens stored only the route after stripping the app mount,
+    // so this unscoped value cannot be assigned safely to the current app.
+    const legacyPayload = btoa(JSON.stringify({ targetPath: "/inbox" }));
+    sessionStorage.setItem(STORAGE_KEY, `${legacyPayload}.signature`);
     window.history.replaceState(null, "", "/dispatch/home");
     expect(child.getEmbedAuthToken()).toBeNull();
     expect(
@@ -112,7 +115,7 @@ describe("embed auth client", () => {
     ).__AGENT_NATIVE_CONFIG__ = {
       workspaceRuntime: true,
       workspaceAppPath: "/dispatch",
-      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+      workspaceAppMountPaths: ["/dispatch", "/event-finder", "/calendar"],
     };
     (
       window as Window & {
@@ -130,6 +133,15 @@ describe("embed auth client", () => {
       sessionStorage.getItem(embedTokenStorageKey("/event-finder", true)),
     ).toBe("transplanted-token");
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    window.history.replaceState(null, "", "/calendar/overview");
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+    ).toBeNull();
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/event-finder", true)),
+    ).toBe("transplanted-token");
   });
 
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
