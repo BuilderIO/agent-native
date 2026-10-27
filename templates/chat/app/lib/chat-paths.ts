@@ -15,18 +15,22 @@ const MAX_FAILED_HANDOFF_BYTES = COMPOSER_CONTEXT_MAX_BYTES * 2 + 32 * 1024;
 const MAX_HANDOFF_FIELD_LENGTH = 8 * 1024;
 const MAX_HANDOFF_ITEMS = 20;
 const INVALID_JSON_VALUE = Symbol("invalid-json-value");
-const HANDOFF_COMPOSER_OPTION_KEYS = new Set([
-  "mode",
-  "engine",
-  "model",
-  "effort",
-  "intent",
-  "steer",
-  "composerModeContext",
-  "references",
-  "uploadedAttachments",
-  "contextItems",
-]);
+// Keyed by the type: a new submit option fails tsc here until it is validated
+// in normalizeComposerOptions or omitted and stripped in chatHandoffComposerOptions.
+const HANDOFF_COMPOSER_OPTION_KEYS = new Set(
+  Object.keys({
+    mode: true,
+    engine: true,
+    model: true,
+    effort: true,
+    intent: true,
+    steer: true,
+    composerModeContext: true,
+    references: true,
+    uploadedAttachments: true,
+    contextItems: true,
+  } satisfies Record<keyof ChatInitialComposerOptions, true>),
+);
 
 export function chatThreadPath(threadId: string | null | undefined): string {
   return threadId
@@ -65,12 +69,31 @@ export function threadIdFromPath(pathname: string): string | null {
 
 export type ChatInitialComposerOptions = Omit<
   PromptComposerSubmitOptions,
-  "onLocalSubmit" | "attachments" | "requestMode"
+  "onLocalSubmit" | "attachments" | "requestMode" | "submissionId"
 > & {
   mode?: "act" | "plan";
   references?: readonly Reference[];
   uploadedAttachments?: readonly FilePart[];
 };
+
+/** A composer's submit options as the chat page it opens replays them. */
+export function chatHandoffComposerOptions(
+  options: PromptComposerSubmitOptions,
+  handoff: Pick<
+    ChatInitialComposerOptions,
+    "references" | "uploadedAttachments"
+  >,
+): ChatInitialComposerOptions {
+  const {
+    onLocalSubmit: _onLocalSubmit,
+    attachments: _attachments,
+    // Names the sending composer's optimistic copy, which unmounts with it.
+    submissionId: _submissionId,
+    requestMode,
+    ...submitOptions
+  } = options;
+  return { ...submitOptions, mode: requestMode ?? "act", ...handoff };
+}
 
 /** Router state that carries a prompt typed elsewhere into the chat it opens. */
 export interface ChatRouteState {

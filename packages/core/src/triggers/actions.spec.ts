@@ -45,12 +45,22 @@ vi.mock("../server/request-context.js", async (importOriginal) => ({
   getRequestOrgId: () => "org-1",
 }));
 
-vi.mock("../mcp/approval-store.js", () => ({
+// No review page approval or earlier run on record.
+vi.mock("../mcp/approval-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mcp/approval-store.js")>()),
   createMcpApprovalGrant: mocks.createMcpApprovalGrant,
   consumeMcpApprovalGrant: mocks.consumeMcpApprovalGrant,
+  consumeReviewedMcpApprovalGrant: vi.fn(async () => null),
+  answerMcpApprovalPrompt: vi.fn(async () => true),
+  findRecentMcpApprovalRun: vi.fn(async () => null),
+  recordMcpApprovalRun: vi.fn(async () => undefined),
 }));
 
-import { defineAction, type ActionCaller } from "../action.js";
+import {
+  defineAction,
+  type ActionCaller,
+  type ActionRunContext,
+} from "../action.js";
 import { executeAgentToolCall } from "../agent/production-agent.js";
 import runAutomationNow from "../jobs/actions/run-automation-now.js";
 import { executeMcpActionCall } from "../mcp/execute-action-call.js";
@@ -357,7 +367,12 @@ describe("MCP automation approval", () => {
     };
   }
 
-  function nestedCall<T>(run: () => Promise<T>, caller: ActionCaller = "mcp") {
+  type Origin = Pick<ActionRunContext, "caller" | "networkProtocol">;
+
+  function nestedCall<T>(
+    run: () => Promise<T>,
+    origin: ActionCaller | Origin = "mcp",
+  ) {
     const inner = defineAction({
       description: "Dispatch an automation operation.",
       schema: z.object({}),
@@ -368,19 +383,27 @@ describe("MCP automation approval", () => {
       schema: z.object({}),
       run: () => inner.run({}, { caller: "tool", userEmail: owner }),
     });
-    return outer.run({}, { caller, userEmail: owner });
+    return outer.run(
+      {},
+      {
+        ...(typeof origin === "string" ? { caller: origin } : origin),
+        userEmail: owner,
+      },
+    );
   }
 
   function dispatch(
     args: Record<string, unknown>,
     approvedToolCalls?: string[],
+    origin: Origin = { caller: "tool" },
   ) {
     return executeAgentToolCall({
       actions: callable(),
       name: "manage-automations",
       input: args,
       callId: "nested-automation-call",
-      caller: "tool",
+      caller: origin.caller,
+      networkProtocol: origin.networkProtocol,
       ownerEmail: owner,
       orgId: "org-1",
       approvedToolCalls,
@@ -417,7 +440,7 @@ describe("MCP automation approval", () => {
         name,
         args,
         callable: entries,
-        approval: { state: () => grant, decision: () => "decline" },
+        approval: { state: () => grant, decision: () => "deny" },
       });
       expect(denied.status).toBe("approval-denied");
       expect(run).not.toHaveBeenCalled();
@@ -429,64 +452,88 @@ describe("MCP automation approval", () => {
     },
   );
 
-  it.each(mutations.filter(({ name }) => name === "manage-automations"))(
-    "pauses nested MCP $args before any automation side effect",
-    async ({ args }) => {
-      const { emit } = await import("../event-bus/index.js");
-      const result = await nestedCall(() => dispatch(args));
-      expect(result.status).toBe("approval_required");
-      expect(mocks.defineAutomation).not.toHaveBeenCalled();
-      expect(mocks.updateAutomation).not.toHaveBeenCalled();
-      expect(mocks.deleteAutomation).not.toHaveBeenCalled();
-      expect(mocks.queueAutomationRunNow).not.toHaveBeenCalled();
-      expect(emit).not.toHaveBeenCalled();
-
-      if (result.status !== "approval_required") {
-        throw new Error("Missing nested approval request");
-      }
-      const approved = await nestedCall(() =>
-        dispatch(args, [result.approvalKey]),
-      );
-      expect(approved.status).toBe("completed");
-      const effect =
-        args.action === "define"
-          ? mocks.defineAutomation
-          : args.action === "update"
-            ? mocks.updateAutomation
-            : args.action === "delete"
-              ? mocks.deleteAutomation
-              : args.action === "run-now"
-                ? mocks.queueAutomationRunNow
-                : emit;
-      expect(effect).toHaveBeenCalledOnce();
+  describe.each<{ label: string; outer?: Origin; inner?: Origin }>([
+    { label: "nested MCP caller", outer: { caller: "mcp" } },
+    { label: "nested A2A caller", outer: { caller: "a2a" } },
+    {
+      label: "nested tool over A2A",
+      outer: { caller: "tool", networkProtocol: "a2a" },
     },
-  );
-
-  it.each(mutations.filter(({ name }) => name !== "manage-automations"))(
-    "requires approval for nested MCP $name $args on the direct action surface",
-    async ({ name, args }) => {
-      const entry =
-        callable()[name as "manage-automation" | "run-automation-now"];
-      const refusal = await nestedCall(() =>
-        directHttpActionApprovalRefusal(entry, args, {
-          actionName: name,
-          caller: "tool",
-          userEmail: owner,
-        }),
-      );
-      expect(refusal).toMatchObject({
-        errorCode: "approval_required",
-        statusCode: 409,
-      });
+    { label: "direct A2A caller", inner: { caller: "a2a" } },
+    {
+      label: "direct tool over A2A",
+      inner: { caller: "tool", networkProtocol: "a2a" },
     },
-  );
+  ])(
+    "outside-agent origin: $label",
+    ({ outer, inner = { caller: "tool" } }) => {
+      const fromOrigin = <T>(run: (inner: Origin) => Promise<T>) =>
+        outer ? nestedCall(() => run(inner), outer) : run(inner);
 
-  it.each(["list", "list-events", "list-hosts"])(
-    "runs nested MCP %s without approval",
-    async (action) => {
-      const result = await nestedCall(() => dispatch({ action }));
-      expect(result.status).toBe("completed");
-      expect(mocks.createMcpApprovalGrant).not.toHaveBeenCalled();
+      it.each(mutations.filter(({ name }) => name === "manage-automations"))(
+        "pauses $args before any automation side effect",
+        async ({ args }) => {
+          const { emit } = await import("../event-bus/index.js");
+          const result = await fromOrigin((origin) =>
+            dispatch(args, undefined, origin),
+          );
+          expect(result.status).toBe("approval_required");
+          expect(mocks.defineAutomation).not.toHaveBeenCalled();
+          expect(mocks.updateAutomation).not.toHaveBeenCalled();
+          expect(mocks.deleteAutomation).not.toHaveBeenCalled();
+          expect(mocks.queueAutomationRunNow).not.toHaveBeenCalled();
+          expect(emit).not.toHaveBeenCalled();
+
+          if (result.status !== "approval_required") {
+            throw new Error("Missing approval request");
+          }
+          const approved = await fromOrigin((origin) =>
+            dispatch(args, [result.approvalKey], origin),
+          );
+          expect(approved.status).toBe("completed");
+          const effect =
+            args.action === "define"
+              ? mocks.defineAutomation
+              : args.action === "update"
+                ? mocks.updateAutomation
+                : args.action === "delete"
+                  ? mocks.deleteAutomation
+                  : args.action === "run-now"
+                    ? mocks.queueAutomationRunNow
+                    : emit;
+          expect(effect).toHaveBeenCalledOnce();
+        },
+      );
+
+      it.each(mutations.filter(({ name }) => name !== "manage-automations"))(
+        "requires approval for $name $args on the direct action surface",
+        async ({ name, args }) => {
+          const entry =
+            callable()[name as "manage-automation" | "run-automation-now"];
+          const refusal = await fromOrigin((origin) =>
+            directHttpActionApprovalRefusal(entry, args, {
+              ...origin,
+              actionName: name,
+              userEmail: owner,
+            }),
+          );
+          expect(refusal).toMatchObject({
+            errorCode: "approval_required",
+            statusCode: 409,
+          });
+        },
+      );
+
+      it.each(["list", "list-events", "list-hosts"])(
+        "runs %s without approval",
+        async (action) => {
+          const result = await fromOrigin((origin) =>
+            dispatch({ action }, undefined, origin),
+          );
+          expect(result.status).toBe("completed");
+          expect(mocks.createMcpApprovalGrant).not.toHaveBeenCalled();
+        },
+      );
     },
   );
 

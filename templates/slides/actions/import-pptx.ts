@@ -356,7 +356,14 @@ export default defineAction({
       title,
       designSystemId,
     });
-    trackPptxImport(result, { deckId, purpose }, ctx);
+    await trackPptxImport(
+      result,
+      {
+        ...(deckId ? { deckId } : {}),
+        ...(purpose ? { purpose } : {}),
+      },
+      ctx,
+    );
     return result;
   },
 });
@@ -365,13 +372,13 @@ export default defineAction({
  * A PPTX imported as a new deck is a creation; imported into an existing deck
  * it replaces that deck's slides, which is an edit.
  */
-export function trackPptxImport(
+export async function trackPptxImport(
   result: { id: string; slideCount: number },
   args: { deckId?: string; purpose?: "direct" | "reference" },
   source: Parameters<typeof trackSlides>[2],
-): void {
+): Promise<void> {
   if (!args.deckId) {
-    trackDeckCreated(
+    await trackDeckCreated(
       result.id,
       {
         creationMethod: "import_pptx",

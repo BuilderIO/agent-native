@@ -8,6 +8,7 @@ import { AgentKitComposer } from "@agent-native/toolkit/app/agentkit/react/compo
 import { useAgentKitControl } from "@agent-native/toolkit/app/agentkit/react/context";
 import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
+import { useRealtimeVoiceModeOptional } from "@agent-native/toolkit/app/chat/composer";
 import { WaveBackground } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
@@ -30,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
+  chatHandoffComposerOptions,
   chatThreadPath,
   type ChatInitialComposerOptions,
   type ChatRouteState,
@@ -82,10 +84,11 @@ function CodeChip({ children }: { children: ReactNode }) {
 /**
  * The same AgentKit composer the chat page uses, so Connect AI and the model
  * picker look the way they will in chat. Submitting hands the prompt to the
- * full chat page instead of running it here.
+ * full chat page instead of running it here, and voice chat continues there.
  */
 function HomeAgentComposer() {
   const navigate = useNavigate();
+  const realtimeVoice = useRealtimeVoiceModeOptional();
   const [threadId] = useState(getChatHomeThreadId);
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
@@ -111,6 +114,14 @@ function HomeAgentComposer() {
     onLocalSubmit?.();
   }
 
+  function startVoiceChat() {
+    // Home shows no transcript, so the session is bound to the thread it
+    // opens rather than to whichever thread is on screen when it starts.
+    void realtimeVoice?.start({ threadId });
+    markAgentChatHomeHandoff("chat");
+    navigateWithAgentChatViewTransition(navigate, chatThreadPath(threadId));
+  }
+
   return (
     <div
       className="agentkit-tokens w-full max-w-[calc(var(--agent-kit-conversation-max-width,47rem)-2rem)] text-start"
@@ -122,7 +133,11 @@ function HomeAgentComposer() {
           clientOptions={{ transportOwnership: "owned" }}
           threadId={threadId}
         >
-          <HomeAgentComposerInput threadId={threadId} onSubmit={openChat} />
+          <HomeAgentComposerInput
+            threadId={threadId}
+            onSubmit={openChat}
+            onVoiceChatStart={startVoiceChat}
+          />
         </CoreAgentKitRoot>
       </CoreComposerRuntimeProvider>
     </div>
@@ -132,6 +147,7 @@ function HomeAgentComposer() {
 function HomeAgentComposerInput({
   threadId,
   onSubmit,
+  onVoiceChatStart,
 }: {
   threadId: string;
   onSubmit: (
@@ -139,6 +155,7 @@ function HomeAgentComposerInput({
     options: ChatInitialComposerOptions,
     onLocalSubmit?: () => void,
   ) => void;
+  onVoiceChatStart: () => void;
 }) {
   const t = useT();
   const control = useAgentKitControl(threadId);
@@ -151,6 +168,7 @@ function HomeAgentComposerInput({
       plusMenuMode="hidden"
       attachmentsEnabled={false}
       voiceEnabled
+      onVoiceChatStart={onVoiceChatStart}
       onSubmit={async (text, files, references, options) => {
         const uploadedAttachments = files.length
           ? await control.uploadFiles(
@@ -162,21 +180,13 @@ function HomeAgentComposerInput({
               })),
             )
           : [];
-        const {
-          onLocalSubmit: clearLocalDraft,
-          attachments: _rawAttachments,
-          requestMode,
-          ...submitOptions
-        } = options;
         onSubmit(
           text,
-          {
-            ...submitOptions,
-            mode: requestMode ?? "act",
+          chatHandoffComposerOptions(options, {
             references,
             ...(uploadedAttachments.length ? { uploadedAttachments } : {}),
-          },
-          clearLocalDraft,
+          }),
+          options.onLocalSubmit,
         );
       }}
     />

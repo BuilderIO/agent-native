@@ -86,6 +86,7 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
     externalAgents: { writes: "allowlisted" },
     instructions:

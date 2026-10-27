@@ -132,6 +132,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Otro",
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
+  "onboarding.builderProvisionFailedDetail":
+    "No se pudo crear tu cuenta de Builder.io. Inténtalo de nuevo o inicia sesión con una cuenta existente.",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
   "onboarding.builderCreateAccount": "Usar Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -437,6 +439,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Abre la aplicación de escritorio para usar este chat.",
   "composer.removeAttachment": "Quitar {{name}}",
+  "composer.attachmentReadFailed": "No se pudo leer este archivo",
+  "composer.attachmentTooLarge": "El archivo supera los 8 MB",
+  "composer.attachmentNotUtf8": "El archivo no es texto UTF-8",
   "composer.scrollToBottom": "Desplazarse hasta el final",
   "composer.suggestedPrompts": "Indicaciones sugeridas",
   "composer.stopResponse": "Detener respuesta",
@@ -2044,6 +2049,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Aprobado en la página de revisión de acciones del agente",
   "settings.audit.approvalMcpClient":
     "Aceptado por el cliente MCP (sin verificar)",
+  "settings.audit.approvalMcpReview":
+    "Aprobado en la página de revisión de acciones de MCP",
   "settings.audit.approvalCliPrompt":
     "Aprobado en el aviso de la CLI (sin verificar)",
   "settings.audit.approvalCliFlag": "Repetido con --approved (sin verificar)",

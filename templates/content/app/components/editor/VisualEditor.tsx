@@ -113,6 +113,7 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import {
   buildDocText,
@@ -176,6 +177,7 @@ import {
   suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
+import { TablePresentation } from "./extensions/TablePresentation";
 import { VideoBlockIds } from "./extensions/VideoBlockIds";
 import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
@@ -892,8 +894,8 @@ const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
-  // Header cells render as <td>, so copying or pasting a table reads them back
-  // from their class. The higher priority puts this rule before tableCell's.
+  // Header cells rendered as <td> before they were <th>, and clipboards may
+  // still hold those. The higher priority puts this rule before tableCell's.
   parseHTML() {
     return [
       { tag: "td.content-table-header-cell", priority: 60 },
@@ -902,7 +904,7 @@ const NotionTableHeader = TableHeader.extend({
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "td",
+      "th",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: "content-table-header-cell",
       }),
@@ -2855,6 +2857,7 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      TablePresentation,
       ...(isSuggesting
         ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
         : []),
@@ -5274,6 +5277,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable ? (
+        <BlockActionsMenu editor={editor} tableOptions={!suggesting} />
+      ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">

@@ -5,6 +5,7 @@ import {
   AGENT_CLIENT_ID,
   LiveCopyError,
   loadAwarenessRows,
+  loadAwarenessRowsWith,
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
@@ -140,9 +141,9 @@ async function acceptOnLegacyWriter<T>(
       "Suggestion decisions require an atomic database transaction",
     );
   // `apply` reads presence inside the transaction, once the live copy is
-  // held. A process's first read can set up the presence table, which PGlite
-  // can't do inside a transaction, so one read happens here first. If it
-  // fails, the read in the transaction reports that when an accept needs it.
+  // held. That read doesn't set up the presence table, which PGlite can't do
+  // inside a transaction, so a read here does it first. If it fails, the read
+  // in the transaction reports that when an accept needs it.
   await loadAwarenessRows(context.resourceId).catch(() => undefined);
   const result = await withPreparedYDocMutation(
     context.resourceId,
@@ -454,9 +455,13 @@ async function proposalOnStoredBody(
   failBeforeStateConflict();
 }
 
-/** Whether a person has the Page open in an editor now. Agents don't count. */
-async function openInEditor(documentId: string): Promise<boolean> {
-  const present = await loadAwarenessRows(documentId);
+/**
+ * Whether a person has the Page open in an editor now. Agents don't count.
+ * Reads through the decision's transaction: a serverless pool has one
+ * connection, and that transaction holds it.
+ */
+async function openInEditor(tx: DbExec, documentId: string): Promise<boolean> {
+  const present = await loadAwarenessRowsWith(tx, documentId);
   return present.some((entry) => entry.clientId !== AGENT_CLIENT_ID);
 }
 
@@ -1177,7 +1182,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       // A click that says where the words were comes from an open editor.
       if (
         parseSuggestionPlacement(context.placement) !== null ||
-        (await openInEditor(context.resourceId))
+        (await openInEditor(tx, context.resourceId))
       ) {
         fail(
           "The words this suggestion changes were just edited, so it wasn't accepted.",

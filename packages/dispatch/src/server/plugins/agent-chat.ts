@@ -44,6 +44,7 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: [
       "resolve-integration-source-context",
       "start-workspace-app-creation",

@@ -46,7 +46,10 @@ import {
   editorSaveState,
   publishesEditorSaveState,
 } from "@shared/editor-save-state";
-import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
+import {
+  LIVE_BODY_BACKFILL_FLAG,
+  LIVE_BODY_SHADOW_FLAG,
+} from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -143,6 +146,7 @@ import {
 } from "@/hooks/use-documents";
 import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
+import { useConvertPageToLiveCopyOnOpen } from "@/hooks/use-live-copy-backfill";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -157,6 +161,7 @@ import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
+import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
@@ -1674,7 +1679,10 @@ export function PageEditorSurface({
     isManualRetrying,
     isAccessRetrying:
       isManualRetrying && manualRetry?.fromAccessScreen === true,
-    error,
+    error: documentReadFailure(queryClient, documentQueryKeyValue, {
+      isError,
+      error,
+    }),
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
 
@@ -1861,6 +1869,10 @@ export function documentEditorLoadState({
    * read settles so it can't remount and retry again.
    */
   isAccessRetrying?: boolean;
+  /**
+   * The read's error, or while it is read again, the error it last failed
+   * with: a refetch of a page with no data clears the query's own error.
+   */
   error: unknown;
 }) {
   const activeAdmittedDocumentId =
@@ -1902,8 +1914,7 @@ export function documentEditorLoadState({
   if (isManualRetrying || isError || hasLoadFailure) {
     return {
       view:
-        (isError && isDocumentLoadUnavailableError(error)) ||
-        (isAccessRetrying && !isError)
+        isDocumentLoadUnavailableError(error) || (isAccessRetrying && !isError)
           ? ("unavailable" as const)
           : ("error" as const),
       admittedDocumentId: activeAdmittedDocumentId,
@@ -2769,6 +2780,7 @@ function PageEditorSessionBody({
   ]);
   const updateDocument = useUpdateDocument();
   const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
+  const backfillLiveCopy = useFeatureFlag(LIVE_BODY_BACKFILL_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -2839,6 +2851,13 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
+  useConvertPageToLiveCopyOnOpen(
+    documentId,
+    backfillLiveCopy &&
+      canEdit &&
+      !isLocalFileDocument &&
+      !isGitHubSourceDocument,
+  );
   const canComment =
     !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&

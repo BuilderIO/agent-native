@@ -10,6 +10,7 @@ import {
   APP_ACTIVITY_BLOB_PURPOSE,
   deleteAppActivityBlob,
 } from "../server/lib/app-activity.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   MAX_APP_ACTIVITY_BYTES,
   MAX_APP_ACTIVITY_COVERAGE_WINDOWS,
@@ -41,7 +42,9 @@ export default defineAction({
     pending: z.array(z.unknown()).max(MAX_APP_ACTIVITY_PENDING),
   }),
   run: async ({ recordingId, ...input }) => {
-    const access = await assertAccess("recording", recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", recordingId, "editor"),
+    );
     const rec = access.resource as { ownerEmail: string };
     const db = getDb();
     const [row] = await db

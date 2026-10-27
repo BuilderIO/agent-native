@@ -1,10 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq, asc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { displayCommentMentions } from "../shared/comment-mentions.js";
 
@@ -17,15 +16,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const access = await assertAccess("recording", args.recordingId, "viewer");
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentAccess(args.recordingId, "read");
 
     const db = getDb();
     const rows = await db

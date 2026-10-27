@@ -99,7 +99,7 @@ export default defineAction({
       }
     });
 
-    trackDesignCreated(
+    await trackDesignCreated(
       newId,
       {
         creationMethod: "duplicate",

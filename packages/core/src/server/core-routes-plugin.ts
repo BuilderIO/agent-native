@@ -95,8 +95,8 @@ import {
   registerFeatureFlags,
 } from "../feature-flags/registry.js";
 import { uploadFile } from "../file-upload/index.js";
-import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
+import { getFileUploadStatusForRequest } from "../file-upload/status.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -187,7 +187,10 @@ import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
 } from "./better-auth-instance.js";
-import { resolveBuilderRequestAuthorization } from "./builder-api-auth.js";
+import {
+  isBuilderReauthorizationRequired,
+  resolveBuilderRequestAuthorization,
+} from "./builder-api-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_MODE_PARAM,
@@ -212,6 +215,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -238,7 +242,6 @@ import {
 } from "./builder-browser.js";
 import { createBuilderDesktopMessagesHandler } from "./builder-desktop-messages-route.js";
 import {
-  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   builderOAuthScopeFor,
   canRoleConnectPersonalBuilder,
@@ -2531,11 +2534,13 @@ export async function activateBuilderAccount(
     message: string,
     reason: string,
     code?: string,
+    diagnostics: Record<string, unknown> = {},
   ): Promise<BuilderAccountActivationResult> => {
     await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
       ...builderConnectTrackingProperties(input.tracking),
       reason,
       stage: "provision",
+      ...diagnostics,
     });
     return { ok: false, status, message, reason, ...(code ? { code } : {}) };
   };
@@ -2634,10 +2639,12 @@ export async function activateBuilderAccount(
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
-    console.error(
-      "[builder] Agent-Native account provisioning failed:",
-      error instanceof Error ? error.message : error,
-    );
+    const provisioningError =
+      error instanceof BuilderAccountProvisioningError ? error : null;
+    console.error("[builder] Agent-Native account provisioning failed:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      upstreamStatus: provisioningError?.upstreamStatus ?? null,
+    });
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
@@ -2650,6 +2657,15 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
+      undefined,
+      {
+        upstream_response_received: provisioningError?.upstreamStatus != null,
+        upstream_status: provisioningError?.upstreamStatus ?? null,
+        upstream_body: provisioningError?.upstreamErrorBody ?? null,
+        upstream_body_read_error_type:
+          provisioningError?.upstreamBodyReadErrorType ?? null,
+        upstream_error_type: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }
@@ -4427,6 +4443,8 @@ export function createCoreRoutesPlugin(
                   canDisconnect: false,
                   privateKeyConfigured: false,
                   publicKeyConfigured: false,
+                  builderReauthorizationRequired:
+                    isBuilderReauthorizationRequired(error),
                   connectError: {
                     message:
                       error instanceof CredentialStoreUnavailableError
@@ -6381,69 +6399,13 @@ export function createCoreRoutesPlugin(
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          const resolveStatus = async () => {
-            const providerStatuses =
-              await listFileUploadProviderStatusesForRequest();
-            // The Builder fallback that `getActiveFileUploadProviderForRequest`
-            // adds after these is `builderUploadConfigured` below.
-            const active =
-              providerStatuses.find((status) => status.configured)?.provider ??
-              null;
-            let builderConfigured = false;
-            let builderUploadConfigured = false;
-            const {
-              canAuthorizeBuilderApiRequest,
-              hasBuilderApiCredentialCustody,
-            } = await import("./builder-api-auth.js");
-            builderConfigured = await hasBuilderApiCredentialCustody();
-            builderUploadConfigured = await canAuthorizeBuilderApiRequest(
-              BUILDER_ASSETS_WRITE_SCOPE,
-            );
-
-            const providers = providerStatuses.map(
-              ({ provider, configured }) => ({
-                id: provider.id,
-                name: provider.name,
-                configured,
-              }),
-            );
-
-            // When the builder builtin is selected via env var, its sync
-            // isConfigured() doesn't reflect per-user OAuth credentials. Use
-            // builderConfigured so status reflects this specific request.
-            const isBuilderEnvActive = active?.id === "builder";
-            const configured = isBuilderEnvActive
-              ? builderUploadConfigured
-              : !!active || builderUploadConfigured;
-            const activeProvider = isBuilderEnvActive
-              ? builderUploadConfigured
-                ? { id: "builder", name: "Builder.io" }
-                : null
-              : active
-                ? active.id === "builder" && !builderUploadConfigured
-                  ? null
-                  : { id: active.id, name: active.name }
-                : builderUploadConfigured
-                  ? { id: "builder", name: "Builder.io" }
-                  : null;
-
-            return {
-              configured,
-              activeProvider,
-              providers,
-              builderConfigured,
-              builderUploadConfigured,
-              builderReauthorizationRequired:
-                builderConfigured && !builderUploadConfigured,
-            };
-          };
 
           return userEmail
             ? runWithRequestContext(
                 { userEmail, orgId: session?.orgId },
-                resolveStatus,
+                getFileUploadStatusForRequest,
               )
-            : resolveStatus();
+            : getFileUploadStatusForRequest();
         }),
       );
 

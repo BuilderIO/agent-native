@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "चौड़ाई में फ़िट करें",
   githubLinkTitle: "GitHub फ़ोल्डर लिंक करें",
   githubNewCollectionTitle: "GitHub फ़ोल्डर से नया संग्रह",
   githubLinkDescription:
@@ -653,6 +654,16 @@ const editor = {
     purple: "बैंगनी",
     pink: "गुलाबी",
     red: "लाल",
+    defaultText: "डिफ़ॉल्ट टेक्स्ट",
+    defaultBackground: "डिफ़ॉल्ट पृष्ठभूमि",
+    textChoice: "{{color}} टेक्स्ट",
+    backgroundChoice: "{{color}} पृष्ठभूमि",
+  },
+  blockMenu: {
+    label: "ब्लॉक कार्रवाइयाँ",
+    duplicate: "डुप्लिकेट करें",
+    delete: "हटाएँ",
+    insertBelow: "नीचे ब्लॉक जोड़ें",
   },
   noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
   registryBlockLoadError: "{{type}} ब्लॉक लोड नहीं किया जा सका: {{message}}",
