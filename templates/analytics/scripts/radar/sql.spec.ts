@@ -62,6 +62,9 @@ describe("first-touch SQL helpers", () => {
     expect(eventSql).toContain("e.org_id = $3");
     expect(eventSql).toContain("e.url");
     expect(eventSql).toContain("properties::jsonb ->> 'user_email'");
+    expect(eventSql).toContain(
+      "jsonb_typeof(e.properties::jsonb -> 'auth_user_id') IN ('string', 'number', 'boolean')",
+    );
     expect(eventSql).not.toContain(
       "properties::jsonb ->> 'auth_user_id', '') LIKE",
     );
@@ -77,15 +80,27 @@ describe("first-touch SQL helpers", () => {
       "jsonb_typeof(properties -> 'llm_connection_source') IN ('string', 'number', 'boolean')";
     const scalarEnvVar =
       "jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')";
+    const scalarEnvVarPresent = `${scalarEnvVar}\n        AND nullif(properties ->> 'llm_connection_env_var', '') IS NOT NULL`;
 
     expect(sql).toContain(`${scalarSource}\n        OR ${scalarEnvVar}`);
     expect(sql).toContain("date_trunc($4, happened_at, 'UTC') AS period_start");
     expect(sql.split(scalarSource).length - 1).toBe(2);
-    expect(sql.split(scalarEnvVar).length - 1).toBe(2);
+    expect(sql.split(scalarEnvVar).length - 1).toBe(4);
+    expect(sql.split(scalarEnvVarPresent).length - 1).toBe(2);
     expect(sql).toContain("AS new_user_source_events");
     expect(sql).toContain("AS source_property_events");
     expect(sql).not.toContain("properties ? 'llm_connection_source'");
     expect(sql).not.toContain("properties ? 'llm_connection_env_var'");
+  });
+
+  it("guards PostgreSQL action weights from malformed JSON numbers", () => {
+    const sql = buildEventStatsSql();
+
+    expect(sql).toContain("length((properties ->> 'sample_weight')) <= 128");
+    expect(sql).toContain("(properties ->> 'sample_weight') ~ '^[+-]?");
+    expect(sql).toContain("(properties ->> 'duration_ms') ~ '^[+-]?");
+    expect(sql).toContain("(properties ->> 'status_code') ~ '^[+-]?[0-9]+$'");
+    expect(sql).toContain("BETWEEN -2147483648 AND 2147483647");
   });
 
   it("returns recipient campaign counts without selecting recipient identities", () => {

@@ -27,6 +27,23 @@ export interface FirstTouchSqlParams {
   includeAllApps?: boolean;
 }
 
+const POSTGRES_NUMERIC_JSON_PATTERN =
+  "^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]{1,4})?$";
+
+function safePostgresNumeric(expression: string): string {
+  return `CASE WHEN length((${expression})) <= 128
+    AND (${expression}) ~ '${POSTGRES_NUMERIC_JSON_PATTERN}'
+    THEN (${expression})::numeric END`;
+}
+
+function safePostgresInteger(expression: string): string {
+  return `CASE WHEN length((${expression})) <= 11
+    AND (${expression}) ~ '^[+-]?[0-9]+$' THEN
+    CASE WHEN (${expression})::numeric BETWEEN -2147483648 AND 2147483647
+      THEN (${expression})::int END
+  END`;
+}
+
 export function identityExclusionSql(input: {
   emailExpression: string;
   identityExpression: string;
@@ -140,7 +157,8 @@ export function buildFirstTouchEventsCte(
     CASE WHEN nullif(e.user_key, '') LIKE '%@%.%' THEN lower(trim(e.user_key)) END
   )`;
   const identity = `coalesce(
-    nullif(e.properties::jsonb ->> 'auth_user_id', ''),
+    CASE WHEN jsonb_typeof(e.properties::jsonb -> 'auth_user_id') IN ('string', 'number', 'boolean')
+      THEN nullif(e.properties::jsonb ->> 'auth_user_id', '') END,
     nullif(e.user_key, ''),
     nullif(e.user_id, ''),
     nullif(e.anonymous_id, '')
@@ -218,6 +236,23 @@ export const FIRST_TOUCH_OUTPUT_EVENTS = {
 } as const;
 
 export function buildEventStatsSql(): string {
+  const envVarScalar =
+    "jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')";
+  const envVarPresent = `${envVarScalar}
+        AND nullif(properties ->> 'llm_connection_env_var', '') IS NOT NULL`;
+  const actionSampleWeight = safePostgresNumeric(
+    "properties ->> 'sample_weight'",
+  );
+  const actionDurationMs = safePostgresNumeric("properties ->> 'duration_ms'");
+  const actionStatusCode = safePostgresInteger("properties ->> 'status_code'");
+  const actionWeight = `CASE
+      WHEN ${actionSampleWeight} IS NOT NULL THEN ${actionSampleWeight}
+      WHEN coalesce(properties ->> 'success', '') = 'true'
+        AND coalesce(${actionDurationMs}, 1000) < 1000
+        AND coalesce(${actionStatusCode}, 200) < 400
+        AND nullif(properties ->> 'framework_ready_wait_ms', '') IS NULL
+        AND nullif(properties ->> 'startup_db_operation_wall_ms', '') IS NULL
+        THEN 10 ELSE 1 END`;
   return `${buildFirstTouchEventsCte({ startDate: "$1", endDate: "$2", orgId: "$3" })},
 new_signups AS (
   SELECT person_key, min(happened_at) AS signup_at
@@ -240,7 +275,7 @@ event_stats AS (
       AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
         AND happened_at >= n.signup_at AND happened_at < n.signup_at + interval '7 days')
       AND (lower(coalesce(properties ->> 'llm_connection_source', '')) = 'env'
-        OR nullif(properties ->> 'llm_connection_env_var', '') IS NOT NULL))::int AS new_user_env_events,
+        OR (${envVarPresent})))::int AS new_user_env_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'design_prompt_submitted')
       AND EXISTS (SELECT 1 FROM new_signups n WHERE n.person_key = base_events.person_key
         AND happened_at >= n.signup_at AND happened_at < n.signup_at + interval '7 days')
@@ -252,10 +287,10 @@ event_stats AS (
       AND lower(coalesce(properties ->> 'llm_connection', '')) = 'none')::int AS new_user_no_connection_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'generation_failed', 'design_prompt_submitted')
       AND (lower(coalesce(properties ->> 'llm_connection_source', '')) = 'env'
-        OR nullif(properties ->> 'llm_connection_env_var', '') IS NOT NULL))::int AS env_source_events,
+        OR (${envVarPresent})))::int AS env_source_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'generation_failed', 'design_prompt_submitted')
       AND (jsonb_typeof(properties -> 'llm_connection_source') IN ('string', 'number', 'boolean')
-        OR jsonb_typeof(properties -> 'llm_connection_env_var') IN ('string', 'number', 'boolean')))::int AS source_property_events,
+        OR ${envVarScalar}))::int AS source_property_events,
     count(*) FILTER (WHERE event_name IN ('generation_started', 'design_prompt_submitted')
       AND lower(coalesce(properties ->> 'llm_connection', '')) = 'none')::int AS no_connection_events,
     count(*) FILTER (WHERE event_name = 'integration_setup_exposed'
@@ -266,29 +301,11 @@ event_stats AS (
       AND lower(coalesce(properties ->> 'source', properties ->> 'flow', '')) = 'new_deck_prompt')::int AS new_deck_prompt_starts,
     array_agg(DISTINCT nullif(replace(coalesce(properties ->> 'utm_campaign', ''), '${String.fromCharCode(0x200b)}', ''), ''))
       FILTER (WHERE event_name = 'signup' AND nullif(properties ->> 'utm_campaign', '') IS NOT NULL) AS signup_campaigns,
-    sum(CASE
-      WHEN nullif(properties ->> 'sample_weight', '') IS NOT NULL
-        THEN (properties ->> 'sample_weight')::numeric
-      WHEN coalesce(properties ->> 'success', '') = 'true'
-        AND coalesce((properties ->> 'duration_ms')::numeric, 1000) < 1000
-        AND coalesce((properties ->> 'status_code')::int, 200) < 400
-        AND nullif(properties ->> 'framework_ready_wait_ms', '') IS NULL
-        AND nullif(properties ->> 'startup_db_operation_wall_ms', '') IS NULL
-        THEN 10 ELSE 1 END
-    ) FILTER (WHERE event_name = 'action.response'
+    sum(${actionWeight}) FILTER (WHERE event_name = 'action.response'
       AND coalesce(properties ->> 'outcome', '') NOT IN ('cancelled', 'suspended')
       AND NOT (coalesce(properties ->> 'outcome', '') = 'timeout'
         AND properties ->> 'page_hidden' = 'true')) AS action_weight,
-    sum(CASE
-      WHEN nullif(properties ->> 'sample_weight', '') IS NOT NULL
-        THEN (properties ->> 'sample_weight')::numeric
-      WHEN coalesce(properties ->> 'success', '') = 'true'
-        AND coalesce((properties ->> 'duration_ms')::numeric, 1000) < 1000
-        AND coalesce((properties ->> 'status_code')::int, 200) < 400
-        AND nullif(properties ->> 'framework_ready_wait_ms', '') IS NULL
-        AND nullif(properties ->> 'startup_db_operation_wall_ms', '') IS NULL
-        THEN 10 ELSE 1 END
-    ) FILTER (WHERE event_name = 'action.response'
+    sum(${actionWeight}) FILTER (WHERE event_name = 'action.response'
       AND coalesce(properties ->> 'outcome', '') NOT IN ('cancelled', 'suspended')
       AND NOT (coalesce(properties ->> 'outcome', '') = 'timeout'
         AND properties ->> 'page_hidden' = 'true')

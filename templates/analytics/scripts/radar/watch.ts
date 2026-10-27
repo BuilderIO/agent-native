@@ -1212,33 +1212,37 @@ export async function runWatch(
   const orgId = await resolveRadarOrganizationId();
   const backend = await resolveRadarFirstPartyBackend();
   const eventStart = addDays(date, window === "daily" ? -30 : -14);
+  const eventBucket = window === "hourly" ? "HOUR" : "DAY";
+  const eventStatsSql =
+    backend.sink === "bigquery"
+      ? buildBigQueryEventStatsSql(
+          await resolveRadarBigQueryEventsTable(),
+          eventBucket,
+        )
+      : buildEventStatsSql();
+  const eventQuerySql =
+    window === "daily"
+      ? addLinkedEventMetricsSql(
+          eventStatsSql,
+          backend.sink === "bigquery" ? "bigquery" : "postgres",
+          eventBucket,
+        )
+      : eventStatsSql;
   const eventResult =
     backend.sink === "bigquery"
-      ? await runBigQuery(
-          addLinkedEventMetricsSql(
-            buildBigQueryEventStatsSql(
-              await resolveRadarBigQueryEventsTable(),
-              window === "hourly" ? "HOUR" : "DAY",
-            ),
-            "bigquery",
-            window === "hourly" ? "HOUR" : "DAY",
-          ),
-          {
-            params: [
-              { name: "start_date", type: "DATE", value: eventStart },
-              { name: "end_date", type: "DATE", value: date },
-              { name: "org_id", type: "STRING", value: orgId },
-            ],
-          },
-        )
-      : await runPostgresQuery(
-          addLinkedEventMetricsSql(
-            buildEventStatsSql(),
-            "postgres",
-            window === "hourly" ? "HOUR" : "DAY",
-          ),
-          [eventStart, date, orgId, window === "hourly" ? "hour" : "day"],
-        );
+      ? await runBigQuery(eventQuerySql, {
+          params: [
+            { name: "start_date", type: "DATE", value: eventStart },
+            { name: "end_date", type: "DATE", value: date },
+            { name: "org_id", type: "STRING", value: orgId },
+          ],
+        })
+      : await runPostgresQuery(eventQuerySql, [
+          eventStart,
+          date,
+          orgId,
+          window === "hourly" ? "hour" : "day",
+        ]);
   const eventRowsData = eventResult.rows as QueryRow[];
   const queryCount = 3;
   let funnelRows: QueryRow[] = [];

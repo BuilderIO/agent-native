@@ -58,6 +58,39 @@ describe("watch arguments", () => {
   });
 });
 
+describe("hourly event query", () => {
+  it.each(["postgres", "bigquery"] as const)(
+    "skips daily linked aggregates for hourly %s queries",
+    async (sink) => {
+      queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
+      queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      queryMocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+        "`project_id.analytics.events_raw_query_range`",
+      );
+      queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+      queryMocks.runBigQuery.mockResolvedValue({ rows: [] });
+
+      await runWatch({
+        window: "hourly",
+        date: "2026-10-26",
+        hour: 12,
+      });
+
+      const calls =
+        sink === "bigquery"
+          ? queryMocks.runBigQuery.mock.calls
+          : queryMocks.runPostgresQuery.mock.calls;
+      expect(calls).toHaveLength(1);
+      const query = String(calls[0]?.[0]);
+      expect(query).toContain("SELECT * FROM event_stats ORDER BY");
+      expect(query).not.toContain(", linked_events AS (");
+    },
+  );
+});
+
 describe("radar event labels", () => {
   it("redacts unreviewed event names before report output", () => {
     expect(safeRadarEventLabel("signup")).toBe("signup");
