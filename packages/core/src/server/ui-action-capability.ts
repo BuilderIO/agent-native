@@ -17,10 +17,7 @@ import {
   getBrowserCookieSession,
   getBrowserSessionConfigurationError,
 } from "./auth.js";
-import {
-  hasLiveEmbedCapabilityCookie,
-  hasPresentedEmbedSessionCredential,
-} from "./embed-session.js";
+import { hasEmbedSessionRequestMarker } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
@@ -69,10 +66,7 @@ export function hasUiActionCapability(
 }
 
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
-  if (
-    hasLiveEmbedCapabilityCookie(event) ||
-    hasPresentedEmbedSessionCredential(event)
-  ) {
+  if (hasEmbedSessionRequestMarker(event)) {
     setResponseStatus(event, 403);
     return { error: "Browser cookie session required" };
   }

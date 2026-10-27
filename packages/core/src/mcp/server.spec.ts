@@ -2430,6 +2430,34 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       vi.unstubAllEnvs();
     });
 
+    it("validates legacy metadata before resolving widget resource CSP", async () => {
+      vi.stubEnv("APP_URL", "https://public.example.test");
+      const widgetConfig = scopedWidgetConfig(config);
+      const entry = widgetConfig.actions["echo-thing"];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error("Expected fixture widget");
+      await expect(
+        mcpBuildServer.resolveMcpAppResourceSafely(
+          widgetConfig,
+          "echo-thing",
+          entry,
+          {
+            origin: "https://other.example.test",
+          },
+        ),
+      ).rejects.toThrow("Invalid embed request origin");
+      const resource = await mcpBuildServer.resolveMcpAppResourceSafely(
+        widgetConfig,
+        "echo-thing",
+        entry,
+        { origin: "https://public.example.test" },
+      );
+      expect(resource?.requestOrigin).toBe("https://public.example.test");
+      expect(resource?._meta?.["openai/widgetDomain"]).toBe(
+        "https://public.example.test",
+      );
+    });
+
     async function expectWidgetResourceOrigin(
       sourceEvent: any,
       expectedOrigin: string,
@@ -2872,6 +2900,158 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
     });
   });
+
+  it.each([false, true])(
+    "advertises app-catalog session paths only with a declared handler: %s",
+    async (declared) => {
+      const run = vi.fn(async () => ({ status: "ready" }));
+      const scoped = scopedWidgetConfig({
+        ...config,
+        builtinCrossAppTools: true,
+      });
+      const appConfig = {
+        ...scoped,
+        catalogMode: "app" as const,
+        actions: {
+          ...scoped.actions,
+          ...(declared
+            ? {
+                create_embed_session: {
+                  tool: {
+                    description: "Create an app session.",
+                    parameters: {
+                      type: "object" as const,
+                      properties: { path: { type: "string" } },
+                    },
+                  },
+                  readOnly: false,
+                  run,
+                },
+              }
+            : {}),
+        },
+      };
+      const headers = await mcpAppsAuthHeaders();
+      const rpc = (
+        id: number,
+        method: string,
+        params: Record<string, unknown>,
+      ) =>
+        callWeb(
+          { jsonrpc: "2.0", id, method, params },
+          { config: appConfig, headers },
+        );
+      const listed = await rpc(1392, "tools/list", {});
+      const descriptor = listed.result.tools.find(
+        (tool: { name: string }) => tool.name === "create_embed_session",
+      );
+      expect(descriptor.inputSchema.properties).toHaveProperty("sourceTicket");
+      if (declared) {
+        expect(descriptor.inputSchema.properties).toHaveProperty("path");
+        const called = await rpc(1393, "tools/call", {
+          name: "create_embed_session",
+          arguments: { path: "/inbox" },
+        });
+        expect(called.result.isError).not.toBe(true);
+        expect(run).toHaveBeenCalledExactlyOnceWith(
+          { path: "/inbox" },
+          expect.anything(),
+        );
+      } else {
+        expect(descriptor.inputSchema.properties).not.toHaveProperty("path");
+        expect(descriptor.inputSchema.properties).not.toHaveProperty("url");
+        expect(descriptor.inputSchema.required).toEqual(["sourceTicket"]);
+      }
+      const artifact = await rpc(1394, "tools/call", {
+        name: "echo-thing",
+        arguments: { value: "widget" },
+      });
+      const sourceTicket =
+        artifact.result._meta["agent-native/widgetSource"].sourceTicket;
+      const renewed = await rpc(1395, "tools/call", {
+        name: "create_embed_session",
+        arguments: { sourceTicket },
+      });
+      expect(renewed.result.isError).not.toBe(true);
+      expect(
+        renewed.result._meta["agent-native/embedStart"].startUrl,
+      ).toContain("minted-picker-ticket");
+      const redirected = await rpc(1396, "tools/call", {
+        name: "create_embed_session",
+        arguments: { sourceTicket, path: "/another-document" },
+      });
+      expect(redirected.result.isError).toBe(true);
+      expect(run).toHaveBeenCalledTimes(declared ? 1 : 0);
+    },
+  );
+
+  it.each([false, true])(
+    "uses the selected production handler for the app session schema (full surface: %s)",
+    async (fullSurface) => {
+      const run = vi.fn(async () => ({ status: "ready" }));
+      const scoped = scopedWidgetConfig(config);
+      const server = await createMCPServerForRequest(
+        {
+          ...scoped,
+          catalogMode: "app",
+          productionActions: {
+            ...scoped.actions,
+            create_embed_session: {
+              tool: {
+                description: "Create an app session.",
+                parameters: {
+                  type: "object",
+                  properties: { path: { type: "string" } },
+                },
+              },
+              readOnly: false,
+              run,
+            },
+          },
+        },
+        {
+          userEmail: "oauth@example.com",
+          orgId: null,
+          orgDomain: undefined,
+          identityAssurance: "user",
+        },
+        { inlineMcpApps: true, fullSurface },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "test-client", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const listed = await client.listTools();
+        const descriptor = listed.tools.find(
+          (tool) => tool.name === "create_embed_session",
+        );
+        expect(descriptor).toBeDefined();
+        expect(
+          Object.hasOwn(descriptor?.inputSchema.properties ?? {}, "path"),
+        ).toBe(fullSurface);
+        if (fullSurface) {
+          const result = await client.callTool({
+            name: "create_embed_session",
+            arguments: { path: "/inbox" },
+          });
+          expect(result.isError).not.toBe(true);
+          expect(run).toHaveBeenCalledExactlyOnceWith(
+            { path: "/inbox" },
+            expect.anything(),
+          );
+        } else {
+          expect(descriptor?.inputSchema.required).toEqual(["sourceTicket"]);
+          expect(run).not.toHaveBeenCalled();
+        }
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    },
+  );
 
   it("mints a regular MCP widget embed ticket from an action link", async () => {
     const createArtifact = defineAction({

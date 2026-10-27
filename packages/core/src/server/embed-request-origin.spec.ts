@@ -21,6 +21,41 @@ function event(
 afterEach(() => vi.unstubAllEnvs());
 
 describe("embed request origin", () => {
+  it("rejects an unconfigured non-loopback request authority when a public origin is configured", () => {
+    vi.stubEnv("APP_URL", "https://public.example.test");
+    const request = event(
+      { host: "other.example.test" },
+      "203.0.113.42",
+      "https://other.example.test/card",
+    );
+    expect(() => resolveEmbedRequestOrigin(request)).toThrow(
+      "Invalid embed request origin",
+    );
+  });
+
+  it("accepts a configured public origin and an explicitly trusted alias", () => {
+    vi.stubEnv("APP_URL", "https://public.example.test");
+    vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://alias.example.test");
+    for (const origin of [
+      "https://public.example.test",
+      "https://alias.example.test",
+    ]) {
+      expect(
+        resolveEmbedRequestOrigin(event({}, "203.0.113.42", `${origin}/card`)),
+      ).toBe(origin);
+    }
+  });
+
+  it("checks configured authority when an older caller supplies only requestOrigin", () => {
+    vi.stubEnv("APP_URL", "https://public.example.test");
+    expect(() =>
+      runWithRequestContext(
+        { requestOrigin: "https://other.example.test" },
+        getEmbedSessionOrigin,
+      ),
+    ).toThrow("Invalid embed request origin");
+  });
+
   it.each([
     {
       configured: "https://public.example.test",
@@ -39,7 +74,8 @@ describe("embed request origin", () => {
   ])(
     "ignores allowlisted forwarding from a non-loopback peer: $configured",
     ({ configured, headers }) => {
-      vi.stubEnv("APP_URL", configured);
+      vi.stubEnv("APP_URL", "https://internal.example.test");
+      vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", configured);
       const request = event(headers);
       expect(getRequestIP(request)).toBe("203.0.113.42");
       expect(resolveEmbedRequestOrigin(request)).toBe(
@@ -81,7 +117,7 @@ describe("embed request origin", () => {
   });
 
   it("keeps the peer-validated origin when forwarding is not allowlisted", () => {
-    vi.stubEnv("APP_URL", "https://public.example.test");
+    vi.stubEnv("APP_URL", "https://internal.example.test");
     expect(
       resolveEmbedRequestOrigin(
         event({

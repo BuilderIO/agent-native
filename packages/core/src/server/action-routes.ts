@@ -669,9 +669,21 @@ function allowsWebMcpCapabilityResource(
 
 async function resolveRequestEmbedSession(
   event: any,
-  options?: { ignoreUnresolvedCookie?: boolean },
+  options?: {
+    ignoreUnresolvedCookie?: boolean;
+    preferBrowserSession?: boolean;
+  },
 ): Promise<ResolvedEmbedSession | null> {
   const session = await resolveEmbedSessionFromRequest(event);
+  // The bridge marks its requests; a site-wide cookie also reaches full-app tabs.
+  if (
+    options?.preferBrowserSession &&
+    !hasEmbedSessionRequestMarker(event) &&
+    resolvedEmbedCapabilityScope(session) &&
+    (await getBrowserCookieSession(event))?.email
+  ) {
+    return null;
+  }
   if (
     !session &&
     (options?.ignoreUnresolvedCookie
@@ -878,7 +890,10 @@ function mountActionRoutesInternal(
         let userEmail: string | undefined;
         let userName: string | undefined;
         let authUserId: string | undefined;
-        const embedSession = await resolveRequestEmbedSession(event);
+        const embedSession = await resolveRequestEmbedSession(event, {
+          ignoreUnresolvedCookie: true,
+          preferBrowserSession: true,
+        });
         const presentedCapability = resolvedEmbedCapabilityScope(embedSession);
         const authCapability =
           presentedCapability?.startsWith("capability:visual-edit:") &&
@@ -886,7 +901,7 @@ function mountActionRoutesInternal(
             ? undefined
             : presentedCapability;
         const embedded =
-          Boolean(embedSession) || hasPresentedEmbedSessionCredential(event);
+          Boolean(embedSession) || hasEmbedSessionRequestMarker(event);
         const directoryWidgetWriteCapability =
           isMcpDirectoryWidgetWriteCapabilityScope(authCapability);
         const directoryWidgetCapability =

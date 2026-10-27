@@ -1410,6 +1410,7 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
 }
 `;
 
+// oracle-change: Widgets without declared scoped action grants no longer mint tickets or expose derived handoff links.
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: embed-widget 1`] = `
 {
   "trace": [
@@ -1562,6 +1563,7 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
 }
 `;
 
+// oracle-change: A failed projected tool result no longer mints a widget ticket; successful widget and error wire assertions remain.
 exports[`direct tools/call wire output > directory catalog: projected results, errors, and widget embeds 1`] = `
 {
   "trace": [
@@ -3015,6 +3017,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-leak 1`
 }
 `;
 
+// oracle-change: Widgets without declared scoped action grants no longer mint tickets or expose derived handoff links.
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 1`] = `
 {
   "trace": [
@@ -3077,6 +3080,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget 
 }
 `;
 
+// oracle-change: Action-supplied embed credentials and their derived handoff links are withheld instead of accepted as a widget session.
 exports[`direct tools/call wire output > full catalog, OAuth user: embed-widget-existing 1`] = `
 {
   "trace": [

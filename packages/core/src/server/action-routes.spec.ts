@@ -288,7 +288,10 @@ describe("mountActionRoutes", () => {
     const event: any = {
       _method: "POST",
       _hasExplicitEmbedSessionCredential: true,
-      _headers: { authorization: "Bearer expired-token" },
+      _headers: {
+        authorization: "Bearer expired-token",
+        "x-agent-native-embed-target": "/page/doc-1",
+      },
       req: {
         url: "http://app.test/_agent-native/actions/update",
         json: async () => ({}),
@@ -816,7 +819,7 @@ describe("mountActionRoutes", () => {
         "live-capability-empty",
       ] as const
     ).flatMap((credential) =>
-      (credential.startsWith("live-capability") ? [true] : [true, false]).map(
+      (credential.startsWith("live-capability-") ? [true] : [true, false]).map(
         (needsApproval) => ({ credential, needsApproval }),
       ),
     ),
@@ -854,7 +857,10 @@ describe("mountActionRoutes", () => {
         credential === "invalid"
           ? "unrelated-stale-cookie"
           : embedSessions.signEmbedSessionToken({
-              ownerEmail: owner,
+              ownerEmail:
+                credential === "live-capability"
+                  ? "embed-owner@example.com"
+                  : owner,
               audienceHost: "app.example.com",
               targetPath: "/page/doc-1",
               ttlSeconds: 60,
@@ -864,7 +870,11 @@ describe("mountActionRoutes", () => {
             });
       issuedAt?.mockRestore();
       const mounted: Array<{ path: string; handler: any }> = [];
-      const run = vi.fn(async () => ({ ok: true }));
+      let executedContext: ReturnType<typeof getRequestContext>;
+      const run = vi.fn(async () => {
+        executedContext = getRequestContext();
+        return { ok: true };
+      });
       const getOwnerFromEvent = vi.fn(async () => owner);
       mountActionRoutes(
         {
@@ -874,6 +884,7 @@ describe("mountActionRoutes", () => {
           "update-document": {
             run,
             needsApproval,
+            ...(needsApproval ? {} : { agentTool: false }),
             capabilityScopes: ["visual-edit"],
           } as any,
         },
@@ -891,7 +902,8 @@ describe("mountActionRoutes", () => {
             : credential === "live-capability-empty"
               ? { "x-forwarded-host": "" }
               : {}),
-          ...(credential === "marked"
+          ...(credential === "marked" ||
+          credential.startsWith("live-capability-")
             ? { "x-agent-native-embed-target": "/page/doc-1" }
             : {}),
           cookie: `better-auth.session_token=test-session; an_ui_capability=test-capability; ${EMBED_SESSION_COOKIE}=${token}`,
@@ -905,11 +917,10 @@ describe("mountActionRoutes", () => {
       event.req.headers = new Headers(event._headers);
       event.url = new URL(event.req.url);
       if (credential === "live-capability") {
-        await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
-          errorCode: "approval_required",
-        });
-        expect(event._status).toBe(409);
-        expect(run).not.toHaveBeenCalled();
+        await expect(mounted[0]!.handler(event)).resolves.toEqual({ ok: true });
+        expect(run).toHaveBeenCalledOnce();
+        expect(executedContext?.userEmail).toBe(owner);
+        expect(executedContext?.authCapability).toBeUndefined();
       } else if (
         !credential.startsWith("live-capability") &&
         credential !== "marked"
@@ -3411,6 +3422,7 @@ describe("mountActionRoutes", () => {
           {
             host: "app.example.com",
             "sec-fetch-site": "same-origin",
+            "x-agent-native-embed-target": `/page/${DOCUMENT_ID}`,
             cookie:
               "better-auth.session_token=test-session; an_ui_capability=test-capability",
           },
@@ -4391,6 +4403,7 @@ describe("mountActionRoutes", () => {
       const headers = {
         "x-agent-native-frontend": "1",
         "sec-fetch-site": "same-origin",
+        "x-agent-native-embed-target": "/visual-edit/design_1",
         ...(browserOwner
           ? { cookie: "better-auth.session_token=test-session" }
           : {}),

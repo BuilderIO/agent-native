@@ -55,7 +55,10 @@ import {
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
 } from "../server/deep-link.js";
-import { getEmbedSessionOrigin } from "../server/embed-request-origin.js";
+import {
+  getEmbedSessionOrigin,
+  validateEmbedRequestOrigin,
+} from "../server/embed-request-origin.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -1635,7 +1638,10 @@ export async function mcpDirectoryWidgetCapabilityForTool(
   };
 }
 
-function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
+function mcpDirectoryWidgetSessionTool(
+  config: MCPConfig,
+  actions: Partial<MCPConfig["actions"]>,
+): Tool | null {
   const profile = config.directoryProfile;
   const sourceNames = Object.keys(profile?.widgetTargets ?? {}).filter((name) =>
     profile?.connectorCatalog.includes(name),
@@ -1643,11 +1649,9 @@ function mcpDirectoryWidgetSessionTool(config: MCPConfig): Tool | null {
   if (!profile || profile.widgets === false || sourceNames.length === 0) {
     return null;
   }
-  const declaredActions: Partial<typeof config.actions> = config.actions;
   const genericSession =
     config.catalogMode !== "directory" &&
-    (config.builtinCrossAppTools !== false ||
-      declaredActions.create_embed_session !== undefined);
+    actions.create_embed_session !== undefined;
   return {
     name: "create_embed_session",
     description:
@@ -2226,8 +2230,10 @@ export async function resolveMcpAppResourceSafely(
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const requestOrigin = requestMeta?.resolveEmbedRequestOrigin
-    ? requestMeta.resolveEmbedRequestOrigin()
-    : requestMeta?.origin;
+    ? validateEmbedRequestOrigin(requestMeta.resolveEmbedRequestOrigin())
+    : requestMeta?.origin === undefined
+      ? undefined
+      : validateEmbedRequestOrigin(requestMeta.origin);
   try {
     const description = resource.description ?? entry.tool.description;
     const resolvedCsp = await resolveMcpAppCsp(resource, {
@@ -2368,7 +2374,7 @@ function renderMcpAppHtml(
       catalogMode: config.catalogMode,
       startToolName:
         config.catalogMode === "directory" &&
-        mcpDirectoryWidgetSessionTool(config)
+        mcpDirectoryWidgetSessionTool(config, config.actions)
           ? "create_embed_session"
           : undefined,
     });
@@ -3336,7 +3342,7 @@ export async function createMCPServerForRequest(
       const widgetSessionTool =
         requestMeta?.inlineMcpApps === true &&
         hasVerifiedMcpUserIdentity(effectiveIdentity)
-          ? mcpDirectoryWidgetSessionTool(config)
+          ? mcpDirectoryWidgetSessionTool(config, actions)
           : null;
       if (widgetSessionTool) {
         const index = tools.findIndex(
@@ -3525,7 +3531,7 @@ export async function createMCPServerForRequest(
 
         if (
           name === "create_embed_session" &&
-          mcpDirectoryWidgetSessionTool(config) &&
+          mcpDirectoryWidgetSessionTool(config, actions) &&
           (directoryCatalog ||
             Object.hasOwn(metadataObject(args), "sourceTicket"))
         ) {

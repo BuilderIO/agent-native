@@ -192,10 +192,21 @@ describe("UI action capability", () => {
     },
     { name: "query", headers: {}, query: "?_session=query-login" },
     { name: "custom resolver", headers: {}, query: "" },
+    { name: "ambient capability cookie", headers: {}, query: "" },
   ])(
     "does not mint from a general $name session with same-origin metadata",
-    async ({ headers, query }) => {
+    async ({ name, headers, query }) => {
       mockGetBrowserCookieSession.mockResolvedValue(null);
+      if (name === "ambient capability cookie") {
+        Object.assign(headers, {
+          cookie: `${EMBED_SESSION_COOKIE}=${signEmbedSessionToken({
+            ownerEmail: "embed-owner@example.com",
+            targetPath: "/documents/doc-1",
+            audienceHost: "example.test",
+            scope: "capability:visual-edit:design:design-1",
+          })}`,
+        });
+      }
       const app = createApp();
       mountUiActionCapabilityRoute(app);
 
@@ -260,7 +271,7 @@ describe("UI action capability", () => {
     { ownerEmail: "alice@example.com", source: "bearer" },
     { ownerEmail: "other@example.com", source: "bearer" },
   ])(
-    "does not mint for a signed embed $source owned by $ownerEmail alongside a browser session",
+    "separates an ambient embed cookie from explicit $source credentials owned by $ownerEmail",
     async ({ ownerEmail, source }) => {
       const embedToken = signEmbedSessionToken({
         ownerEmail,
@@ -287,11 +298,19 @@ describe("UI action capability", () => {
         }),
       );
 
-      expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({
-        error: "Browser cookie session required",
-      });
-      expect(response.headers.get("set-cookie")).toBeNull();
+      if (source === "cookie") {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ ok: true });
+        expect(response.headers.get("set-cookie")).toContain(
+          "agent-native-ui-capability=",
+        );
+      } else {
+        expect(response.status).toBe(403);
+        expect(await response.json()).toEqual({
+          error: "Browser cookie session required",
+        });
+        expect(response.headers.get("set-cookie")).toBeNull();
+      }
     },
   );
 
@@ -301,7 +320,7 @@ describe("UI action capability", () => {
     { base: "/mail", path: "/mail/_agent-native/ui-capability" },
     { base: "/mail", path: "/mail/_agent-native/ui-capability/" },
   ])(
-    "checks live embed cookies inside the capability handler at $path",
+    "refuses marked embed traffic and accepts independent browser identity at $path",
     async ({ base, path }) => {
       vi.stubEnv("APP_BASE_PATH", base);
       const token = signEmbedSessionToken({
@@ -316,6 +335,7 @@ describe("UI action capability", () => {
         new Request(`https://example.test${path}`, {
           headers: {
             "sec-fetch-site": "same-origin",
+            "x-agent-native-embed-target": "/documents/doc-1",
             cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
           },
         }),
@@ -329,7 +349,7 @@ describe("UI action capability", () => {
         new Request(`https://example.test${path}`, {
           headers: {
             "sec-fetch-site": "same-origin",
-            cookie: "an_session=browser-login",
+            cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
           },
         }),
       );
@@ -360,6 +380,7 @@ describe("UI action capability", () => {
           headers: {
             "sec-fetch-site": "same-origin",
             "x-forwarded-host": "example.test/path",
+            "x-agent-native-embed-target": "/documents/doc-1",
             cookie: `${EMBED_SESSION_COOKIE}=${token}; an_session=browser-login`,
           },
         }),
