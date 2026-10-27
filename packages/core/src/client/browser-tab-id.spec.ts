@@ -164,4 +164,25 @@ describe("browser tab id", () => {
     );
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
+
+  it("keeps the pending id when a stored mount id could be reused on reload", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.sessionStorage.setItem(`${STORAGE_KEY}:/mail`, "stored-mail-id");
+    window.history.replaceState({}, "", "/opening");
+    stubNavigationType("reload");
+
+    const { getBrowserTabId } = await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(pendingId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      pendingId,
+    );
+  });
 });

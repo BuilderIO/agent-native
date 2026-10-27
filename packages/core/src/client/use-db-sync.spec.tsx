@@ -309,6 +309,77 @@ describe("useDbSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("uses the run's starting mount for navigation invalidation after navigation", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-risk",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-chat",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-chat",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const navigateCommandKeys = invalidatedQueryKeys(queryClient.calls).filter(
+      (key) => key?.[0] === "navigate-command",
+    );
+    expect(navigateCommandKeys).toEqual([
+      ["navigate-command", "browser-tab-risk"],
+      ["navigate-command", "browser-tab-risk"],
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      "browser-tab-chat",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("invalidates only action-backed queries by default for action events", async () => {
     const result = await renderWithEvent({
       version: 1,

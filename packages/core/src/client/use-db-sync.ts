@@ -1823,6 +1823,7 @@ export function useDbSync(
     }
 
     const sideEffectToolsByTab = new Map<string, Map<string, boolean>>();
+    const browserTabIdsByTab = new Map<string, string>();
     const eventsForTool = (
       tool: string,
       completedSideEffect: boolean,
@@ -1895,20 +1896,26 @@ export function useDbSync(
       if (typeof detail?.tool !== "string") return;
       const tool = detail.tool;
       const completedSideEffect = detail.completedSideEffect === true;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      const browserTabId =
+        browserTabIdsByTab.get(tabId) ??
+        (typeof detail.browserTabId === "string"
+          ? detail.browserTabId
+          : getBrowserTabId());
+      if (completedSideEffect && !browserTabIdsByTab.has(tabId)) {
+        browserTabIdsByTab.set(tabId, browserTabId);
+      }
       const events = eventsForTool(
         tool,
         completedSideEffect,
         detail.isError === true,
-        typeof detail.browserTabId === "string"
-          ? detail.browserTabId
-          : getBrowserTabId(),
+        browserTabId,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
-        const tabId =
-          typeof detail.tabId === "string" && detail.tabId
-            ? detail.tabId
-            : "__default__";
         const tools =
           sideEffectToolsByTab.get(tabId) ?? new Map<string, boolean>();
         const previouslyFailed = tools.get(tool);
@@ -1933,6 +1940,14 @@ export function useDbSync(
           typeof detail.tabId === "string" && detail.tabId
             ? detail.tabId
             : "__default__";
+        if (!browserTabIdsByTab.has(tabId)) {
+          browserTabIdsByTab.set(
+            tabId,
+            typeof detail.browserTabId === "string"
+              ? detail.browserTabId
+              : getBrowserTabId(),
+          );
+        }
         sideEffectToolsByTab.delete(tabId);
         return;
       }
@@ -1941,20 +1956,19 @@ export function useDbSync(
         typeof detail.tabId === "string" && detail.tabId
           ? detail.tabId
           : "__default__";
+      const browserTabId =
+        browserTabIdsByTab.get(tabId) ??
+        (typeof detail.browserTabId === "string"
+          ? detail.browserTabId
+          : getBrowserTabId());
+      browserTabIdsByTab.delete(tabId);
       const tools = sideEffectToolsByTab.get(tabId);
       if (!tools?.size) return;
       sideEffectToolsByTab.delete(tabId);
       applyRunEvents(
         event,
         [...tools].flatMap(([tool, failed]) =>
-          eventsForTool(
-            tool,
-            true,
-            failed,
-            typeof detail.browserTabId === "string"
-              ? detail.browserTabId
-              : getBrowserTabId(),
-          ),
+          eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
       );

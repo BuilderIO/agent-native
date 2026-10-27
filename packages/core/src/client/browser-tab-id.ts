@@ -58,22 +58,26 @@ export function getBrowserTabId(): string {
     return getOrCreatePendingId();
   }
 
-  const cached = browserTabIdState.ids.get(key);
-  if (cached) {
+  const pending = browserTabIdState.pendingId;
+  if (pending) {
     browserTabIdState.pendingId = null;
-    return cached;
+    try {
+      sessionStorage.setItem(key, pending);
+    } catch {
+      browserTabIdState.ids.set(key, pending);
+      return pending;
+    }
+    browserTabIdState.ids.set(key, pending);
+    return pending;
   }
+
+  const cached = browserTabIdState.ids.get(key);
+  if (cached) return cached;
 
   let existing: string | null;
   try {
     existing = sessionStorage.getItem(key);
   } catch {
-    const pending = browserTabIdState.pendingId;
-    if (pending) {
-      browserTabIdState.pendingId = null;
-      browserTabIdState.ids.set(key, pending);
-      return pending;
-    }
     return getOrCreateMemoryId(key);
   }
 
@@ -82,13 +86,11 @@ export function getBrowserTabId(): string {
     SAFE_BROWSER_TAB_ID_RE.test(existing) &&
     shouldReuseStoredTabId()
   ) {
-    browserTabIdState.pendingId = null;
     browserTabIdState.ids.set(key, existing);
     return existing;
   }
 
-  const id = browserTabIdState.pendingId ?? generate();
-  browserTabIdState.pendingId = null;
+  const id = generate();
   try {
     sessionStorage.setItem(key, id);
   } catch {
