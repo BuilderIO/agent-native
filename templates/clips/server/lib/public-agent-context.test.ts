@@ -310,6 +310,26 @@ describe("public agent context access", () => {
     );
   });
 
+  it.each([
+    "not-a-date",
+    "2030-02-30T12:00:00Z",
+    "12:30:00",
+    "123",
+    "2030-01-01T00:00:00+23:00",
+  ])(
+    "withholds public agent reads with malformed expiry %s",
+    async (expiresAt) => {
+      mockRecordings.rows = [makeRecording({ expiresAt })];
+      const result = await loadPublicAgentAccess(
+        {} as Parameters<typeof loadPublicAgentAccess>[0],
+        "rec-1",
+      );
+      expect(result).toMatchObject({ ok: false, failure: { status: 410 } });
+      expect(mockSignScopedAgentAccessToken).not.toHaveBeenCalled();
+      expect(mockRecordAgentView).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps private clips hidden from callers without a scoped agent token", async () => {
     mockRecordings.rows = [
       makeRecording({

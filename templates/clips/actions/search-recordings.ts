@@ -10,6 +10,7 @@ import {
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { RECORDING_EXPIRY_PATTERN } from "../server/lib/recording-page-access.js";
 import { ownerEmailMatches } from "../server/lib/recordings.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
@@ -126,11 +127,13 @@ export default defineAction({
       ? ownerEmailMatches(schema.recordings.ownerEmail, userEmail)
       : sql`false`;
     // PostgreSQL 15's SQL/JSON parser needs a numeric offset instead of UTC Z.
-    const expiryIsCurrent = sql<boolean | null>`jsonb_path_match_tz(
+    const expiryIsCurrent = sql<
+      boolean | null
+    >`case when ${schema.recordings.expiresAt} ~ ${RECORDING_EXPIRY_PATTERN.source} then jsonb_path_match_tz(
       to_jsonb(regexp_replace(${schema.recordings.expiresAt}, '[zZ]$', '+00:00')),
       '$.datetime() >= $now.datetime()',
       jsonb_build_object('now', ${new Date(Date.now()).toISOString().replace(/Z$/, "+00:00")}::text), true
-    )`;
+    ) else null end`;
     const expiryAbsent = sql`nullif(${schema.recordings.expiresAt}, '') is null`;
     const expiryNeedsRepair = sql<boolean>`not (${expiryAbsent}) and ${expiryIsCurrent} is null`;
     const lifecycleFilter = sql`case when ${ownerFilter} then true else

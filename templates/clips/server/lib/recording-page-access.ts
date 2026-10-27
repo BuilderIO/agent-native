@@ -1,3 +1,10 @@
+import { z } from "zod";
+
+// PostgreSQL datetime offsets stop at 15:59; legacy reads must agree with search.
+export const RECORDING_EXPIRY_PATTERN = new RegExp(
+  `^(?!.*[+-](?:1[6-9]|2[0-3]):[0-5]\\d$)(?:${z.regexes.date.source}|${z.regexes.datetime({ offset: true, local: true }).source})$(?![\\s\\S])`,
+);
+
 export type RecordingPageAccessRole =
   | "owner"
   | "admin"
@@ -12,7 +19,11 @@ export function isRecordingExpired(
   if (!expiresAt) return false;
 
   const expires = new Date(expiresAt).getTime();
-  return Number.isFinite(expires) && expires < now;
+  return (
+    !RECORDING_EXPIRY_PATTERN.test(expiresAt) ||
+    !Number.isFinite(expires) ||
+    expires < now
+  );
 }
 
 export function isRecordingExpiredForViewer(input: {
