@@ -277,9 +277,11 @@ async function runLocalAgentLoop(
         actions,
         messages,
         signal: controller.signal,
-        ownerEmail,
-        orgId,
-        maxIterations: parsed.maxIterations,
+        ownerEmail: ownerEmail ?? null,
+        orgId: orgId ?? null,
+        ...(parsed.maxIterations === undefined
+          ? {}
+          : { maxIterations: parsed.maxIterations }),
         send(event) {
           events.push(event);
           if (event.type === "text") {
