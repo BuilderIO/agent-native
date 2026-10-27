@@ -422,17 +422,22 @@ async function loadRecording(
     return { error: "Not found", status: 404 } as const;
   }
   if (!clipId) return { recording: gate, role, gateId } as const;
-  const [footage] = await getDb()
+  const footageRows = await getDb()
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       storageMode: schema.recordings.storageMode,
       trashedAt: schema.recordings.trashedAt,
+      failureCode: schema.recordings.failureCode,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
-  if (!footage || footage.trashedAt) {
+  if (footageRows.length === 0) {
+    return { error: "Not found", status: 404 } as const;
+  }
+  const [footage] = footageRows;
+  if (footage.trashedAt || footage.failureCode === "taken_down") {
     return { error: "Not found", status: 404 } as const;
   }
 
