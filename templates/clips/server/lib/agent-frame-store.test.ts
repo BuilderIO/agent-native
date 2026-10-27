@@ -378,7 +378,32 @@ describe("agent frame store", () => {
       );
     });
 
-    it("keeps the old row when the replaced object will not delete, and drops its own upload", async () => {
+    it("keeps the old row, and uploads nothing, when the replaced object will not delete", async () => {
+      mockRows.value = [
+        {
+          atMs: OPENING_MS,
+          mediaKey: "stale",
+          storageUrl: "https://cdn.example.com/old.jpg",
+          storageProvider: "s3",
+          storageId: null,
+        },
+      ];
+      mockDeleteStoredMediaUrl.mockResolvedValue(false);
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
+        atMs: OPENING_MS,
+        frame: new Uint8Array([1]),
+      });
+
+      expect(mockUploadRecordingMedia).not.toHaveBeenCalledWith(
+        expect.objectContaining({ filename: `agent-frame-${OPENING_MS}.jpg` }),
+      );
+      expect(mockInserted).not.toContainEqual(
+        expect.objectContaining({ atMs: OPENING_MS }),
+      );
+    });
+
+    it("deletes the replaced object before it uploads the new one", async () => {
       mockUploadRecordingMedia.mockResolvedValue({
         url: "https://cdn.example.com/new.jpg",
         provider: "s3",
@@ -395,40 +420,28 @@ describe("agent frame store", () => {
       mockTxFrameRows.value = [
         { storageUrl: "https://cdn.example.com/old.jpg" },
       ];
-      mockDeleteStoredMediaUrl.mockImplementation(async (url: string) =>
-        url.endsWith("new.jpg"),
-      );
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
         atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
-      expect(mockInserted).not.toContainEqual(
-        expect.objectContaining({ atMs: OPENING_MS }),
-      );
-      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
-        "https://cdn.example.com/new.jpg",
-        { storageMode: "own", recordingId: "rec-1" },
+      const deleteOrder =
+        mockDeleteStoredMediaUrl.mock.invocationCallOrder[0] ?? Infinity;
+      const uploadOrder =
+        mockUploadRecordingMedia.mock.invocationCallOrder[0] ?? 0;
+      expect(deleteOrder).toBeLessThan(uploadOrder);
+      expect(mockInserted).toContainEqual(
+        expect.objectContaining({
+          storageUrl: "https://cdn.example.com/new.jpg",
+        }),
       );
     });
 
-    it("does nothing for a fill whose media was already replaced", async () => {
+    it("does nothing for a fill whose media was already replaced, current frames included", async () => {
       mockCurrentRecording.value = [
         { videoUrl: "https://cdn.example.com/burned.mp4", editsJson: "{}" },
       ];
-
-      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
-
-      expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
-      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
-    });
-
-    it("never deletes a current frame from a fill whose media was replaced under the lock", async () => {
-      mockUploadRecordingMedia.mockResolvedValue({
-        url: "https://cdn.example.com/late.jpg",
-        provider: "s3",
-      });
       mockRows.value = [
         {
           atMs: OPENING_MS,
@@ -438,27 +451,14 @@ describe("agent frame store", () => {
           storageId: null,
         },
       ];
-      mockTxFrameRows.value = [
-        { storageUrl: "https://cdn.example.com/current.jpg" },
-      ];
-      mockLockedRecording.value = [
-        { videoUrl: "https://cdn.example.com/burned.mp4", editsJson: "{}" },
-      ];
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
         atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
-      expect(mockInserted).toHaveLength(0);
-      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalledWith(
-        "https://cdn.example.com/current.jpg",
-        expect.anything(),
-      );
-      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
-        "https://cdn.example.com/late.jpg",
-        { storageMode: "own", recordingId: "rec-1" },
-      );
+      expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
+      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
     });
 
     it("drops a frame whose media was replaced while it was being cut", async () => {

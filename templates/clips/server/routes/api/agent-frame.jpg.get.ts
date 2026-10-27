@@ -272,7 +272,9 @@ export default defineEventHandler(async (event: H3Event) => {
       storedMimeType,
     );
     applyFrameHeaders(event);
-    return Buffer.from(lookup.frame);
+    const buffer = Buffer.from(lookup.frame);
+    if (cacheable) setCachedFrame(key, buffer);
+    return buffer;
   }
   const { claim } = lookup;
 

@@ -386,12 +386,39 @@ describe("agent-frame.jpg route", () => {
     expect(mockClaimRelease).toHaveBeenCalledTimes(1);
   });
 
+  it("serves a repeat request for a public clip's stored frame from memory", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { id: "public-stored" } }),
+    });
+    mockLoadStoredAgentFrame.mockResolvedValueOnce({
+      frame: new Uint8Array([9, 8, 7]),
+    });
+
+    const first = await handler(
+      makeEvent({ id: "public-stored", atMs: "1000" }) as never,
+    );
+    const second = await handler(
+      makeEvent({ id: "public-stored", atMs: "1000" }) as never,
+    );
+
+    expect(Buffer.from(first as Buffer)).toEqual(Buffer.from([9, 8, 7]));
+    expect(Buffer.from(second as Buffer)).toEqual(Buffer.from([9, 8, 7]));
+    expect(mockLoadStoredAgentFrame).toHaveBeenCalledTimes(1);
+  });
+
   it("takes no claim when a stored frame answers", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: { id: "claimless", visibility: "private" },
+      }),
+    });
     mockLoadStoredAgentFrame.mockResolvedValue({
       frame: new Uint8Array([9]),
     });
 
-    await handler(makeEvent({ id: "rec-1", atMs: "1000" }) as never);
+    await handler(makeEvent({ id: "claimless", atMs: "1000" }) as never);
 
     expect(mockClaimRelease).not.toHaveBeenCalled();
   });

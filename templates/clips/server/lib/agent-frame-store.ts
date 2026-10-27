@@ -250,8 +250,16 @@ async function storeAgentFrame(
   frame: Uint8Array,
   previous: FrameObject | null,
 ): Promise<void> {
-  // Most stale fills end here, before an upload they would have to undo.
+  // Most stale fills end here, before an upload they would have to undo, and
+  // before anything is deleted: a fill for replaced media never reaches a row
+  // a newer fill recorded.
   if (!(await isMediaCurrent(recording, mediaKey))) return;
+
+  // The object being replaced goes first, outside the lock below (a hosted
+  // delete takes the allowance lock, which other paths take before the
+  // recording's), and must be confirmed gone: once the row points at the new
+  // object nothing records the old one. Left as is, the next fill retries.
+  if (previous && !(await deleteFrameObject(recording, previous))) return;
 
   let uploaded: Awaited<ReturnType<typeof uploadRecordingMedia>>;
   try {
@@ -323,13 +331,6 @@ async function storeAgentFrame(
         ? existing.some((row) => row.storageUrl === previous.storageUrl)
         : existing.length === 0;
       if (!unchanged) return false;
-      // The object being replaced goes while the row is still locked and
-      // checked, and must be confirmed gone: once the row points at the new
-      // object nothing records the old one, and a stale fill must not delete
-      // a current frame. Left as is, the next fill retries.
-      if (previous && !(await deleteFrameObject(recording, previous))) {
-        return false;
-      }
       await tx
         .insert(schema.recordingAgentFrames)
         .values({
