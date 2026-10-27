@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: 메모를 피치덱으로 만들어 보세요
 seo_title: 스타트업 창업자를 위한 AI 피치덱 메이커
 meta_description: "문서, 웹사이트, 대략적인 메모에서 피치덱을 시작하세요. Agent-Native Slides가 슬라이드를 한 장씩 초안으로 만들고, 직접 또는 에이전트에게 요청해 편집할 수 있어요."

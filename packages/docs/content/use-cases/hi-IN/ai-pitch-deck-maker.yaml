@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: "अपने नोट्स को पिच डेक में बदलें"
 seo_title: "स्टार्टअप फ़ाउंडर्स के लिए AI पिच डेक मेकर"
 meta_description: "अपना पिच डेक किसी डॉक, अपनी वेबसाइट या कच्चे नोट्स से शुरू करें। Agent-Native Slides इसे एक-एक स्लाइड करके तैयार करता है, और आप खुद या एजेंट से कहकर एडिट करते हैं।"

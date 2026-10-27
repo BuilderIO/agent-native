@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: メモからピッチデッキを作成
 seo_title: スタートアップ創業者向けAIピッチデッキメーカー
 meta_description: ドキュメントやウェブサイト、ラフなメモからピッチデッキを作り始められます。Agent-Native Slidesが1枚ずつ下書きし、手作業でもエージェントへの指示でも編集できます。

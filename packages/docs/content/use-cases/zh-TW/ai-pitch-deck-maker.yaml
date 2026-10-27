@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: "把你的筆記變成募資簡報"
 seo_title: "為新創創辦人打造的 AI 募資簡報產生器"
 meta_description: "從一份文件、你的網站或零散的筆記開始製作募資簡報。Agent-Native Slides 會一頁一頁幫你起草，你可以手動編輯，或直接請 agent 修改。"

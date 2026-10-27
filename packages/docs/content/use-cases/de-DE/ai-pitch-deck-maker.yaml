@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: Aus Ihren Notizen ein Pitch Deck machen
 seo_title: KI-Pitch-Deck-Generator für Startup-Gründer
 meta_description: Starten Sie Ihr Pitch Deck mit einem Dokument, Ihrer Website oder groben Notizen. Agent-Native Slides entwirft es Folie für Folie, und Sie bearbeiten es selbst oder per Anfrage an den Agenten.

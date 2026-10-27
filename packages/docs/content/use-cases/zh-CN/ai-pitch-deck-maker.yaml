@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: 把你的笔记变成融资路演 PPT
 seo_title: 面向创业公司创始人的 AI 融资路演 PPT 生成器
 meta_description: 从一份文档、你的官网或零散的笔记开始做路演 PPT。Agent-Native Slides 逐页起草，你可以手动编辑，也可以让 agent 来改。

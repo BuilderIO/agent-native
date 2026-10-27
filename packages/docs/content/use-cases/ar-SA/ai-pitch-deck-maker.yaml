@@ -1,6 +1,8 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
+roles:
+  - founders
 title: "حوّل ملاحظاتك إلى عرض للمستثمرين"
 seo_title: "صانع عروض المستثمرين بالذكاء الاصطناعي للمؤسسين"
 meta_description: "ابدأ عرضك للمستثمرين من مستند أو موقعك الإلكتروني أو ملاحظات أولية. يصيغه Agent-Native Slides شريحةً بشريحة، وتعدّله بيدك أو بطلب من الوكيل."
