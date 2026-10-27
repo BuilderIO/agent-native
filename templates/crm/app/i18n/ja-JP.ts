@@ -624,11 +624,9 @@ const messages = {
     automate: "自動化",
     reviewNewClipsCalls: "新しい Clips 通話を確認",
     reviewDescription:
-      "Clips のメディアや文字起こしをコピーせず、この CRM レコードの確認レシピを準備します。",
-    disabledAutomationDescription:
-      "これは無効な状態で開始し、{{name}} に紐付きます。明示的に有効にすると、新しいクリップはアクセス確認済みの録画ページ参照だけをこのレコードに添付できます。",
-    handoffDescription:
-      "引き継ぎで保持するのは不透明なクリップ ID、永続的な {{path}} ページ URL、キャプチャ時刻だけです。イベント URL、メディア、アクセストークン、文字起こし、推測されたレコード、プロバイダーへの書き込みは拒否されます。",
+      "CRM から Clips への通話自動化の設定はまだ利用できません。",
+    disabledAutomationDescription: "選択した CRM レコード: {{name}}。",
+    handoffDescription: "{{path}} ページへのリンクの自動添付は利用できません。",
     manageAutomations: "自動化を管理",
     configureWithAgent: "エージェントで設定",
     editField: "項目を編集",

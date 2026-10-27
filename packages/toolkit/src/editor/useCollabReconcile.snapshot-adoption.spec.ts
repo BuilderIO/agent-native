@@ -331,10 +331,13 @@ function makeTabs(
     setOptions: (next: Partial<UseCollabReconcileOptions>) => {
       extraOptions = next;
     },
-    /** Types at the start of the first paragraph without pushing it. */
-    type: (index: number, text: string) =>
+    /**
+     * Types at `at`, the start of the first paragraph by default, without
+     * pushing it.
+     */
+    type: (index: number, text: string, at = 1) =>
       act(() => {
-        editors[index]!.commands.insertContentAt(1, text);
+        editors[index]!.commands.insertContentAt(at, text);
       }),
     rebaseWithoutRevision: () => {
       rebaseWithoutRevision = true;
@@ -424,6 +427,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
       vi.useFakeTimers();
       if (!visible) setVisibility("hidden");
       const tabs = makeTabs(2, { visible, adoption: "server" });
+      const merges: Array<{ setAside: number }> = [];
+      tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
       try {
         tabs.render(FIRST);
         await act(async () => vi.advanceTimersByTimeAsync(30));
@@ -443,6 +448,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
 
         expect(tabs.markdown()).toEqual([OUTSIDE, OUTSIDE]);
         expect(tabs.serverMarkdown()).toBe(OUTSIDE);
+        // One merge, counted by the tab whose proposal the server adopted.
+        expect(merges).toEqual([{ setAside: 0 }]);
       } finally {
         tabs.dispose();
       }
@@ -479,9 +486,135 @@ describe("useCollabReconcile — snapshot adoption", () => {
     }
   });
 
+  it("counts an outside write it hands the server once", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.settleAdoptions();
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.render({ ...SECOND });
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+
+      expect(tabs.markdown()).toEqual([OUTSIDE]);
+      expect(merges).toEqual([{ setAside: 0 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("counts a change it sets aside for overlapping the tab's typing", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Typed. ");
+
+      const revised = {
+        value: "Alpha paragraph, revised.\n\nBravo paragraph.",
+        revision: "revision-2",
+        updatedAt: "2024-01-01T00:00:02.000Z",
+      };
+      tabs.saveRevision(revised.revision);
+      tabs.render(revised);
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+
+      expect(tabs.markdown()).toEqual([
+        "Typed. Alpha paragraph.\n\nBravo paragraph.",
+      ]);
+      expect(tabs.adoptionCalls).toEqual([]);
+      expect(merges).toEqual([{ setAside: 1 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("counts a write whose change the tab already made as kept", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // The start of "Bravo paragraph.", then the start of the page.
+      tabs.type(0, "Local. ", 19);
+      tabs.type(0, "Typed. ");
+
+      const revised = {
+        value: "Typed. Alpha paragraph.\n\nBravo paragraph.",
+        revision: "revision-2",
+        updatedAt: "2024-01-01T00:00:02.000Z",
+      };
+      tabs.saveRevision(revised.revision);
+      tabs.render(revised);
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+
+      expect(tabs.markdown()).toEqual([
+        "Typed. Alpha paragraph.\n\nLocal. Bravo paragraph.",
+      ]);
+      expect(tabs.adoptionCalls).toEqual([]);
+      expect(merges).toEqual([{ setAside: 0 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("counts a write the server takes in after a newer one cancelled it", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    const third = {
+      value: `${OUTSIDE}\n\nLater paragraph.`,
+      revision: "revision-3",
+      updatedAt: "2024-01-01T00:00:03.000Z",
+    };
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(tabs.adoptionCalls).toHaveLength(1);
+      // The server takes revision 2 in; its answer arrives after revision 3.
+      tabs.holdAnswersFor(0);
+      tabs.settleAdoptions();
+      tabs.saveRevision(third.revision);
+      tabs.render(third);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      tabs.deliverHeldAnswers();
+      for (let step = 0; step < 3; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(3000));
+        tabs.settleAdoptions();
+      }
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.markdown()).toEqual([third.value]);
+      expect(merges).toEqual([{ setAside: 0 }, { setAside: 0 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("leaves a snapshot the server calls stale for the newer one", async () => {
     vi.useFakeTimers();
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
     try {
       tabs.render(FIRST);
       await act(async () => vi.advanceTimersByTimeAsync(30));
@@ -491,6 +624,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.settleAdoptions();
       await act(async () => vi.advanceTimersByTimeAsync(100));
       expect(tabs.markdown()).toEqual([BASELINE]);
+      expect(merges).toEqual([]);
 
       const third = "Alpha paragraph.\n\nThird paragraph.\n\nBravo paragraph.";
       tabs.render({
@@ -502,6 +636,7 @@ describe("useCollabReconcile — snapshot adoption", () => {
       tabs.settleAdoptions();
       await act(async () => vi.advanceTimersByTimeAsync(100));
       expect(tabs.markdown()).toEqual([third]);
+      expect(merges).toEqual([{ setAside: 0 }]);
     } finally {
       tabs.dispose();
     }
@@ -602,6 +737,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
   it("keeps unsaved typing when it rebuilds on a revision this tab never saw", async () => {
     vi.useFakeTimers();
     const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
     const third = {
       value: `${OUTSIDE}\n\nLater paragraph.`,
       revision: "revision-3",
@@ -625,6 +762,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
         "revision-3",
       ]);
       expect(tabs.markdown()).toEqual([`Unsaved ${third.value}`]);
+      // Planned twice, taken in once.
+      expect(merges).toEqual([{ setAside: 0 }]);
     } finally {
       tabs.dispose();
     }
@@ -1099,6 +1238,30 @@ describe("useCollabReconcile — snapshot adoption", () => {
       expect(tabs.markdown()).toEqual([third.value]);
     } finally {
       warn.mockRestore();
+      tabs.dispose();
+    }
+  });
+
+  it("takes in an outside paragraph added right after a block with sent typing", async () => {
+    vi.useFakeTimers();
+    const tabs = makeTabs(1, { visible: true, adoption: "server" });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      tabs.type(0, "Sent typing ");
+      tabs.push(0);
+      tabs.saveRevision(SECOND.revision);
+      tabs.render(SECOND);
+      for (let step = 0; step < 4; step += 1) {
+        await act(async () => vi.advanceTimersByTimeAsync(8000));
+        tabs.settleAdoptions();
+        tabs.push(0);
+      }
+
+      const expected = `Sent typing ${OUTSIDE}`;
+      expect(tabs.serverMarkdown()).toBe(expected);
+      expect(tabs.markdown()).toEqual([expected]);
+    } finally {
       tabs.dispose();
     }
   });

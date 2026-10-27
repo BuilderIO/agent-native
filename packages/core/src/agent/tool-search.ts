@@ -1,6 +1,7 @@
 import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { getRequestRunContext } from "../server/request-context.js";
 import { clipHead } from "./clip-text.js";
 import type { ActionEntry } from "./production-agent.js";
@@ -66,7 +67,7 @@ export function createToolSearchEntry(
     1,
     Math.min(options.defaultLimit ?? DEFAULT_LIMIT, maxLimit),
   );
-  return {
+  return frameworkMcpTool({
     tool: {
       description:
         "Find actions and connected MCP tools by capability or exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
@@ -112,7 +113,7 @@ export function createToolSearchEntry(
     readOnly: true,
     run: async (args: Record<string, string>, context) =>
       searchToolRegistryForRequest(getRegistry(), args, options, context),
-  };
+  });
 }
 
 export function attachToolSearch(

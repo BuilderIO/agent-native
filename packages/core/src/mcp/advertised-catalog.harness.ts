@@ -275,6 +275,20 @@ export async function listAdvertised(
   config: MCPConfig,
   request: { fullCatalog: boolean; fullSurface: boolean },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
+  return withCatalogClient(config, request, async (client) => ({
+    tools: (await client.listTools()).tools.map((tool) => ({
+      name: tool.name,
+      annotations: { ...(tool.annotations ?? {}) },
+    })),
+    instructions: client.getInstructions() ?? "",
+  }));
+}
+
+export async function withCatalogClient<T>(
+  config: MCPConfig,
+  request: { fullCatalog: boolean; fullSurface: boolean },
+  inspect: (client: Client) => Promise<T>,
+): Promise<T> {
   const server = await createMCPServerForRequest(
     config,
     {
@@ -297,13 +311,12 @@ export async function listAdvertised(
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
-  const tools = (await client.listTools()).tools.map((tool) => ({
-    name: tool.name,
-    annotations: { ...(tool.annotations ?? {}) },
-  }));
-  const instructions = client.getInstructions() ?? "";
-  await client.close();
-  return { tools, instructions };
+  try {
+    return await inspect(client);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 // Runs the app's plugin once under the surface's environment and returns the
