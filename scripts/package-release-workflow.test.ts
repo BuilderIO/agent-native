@@ -2510,7 +2510,7 @@ fi
       });
     });
 
-    it("only runs on a manual dispatch with a non-empty devTag", () => {
+    it("runs on a manual dispatch with either snapshot input", () => {
       assert(devSnapshot);
       assert.match(
         String(devSnapshot.if),
@@ -2530,21 +2530,18 @@ fi
         "${{ inputs.betaTag != '' && inputs.devTag != '' }}",
       );
 
-      const snapshotTagValidation = (devSnapshot.steps as Workflow[]).find(
-        (step) => step.name === "Validate snapshot tag casing",
+      const betaTagValidation = (devSnapshot.steps as Workflow[]).find(
+        (step) => step.name === "Validate Beta snapshot tag casing",
       );
-      assert(snapshotTagValidation);
+      assert(betaTagValidation);
+      assert.equal(betaTagValidation.if, "${{ inputs.betaTag != '' }}");
       assert.equal(
-        snapshotTagValidation.if,
-        "${{ inputs.betaTag != '' || inputs.devTag != '' }}",
-      );
-      assert.equal(
-        (snapshotTagValidation.env as Workflow).DEV_TAG,
-        "${{ inputs.betaTag || inputs.devTag }}",
+        (betaTagValidation.env as Workflow).DEV_TAG,
+        "${{ inputs.betaTag }}",
       );
       assert.match(
-        String(snapshotTagValidation.run),
-        /Snapshot tags must be lowercase/,
+        String(betaTagValidation.run),
+        /Beta snapshot tags must be lowercase/,
       );
     });
 
@@ -2642,14 +2639,15 @@ fi
       );
     });
 
-    it("serializes canonical Beta and dev snapshot tags across branches", () => {
+    it("serializes Beta and dev snapshots through one tag lock", () => {
       const group = String((workflow.concurrency as Workflow).group);
       const snapshotGroup = group.split(" || format(")[0];
       assert.match(group, /inputs\.betaTag \|\| inputs\.devTag/);
       assert.match(
         snapshotGroup,
-        /format\('\{0\}-snapshot-dev-\{1\}', github\.workflow, inputs\.betaTag \|\| inputs\.devTag\)/,
+        /format\('\{0\}-snapshot-dev', github\.workflow\)/,
       );
+      assert.doesNotMatch(snapshotGroup, /format\('\{0\}-snapshot-dev-\{1\}'/);
       assert.doesNotMatch(snapshotGroup, /github\.ref/);
       assert.match(
         group,
