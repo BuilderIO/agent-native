@@ -16,10 +16,12 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
   resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
@@ -99,6 +101,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getBrowserCookieSession,
   isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
@@ -122,6 +125,8 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,
@@ -245,6 +250,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,
@@ -955,6 +961,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {

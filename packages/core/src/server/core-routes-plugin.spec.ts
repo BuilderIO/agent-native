@@ -243,6 +243,7 @@ describe("OAuth popup waiting route", () => {
       const token = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
         targetPath: "/_agent-native/oauth/popup",
+        audienceHost: "http://example.test",
         ttlSeconds: 60,
       });
       const app = createApp();

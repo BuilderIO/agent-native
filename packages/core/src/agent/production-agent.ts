@@ -107,6 +107,7 @@ import {
   type TextAttachmentStorage,
   unwrapOwnAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
+import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
@@ -3089,6 +3090,34 @@ export function isAgentModelVisionCapable(
   );
 }
 
+/**
+ * Clones rather than mutates: the attachment's `url` still points at the
+ * full-size original, which stays usable as an asset.
+ */
+export async function downscaleOversizedInlineImages(
+  attachments: AgentChatAttachment[],
+): Promise<AgentChatAttachment[]> {
+  // Sequential: each resize decodes a full-size image, so concurrency multiplies native memory.
+  const out: AgentChatAttachment[] = [];
+  for (const att of attachments) {
+    const parsed =
+      att.type === "image" && att.data ? parseBase64DataUrl(att.data) : null;
+    const resized = parsed
+      ? await downscaleInlineImageBase64(parsed.data, parsed.mediaType)
+      : null;
+    out.push(
+      resized
+        ? {
+            ...att,
+            data: `data:${resized.mediaType};base64,${resized.base64}`,
+            contentType: resized.mediaType,
+          }
+        : att,
+    );
+  }
+  return out;
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
@@ -3768,25 +3797,32 @@ export async function hydrateStructuredHistoryImageReferences(
       if (result.kind === "hydrated") {
         const parsed = parseBase64DataUrl(result.dataUrl);
         const mediaType = normalizeImageMediaType(result.mediaType);
-        if (parsed && mediaType) {
+        const resized =
+          parsed && mediaType
+            ? await downscaleInlineImageBase64(parsed.data, mediaType)
+            : null;
+        const data = resized?.base64 ?? parsed?.data;
+        if (data && mediaType && data.length <= MAX_INLINE_IMAGE_BASE64_CHARS) {
           const resolution = {
             type: "image" as const,
-            data: parsed.data,
-            mediaType,
+            data,
+            mediaType: normalizeImageMediaType(resized?.mediaType) ?? mediaType,
           };
           urlResolutions.set(hydrationKey, { kind: "image", resolution });
           resolutions.set(key, resolution);
           continue;
         }
+        const hydratedFailureCode: OwnedImageReadFailureCode =
+          data && mediaType ? "image-too-large" : "invalid-image";
         urlResolutions.set(hydrationKey, {
           kind: "failed",
-          code: "invalid-image",
+          code: hydratedFailureCode,
         });
         resolutions.set(key, {
           type: "text",
           text: unavailableHistoryImageText(
             part,
-            describeOwnedImageReadFailure("invalid-image"),
+            describeOwnedImageReadFailure(hydratedFailureCode),
           ),
         });
         continue;
@@ -14880,6 +14916,11 @@ export function createProductionAgentHandler(
         );
       }
     }
+    requestAttachments =
+      await downscaleOversizedInlineImages(requestAttachments);
+    requestContextAttachments = await downscaleOversizedInlineImages(
+      requestContextAttachments,
+    );
     workerStep("attach_done");
 
     workerStep("apikey_start");
@@ -15099,7 +15140,9 @@ export function createProductionAgentHandler(
       if (Array.isArray(modelPreparedContext.contextAttachments)) {
         requestContextAttachments = [
           ...requestContextAttachments,
-          ...modelPreparedContext.contextAttachments,
+          ...(await downscaleOversizedInlineImages(
+            modelPreparedContext.contextAttachments,
+          )),
         ];
       }
       if (typeof modelPreparedContext.contextNote === "string") {

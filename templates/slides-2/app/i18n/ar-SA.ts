@@ -103,7 +103,7 @@ const messages = {
     retry: "إعادة المحاولة",
     reload: "إعادة تحميل",
     mcpAbout:
-      "اربط Slides 2 بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق العمل نيابةً عنك في Slides 2: إنشاء العروض وإضافة الشرائح والتصدير إلى PowerPoint. لا يرى إلا ما يمكنك رؤيته.",
+      "اربط مساحة العمل هذه بتطبيق Claude أو ChatGPT أو Cursor أو أي تطبيق آخر يدعم MCP. يمكنه إنشاء العروض وإضافة الشرائح وتصديرها إلى PowerPoint، مع اقتصار الوصول على ما يمكنك رؤيته.",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -297,7 +297,7 @@ const messages = {
     deleteError: "تعذّر حذف نظام التصميم",
     emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
-      "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
+      "اختر الألوان والخطوط والشعار مرة واحدة. ستحافظ العروض الجديدة على الأسلوب نفسه في كل الشرائح، لتتفرغ للمحتوى.",
     tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
     tierLimitDescription:
       "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
@@ -797,8 +797,7 @@ const messages = {
   },
   generateSlides: {
     title: "Generar diapositivas con AI",
-    description:
-      "Describe el tema de tu presentación y AI generará diapositivas para ti.",
+    description: "شارك موضوعًا، وسيشكّل وكيلك الشرائح معك.",
     topic: "Tema",
     topicPlaceholder:
       "p. ej. Introducción a React Hooks, informe de ventas Q4, roadmap de producto 2025...",
@@ -1438,7 +1437,7 @@ const messages = {
     newDeckPromptTitle: "عرض تقديمي جديد",
     newDeckPlaceholder: "صِف العرض التقديمي الذي تريد إنشاءه...",
     skipPrompt: "تخطي المطالبة",
-    firstDeckPromptTitle: "لننشئ عرضك التقديمي الأول",
+    firstDeckPromptTitle: "لنُعدّ عرضك التقديمي الأول معًا.",
     firstDeckSkip: "تخطي",
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
@@ -1499,8 +1498,7 @@ const messages = {
     signIn: "تسجيل الدخول",
     emptyTitle: "لا توجد عروض بعد",
     createFirstDeck: "أنشئ أول عرض لك",
-    emptyDescription:
-      "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
+    emptyDescription: "ابدأ بفكرة، وشكّل عرضك التقديمي مع وكيلك خطوة بخطوة.",
   },
   agentChat: {
     setup: {
