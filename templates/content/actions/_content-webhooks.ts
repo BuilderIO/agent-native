@@ -443,6 +443,7 @@ export async function enqueueCommentWebhooks(
   const collections = memberships.filter(
     (membership) => !membership.filesOfSpace,
   );
+  const onlyCollection = collections.length === 1 ? collections[0] : undefined;
   const webhooks = await webhooksForDocuments(
     db,
     [args.comment.documentId],
@@ -457,9 +458,7 @@ export async function enqueueCommentWebhooks(
       const databaseId =
         webhook.scopeType === "database"
           ? webhook.scopeId
-          : collections.length === 1
-            ? collections[0].databaseId
-            : null;
+          : (onlyCollection?.databaseId ?? null);
       return {
         webhookId: webhook.id,
         eventType: args.type,

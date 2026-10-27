@@ -2279,10 +2279,12 @@ async function patchRowsInsideTransaction(
   const planned = rows.map((row, index) => {
     const snapshot = before.get(row.itemId)!;
     const changedPropertyIds: string[] = [];
+    const changedValues = new Map<string, string>();
     for (const [propertyId, valueJson] of patches[index]) {
       const existing = snapshot.values.get(propertyId);
       if (existing === valueJson) continue;
       changedPropertyIds.push(propertyId);
+      changedValues.set(propertyId, valueJson);
       (existing === undefined ? valueInserts : valueUpdates).push({
         documentId: row.documentId,
         propertyId,
@@ -2291,7 +2293,13 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
-    return { snapshot, changedPropertyIds, titleChanged };
+    return {
+      documentId: row.documentId,
+      snapshot,
+      changedPropertyIds,
+      changedValues,
+      titleChanged,
+    };
   });
 
   const documents = schema.documents;
@@ -2398,13 +2406,13 @@ async function patchRowsInsideTransaction(
   );
   await enqueuePropertyChangeWebhooks(tx, {
     databaseId: context.database.id,
-    rows: planned.map((plan, index) => ({
-      documentId: rows[index].documentId,
+    rows: planned.map((plan) => ({
+      documentId: plan.documentId,
       changes: webhookPropertyChanges(
         context,
         plan.snapshot,
         plan.changedPropertyIds,
-        patches[index],
+        plan.changedValues,
       ),
     })),
   });
