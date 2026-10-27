@@ -1,6 +1,5 @@
 import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "@agent-native/core/shared/mcp-app-widget-embed";
 import {
-  useLayoutEffect,
   useRef,
   useEffect,
   useState,
@@ -13,11 +12,10 @@ import { writeFirstPaintPromptDraft } from "../../app-shell/first-paint-prompt-d
 import type { HomeSuggestionClick } from "../../app-shell/home-suggestions.js";
 import { PromptHome } from "../../app-shell/PromptHome.js";
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import type { PromptComposerProps } from "../../composer/index.js";
+import type { TiptapComposerHandle } from "../../composer/TiptapComposer.js";
 import { Button } from "../../ui/button.js";
 import { AppSidebar, AppSidebarFooter } from "./AppSidebar.js";
-
-const useBrowserLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
 const SIDEBAR_MUTED =
@@ -51,7 +49,6 @@ export interface AppShellFirstPaintHome {
     to: string;
     icon: ComponentType<{ className?: string }>;
   }[];
-  sidebarGettingStartedSteps?: number;
   templatesLabel: string;
   recentLabel: string;
   browseAllLabel: string;
@@ -61,11 +58,24 @@ export interface AppShellFirstPaintHome {
   suggestionSeed?: number;
   onHomeSuggestionClick?: (click: HomeSuggestionClick) => void;
   reserveConnectionBar?: boolean;
+  renderComposer: (
+    props: Pick<
+      PromptComposerProps,
+      | "ariaLabel"
+      | "composerRef"
+      | "initialText"
+      | "initialTextKey"
+      | "onSubmit"
+      | "onTextChange"
+      | "placeholder"
+    >,
+  ) => ReactNode;
   suggestions: readonly {
     id: string;
     label: string;
     prompt: string;
     messageKey?: string;
+    labelMessageKey?: string;
   }[];
   loadSuggestionMessages?: (locale: string) => Promise<unknown>;
 }
@@ -107,21 +117,11 @@ function Sidebar({
         appId={firstPaintHome.appId}
         brandName={firstPaintHome.appName}
         brandHref="/home"
-        badge={<Block style={{ width: 48, height: 20, borderRadius: 6 }} />}
         items={firstPaintHome.sidebarItems.map((item, index) => ({
           ...item,
           active: index === 0,
         }))}
-        footerContent={
-          <FirstPaintSidebarFooter
-            {...(firstPaintHome.sidebarGettingStartedSteps !== undefined
-              ? {
-                  gettingStartedSteps:
-                    firstPaintHome.sidebarGettingStartedSteps,
-                }
-              : {})}
-          />
-        }
+        footerContent={<FirstPaintSidebarFooter />}
       />
     );
   }
@@ -155,35 +155,9 @@ function Sidebar({
   );
 }
 
-function FirstPaintSidebarFooter({
-  gettingStartedSteps,
-}: {
-  gettingStartedSteps?: number;
-}) {
+function FirstPaintSidebarFooter() {
   return (
     <>
-      {gettingStartedSteps ? (
-        <div className="mx-2 mb-2 overflow-hidden rounded-[14px] border border-border bg-card shadow-sm">
-          <div className="space-y-3 px-4 py-3">
-            <div className="flex h-6 items-center justify-between gap-2">
-              <Block style={{ width: 112, height: 18 }} />
-              <Block style={{ width: 24, height: 24, borderRadius: 4 }} />
-            </div>
-            <Block style={{ width: "100%", height: 6, borderRadius: 999 }} />
-          </div>
-          <div className="border-t border-border">
-            {Array.from({ length: gettingStartedSteps }, (_, index) => (
-              <div
-                key={index}
-                className="flex min-h-12 items-center gap-3 px-4"
-              >
-                <Block style={{ width: 16, height: 16, borderRadius: 999 }} />
-                <Block style={{ width: 112, height: 14 }} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
       <AppSidebarFooter
         feedback={
           <div className="flex h-7 items-center gap-2 px-2">
@@ -432,8 +406,11 @@ function FirstPaintPromptLibrary({
 }: {
   config: AppShellFirstPaintHome;
 }) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<TiptapComposerHandle>(null);
   const sourceRef = useRef<"composer" | "home_suggestion">("composer");
+  const expectedSuggestionTextRef = useRef<string | null>(null);
+  const [initialText, setInitialText] = useState<string>();
+  const [initialTextKey, setInitialTextKey] = useState<number>();
   const [suggestions, setSuggestions] = useState(config.suggestions);
 
   useEffect(() => {
@@ -451,15 +428,21 @@ function FirstPaintPromptLibrary({
           if (!active || !messages || typeof messages !== "object") return;
           setSuggestions(
             config.suggestions.map((suggestion) => {
-              if (!suggestion.messageKey) return suggestion;
-              let message: unknown = messages;
-              for (const key of suggestion.messageKey.split(".")) {
-                if (!message || typeof message !== "object") break;
-                message = (message as Record<string, unknown>)[key];
-              }
-              return typeof message === "string"
-                ? { ...suggestion, label: message, prompt: message }
-                : suggestion;
+              const readMessage = (key: string | undefined) => {
+                if (!key) return undefined;
+                let message: unknown = messages;
+                for (const part of key.split(".")) {
+                  if (!message || typeof message !== "object") break;
+                  message = (message as Record<string, unknown>)[part];
+                }
+                return typeof message === "string" ? message : undefined;
+              };
+              return {
+                ...suggestion,
+                label:
+                  readMessage(suggestion.labelMessageKey) ?? suggestion.label,
+                prompt: readMessage(suggestion.messageKey) ?? suggestion.prompt,
+              };
             }),
           );
         })
@@ -485,45 +468,26 @@ function FirstPaintPromptLibrary({
     };
   }, [config.appId, config.loadSuggestionMessages, config.suggestions]);
 
-  useBrowserLayoutEffect(() => {
-    const text = inputRef.current?.value ?? "";
-    if (text) {
+  const composer = config.renderComposer({
+    ariaLabel: config.promptPlaceholder,
+    composerRef,
+    initialText,
+    initialTextKey,
+    placeholder: config.promptPlaceholder,
+    onTextChange: (text) => {
+      if (
+        sourceRef.current === "home_suggestion" &&
+        expectedSuggestionTextRef.current !== text
+      ) {
+        sourceRef.current = "composer";
+        expectedSuggestionTextRef.current = null;
+      }
       writeFirstPaintPromptDraft(config.appId, text, sourceRef.current);
-    }
-  }, [config.appId]);
-
-  const composer = (
-    <div
-      className={`h-[118px] rounded-3xl border border-border bg-background px-4 py-3 shadow-sm ${
-        config.reserveConnectionBar ? "agent-composer-area--attached-above" : ""
-      }`}
-    >
-      <textarea
-        ref={inputRef}
-        aria-label={config.promptPlaceholder}
-        data-first-paint-prompt-input="true"
-        className="h-[66px] w-full resize-none border-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-0"
-        placeholder={config.promptPlaceholder}
-        rows={2}
-        onChange={(event) => {
-          sourceRef.current = "composer";
-          writeFirstPaintPromptDraft(
-            config.appId,
-            event.currentTarget.value,
-            sourceRef.current,
-          );
-        }}
-      />
-      <div className="flex h-7 items-center justify-between pt-1">
-        <Block style={{ width: 16, height: 16, borderRadius: 4 }} />
-        <div className="flex items-center gap-3">
-          <Block style={{ width: 70, height: 12 }} />
-          <Block style={{ width: 16, height: 16, borderRadius: 999 }} />
-          <Block style={{ width: 32, height: 32, borderRadius: 999 }} />
-        </div>
-      </div>
-    </div>
-  );
+    },
+    onSubmit: (text) => {
+      writeFirstPaintPromptDraft(config.appId, text, sourceRef.current);
+    },
+  });
   const suggestionBar = (
     <AgentSuggestionBar
       suggestions={suggestions}
@@ -544,17 +508,18 @@ function FirstPaintPromptLibrary({
       layout="single-line"
       className="px-0 py-0"
       onSelect={(suggestion) => {
-        if (!inputRef.current) return;
         sourceRef.current = "home_suggestion";
         const prompt = suggestion.prompt ?? suggestion.label;
-        inputRef.current.value = prompt;
+        expectedSuggestionTextRef.current = prompt;
+        setInitialText(prompt);
+        setInitialTextKey(Date.now());
         writeFirstPaintPromptDraft(
           config.appId,
           prompt,
           "home_suggestion",
           suggestion.id,
         );
-        inputRef.current.focus();
+        composerRef.current?.focus();
       }}
     />
   );
@@ -579,12 +544,12 @@ function FirstPaintPromptLibrary({
     <PromptHome
       title={config.promptTitle}
       composer={composer}
+      focusComposer={() => composerRef.current?.focus()}
       quickActions={quickActions}
       {...(config.reserveConnectionBar
         ? {
             reserveConnectionSpace: true,
             connectionAttached: true,
-            connectionPending: true,
           }
         : {})}
     >

@@ -26,6 +26,7 @@ import {
   TemplateLibraryGrid,
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -42,7 +43,7 @@ import {
   IconMoon,
   IconTemplate,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -108,16 +109,30 @@ function slidesFirstPaintSuggestions(
     role,
     createHomeSuggestionRandom(seed),
     order,
-  ).map(({ id, key }) => {
-    const [, , roleKey, promptKey] = key.split(".");
+  ).map(({ id, key, label }) => {
+    const [, , roleKey, labelKey] = label.split(".");
+    const [, , , promptKey] = key.split(".");
+    const roleLabels = slidesEnglish.home.suggestionLabels as Record<
+      string,
+      Record<string, string>
+    >;
     const rolePrompts = slidesEnglish.home.suggestionPrompts as Record<
       string,
       Record<string, string>
     >;
+    const shortLabel =
+      roleKey && labelKey ? roleLabels[roleKey]?.[labelKey] : undefined;
     const prompt =
       roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
-    if (!prompt) throw new Error(`Missing Slides home prompt: ${key}`);
-    return { id, label: prompt, prompt, messageKey: key };
+    if (!shortLabel || !prompt)
+      throw new Error(`Missing Slides home suggestion copy: ${label}`);
+    return {
+      id,
+      label: shortLabel,
+      prompt,
+      labelMessageKey: label,
+      messageKey: key,
+    };
   });
 }
 
@@ -165,9 +180,8 @@ function SlidesFirstPaintLibrary() {
 const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appId: "slides",
   appName: slidesEnglish.navigation.brand,
-  pageTitle: slidesEnglish.root.commandPresentations,
-  headerHeight: 48,
-  headerActionWidths: [108, 32],
+  pageTitle: slidesEnglish.header.decks,
+  headerHeight: 56,
   promptTitle: slidesEnglish.home.firstDeckPromptTitle,
   promptPlaceholder: slidesEnglish.home.newDeckPlaceholder,
   suggestedPromptsLabel: slidesEnglish.home.suggestedPrompts,
@@ -194,6 +208,22 @@ const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   library: <SlidesFirstPaintLibrary />,
   suggestionRole: "general",
   reserveConnectionBar: true,
+  renderComposer: (props) => (
+    <div data-agentkit-composer-size="large">
+      <PromptComposer
+        {...props}
+        attachmentsEnabled
+        className="slides-home-prompt-composer-area"
+        layoutVariant="hero"
+        modelStatusChecksEnabled
+        requireAgentEngine
+        showMissingApiKeySetup={false}
+        showModelSelector
+        voiceChatEnabled={false}
+        voiceEnabled
+      />
+    </div>
+  ),
 };
 
 export function isBareContentPath(pathname: string): boolean {
@@ -520,17 +550,19 @@ export default function Root() {
   );
   const firstPaintHome =
     location.pathname === "/" || location.pathname === "/home" ? (
-      <AppShellSkeleton
-        layout="prompt-library"
-        firstPaintHome={{
-          ...slidesFirstPaintHome,
-          suggestions: firstPaintSuggestions,
-          suggestionRole: homeSuggestionRole,
-          suggestionSeed: homeSuggestionSeed,
-          loadSuggestionMessages: loadFirstPaintSuggestionMessages,
-          onHomeSuggestionClick: trackSlidesHomeSuggestionClick,
-        }}
-      />
+      <QueryClientProvider client={queryClient}>
+        <AppShellSkeleton
+          layout="prompt-library"
+          firstPaintHome={{
+            ...slidesFirstPaintHome,
+            suggestions: firstPaintSuggestions,
+            suggestionRole: homeSuggestionRole,
+            suggestionSeed: homeSuggestionSeed,
+            loadSuggestionMessages: loadFirstPaintSuggestionMessages,
+            onHomeSuggestionClick: trackSlidesHomeSuggestionClick,
+          }}
+        />
+      </QueryClientProvider>
     ) : undefined;
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {

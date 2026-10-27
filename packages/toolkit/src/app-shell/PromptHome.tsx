@@ -2,7 +2,6 @@ import { Tabs } from "@agent-native/toolkit/design-system";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate.js";
-import { Skeleton } from "../ui/skeleton.js";
 
 export interface PromptHomeProps {
   title: ReactNode;
@@ -11,7 +10,6 @@ export interface PromptHomeProps {
   connection?: ReactNode;
   connectionAttached?: boolean;
   reserveConnectionSpace?: boolean;
-  connectionPending?: boolean;
   quickActions?: ReactNode;
   focusComposer?: () => void;
   children?: ReactNode;
@@ -24,7 +22,6 @@ export function PromptHome({
   connection,
   connectionAttached,
   reserveConnectionSpace = false,
-  connectionPending = false,
   quickActions,
   focusComposer,
   children,
@@ -103,22 +100,9 @@ export function PromptHome({
             className="agent-prompt-home-connection"
             data-visible={connection ? "true" : undefined}
             data-reserved={reserveConnectionSpace || undefined}
-            aria-hidden={(!connection && !connectionPending) || undefined}
+            aria-hidden={!connection || undefined}
           >
-            {connection ??
-              (connectionPending ? (
-                <div
-                  aria-hidden="true"
-                  data-prompt-home-connection-skeleton="true"
-                  className="mt-3 flex h-[46px] items-center justify-between rounded-t-xl border border-border bg-card px-3"
-                >
-                  <Skeleton className="h-3 w-20" />
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-6 w-24 rounded-md" />
-                    <Skeleton className="h-6 w-20 rounded-md" />
-                  </div>
-                </div>
-              ) : null)}
+            {connection}
           </div>
           {composer}
         </div>

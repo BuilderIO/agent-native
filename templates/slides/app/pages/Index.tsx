@@ -708,7 +708,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     () =>
       selectedHomeSuggestions.map((suggestion: SlidesHomeSuggestion) => {
         const prompt = t(suggestion.key);
-        return { ...suggestion, label: prompt, prompt };
+        return { ...suggestion, label: t(suggestion.label), prompt };
       }),
     [selectedHomeSuggestions, t],
   );
@@ -2667,9 +2667,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     <PromptHome
       title={t("home.firstDeckPromptTitle")}
       reserveConnectionSpace
-      connectionPending={
-        agentEngine.state === "unknown" || agentEngine.state === "unavailable"
-      }
       connectionAttached={agentEngine.state !== "configured"}
       focusComposer={() => homeComposerRef.current?.focus()}
       mobileToolbar={

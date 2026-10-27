@@ -121,7 +121,6 @@ describe("prompt home and library", () => {
         composer={<textarea />}
         reserveConnectionSpace
         connectionAttached
-        connectionPending={!connectionReady}
         connection={connectionReady ? <button>Connect AI</button> : undefined}
       />
     );
@@ -129,9 +128,10 @@ describe("prompt home and library", () => {
     render(home(false));
     const slot = container.querySelector(".agent-prompt-home-connection")!;
     expect(slot.hasAttribute("data-reserved")).toBe(true);
+    expect(slot.children).toHaveLength(0);
     expect(
       slot.querySelector("[data-prompt-home-connection-skeleton]"),
-    ).not.toBeNull();
+    ).toBeNull();
 
     render(home(true));
     expect(container.querySelector(".agent-prompt-home-connection")).toBe(slot);

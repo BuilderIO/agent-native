@@ -11,7 +11,8 @@ const prompts = (
 ): HomeSuggestionPrompt[] =>
   keys.map((key, index) => ({
     id: `design-suggestion-${index + 1}`,
-    label: `home.suggestions.${role}.${key}`,
+    label: `home.suggestionLabels.${role}.${key}`,
+    prompt: `home.suggestions.${role}.${key}`,
   }));
 
 export const DESIGN_HOME_SUGGESTION_POOLS: HomeSuggestionPools<HomeSuggestionPrompt> =

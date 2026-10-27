@@ -25,6 +25,7 @@ import {
   readHomeSuggestionRole,
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -43,7 +44,7 @@ import {
   IconMoon,
   IconTemplate,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -139,16 +140,30 @@ function designFirstPaintSuggestions(
     role,
     createHomeSuggestionRandom(seed),
     order,
-  ).map(({ id, label }) => {
-    const [, , roleKey, promptKey] = label.split(".");
+  ).map(({ id, label, prompt: messageKey }) => {
+    const [, , roleKey, labelKey] = label.split(".");
+    const [, , , promptKey] = messageKey?.split(".") ?? [];
+    const roleLabels = designEnglish.home.suggestionLabels as Record<
+      string,
+      Record<string, string>
+    >;
     const rolePrompts = designEnglish.home.suggestions as Record<
       string,
       Record<string, string>
     >;
+    const shortLabel =
+      roleKey && labelKey ? roleLabels[roleKey]?.[labelKey] : undefined;
     const prompt =
       roleKey && promptKey ? rolePrompts[roleKey]?.[promptKey] : undefined;
-    if (!prompt) throw new Error(`Missing Design home prompt: ${label}`);
-    return { id, label: prompt, prompt, messageKey: label };
+    if (!shortLabel || !prompt)
+      throw new Error(`Missing Design home suggestion copy: ${label}`);
+    return {
+      id,
+      label: shortLabel,
+      prompt,
+      labelMessageKey: label,
+      messageKey,
+    };
   });
 }
 
@@ -207,7 +222,6 @@ const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appName: designEnglish.navigation.brand,
   pageTitle: designEnglish.home.pageTitle,
   headerHeight: 56,
-  headerActionWidths: [108, 32],
   promptTitle: designEnglish.home.designPromptTitle,
   promptPlaceholder: designEnglish.home.describeBuild,
   suggestedPromptsLabel: designEnglish.home.suggestedPrompts,
@@ -228,7 +242,6 @@ const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
       icon: IconComponents,
     },
   ],
-  sidebarGettingStartedSteps: 5,
   templatesLabel: designEnglish.navigation.templates,
   recentLabel: designEnglish.home.recent,
   browseAllLabel: designEnglish.home.browseAllTemplates,
@@ -236,6 +249,23 @@ const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   skipPromptLabel: designEnglish.promptDialog.skipPrompt,
   suggestionRole: "general",
   reserveConnectionBar: true,
+  renderComposer: (props) => (
+    <div data-design-inline-prompt data-agentkit-composer-size="large">
+      <PromptComposer
+        {...props}
+        autoFocus
+        attachmentsEnabled
+        className="design-home-prompt-composer-area"
+        layoutVariant="hero"
+        modelStatusChecksEnabled
+        requireAgentEngine
+        showMissingApiKeySetup={false}
+        showModelSelector
+        voiceChatEnabled={false}
+        voiceEnabled
+      />
+    </div>
+  ),
 };
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -483,17 +513,19 @@ export default function Root() {
   );
   const firstPaintHome =
     location.pathname === "/" || location.pathname === "/home" ? (
-      <AppShellSkeleton
-        layout="prompt-library"
-        firstPaintHome={{
-          ...designFirstPaintHome,
-          suggestions: firstPaintSuggestions,
-          suggestionRole: homeSuggestionRole,
-          suggestionSeed: homeSuggestionSeed,
-          loadSuggestionMessages: loadFirstPaintSuggestionMessages,
-          onHomeSuggestionClick: trackDesignHomeSuggestionClick,
-        }}
-      />
+      <QueryClientProvider client={queryClient}>
+        <AppShellSkeleton
+          layout="prompt-library"
+          firstPaintHome={{
+            ...designFirstPaintHome,
+            suggestions: firstPaintSuggestions,
+            suggestionRole: homeSuggestionRole,
+            suggestionSeed: homeSuggestionSeed,
+            loadSuggestionMessages: loadFirstPaintSuggestionMessages,
+            onHomeSuggestionClick: trackDesignHomeSuggestionClick,
+          }}
+        />
+      </QueryClientProvider>
     ) : undefined;
   return (
     <HomeSuggestionSeedProvider

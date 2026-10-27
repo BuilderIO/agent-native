@@ -96,10 +96,11 @@ export interface SlidesHomeSuggestion extends HomeSuggestionPrompt {
 function suggestionsFor(role: HomeSuggestionRoleKey) {
   return suggestionIds[role].map((id, index) => {
     const key = `home.suggestionPrompts.${role}.${id}`;
+    const label = `home.suggestionLabels.${role}.${id}`;
     return {
       id: `slides-suggestion-${index + 1}`,
       key,
-      label: key,
+      label,
       prompt: key,
     };
   });

@@ -71,7 +71,6 @@ describe("AppShellSkeleton home layout", () => {
       promptPlaceholder: "Describe your design",
       suggestedPromptsLabel: "Suggested prompts",
       sidebarItems: [{ label: "Home", to: "/home", icon: IconHome }],
-      sidebarGettingStartedSteps: 5,
       templatesLabel: "Templates",
       recentLabel: "Recent",
       browseAllLabel: "Browse all",
@@ -80,7 +79,7 @@ describe("AppShellSkeleton home layout", () => {
       suggestionSeed: 123,
       reserveConnectionBar: true,
       suggestions: [
-        { id: "one", label: "Build a portfolio", prompt: "Build a portfolio" },
+        { id: "one", label: "Portfolio", prompt: "Build a portfolio" },
         {
           id: "two",
           label: "Create a dashboard",
@@ -88,6 +87,13 @@ describe("AppShellSkeleton home layout", () => {
         },
         { id: "three", label: "Design a shop", prompt: "Design a shop" },
       ],
+      renderComposer: (props) => (
+        <textarea
+          aria-label={props.ariaLabel}
+          placeholder={props.placeholder}
+          onChange={(event) => props.onTextChange?.(event.currentTarget.value)}
+        />
+      ),
     };
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(
@@ -134,8 +140,15 @@ describe("AppShellSkeleton home layout", () => {
     expect(shell.querySelector("[data-agent-native-icon]")).not.toBeNull();
     expect(shell.textContent).toContain("Skip prompt");
     expect(
+      shell.querySelector('[data-agent-suggestion-track="true"]')?.className,
+    ).toContain("flex-nowrap");
+    expect(
+      shell.querySelector('[data-home-suggestion-id="one"]')?.textContent,
+    ).toBe("Portfolio");
+    expect(
       shell.querySelector("[data-prompt-home-connection-skeleton]"),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(shell.textContent).not.toContain("Getting Started");
   });
 
   it("localizes shell prompts from the active app catalog", async () => {
@@ -155,9 +168,10 @@ describe("AppShellSkeleton home layout", () => {
       suggestions: [
         {
           id: "one",
-          label: "Build a portfolio",
+          label: "Portfolio",
           prompt: "Build a portfolio",
           messageKey: "home.suggestions.general.one",
+          labelMessageKey: "home.suggestionLabels.general.one",
         },
         {
           id: "two",
@@ -171,8 +185,18 @@ describe("AppShellSkeleton home layout", () => {
           suggestions: {
             general: { one: "Créer un portfolio" },
           },
+          suggestionLabels: {
+            general: { one: "Portfolio" },
+          },
         },
       }),
+      renderComposer: (props) => (
+        <textarea
+          aria-label={props.ariaLabel}
+          placeholder={props.placeholder}
+          onChange={(event) => props.onTextChange?.(event.currentTarget.value)}
+        />
+      ),
     };
     const container = document.createElement("div");
     document.body.append(container);
@@ -191,14 +215,29 @@ describe("AppShellSkeleton home layout", () => {
         await Promise.resolve();
       });
 
-      expect(container.textContent).toContain("Créer un portfolio");
+      expect(container.textContent).toContain("Portfolio");
       expect(
         container.querySelector<HTMLButtonElement>(
           '[data-home-suggestion-id="one"]',
         )?.textContent,
+      ).toBe("Portfolio");
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[data-home-suggestion-id="one"]')
+          ?.click();
+      });
+      expect(
+        JSON.parse(
+          window.sessionStorage.getItem(
+            "agent-native:first-paint-prompt-draft:design",
+          ) ?? "null",
+        ).text,
       ).toBe("Créer un portfolio");
     } finally {
       await act(async () => root.unmount());
+      window.sessionStorage.removeItem(
+        "agent-native:first-paint-prompt-draft:design",
+      );
       container.remove();
       if (originalLocale === undefined) {
         delete document.documentElement.dataset.locale;

@@ -472,10 +472,11 @@ export default function Index() {
       ),
     [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
   );
-  const homeSuggestions = selectedHomeSuggestionKeys.map(({ id, label }) => {
-    const prompt = t(label);
-    return { id, label: prompt, prompt };
-  });
+  const homeSuggestions = selectedHomeSuggestionKeys.map(
+    ({ id, label, prompt }) => {
+      return { id, label: t(label), prompt: t(prompt ?? label) };
+    },
+  );
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -1312,9 +1313,6 @@ export default function Index() {
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
         reserveConnectionSpace
-        connectionPending={
-          agentEngine.state === "unknown" || agentEngine.state === "unavailable"
-        }
         connectionAttached={agentEngine.state !== "configured"}
         connection={
           agentEngineConfigured ? null : agentEngineMissing ? (

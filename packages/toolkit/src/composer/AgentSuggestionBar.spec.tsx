@@ -91,7 +91,7 @@ describe("AgentSuggestionBar", () => {
     expect(onSelect).toHaveBeenCalledWith(suggestion);
   });
 
-  it("tracks a home suggestion click with its role, id, and position", () => {
+  it("keeps tracked home suggestions as centered compact chips and reports clicks", () => {
     const onSelect = vi.fn();
     const onHomeSuggestionClick = vi.fn();
     act(() => {
@@ -99,11 +99,16 @@ describe("AgentSuggestionBar", () => {
         <AgentSuggestionBar
           ariaLabel="Suggested prompts"
           suggestions={[
-            { id: "first", label: "First prompt" },
-            { id: "second", label: "Second prompt" },
+            { id: "first", label: "First prompt", prompt: "Build the first" },
+            {
+              id: "second",
+              label: "Second prompt",
+              prompt: "Build the second in full",
+            },
           ]}
           homeTracking={{ appId: "design", role: "marketing" }}
           onHomeSuggestionClick={onHomeSuggestionClick}
+          layout="single-line"
           onSelect={onSelect}
         />,
       );
@@ -122,15 +127,18 @@ describe("AgentSuggestionBar", () => {
     const track = container.querySelector<HTMLElement>(
       '[data-agent-suggestion-track="true"]',
     );
-    expect(track?.className).toContain("w-full");
-    expect(track?.className).toContain("flex-col");
-    expect(track?.className).toContain("gap-1");
+    expect(track?.className).toContain("h-6");
+    expect(track?.className).toContain("w-max");
+    expect(track?.className).toContain("flex-nowrap");
+    expect(track?.className).toContain("items-center");
     expect(track?.className).not.toContain("flex-wrap");
-    expect(buttons[1]?.className).toContain("whitespace-normal");
-    expect(buttons[1]?.className).toContain("h-10");
-    expect(buttons[1]?.className).toContain("w-full");
-    expect(buttons[1]?.querySelector("span")?.className).toContain(
-      "line-clamp-2",
+    expect(buttons[1]?.className).toContain("h-6");
+    expect(buttons[1]?.className).toContain("px-2.5");
+    expect(buttons[1]?.className).toContain("text-center");
+    expect(buttons[1]?.className).toContain("whitespace-nowrap");
+    expect(buttons[1]?.className).toContain("justify-center");
+    expect(buttons[1]?.querySelector("span")?.textContent).toBe(
+      "Second prompt",
     );
     act(() => buttons[1]?.click());
 
@@ -143,6 +151,7 @@ describe("AgentSuggestionBar", () => {
     expect(onSelect).toHaveBeenCalledWith({
       id: "second",
       label: "Second prompt",
+      prompt: "Build the second in full",
     });
   });
 

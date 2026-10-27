@@ -210,11 +210,9 @@ export function AgentSuggestionBar({
           data-agent-suggestion-track="true"
           className={cn(
             "flex min-w-full gap-[var(--agent-suggestion-gap,0.25rem)]",
-            homeTracking
-              ? "w-full flex-col gap-1"
-              : layout === "single-line" || loading
-                ? "h-6 w-max flex-nowrap items-center"
-                : "w-(--agent-suggestion-track-width) flex-wrap",
+            layout === "single-line" || loading
+              ? "h-6 w-max flex-nowrap items-center"
+              : "w-(--agent-suggestion-track-width) flex-wrap",
           )}
           onFocus={revealKeyboardFocusedChip}
         >
@@ -252,19 +250,10 @@ export function AgentSuggestionBar({
                   data-agent-suggestion-position={index + 1}
                   // The scroller clips overflow, so the focus ring sits inside.
                   className={cn(
-                    "agent-kit-caption-copy snap-start rounded-full border border-border bg-transparent px-2.5 font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
-                    homeTracking
-                      ? "h-10 w-full max-w-full overflow-hidden whitespace-normal py-1 text-left leading-4"
-                      : "h-6 shrink-0 whitespace-nowrap",
+                    "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
                   )}
                 >
-                  <span
-                    className={
-                      homeTracking
-                        ? "block h-8 w-full overflow-hidden line-clamp-2"
-                        : undefined
-                    }
-                  >
+                  <span>
                     {renderSuggestion
                       ? renderSuggestion(suggestion)
                       : suggestion.label}
