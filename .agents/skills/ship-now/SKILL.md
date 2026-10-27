@@ -61,7 +61,7 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
    fixed or answered with a reply that was actually posted, and the PR isn't
    `CONFLICTING`. A reply you could only draft (someone else's PR, no comment
    permission) blocks the merge. Re-read the live PR as in `babysit-pr` step 1
-   (open, base `main`, author is you) and its `headRefOid`. It must equal
+   (open, base `main`, and either yours or a PR the user named for this merge) and its `headRefOid`. It must equal
    `git rev-parse HEAD`, the head you validated and pushed. If it doesn't,
    someone pushed: redo steps 2-4. When they match, write it as
    `ship_merge_head_oid` and run:
@@ -85,8 +85,9 @@ the merge commit:
 gh run list --commit <mergeCommit.oid> --limit 50 --json name,status,conclusion,url
 ```
 
-No runs listed yet means unknown, not green. Keep checking until they appear
-and finish. Fix any failure on the fresh branch and send
+No runs listed yet means unknown, not green. Keep checking until they finish.
+If none have appeared after 10 minutes, the change triggered no workflows
+(path filters). Say so and stop watching. Fix any failure on the fresh branch and send
 it through `/ship`. If the PR body has a `Reports` section, run
 `/review-latest-feedback` step 5 for those threads. Merging publishes beta
 automatically. Beyond the merge commit's own workflows, beta, docs, and
