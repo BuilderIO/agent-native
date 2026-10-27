@@ -104,7 +104,7 @@ describe("HomePage", () => {
     expect(container.querySelector("h1")?.textContent).toBe("home.title");
     expect(state.composerProps).toMatchObject({
       requireAgentEngine: true,
-      placeholder: "home.composerPlaceholder",
+      placeholder: "chat.composerPlaceholder",
     });
     expect(state.rootProps?.threadId).toEqual(expect.stringMatching(/^chat-/));
     expect(state.composerProps?.threadId).toBe(state.rootProps?.threadId);
@@ -222,14 +222,12 @@ describe("HomePage", () => {
     );
   });
 
-  it("renders file paths as code inside translated sentences", () => {
+  it("shows only the heading above the composer, with no developer walkthrough", () => {
     act(() => root.render(<HomePage />));
 
-    const codes = Array.from(container.querySelectorAll("code")).map(
-      (code) => code.textContent,
-    );
-    expect(codes).toEqual(["actions/hello.ts"]);
-    expect(container.textContent).not.toContain("local development");
+    const hero = container.querySelector("h1")?.parentElement;
+    expect(hero?.querySelectorAll("p")).toHaveLength(0);
+    expect(container.querySelectorAll("code")).toHaveLength(0);
   });
 
   it("links to the docs and community", () => {

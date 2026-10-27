@@ -70,6 +70,7 @@ import {
   TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
   TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
   TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+  TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
@@ -476,6 +477,7 @@ export const BUILT_IN_APP_SKILLS = {
         "references/ui-archetypes.md": TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
         "references/ui-direction.md": TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
         "references/ui-palettes.md": TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+        "references/where-it-runs.md": TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
         "agents/openai.yaml": TURN_INTO_APP_OPENAI_YAML,
       },
     },
@@ -2203,9 +2205,12 @@ function copyScaffoldGuidanceSkills(
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
     fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
       recursive: true,
+      dereference: true,
     });
   }
 }
+
+export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],

@@ -2,7 +2,7 @@
 slug: how-to-turn-a-design-brief-into-a-prototype-with-ai
 topic: prototyping
 apps: [design]
-use_case: design-brief-to-prototype
+use_case: ai-prototype-generator
 job_id: job-design-brief
 title: "How do you turn a design brief into a prototype with AI?"
 meta_description: "Write a short brief, have AI draft interactive prototypes, compare directions, and refine the one you pick. What to put in the brief, and how it works in Design."

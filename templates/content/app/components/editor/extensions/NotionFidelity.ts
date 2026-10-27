@@ -11,6 +11,11 @@ const COLOR_TYPES = [
 const INDENT_TYPES = ["paragraph", "heading"];
 const MAX_INDENT = 12;
 
+/** Whether a node of this type keeps a block colour, `blue` or `blue_bg`. */
+export function takesBlockColor(typeName: string) {
+  return COLOR_TYPES.includes(typeName);
+}
+
 export function blockColorClass(color: string) {
   return color.endsWith("_bg")
     ? `content-block-bg content-block-bg--${color.slice(0, -3)}`

@@ -1,6 +1,6 @@
 ---
 slug: what-should-you-look-for-in-dictation-software
-use_case: dictate-instead-of-typing
+use_case: ai-dictation
 job_id: job-dictation
 title: "What should you look for in dictation software?"
 meta_description: "Check how it handles your own vocabulary, where it works, what it does to your text, and whether you can search it later. How the options compare."

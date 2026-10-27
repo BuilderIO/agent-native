@@ -175,6 +175,26 @@ describe("delete-comment", () => {
     },
   );
 
+  it("lets an author delete whatever case their email was stored in", async () => {
+    state.rows = state.rows.map((row) =>
+      row.id === "comment-1"
+        ? { ...row, authorEmail: "Author@Example.com" }
+        : row,
+    );
+    mockAssertAccess.mockImplementation(async (_type, _id, role) => {
+      if (role === "editor") throw new ForbiddenError();
+      return { role: "viewer", resource: { trashedAt: null } };
+    });
+
+    const result = await action.run(action.schema.parse({ id: "comment-1" }));
+
+    expect(result.deletedCommentIds).toEqual([
+      "comment-1",
+      "comment-1-reply",
+      "comment-1-reply-2",
+    ]);
+  });
+
   it.each([true, false])(
     "deletes a comment and descendants with enableComments=%s",
     async (enableComments) => {

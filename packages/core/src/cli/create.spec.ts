@@ -1,22 +1,27 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import os from "os";
 import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 import {
   createApp,
   _applyScaffoldIdentity,
   _assertCommunityTemplateRoot,
+  _assertCommunityArchiveLogicalSize,
   _assertSafeCommunityArchiveListing,
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
   _copyDir,
+  _downloadAndExtract,
+  _downloadToFile,
+  _ensureScaffoldEmailBrandingConfig,
   _fixPackageJsonName,
   _fixWebManifestName,
-  _ensureScaffoldEmailBrandingConfig,
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
@@ -832,7 +837,222 @@ describe("createApp", { timeout: 30000 }, () => {
   });
 });
 
+describe("template archive downloads", () => {
+  it("streams archives to a file before extracting them", async () => {
+    const sourceDir = path.join(tmpDir, "archive-source");
+    const sourceFile = path.join(sourceDir, "nested", "template.txt");
+    const archivePath = path.join(tmpDir, "template.tar.gz");
+    fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+    fs.writeFileSync(sourceFile, "template contents\n");
+    execFileSync(resolveTarExecutable(), ["-czf", archivePath, "nested"], {
+      cwd: sourceDir,
+    });
+
+    const server = createServer((_request, response) => {
+      fs.createReadStream(archivePath).pipe(response);
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Archive test server did not get a TCP address.");
+      }
+      const destDir = path.join(tmpDir, "extracted");
+      await _downloadAndExtract(
+        `http://127.0.0.1:${address.port}/template.tar.gz`,
+        destDir,
+      );
+      expect(fs.readFileSync(path.join(destDir, "template.txt"), "utf8")).toBe(
+        "template contents\n",
+      );
+      expect(fs.existsSync(path.join(destDir, ".download.tar.gz"))).toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it("rejects oversized unknown-length archives", async () => {
+    const server = createServer((_request, response) => {
+      response.write("12345678");
+      response.end("12345678");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+
+    const archivePath = path.join(tmpDir, "oversized.tar.gz");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Archive test server did not get a TCP address.");
+      }
+      await expect(
+        _downloadToFile(
+          `http://127.0.0.1:${address.port}/archive.tar.gz`,
+          archivePath,
+          12,
+        ),
+      ).rejects.toThrow("Archive download exceeds the 12-byte limit.");
+      expect(fs.existsSync(archivePath)).toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
+  });
+
+  it("uses the configured environment proxy for archive downloads", async () => {
+    const proxyRequestUrls: string[] = [];
+    const proxy = createServer((request, response) => {
+      proxyRequestUrls.push(request.url ?? "");
+      response.end("archive contents");
+    });
+    proxy.listen(0, "127.0.0.1");
+    await once(proxy, "listening");
+
+    const address = proxy.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Archive proxy test server did not get a TCP address.");
+    }
+    const proxyUrl = `http://127.0.0.1:${address.port}`;
+    const archivePath = path.join(tmpDir, "proxied-archive.tar.gz");
+    const previous = {
+      allProxy: process.env.all_proxy,
+      allProxyUpper: process.env.ALL_PROXY,
+      httpProxy: process.env.http_proxy,
+      httpProxyUpper: process.env.HTTP_PROXY,
+      httpsProxy: process.env.https_proxy,
+      httpsProxyUpper: process.env.HTTPS_PROXY,
+      noProxy: process.env.no_proxy,
+      noProxyUpper: process.env.NO_PROXY,
+    };
+    process.env.http_proxy = proxyUrl.replace(/^https?:\/\//, "");
+    delete process.env.HTTP_PROXY;
+    delete process.env.https_proxy;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.all_proxy;
+    delete process.env.ALL_PROXY;
+    process.env.no_proxy = "";
+    process.env.NO_PROXY = "";
+
+    try {
+      await _downloadToFile(
+        "http://archive.example.test/template.tar.gz",
+        archivePath,
+      );
+      expect(proxyRequestUrls).toEqual([
+        "http://archive.example.test/template.tar.gz",
+      ]);
+      expect(fs.readFileSync(archivePath, "utf8")).toBe("archive contents");
+    } finally {
+      for (const [key, value] of Object.entries({
+        all_proxy: previous.allProxy,
+        ALL_PROXY: previous.allProxyUpper,
+        http_proxy: previous.httpProxy,
+        HTTP_PROXY: previous.httpProxyUpper,
+        https_proxy: previous.httpsProxy,
+        HTTPS_PROXY: previous.httpsProxyUpper,
+        no_proxy: previous.noProxy,
+        NO_PROXY: previous.noProxyUpper,
+      })) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await new Promise<void>((resolve, reject) => {
+        proxy.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
+  });
+
+  it("tunnels HTTPS archive requests through the configured proxy", async () => {
+    const tunnelTargets: string[] = [];
+    const proxy = createServer();
+    proxy.on("connect", (request, socket) => {
+      tunnelTargets.push(request.url ?? "");
+      socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    });
+    proxy.listen(0, "127.0.0.1");
+    await once(proxy, "listening");
+
+    const address = proxy.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Archive proxy test server did not get a TCP address.");
+    }
+    const proxyUrl = `http://127.0.0.1:${address.port}`;
+    const archivePath = path.join(tmpDir, "https-proxied-archive.tar.gz");
+    const previous = {
+      allProxy: process.env.all_proxy,
+      allProxyUpper: process.env.ALL_PROXY,
+      httpProxy: process.env.http_proxy,
+      httpProxyUpper: process.env.HTTP_PROXY,
+      httpsProxy: process.env.https_proxy,
+      httpsProxyUpper: process.env.HTTPS_PROXY,
+      noProxy: process.env.no_proxy,
+      noProxyUpper: process.env.NO_PROXY,
+    };
+    process.env.https_proxy = proxyUrl;
+    delete process.env.HTTPS_PROXY;
+    delete process.env.http_proxy;
+    delete process.env.HTTP_PROXY;
+    delete process.env.all_proxy;
+    delete process.env.ALL_PROXY;
+    process.env.no_proxy = "";
+    process.env.NO_PROXY = "";
+
+    try {
+      await expect(
+        _downloadToFile(
+          "https://archive.example.test/template.tar.gz",
+          archivePath,
+        ),
+      ).rejects.toThrow();
+      expect(tunnelTargets).toEqual(["archive.example.test:443"]);
+    } finally {
+      for (const [key, value] of Object.entries({
+        all_proxy: previous.allProxy,
+        ALL_PROXY: previous.allProxyUpper,
+        http_proxy: previous.httpProxy,
+        HTTP_PROXY: previous.httpProxyUpper,
+        https_proxy: previous.httpsProxy,
+        HTTPS_PROXY: previous.httpsProxyUpper,
+        no_proxy: previous.noProxy,
+        NO_PROXY: previous.noProxyUpper,
+      })) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await new Promise<void>((resolve, reject) => {
+        proxy.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
+  });
+});
+
 describe("community template selections", () => {
+  it("limits total logical file sizes in GNU and BSD tar listings", () => {
+    expect(() =>
+      _assertCommunityArchiveLogicalSize(
+        [
+          "-rw-r--r-- root/root 7 Jan 1 00:00 repo/first.bin",
+          "-rw-r--r--  1 501 20 6 Jan 1 00:00 repo/second.bin",
+        ].join("\n"),
+        12,
+      ),
+    ).toThrow("logical-size limit");
+    expect(() =>
+      _assertCommunityArchiveLogicalSize(
+        "-rw-r--r-- root/root 12 Jan 1 00:00 repo/file.bin",
+        12,
+      ),
+    ).not.toThrow();
+  });
+
   it("normalizes canonical, legacy, and clean GitHub URL inputs", () => {
     expect(
       _parseCommunityTemplateSelection("community:acme/customer-portal"),
@@ -1116,7 +1336,7 @@ describe("community template selections", () => {
 
   it.skipIf(process.platform === "win32")(
     "validates canonical and outward links in real tar archives",
-    () => {
+    async () => {
       const fixtureRoot = path.join(tmpDir, "archive-fixture");
       const repoRoot = path.join(fixtureRoot, "repo");
       const archivePath = path.join(fixtureRoot, "template.tar.gz");
@@ -1146,7 +1366,15 @@ describe("community template selections", () => {
         ["czf", archivePath, "-C", fixtureRoot, "repo"],
         { stdio: "pipe" },
       );
-      expect(() => _validateCommunityArchive(archivePath)).not.toThrow();
+      await expect(
+        _validateCommunityArchive(archivePath, { maxExpandedBytes: 1 }),
+      ).rejects.toThrow("expanded-size limit");
+      await expect(
+        _validateCommunityArchive(archivePath, { maxEntries: 1 }),
+      ).rejects.toThrow("exceeds the 1-entry limit");
+      await expect(
+        _validateCommunityArchive(archivePath),
+      ).resolves.toBeUndefined();
 
       fs.symlinkSync("../../outside", path.join(repoRoot, "outside"));
       execFileSync(
@@ -1154,7 +1382,7 @@ describe("community template selections", () => {
         ["czf", archivePath, "-C", fixtureRoot, "repo"],
         { stdio: "pipe" },
       );
-      expect(() => _validateCommunityArchive(archivePath)).toThrow(
+      await expect(_validateCommunityArchive(archivePath)).rejects.toThrow(
         "may only contain Agent-Native's canonical internal symlinks",
       );
     },

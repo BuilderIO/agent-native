@@ -320,6 +320,10 @@ export default {
       chooseFrame: "Elegir marco",
       inspect: "Inspeccionar",
       exportSvg: "Exportar SVG",
+      moreActions: "Más acciones",
+      askAboutFile: "Preguntar sobre este archivo",
+      askAboutFilePrompt:
+        "Pregunta sobre este archivo de diseño vinculado. {{url}}",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
       currentDesign: "el Diseño actual",
@@ -2217,6 +2221,19 @@ export default {
       viewportMobile: "Móvil",
       added: "Pantalla añadida",
       addFailed: "No se pudo añadir la pantalla",
+    },
+    localhostConsent: {
+      approvedTitle: "Aprobado: vuelve a ejecutar la edición",
+      approvedDescription:
+        "La escritura de archivos está permitida durante 8 horas. La edición que pidió acceso no se guardó.",
+      retryInChat: "Volver a ejecutar en el chat",
+      retryPrompt:
+        "La escritura de archivos está aprobada para {{rootPath}}. Vuelve a ejecutar la edición que la necesitaba.",
+      unavailableTitle: "Esta solicitud de escritura ya no está pendiente",
+      unavailableDescription: "Vuelve a ejecutar la edición para pedir acceso.",
+      close: "Cerrar",
+      prepareSignInError:
+        "No se pudo guardar esta solicitud antes de iniciar sesión. Inténtalo de nuevo.",
     },
     nodeRewrite: {
       composerTitle: "Pregunta o cambia la selección",

@@ -10,6 +10,7 @@ import {
   ARTICLES_BASE,
   ARTICLES_PAGE_SIZE,
   USE_CASES_BASE,
+  type PublicArticle,
 } from "../lib/campaign-content";
 import { loadCampaignContentFromDisk } from "../lib/campaign-content-node";
 import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
@@ -78,7 +79,6 @@ describe("docs agent web generation", () => {
   it("generates campaign pages and markdown mirrors only at English canonical paths", () => {
     const content = loadCampaignContentFromDisk(rootDir);
     const article = content.articles[0];
-    const useCase = content.useCases[0];
     const campaignPages = buildCampaignPages({
       ...content,
       articles: Array.from({ length: ARTICLES_PAGE_SIZE + 1 }, (_, index) => ({
@@ -89,7 +89,6 @@ describe("docs agent web generation", () => {
     const paths = campaignPages.map((page) => page.path);
     for (const path of [
       `${USE_CASES_BASE}/`,
-      `${USE_CASES_BASE}/${useCase.slug}/`,
       `${ARTICLES_BASE}/`,
       `${ARTICLES_BASE}/test-0/`,
       `${ARTICLES_BASE}/topic/${article.topic}/`,
@@ -172,10 +171,13 @@ describe("docs agent web generation", () => {
     expect(
       campaignPages.filter((page) => page.path.includes("/topic/")),
     ).toHaveLength(summaries.length);
+    // Only translated use-case pages have localized addresses.
     for (const locale of DOCS_LOCALES.filter((locale) => locale !== "en-US"))
       expect(
-        campaignPages.some((page) =>
-          page.path.startsWith(`/${locale.toLowerCase()}/`),
+        campaignPages.some(
+          (page) =>
+            page.path.startsWith(`/${locale.toLowerCase()}/`) &&
+            !page.path.includes("/use-cases/"),
         ),
       ).toBe(false);
     expect(campaignPages.some((page) => page.path.includes("/category/"))).toBe(
@@ -184,7 +186,10 @@ describe("docs agent web generation", () => {
   });
 
   it("omits configured topic pages when no articles are present", () => {
-    const pages = buildCampaignPages({ useCases: [], articles: [] });
+    const pages = buildCampaignPages({
+      useCases: [],
+      articles: [],
+    });
     expect(pages.some((page) => /\/(topic|category)\//.test(page.path))).toBe(
       false,
     );
@@ -194,7 +199,9 @@ describe("docs agent web generation", () => {
 
   it("uses the latest updated-or-published date for topic and article sitemap entries", () => {
     const original = loadCampaignContentFromDisk(rootDir).articles[0];
-    const articles = [
+    if (!original) throw new Error("Expected at least one article");
+    const { updated: _updated, ...withoutUpdated } = original;
+    const articles: PublicArticle[] = [
       {
         ...original,
         slug: "older-published",
@@ -202,13 +209,15 @@ describe("docs agent web generation", () => {
         updated: "2026-09-01",
       },
       {
-        ...original,
+        ...withoutUpdated,
         slug: "newer-published",
         published: "2026-08-01",
-        updated: undefined,
       },
     ];
-    const pages = buildCampaignPages({ useCases: [], articles });
+    const pages = buildCampaignPages({
+      useCases: [],
+      articles,
+    });
     const topic = pages.find(
       (page) => page.path === `${ARTICLES_BASE}/topic/${original.topic}/`,
     )!;
@@ -319,7 +328,6 @@ describe("docs agent web generation", () => {
 
     it("makes the campaign pages discoverable only in the English sitemap", () => {
       const paths = [
-        `${USE_CASES_BASE}/ask-your-database-in-plain-english/`,
         `${ARTICLES_BASE}/what-is-an-agent-native-app/`,
         `${ARTICLES_BASE}/can-people-and-an-ai-agent-edit-the-same-document/`,
         `${ARTICLES_BASE}/how-do-you-add-skills-to-claude-code-and-codex/`,

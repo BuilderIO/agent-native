@@ -1,0 +1,101 @@
+slug: weekly-marketing-report
+app: analytics
+roles:
+  - marketing
+title: "स्प्रेडशीट के बिना अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ"
+seo_title: "GA4 और HubSpot से वीकली मार्केटिंग रिपोर्ट"
+meta_description: "Agent-Native Analytics से Google Analytics और HubSpot डेटा पर अपनी वीकली मार्केटिंग रिपोर्ट बनाएँ। पूछें कि हफ़्ता कैसा रहा और जवाब डैशबोर्ड के रूप में शेयर करें।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics आपके Google Analytics और HubSpot डेटा को सोमवार की मार्केटिंग रिपोर्ट में बदलता है। पूछें कि हफ़्ता कैसा रहा, और एजेंट हर जवाब एक डैशबोर्ड में रखता है, जिसे फिर कभी नहीं बनाना पड़ता।"
+  button:
+    label: "अपना डैशबोर्ड बनाएँ"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: 'Analytics में खुला वीकली मार्केटिंग डैशबोर्ड। ऊपर के मेट्रिक कार्ड्स इस हफ़्ते के सेशन्स, ऑर्गेनिक साइनअप्स, नए HubSpot कॉन्टैक्ट्स और बनी डील्स दिखाते हैं, हर एक के साथ पिछले हफ़्ते से बदलाव। उनके नीचे एक बार चार्ट इस हफ़्ते और पिछले हफ़्ते के चैनल-वार सेशन्स की तुलना करता है, और एक लाइन चार्ट रोज़ बनी HubSpot डील्स दिखाता है। दाईं ओर एजेंट चैट में सवाल "How did the week go?" और एक छोटा जवाब है, जो ऑर्गेनिक सर्च को सबसे बड़ी बढ़त बताता है।'
+how_to:
+  heading: "AI से वीकली मार्केटिंग रिपोर्ट कैसे बनाएँ"
+  steps:
+    - title: "अपना मार्केटिंग डेटा कनेक्ट करें"
+      body: "**डेटा स्रोत** खोलें, Google Analytics और HubSpot कार्ड्स पर दिए [सेटअप स्टेप्स](https://www.agent-native.com/docs/template-analytics-connectors/) पूरे करें, और **कनेक्शन का परीक्षण करें** पर क्लिक करें। Google Analytics के लिए एक Google Cloud service account चाहिए जिसके पास आपकी property का Viewer एक्सेस हो, यह एक बार का सेटअप है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: "Data Sources पेज का क्लोज़-अप, जिसमें Google Analytics और HubSpot कनेक्टेड दिख रहे हैं। बगल में HubSpot का सेटअप पैनल खुला है, टोकन कॉन्फ़िगर है और Test connection पर Connection successful दिख रहा है।"
+    - title: "पूछें कि हफ़्ता कैसा रहा"
+      body: 'वही पूछें जो आप किसी एनालिस्ट से पूछते। जैसे: "इस हफ़्ते ऑर्गेनिक सर्च से साइनअप्स पिछले हफ़्ते के मुकाबले कैसे रहे?" एजेंट आपके डेटा पर लाइव क्वेरी चलाता है और चार्ट के साथ जवाब देता है।'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: "एजेंट चैट में वही सवाल और उसका जवाब। दो वाक्य बताते हैं कि ऑर्गेनिक साइनअप्स पिछले हफ़्ते से बढ़े, और उनके नीचे इस हफ़्ते और पिछले हफ़्ते के चैनल-वार साइनअप्स का बार चार्ट है।"
+    - title: "अपना डैशबोर्ड सेव और शेयर करें"
+      body: 'एजेंट से कहें "इसे मेरा वीकली मार्केटिंग डैशबोर्ड बना दो"। किसी टीममेट या पूरे संगठन को [देखने या एडिट करने का एक्सेस](https://www.agent-native.com/docs/sharing/) देने के लिए **Share** पर क्लिक करें, या इसे रोज़ आपके चुने समय पर भेजने के लिए **ईमेल रिपोर्ट** खोलें।'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: "वीकली मार्केटिंग डैशबोर्ड, जिस पर Email reports डायलॉग खुला है: Send to, Email और Slack पर सेट है, टीम के दो पते हैं, भेजने का समय 9:00 है और Send now बटन है।"
+features:
+  heading: "अपने मार्केटिंग हफ़्ते की रिपोर्ट के लिए आपको जो कुछ चाहिए"
+  items:
+    - title: "एक सवाल में दोनों टूल्स"
+      body: "एक ही सवाल में Google Analytics सेशन्स और HubSpot कॉन्टैक्ट्स के बारे में पूछें, और एजेंट दोनों को अगल-बगल रखकर जवाब देता है।"
+    - title: "ट्रैफ़िक के बगल में सर्च रैंकिंग"
+      body: "DataForSEO कनेक्ट करें और पूछें कि इस हफ़्ते के ऑर्गेनिक सेशन्स के साथ आपकी कीवर्ड रैंकिंग कैसे बदली।"
+    - title: "हमेशा ताज़ा नंबर"
+      body: "Google Analytics चार्ट लाइव क्वेरी करते हैं और HubSpot चार्ट अपने आप रिफ़्रेश होते हैं, इसलिए रिपोर्ट हमेशा ताज़ा हफ़्ता दिखाती है।"
+    - title: "पिछले हफ़्ते का एनालिसिस दोबारा चलाएँ"
+      body: "किसी जाँच को उसके सवाल और स्टेप्स के साथ सेव करें, फिर एजेंट से उसे इस हफ़्ते के डेटा पर दोबारा चलाने को कहें।"
+    - title: "आपकी टीम की परिभाषाएँ"
+      body: "आपके एडमिन सिमेंटिक लेयर पेज पर तय करते हैं कि लीड या साइनअप किसे गिना जाए, और एजेंट हर जवाब में वही परिभाषाएँ इस्तेमाल करता है।"
+    - title: "किसी भी चार्ट के बारे में पूछें"
+      body: "किसी चार्ट पर क्लिक करें और पूछें कि क्या बदला। एजेंट को आपके सवाल के साथ वह चार्ट मिलता है और वह उसके पीछे के डेटा से जवाब देता है।"
+integrations:
+  heading: "Analytics को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "अपना मार्केटिंग डेटा लाएँ"
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: "ट्रैफ़िक के लिए Google Analytics, कॉन्टैक्ट्स और डील्स के लिए HubSpot, और पोस्ट एंगेजमेंट के लिए X कनेक्ट करें, हर एक डेटा स्रोत पेज से।"
+    - title: "रिपोर्ट वहाँ भेजें जहाँ आपकी टीम पढ़ती है"
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "Slack webhook के ज़रिए रोज़ की समरी और डैशबोर्ड लिंक किसी Slack चैनल में भेजें, और कोई भी टेबल कनेक्ट किए Google Sheets अकाउंट में एक्सपोर्ट करें।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Analytics से आप और क्या कर सकते हैं"
+  cards:
+    - title: "अपने स्टार्टअप के लिए KPI डैशबोर्ड बनाएँ"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "अपने स्टार्टअप का रेवेन्यू, साइनअप्स और churn ट्रैक करें, और एजेंट से पूछें कि कोई नंबर क्यों बदला।"
+    - title: "जानें कि नए यूज़र्स कहाँ छोड़ देते हैं"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "वह स्टेप ढूँढें जहाँ नए यूज़र्स छोड़कर जाते हैं, और उन सेशन्स को देखें जहाँ ऐसा होता है।"
+    - title: "HubSpot और Gong डेटा से अपनी सेल्स पाइपलाइन रिव्यू करें"
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: "अपनी HubSpot डील्स और Gong कॉल्स से आसान भाषा में सवाल पूछें।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Analytics फ़्री है?"
+      a: "हाँ, Agent-Native Analytics फ़्री और ओपन सोर्स है। आप अपने Google Analytics और HubSpot अकाउंट खुद कनेक्ट करते हैं। शुरुआत में आप एजेंट के लिए फ़्री Builder.io AI क्रेडिट्स या अपनी AI मॉडल key चुनते हैं, इसलिए AI इस्तेमाल की सीमा है। Analytics अभी alpha में है, इसलिए बदलाव होते रहेंगे।"
+    - q: "मैं कौन-से मार्केटिंग डेटा सोर्स कनेक्ट कर सकता हूँ?"
+      a: "Agent-Native Analytics, Google Analytics (GA4), HubSpot, कीवर्ड रैंकिंग और सर्च वॉल्यूम के लिए DataForSEO, और पोस्ट एंगेजमेंट के लिए X से जुड़ता है। यह BigQuery, Amplitude, Mixpanel, PostHog और Stripe से भी जुड़ता है। हर सोर्स के लिए उसके अपने क्रेडेंशियल्स चाहिए, और Google Analytics के लिए Google Cloud service account चाहिए।"
+    - q: "क्या Agent-Native Analytics हर सोमवार रिपोर्ट भेज सकता है?"
+      a: "अभी हफ़्तेवार शेड्यूल पर नहीं। [डैशबोर्ड ईमेल रिपोर्ट](https://www.agent-native.com/docs/template-analytics-dashboards/) रोज़ आपके चुने समय और टाइमज़ोन पर, पाँच ईमेल पतों तक, किसी Slack चैनल या दोनों पर जाती हैं। सोमवार की मीटिंग से पहले ताज़ा डैशबोर्ड भेजने के लिए **ईमेल रिपोर्ट** में **अभी भेजें** पर क्लिक करें।"
+    - q: "क्या मुझे SQL आना चाहिए?"
+      a: "नहीं। आप आसान शब्दों में पूछते हैं, और एजेंट सोर्स चुनकर क्वेरी लिखता है। जाँचना चाहें तो एजेंट से किसी भी जवाब के पीछे की क्वेरी दिखाने को कह सकते हैं।"
+    - q: "क्या मैं इन नंबरों पर भरोसा कर सकता हूँ?"
+      a: 'एजेंट कोई नंबर देने से पहले आपके डेटा पर लाइव क्वेरी चलाता है, और जब कोई क्वेरी नहीं चली तो आँकड़े पर "Unverified" लेबल लगाता है। फिर भी, टीम को भेजने से पहले पहले हफ़्ते की रिपोर्ट को Google Analytics और HubSpot से मिलाएँ।'
+    - q: "Agent-Native Analytics, GA4 और HubSpot रिपोर्ट्स से कैसे अलग है?"
+      a: "Google Analytics और HubSpot अपने-अपने डेटा की रिपोर्ट देते हैं। Agent-Native Analytics दोनों पर एक सवाल का जवाब आसान शब्दों में देता है, और जवाबों को एक डैशबोर्ड में रखता है जिसे आप पूछकर बेहतर बना सकते हैं। यही एक [एजेंटिक ऐप](https://www.agent-native.com/articles/what-is-an-agent-native-app/) है: एजेंट का दिमाग, ऐप जैसी आसानी।"
