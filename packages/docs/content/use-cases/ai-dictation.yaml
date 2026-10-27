@@ -1,6 +1,9 @@
 template: v2
 slug: ai-dictation
 app: clips
+roles:
+  - engineering
+  - product
 title: Dictate your prompts instead of typing them
 seo_title: AI dictation that types into any app
 meta_description: Use AI dictation to talk into Claude Code, Slack or a doc and get clean text at your cursor. Agent-Native Clips saves every dictation to search later.
