@@ -492,16 +492,30 @@ export class McpClientManager {
       ) {
         const nativeFetch = fetch.bind(globalThis);
         const refreshAccessToken = cfg.oauthAccessRefresh.refresh;
+        let refreshedAuthorization: string | undefined;
         transportOptions.fetch = async (
           input: RequestInfo | URL,
           init?: RequestInit,
         ) => {
           const request = new Request(input, init);
+          if (refreshedAuthorization) {
+            request.headers.set("Authorization", refreshedAuthorization);
+          }
           const retryRequest = request.clone();
           const response = await nativeFetch(request);
           if (response.status !== 401) return response;
 
-          const accessToken = await refreshAccessToken();
+          let accessToken: string | null;
+          try {
+            accessToken = await refreshAccessToken();
+          } catch {
+            if (this.debug) {
+              console.warn(
+                `[mcp-client] OAuth refresh failed for ${entry.id}; preserving 401`,
+              );
+            }
+            return response;
+          }
           if (
             !accessToken ||
             request.headers.get("authorization") === `Bearer ${accessToken}`
@@ -512,6 +526,7 @@ export class McpClientManager {
           await response.body?.cancel();
           const headers = new Headers(retryRequest.headers);
           headers.set("Authorization", `Bearer ${accessToken}`);
+          refreshedAuthorization = `Bearer ${accessToken}`;
           return nativeFetch(new Request(retryRequest, { headers }));
         };
       }

@@ -419,10 +419,10 @@ class BuilderEngine implements AgentEngine {
         body: payload,
         signal: gatewayAbort.signal,
       });
-    try {
-      const dispatch = await startModelDispatch(opts, () => {
+    const startGatewayRequest = (authorization: string) =>
+      startModelDispatch(opts, () => {
         try {
-          return requestGateway(authHeader).then(
+          return requestGateway(authorization).then(
             (response) => ({ status: "fulfilled" as const, response }),
             (error: unknown) => ({ status: "rejected" as const, error }),
           );
@@ -430,6 +430,8 @@ class BuilderEngine implements AgentEngine {
           return Promise.resolve({ status: "rejected" as const, error });
         }
       });
+    try {
+      const dispatch = await startGatewayRequest(authHeader);
       if (!dispatch.started) return;
 
       let response: Response;
@@ -494,9 +496,13 @@ class BuilderEngine implements AgentEngine {
           ) {
             oauthAccess = refreshedState.access;
             await response.body?.cancel();
-            response = await requestGateway(
+            const retryDispatch = await startGatewayRequest(
               `Bearer ${oauthAccess.accessToken}`,
             );
+            if (!retryDispatch.started) return;
+            const retryResult = await retryDispatch.value;
+            if (retryResult.status === "rejected") throw retryResult.error;
+            response = retryResult.response;
           }
         }
       } catch (err) {

@@ -1142,6 +1142,57 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
 
+  it("checks the dispatch guard again before retrying Builder OAuth after a 401", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const beforeModelDispatch = vi.fn(async <T>(dispatch: () => T) =>
+      beforeModelDispatch.mock.calls.length === 1
+        ? { started: true as const, value: dispatch() }
+        : { started: false as const },
+    );
+    const onModelDispatchStarted = vi.fn();
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        beforeModelDispatch,
+        onModelDispatchStarted,
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(beforeModelDispatch).toHaveBeenCalledTimes(2);
+    expect(onModelDispatchStarted).toHaveBeenCalledOnce();
+  });
+
   it("classifies a failed forced OAuth refresh separately from gateway transport errors", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";
