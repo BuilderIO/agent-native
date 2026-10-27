@@ -125,6 +125,7 @@ import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { reportEditorMerge } from "./editor-merge-telemetry";
 import { observeEditorMount } from "./editor-mount-telemetry";
 import {
   EDITOR_NON_EDIT_META,
@@ -4468,6 +4469,9 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    onBaseAwareMerge: documentId
+      ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
+      : undefined,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,

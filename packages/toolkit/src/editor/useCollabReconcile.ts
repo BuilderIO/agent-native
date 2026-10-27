@@ -143,6 +143,16 @@ export interface UseCollabReconcileOptions {
     baseRevision: string;
     serverRevision: string;
   }) => void;
+  /**
+   * Called once for each changed saved body the base-aware merge takes in, with
+   * how many of its hunks were set aside for overlapping this tab's edits (see
+   * `BaseAwareReconcileResult`; only `prefer-live` sets any aside). A body
+   * whose changes this tab already made, beside edits of its own, counts with
+   * none set aside; one the tab already matches isn't a merge. For counting:
+   * it runs once the merge is in the doc (when the server adopts snapshots,
+   * once the server takes it in) and cannot change it, even by throwing.
+   */
+  onBaseAwareMerge?: (outcome: { setAside: number }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
   /**
@@ -269,6 +279,7 @@ export function useCollabReconcile({
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
+  onBaseAwareMerge,
   onRemoteSnapshotChange,
   requestInitialSeed,
   requestSnapshotAdoption,
@@ -314,6 +325,7 @@ export function useCollabReconcile({
     isEditorFocused,
     isEditorClean,
     onBaseAwareReconcile,
+    onBaseAwareMerge,
     onRemoteSnapshotChange,
   });
   reconcileCallbacksRef.current = {
@@ -324,6 +336,7 @@ export function useCollabReconcile({
     isEditorFocused,
     isEditorClean,
     onBaseAwareReconcile,
+    onBaseAwareMerge,
     onRemoteSnapshotChange,
   };
   const acknowledgedLocalSnapshotRef = useRef<{
@@ -1099,9 +1112,16 @@ export function useCollabReconcile({
           collab && ydoc && contentRevision && requestSnapshotAdoption
             ? requestSnapshotAdoption
             : null;
+        // `onTaken` runs once the server adopts this editor's proposal, even
+        // when a newer snapshot has cancelled it; `settle` runs only when
+        // nothing has. Not for `already-adopted`: that is usually another
+        // editor's proposal, which that editor counts. An answer lost after
+        // the server took this one's comes back that way too, and goes
+        // uncounted.
         const adoptThroughServer = (
           target: ProseMirrorNode,
           settle: () => void,
+          onTaken?: () => void,
         ) => {
           if (!adoptSnapshot || !ydoc || !contentRevision) return;
           let update: Uint8Array;
@@ -1206,6 +1226,7 @@ export function useCollabReconcile({
                 const taken =
                   result.status === "adopted" ||
                   result.status === "already-adopted";
+                if (result.status === "adopted") onTaken?.();
                 // For `rebase`, a marker past the one this proposal held is
                 // another editor's adoption, whose body is the new base. With
                 // the marker unchanged, the server held live edits the
@@ -1309,6 +1330,16 @@ export function useCollabReconcile({
             report("failed");
             return;
           }
+          // Only a newer body that differs from the base is a merge; one with
+          // the base's body brings nothing to merge.
+          const countMerge = (setAside: number) => {
+            if (serverDoc.eq(baseDoc)) return;
+            try {
+              scheduledCallbacks.onBaseAwareMerge?.({ setAside });
+            } catch {
+              // coercion-ok: counting a merge never changes the merge.
+            }
+          };
           const settleMerged = () => {
             const merged = scheduledCallbacks.getMarkdown(editor);
             authoritativeBaseRef.current = { value, revision: contentRevision };
@@ -1347,6 +1378,7 @@ export function useCollabReconcile({
               report(reconciled.status);
               return;
             }
+            countMerge(reconciled.setAside);
             settleMerged();
           };
           if (!adoptSnapshot) {
@@ -1355,16 +1387,24 @@ export function useCollabReconcile({
           }
           const plan = planDocReconcile(editor.state.doc, baseDoc, serverDoc, {
             overlapPolicy,
+            ...(editor.isFocused
+              ? { liveSelection: editor.state.selection }
+              : {}),
           });
           if (plan.status === "conflict" || plan.status === "failed") {
             report(plan.status);
             return;
           }
           if (plan.status === "noop") {
+            countMerge(plan.setAside);
             settleMerged();
             return;
           }
-          adoptThroughServer(plan.mergedDoc, settleMerged);
+          // The server can send a proposal back to plan again, call it stale,
+          // or adopt another editor's; only the one it adopts is counted.
+          adoptThroughServer(plan.mergedDoc, settleMerged, () =>
+            countMerge(plan.setAside),
+          );
           return;
         }
         const settleApplied = () => {
