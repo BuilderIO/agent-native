@@ -310,8 +310,10 @@ function parseState(raw: string): BackfillState {
     state.version !== 1 ||
     !state.aiFilterSettings ||
     typeof state.aiFilterSettings.autoFilter !== "boolean" ||
-    !Number.isFinite(state.aiFilterSettings.autoFilterThreshold) ||
-    !Number.isFinite(state.aiFilterSettings.suggestionThreshold) ||
+    (state.aiFilterSettings.autoFilterThreshold !== undefined &&
+      !Number.isFinite(state.aiFilterSettings.autoFilterThreshold)) ||
+    (state.aiFilterSettings.suggestionThreshold !== undefined &&
+      !Number.isFinite(state.aiFilterSettings.suggestionThreshold)) ||
     !Array.isArray(state.aiFilterSettings.feedback) ||
     !Array.isArray(state.rules) ||
     !Array.isArray(state.candidates) ||
@@ -1781,12 +1783,14 @@ async function ensureEvaluations(
   for (const [key, matches] of evaluations) {
     state.evaluations[key] = matches;
   }
-  state.evaluatedCount = (state.evaluatedCount ?? 0) + evaluation.evaluatedCount;
+  state.evaluatedCount =
+    (state.evaluatedCount ?? 0) + evaluation.evaluatedCount;
   state.failedCount = (state.failedCount ?? 0) + evaluation.failedCount;
   state.decisionFailures = [
     ...(state.decisionFailures ?? []),
     ...evaluation.failures,
   ];
+  if (evaluation.failedCount > 0) state.incompleteCoverage = true;
   return saveRunState(row.id, claimId, state, "running");
 }
 

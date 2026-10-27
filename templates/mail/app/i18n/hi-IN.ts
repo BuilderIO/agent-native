@@ -34,6 +34,8 @@ const messages = {
       newest: "नवीनतम",
       priority: "प्राथमिकता",
       priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
+      priorityProviderRequired:
+        "प्राथमिकता के अनुसार क्रमित करने के लिए किसी AI प्रदाता को कनेक्ट करें।",
       priorityPartialFailed:
         "{{count}} संदेशों की प्राथमिकता तय नहीं हो सकी। वे स्कोर किए गए संदेशों के बाद दिखेंगे।",
       priorityScoreHelp:
@@ -710,13 +712,14 @@ const messages = {
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
       triageTitle: "AI ट्रायेज",
-      connectJev: "Jev कनेक्ट करें",
-      connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
+      connectJev: "AI प्रदाता कनेक्ट करें",
+      connectJevToRunTriage: "ट्रायेज चलाने के लिए AI प्रदाता कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
       jevAvailabilityFailed:
         "AI निर्णय प्रदाता उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
       connectBuilder: "Builder.io इस्तेमाल करें",
-      addJevApiKey: "API कुंजी जोड़ें",
+      addJevApiKey: "Jev API कुंजी जोड़ें",
+      addOpenAiApiKey: "OpenAI API कुंजी जोड़ें",
     },
     draftQueue: {
       title: "Cola de borradores",

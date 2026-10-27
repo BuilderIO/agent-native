@@ -200,9 +200,7 @@ describe("calendar event rules sweep", () => {
     const controller = new AbortController();
     const sweep = runCalendarEventRulesOnce(controller.signal);
 
-    await vi.waitFor(() =>
-      expect(mocks.decide).toHaveBeenCalledTimes(1),
-    );
+    await vi.waitFor(() => expect(mocks.decide).toHaveBeenCalledTimes(1));
     const mutationCount = mocks.mutateUserSetting.mock.calls.length;
     controller.abort();
     finishDecision(decision(1));
@@ -932,6 +930,21 @@ describe("calendar event rules sweep", () => {
     configureOwnerSweep();
     mocks.decide.mockResolvedValueOnce({
       ...decision(1),
+      answers: {},
+      questionFailures: { event_0_0: "invalid_response" },
+    });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+    expect(mocks.getEvent).not.toHaveBeenCalled();
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+  });
+
+  it("fails an event-rule batch when every decision answer is missing", async () => {
+    configureOwnerSweep();
+    mocks.decide.mockResolvedValueOnce({
+      ...decision(0),
       answers: {},
       questionFailures: { event_0_0: "invalid_response" },
     });

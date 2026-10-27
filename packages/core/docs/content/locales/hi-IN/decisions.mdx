@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: predicate, choice या score प्रकार के नाम वाले प्रश्न।
 - **options**: वैकल्पिक signal, timeoutMs, providers या cacheKey सेटिंग।
 
-सफलता पर result.status ok होता है। परिणाम में provider, model और प्रश्न के नाम से indexed answers होते हैं; cached और usage वैकल्पिक हैं। not_configured में missing_credentials कारण और providers की सूची होती है। failed में typed कारण होता है और provider तथा questionNames वैकल्पिक रूप से हो सकते हैं। caching केवल cacheKey देने पर चालू होती है। cache का दायरा owner, संगठन, provider, model, cacheKey, input और questions से तय होता है। memory cache 60 सेकंड तक रहता है और इसमें अधिकतम 256 entries होती हैं।
+सफलता पर result.status ok होता है। परिणाम में provider, model और प्रश्न के नाम से indexed answers होते हैं; cached और usage वैकल्पिक हैं। not_configured में missing_credentials कारण और providers की सूची होती है। failed में typed कारण होता है और provider तथा questionNames वैकल्पिक रूप से हो सकते हैं। caching केवल cacheKey देने पर चालू होती है। cache का दायरा owner, संगठन, provider, model, cacheKey, input और questions से तय होता है। memory cache 60 सेकंड तक रहता है और इसमें अधिकतम 256 entries होती हैं। ok परिणाम में उन प्रश्नों के लिए questionFailures भी हो सकते हैं जिनके उत्तर गायब या अमान्य हैं। कॉलर को इन्हें नकारात्मक उत्तर नहीं, बल्कि विफल वर्गीकरण मानना चाहिए; सभी प्रश्न विफल होने पर answers खाली और questionFailures में सभी विफल प्रश्न हो सकते हैं।
 
 ## क्षमता के अनुसार provider समर्थन
 

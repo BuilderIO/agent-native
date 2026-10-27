@@ -8,27 +8,20 @@ export const AI_FILTER_RULE_NAME = "AI filter learned examples";
 export const AI_FILTER_MIN_LEARNED_EXAMPLES = 3;
 export const AI_FILTER_DEFAULT_THRESHOLD = 0.92;
 export const AI_FILTER_DEFAULT_SUGGESTION_THRESHOLD = 0.72;
-// Tune provider calibration through templates/mail-2/evals/triage.
+// Keep provider defaults here until the Mail triage eval harness is available.
 export const AI_FILTER_THRESHOLDS_BY_PROVIDER = {
   jev: { match: 0.5, suggestion: 0.72, auto: 0.92 },
   openai: { match: 0.5, suggestion: 0.72, auto: 0.92 },
 } as const;
-export type AiFilterDecisionProvider = keyof typeof AI_FILTER_THRESHOLDS_BY_PROVIDER;
+export type AiFilterDecisionProvider =
+  keyof typeof AI_FILTER_THRESHOLDS_BY_PROVIDER;
 
 export function getAiFilterThreshold(
   provider: AiFilterDecisionProvider,
   kind: "match" | "suggestion" | "auto",
   configuredValue?: number,
 ): number {
-  const defaultValue =
-    kind === "auto"
-      ? AI_FILTER_DEFAULT_THRESHOLD
-      : kind === "suggestion"
-        ? AI_FILTER_DEFAULT_SUGGESTION_THRESHOLD
-        : AI_FILTER_THRESHOLDS_BY_PROVIDER.jev.match;
-  return configuredValue === undefined || configuredValue === defaultValue
-    ? AI_FILTER_THRESHOLDS_BY_PROVIDER[provider][kind]
-    : configuredValue;
+  return configuredValue ?? AI_FILTER_THRESHOLDS_BY_PROVIDER[provider][kind];
 }
 
 export const AI_FILTER_ACTIONS: AutomationAction[] = [
@@ -75,8 +68,8 @@ export type AiFilterDecision = z.infer<typeof aiFilterDecisionSchema>;
 export const aiFilterStateSchema = z.object({
   enabled: z.boolean(),
   autoFilter: z.boolean(),
-  autoFilterThreshold: z.number().min(0.5).max(1),
-  suggestionThreshold: z.number().min(0.5).max(1),
+  autoFilterThreshold: z.number().min(0.5).max(1).optional(),
+  suggestionThreshold: z.number().min(0.5).max(1).optional(),
   labelName: z.literal(AI_FILTER_LABEL),
   feedback: z.array(aiFilterFeedbackSchema).max(100),
   decisions: z.array(aiFilterDecisionSchema).max(200),
@@ -140,8 +133,6 @@ export function createDefaultAiFilterState(): AiFilterState {
   return {
     enabled: true,
     autoFilter: true,
-    autoFilterThreshold: AI_FILTER_DEFAULT_THRESHOLD,
-    suggestionThreshold: AI_FILTER_DEFAULT_SUGGESTION_THRESHOLD,
     labelName: AI_FILTER_LABEL,
     feedback: [],
     decisions: [],

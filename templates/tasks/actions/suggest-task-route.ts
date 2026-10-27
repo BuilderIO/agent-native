@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { decide } from "@agent-native/core/decisions";
+import { defineAction, fail } from "@agent-native/core/action";
+import { decide, type DecisionAnswer } from "@agent-native/core/decisions";
 import { z } from "zod";
 
 import { UserInputError } from "../server/errors.js";
@@ -60,22 +60,30 @@ export default defineAction({
       );
     }
 
-    const queueAnswer = result.answers.queue;
-    const urgentAnswer = result.answers.urgent;
+    const queueAnswer = result.answers.queue as DecisionAnswer | undefined;
+    const urgentAnswer = result.answers.urgent as DecisionAnswer | undefined;
     if (
+      !queueAnswer ||
+      !urgentAnswer ||
       result.questionFailures?.queue ||
       result.questionFailures?.urgent ||
-      queueAnswer?.type !== "choice" ||
-      urgentAnswer?.type !== "predicate"
+      queueAnswer.type !== "choice" ||
+      urgentAnswer.type !== "predicate"
     ) {
-      throw new Error("The decision provider could not classify this task.");
+      fail("The decision provider could not classify this task.", {
+        errorCode: "decision_invalid_response",
+        statusCode: 502,
+      });
     }
     const selectedIndex = /^queue_(\d+)$/.exec(queueAnswer.choice);
     const option = selectedIndex
       ? options[Number(selectedIndex[1])]
       : undefined;
     if (queueAnswer.choice !== "none" && !option) {
-      throw new Error("The decision provider returned an unknown queue.");
+      fail("The decision provider returned an unknown queue.", {
+        errorCode: "decision_invalid_response",
+        statusCode: 502,
+      });
     }
     const selectedProbability = queueAnswer.probabilities?.find(
       ({ value }) => value === queueAnswer.choice,

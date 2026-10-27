@@ -109,7 +109,7 @@ Das Argumentobjekt enthält diese Felder:
 - **questions**: Benannte Fragen vom Typ predicate, choice oder score.
 - **options**: Optionale Einstellungen für signal, timeoutMs, providers oder cacheKey.
 
-Bei Erfolg ist result.status gleich ok. Das Ergebnis enthält provider, model und nach Fragennamen indizierte answers sowie optional cached und usage. not_configured enthält den Grund missing_credentials und eine Liste von providers. failed enthält einen typisierten Grund und kann provider sowie questionNames enthalten. Caching wird nur aktiviert, wenn cacheKey angegeben ist. Der Cache-Schlüssel berücksichtigt Eigentümer, Organisation, Provider, Modell, cacheKey, input und questions. Der In-Memory-Cache läuft nach 60 Sekunden ab und ist auf 256 Einträge begrenzt.
+Bei Erfolg ist result.status gleich ok. Das Ergebnis enthält provider, model und nach Fragennamen indizierte answers sowie optional cached und usage. not_configured enthält den Grund missing_credentials und eine Liste von providers. failed enthält einen typisierten Grund und kann provider sowie questionNames enthalten. Caching wird nur aktiviert, wenn cacheKey angegeben ist. Der Cache-Schlüssel berücksichtigt Eigentümer, Organisation, Provider, Modell, cacheKey, input und questions. Der In-Memory-Cache läuft nach 60 Sekunden ab und ist auf 256 Einträge begrenzt. Ein ok-Ergebnis kann außerdem questionFailures für Fragen mit fehlenden oder ungültigen Antworten enthalten. Aufrufer müssen diese Fragen als fehlgeschlagene Klassifizierungen behandeln, nicht als negative Antworten; wenn alle Fragen fehlschlagen, kann answers leer sein und questionFailures alle fehlgeschlagenen Fragen auflisten.
 
 ## Fähigkeitsbewusste Provider-Unterstützung
 

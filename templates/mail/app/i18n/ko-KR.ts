@@ -34,6 +34,8 @@ const messages = {
       newest: "최신순",
       priority: "우선순위",
       priorityFailed: "받은편지함을 정렬하지 못했습니다.",
+      priorityProviderRequired:
+        "우선순위 정렬을 사용하려면 AI 제공자를 연결하세요.",
       priorityPartialFailed:
         "메시지 {{count}}개의 우선순위를 정하지 못했습니다. 점수가 있는 메시지 뒤에 표시됩니다.",
       priorityScoreHelp:
@@ -714,13 +716,14 @@ const messages = {
       tagTabsHelp: "각 태그가 받은편지함 탭이 됩니다",
       addTag: "태그 추가",
       triageTitle: "AI 분류",
-      connectJev: "Jev 연결",
-      connectJevToRunTriage: "분류를 실행하려면 Jev를 연결하세요",
+      connectJev: "AI 제공자 연결",
+      connectJevToRunTriage: "분류를 실행하려면 AI 제공자를 연결하세요",
       freeBuilderOrApiKey: "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
       jevAvailabilityFailed:
         "AI 결정 제공자를 사용할 수 있는지 확인할 수 없습니다.",
       connectBuilder: "Builder.io 사용",
-      addJevApiKey: "API 키 추가",
+      addJevApiKey: "Jev API 키 추가",
+      addOpenAiApiKey: "OpenAI API 키 추가",
     },
     draftQueue: {
       title: "Cola de borradores",

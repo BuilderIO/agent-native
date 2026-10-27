@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: 命名的 predicate、choice 或 score 问题。
 - **options**: 可选的 signal、timeoutMs、providers 或 cacheKey 设置。
 
-成功时 result.status 为 ok。结果包含 provider、model 和按问题名称索引的 answers，cached 和 usage 为可选字段。not_configured 包含 missing_credentials 原因和 providers 列表。failed 包含类型化原因，并可能包含 provider 和 questionNames。只有提供 cacheKey 时才会启用缓存。缓存键的范围包括 owner、组织、provider、model、cacheKey、input 和 questions。内存缓存有效期为 60 秒，最多保存 256 个条目。
+成功时 result.status 为 ok。结果包含 provider、model 和按问题名称索引的 answers，cached 和 usage 为可选字段。not_configured 包含 missing_credentials 原因和 providers 列表。failed 包含类型化原因，并可能包含 provider 和 questionNames。只有提供 cacheKey 时才会启用缓存。缓存键的范围包括 owner、组织、provider、model、cacheKey、input 和 questions。内存缓存有效期为 60 秒，最多保存 256 个条目。 ok 结果也可能包含 questionFailures，用于标记答案缺失或无效的问题。调用方应将这些问题视为分类失败，而不是否定答案；如果所有问题都失败，answers 可以为空，而 questionFailures 会列出所有失败问题。
 
 ## 能力感知的提供方支持
 

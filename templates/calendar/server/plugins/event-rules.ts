@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
   decide,
+  type DecisionAnswer,
   type DecisionQuestion,
 } from "@agent-native/core/decisions";
+import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
   registerRecurringSweepHandler,
   runWithRequestContext,
@@ -180,9 +181,10 @@ async function evaluate(
       );
     }
     for (const entry of entries) {
-      const answer = result.answers[entry.name];
+      const answer = result.answers[entry.name] as DecisionAnswer | undefined;
       if (
-        answer?.type !== "predicate" ||
+        !answer ||
+        answer.type !== "predicate" ||
         result.questionFailures?.[entry.name] !== undefined
       ) {
         throw new Error(

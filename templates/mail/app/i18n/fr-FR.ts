@@ -34,6 +34,8 @@ const messages = {
       newest: "Plus récents",
       priority: "Priorité",
       priorityFailed: "Impossible de trier la boîte de réception.",
+      priorityProviderRequired:
+        "Connectez un fournisseur d’IA pour trier par priorité.",
       priorityPartialFailed:
         "Impossible de classer {{count}} messages. Ils apparaissent après les messages évalués.",
       priorityScoreHelp:
@@ -749,13 +751,14 @@ const messages = {
       tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
       addTag: "Ajouter un tag",
       triageTitle: "Tri par IA",
-      connectJev: "Connecter Jev",
-      connectJevToRunTriage: "Connectez Jev pour lancer le tri",
+      connectJev: "Connecter un fournisseur d’IA",
+      connectJevToRunTriage: "Connectez un fournisseur d’IA pour lancer le tri",
       freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
       jevAvailabilityFailed:
         "Impossible de vérifier si un fournisseur de décision IA est disponible.",
       connectBuilder: "Utiliser Builder.io",
-      addJevApiKey: "Ajouter une clé API",
+      addJevApiKey: "Ajouter une clé API Jev",
+      addOpenAiApiKey: "Ajouter une clé API OpenAI",
     },
     draftQueue: {
       title: "Cola de borradores",

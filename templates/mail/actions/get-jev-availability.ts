@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
@@ -19,7 +19,10 @@ export default defineAction({
       status.providers.some((provider) => provider.status === "unknown") &&
       !status.providers.some((provider) => provider.status === "ready")
     ) {
-      throw new Error("Decision provider availability could not be checked.");
+      fail("Decision provider availability could not be checked.", {
+        errorCode: "jev_availability_failed",
+        statusCode: 503,
+      });
     }
     return {
       configured: status.providers.some(

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   listAutomationRules: vi.fn(),
   previewAutomationPriority: vi.fn(),
   cacheLookups: [] as Array<{ provider: string; model: string }>,
+  cacheEntries: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@agent-native/core/decisions", () => ({
@@ -72,22 +73,68 @@ describe("get-ai-priority action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.cacheLookups = [];
+    mocks.cacheEntries = [];
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.getDecisionsStatus.mockResolvedValue(status([]));
     mocks.getUserSetting.mockResolvedValue(null);
-    mocks.getAiPriorityCache.mockResolvedValue({ entries: [], model: null });
+    mocks.getAiPriorityCache.mockImplementation(async () => ({
+      entries: mocks.cacheEntries,
+      model: null,
+    }));
     mocks.getCachedPriorityScores.mockImplementation(
-      (_cache, _emails, _key, provider, model) => {
+      (cache, emails, key, provider, model) => {
         mocks.cacheLookups.push({ provider, model });
-        return new Map();
+        const entries = new Map(
+          cache.entries
+            .filter(
+              (entry) =>
+                entry.instructionKey === key &&
+                entry.provider === provider &&
+                entry.model === model,
+            )
+            .map((entry) => [
+              aiPriorityEmailKey(
+                entry.accountEmail as string | undefined,
+                entry.emailId as string,
+              ),
+              entry,
+            ]),
+        );
+        return new Map(
+          emails.flatMap((item) => {
+            const entry = entries.get(
+              aiPriorityEmailKey(item.accountEmail, item.id),
+            );
+            return entry && entry.fingerprint === item.fingerprint
+              ? [
+                  [
+                    aiPriorityEmailKey(item.accountEmail, item.id),
+                    {
+                      emailId: item.id,
+                      ...(item.accountEmail
+                        ? { accountEmail: item.accountEmail }
+                        : {}),
+                      score: entry.score as number,
+                      ...(typeof entry.reason === "string"
+                        ? { reason: entry.reason }
+                        : {}),
+                    },
+                  ] as const,
+                ]
+              : [];
+          }),
+        );
       },
     );
     mocks.mergePriorityCache.mockImplementation((_cache, entries, model) => ({
-      entries,
+      entries: [..._cache.entries, ...entries],
       model,
     }));
     mocks.listAutomationRules.mockResolvedValue([]);
-    mocks.saveAiPriorityCache.mockResolvedValue({ entries: [], model: null });
+    mocks.saveAiPriorityCache.mockImplementation(async (_owner, cache) => {
+      mocks.cacheEntries = cache.entries;
+      return cache;
+    });
     mocks.previewAutomationPriority.mockImplementation(
       async (emails: Array<{ id: string; accountEmail?: string }>) => ({
         scores: new Map(
@@ -121,9 +168,7 @@ describe("get-ai-priority action", () => {
 
     const result = await action.run({ emails: [email("email-1")] });
 
-    expect(result.scores).toEqual([
-      { emailId: "email-1", score: 0.8 },
-    ]);
+    expect(result.scores).toEqual([{ emailId: "email-1", score: 0.8 }]);
     expect(result).toMatchObject({
       eligibleCount: 1,
       evaluatedCount: 1,
@@ -158,11 +203,14 @@ describe("get-ai-priority action", () => {
     mocks.getDecisionsStatus.mockResolvedValue(status(["jev", "openai"]));
     mocks.previewAutomationPriority.mockResolvedValueOnce({
       scores: new Map([
-        [aiPriorityEmailKey(undefined, "email-1"), {
-          score: 0.9,
-          provider: "jev",
-          model: "jev-latest",
-        }],
+        [
+          aiPriorityEmailKey(undefined, "email-1"),
+          {
+            score: 0.9,
+            provider: "jev",
+            model: "jev-latest",
+          },
+        ],
       ]),
       failures: [],
       evaluatedCount: 1,
@@ -172,15 +220,17 @@ describe("get-ai-priority action", () => {
 
     const result = await action.run({ emails: [email("email-1")] });
 
-    expect(mocks.cacheLookups[0]).toEqual({
-      provider: "jev",
-      model: "jev-latest",
-    });
+    expect(mocks.cacheLookups).toEqual([
+      { provider: "jev", model: "jev-latest" },
+      { provider: "openai", model: "gpt-6-luna" },
+    ]);
     expect(result.model).toEqual({ provider: "jev", model: "jev-latest" });
     expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
       "owner@example.com",
       expect.objectContaining({
-        entries: [expect.objectContaining({ provider: "jev", model: "jev-latest" })],
+        entries: [
+          expect.objectContaining({ provider: "jev", model: "jev-latest" }),
+        ],
       }),
     );
   });
@@ -192,11 +242,14 @@ describe("get-ai-priority action", () => {
     mocks.previewAutomationPriority
       .mockResolvedValueOnce({
         scores: new Map([
-          [aiPriorityEmailKey(undefined, "email-1"), {
-            score: 0.4,
-            provider: "openai",
-            model: "gpt-6-luna",
-          }],
+          [
+            aiPriorityEmailKey(undefined, "email-1"),
+            {
+              score: 0.4,
+              provider: "openai",
+              model: "gpt-6-luna",
+            },
+          ],
         ]),
         failures: [],
         evaluatedCount: 1,
@@ -205,11 +258,14 @@ describe("get-ai-priority action", () => {
       })
       .mockResolvedValueOnce({
         scores: new Map([
-          [aiPriorityEmailKey(undefined, "email-1"), {
-            score: 0.7,
-            provider: "jev",
-            model: "jev-latest",
-          }],
+          [
+            aiPriorityEmailKey(undefined, "email-1"),
+            {
+              score: 0.7,
+              provider: "jev",
+              model: "jev-latest",
+            },
+          ],
         ]),
         failures: [],
         evaluatedCount: 1,
@@ -227,19 +283,38 @@ describe("get-ai-priority action", () => {
     expect(mocks.previewAutomationPriority).toHaveBeenCalledTimes(2);
   });
 
+  it("reuses an OpenAI cache entry after Jev falls through once", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["jev", "openai"]));
+
+    const first = await action.run({ emails: [email("email-1")] });
+    const second = await action.run({ emails: [email("email-1")] });
+
+    expect(first.scores).toEqual([{ emailId: "email-1", score: 0.8 }]);
+    expect(second.scores).toEqual(first.scores);
+    expect(second.model).toEqual({ provider: "openai", model: "gpt-6-luna" });
+    expect(mocks.cacheLookups).toEqual([
+      { provider: "jev", model: "jev-latest" },
+      { provider: "openai", model: "gpt-6-luna" },
+      { provider: "jev", model: "jev-latest" },
+      { provider: "openai", model: "gpt-6-luna" },
+    ]);
+    expect(mocks.previewAutomationPriority).toHaveBeenCalledOnce();
+  });
+
   it("returns successful scores with per-email failures and no fallback scores", async () => {
     mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
     mocks.previewAutomationPriority.mockResolvedValueOnce({
       scores: new Map([
-        [aiPriorityEmailKey(undefined, "email-1"), {
-          score: 0.92,
-          provider: "openai",
-          model: "gpt-6-luna",
-        }],
+        [
+          aiPriorityEmailKey(undefined, "email-1"),
+          {
+            score: 0.92,
+            provider: "openai",
+            model: "gpt-6-luna",
+          },
+        ],
       ]),
-      failures: [
-        { emailId: "email-2", reason: "refusal" },
-      ],
+      failures: [{ emailId: "email-2", reason: "refusal" }],
       evaluatedCount: 1,
       failedCount: 1,
       model: { provider: "openai", model: "gpt-6-luna" },

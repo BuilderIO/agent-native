@@ -13,6 +13,7 @@ const AI_PRIORITY_CACHE_KEY = "ai-priority-cache";
 const cacheEntrySchema = aiPriorityScoreSchema.extend({
   fingerprint: z.string().length(64),
   instructionKey: z.string().length(64),
+  instructionIdentity: z.string().length(64).optional(),
   evaluatedAt: z.number().int().nonnegative(),
   provider: z.enum(["openai", "jev"]).optional(),
   model: z.string().optional(),
@@ -115,6 +116,9 @@ export function mergePriorityCache(
   model: AiPriorityCache["model"],
 ): AiPriorityCache {
   if (entries.length === 0) return cache;
+  const instructionIdentities = new Set(
+    entries.map((entry) => entry.instructionIdentity),
+  );
   const replaced = new Set(
     entries.map((entry) =>
       JSON.stringify([
@@ -125,14 +129,16 @@ export function mergePriorityCache(
     ),
   );
   const byKey = new Map(
-    cache.entries.map((entry) => [
-      JSON.stringify([
-        entry.instructionKey,
-        entry.accountEmail ?? "",
-        entry.emailId,
+    cache.entries
+      .filter((entry) => instructionIdentities.has(entry.instructionIdentity))
+      .map((entry) => [
+        JSON.stringify([
+          entry.instructionKey,
+          entry.accountEmail ?? "",
+          entry.emailId,
+        ]),
+        entry,
       ]),
-      entry,
-    ]),
   );
   for (const key of replaced) byKey.delete(key);
   for (const entry of entries) {

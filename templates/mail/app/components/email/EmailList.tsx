@@ -899,9 +899,7 @@ export function EmailList({
           rememberPriorityScore(next, key, cachedScore);
         }
       }
-      if (
-        scoredKeys.size + failedKeys.size !== uncachedPriorityEmails.length
-      ) {
+      if (scoredKeys.size + failedKeys.size !== uncachedPriorityEmails.length) {
         throw new Error(t("mail.sort.priorityFailed"));
       }
       setPriorityScores(next);
@@ -912,11 +910,22 @@ export function EmailList({
           }),
         );
       }
-    } catch {
+    } catch (error: unknown) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
       onSortModeChange?.("newest");
-      toast.error(t("mail.sort.priorityFailed"));
+      const errorCode =
+        typeof error === "object" &&
+        error !== null &&
+        "errorCode" in error &&
+        typeof error.errorCode === "string"
+          ? error.errorCode
+          : undefined;
+      toast.error(
+        errorCode === "jev_not_enabled"
+          ? t("mail.sort.priorityProviderRequired")
+          : t("mail.sort.priorityFailed"),
+      );
     }
   }, [
     onSortModeChange,

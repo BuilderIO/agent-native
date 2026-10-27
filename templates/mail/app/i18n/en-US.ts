@@ -34,6 +34,7 @@ const messages = {
       newest: "Newest",
       priority: "Priority",
       priorityFailed: "Couldn’t rank this inbox.",
+      priorityProviderRequired: "Connect an AI provider to use Priority sort.",
       priorityPartialFailed:
         "Couldn’t rank {{count}} messages. They’re shown after scored messages.",
       priorityScoreHelp:
@@ -714,13 +715,14 @@ const messages = {
       tagTabsHelp: "Each tag becomes an inbox tab",
       addTag: "Add tag",
       triageTitle: "AI triage",
-      connectJev: "Connect Jev",
-      connectJevToRunTriage: "Connect Jev to run triage",
+      connectJev: "Connect an AI provider",
+      connectJevToRunTriage: "Connect an AI provider to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
       jevAvailabilityFailed:
         "Could not check whether an AI decision provider is available.",
       connectBuilder: "Use Builder.io",
-      addJevApiKey: "Add API key",
+      addJevApiKey: "Add Jev API key",
+      addOpenAiApiKey: "Add OpenAI API key",
     },
     draftQueue: {
       title: "Draft queue",

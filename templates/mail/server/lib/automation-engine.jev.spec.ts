@@ -33,7 +33,8 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   registerBuiltinEngines: mocks.registerBuiltinEngines,
   resolveEngine: mocks.resolveEngine,
 }));
-vi.mock("@agent-native/core/decisions", () => ({
+vi.mock("@agent-native/core/decisions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/decisions")>()),
   decide: mocks.decide,
   getDecisionsStatus: mocks.getDecisionsStatus,
 }));
@@ -91,6 +92,8 @@ vi.mock("./google-api.js", () => ({
   gmailBatchGetMessages: mocks.gmailBatchGetMessages,
 }));
 vi.mock("./google-auth.js", () => ({}));
+
+import { MAX_DECISION_PAYLOAD_BYTES } from "@agent-native/core/decisions";
 
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
@@ -234,8 +237,11 @@ describe("Mail decision automation routing", () => {
       }),
     });
     mocks.decide.mockImplementation(
-      async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-        decisionResult(questions),
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions),
     );
     mocks.resolveTextAutomationModelSettings.mockResolvedValue({});
     mocks.recordUsage.mockResolvedValue(undefined);
@@ -246,49 +252,97 @@ describe("Mail decision automation routing", () => {
   it("evaluates Mail AI rules through the shared decision action", async () => {
     const result = await previewAutomationRules(
       [email],
-      [{ id: "rule-1", name: "Important", condition: "Finance updates", actions: [] }],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
       "owner@example.com",
     );
 
-    expect(result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id))).toEqual([
-      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91, provider: "jev", model: "jev-latest" }),
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
+      expect.objectContaining({
+        ruleId: "rule-1",
+        confidence: 0.91,
+        provider: "jev",
+        model: "jev-latest",
+      }),
     ]);
     expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
     expect(mocks.decide).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerEmail: "owner@example.com", questions: [expect.objectContaining({ type: "predicate" })] }),
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        questions: [expect.objectContaining({ type: "predicate" })],
+      }),
     );
     expect(mocks.resolveTextAutomationModelSettings).not.toHaveBeenCalled();
   });
 
   it("keeps AI-filter results distinct for matching IDs across accounts", async () => {
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-      decisionResult(questions, { probabilities: [0.2, 0.91] }),
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { probabilities: [0.2, 0.91] }),
     );
     const firstAccount = "first@example.test";
     const secondAccount = "second@example.test";
     const result = await previewAutomationRules(
-      [{ ...email, accountEmail: firstAccount }, { ...email, accountEmail: secondAccount }],
-      [{ id: "rule-1", name: "Important", condition: "Finance updates", actions: [] }],
+      [
+        { ...email, accountEmail: firstAccount },
+        { ...email, accountEmail: secondAccount },
+      ],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
       "owner@example.com",
     );
 
-    expect(result.matches.get(aiPriorityEmailKey(firstAccount, email.id))).toEqual([]);
-    expect(result.matches.get(aiPriorityEmailKey(secondAccount, email.id))).toEqual([
+    expect(
+      result.matches.get(aiPriorityEmailKey(firstAccount, email.id)),
+    ).toEqual([]);
+    expect(
+      result.matches.get(aiPriorityEmailKey(secondAccount, email.id)),
+    ).toEqual([
       expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
     ]);
   });
 
   it("preserves a complete no-match classification", async () => {
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-      decisionResult(questions, { probabilities: [0.2] }),
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { probabilities: [0.2] }),
     );
     const result = await previewAutomationRules(
       [email],
-      [{ id: "rule-1", name: "Important", condition: "Finance updates", actions: [] }],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
       "owner@example.com",
     );
 
-    expect(result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id))).toEqual([]);
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([]);
     expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
   });
 
@@ -298,12 +352,17 @@ describe("Mail decision automation routing", () => {
       { ...email, id: "omitted" },
       { ...email, id: "refused" },
     ];
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-      decisionResult(questions, {
-        probabilities: [0.91, 0, 0],
-        failures: ["q_1"],
-        refusals: ["q_2"],
-      }),
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          probabilities: [0.91, 0, 0],
+          failures: ["q_1"],
+          refusals: ["q_2"],
+        }),
     );
 
     const result = await previewAutomationPriority(
@@ -312,13 +371,52 @@ describe("Mail decision automation routing", () => {
       "Prioritize work messages.",
     );
 
-    expect(result.scores.get(aiPriorityEmailKey(email.accountEmail, "matched"))).toMatchObject({ score: 0.91 });
-    expect(result.scores.has(aiPriorityEmailKey(email.accountEmail, "omitted"))).toBe(false);
-    expect(result.scores.has(aiPriorityEmailKey(email.accountEmail, "refused"))).toBe(false);
+    expect(
+      result.scores.get(aiPriorityEmailKey(email.accountEmail, "matched")),
+    ).toMatchObject({ score: 0.91 });
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "omitted")),
+    ).toBe(false);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "refused")),
+    ).toBe(false);
     expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 2 });
     expect(result.failures).toEqual([
-      expect.objectContaining({ emailId: "omitted", reason: "invalid_response" }),
+      expect.objectContaining({
+        emailId: "omitted",
+        reason: "invalid_response",
+      }),
       expect.objectContaining({ emailId: "refused", reason: "refusal" }),
+    ]);
+  });
+
+  it("reports a fully incomplete priority response as failed emails", async () => {
+    const messages = [
+      { ...email, id: "first" },
+      { ...email, id: "second" },
+    ];
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0", "q_1"] }),
+    );
+
+    const result = await previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
+
+    expect(result.scores.size).toBe(0);
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 2 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({ emailId: "first", reason: "invalid_response" }),
+      expect.objectContaining({
+        emailId: "second",
+        reason: "invalid_response",
+      }),
     ]);
   });
 
@@ -330,31 +428,99 @@ describe("Mail decision automation routing", () => {
         { provider: "openai", status: "ready" },
       ],
     });
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-      decisionResult(questions, { provider: "openai", probabilities: [0.84] }),
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          provider: "openai",
+          probabilities: [0.84],
+        }),
     );
 
     const result = await evaluateAiFilterBackfillRules(
       [email],
-      [{ id: "rule-1", name: "Important", condition: "Finance updates", actions: [] }],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
       "owner@example.com",
     );
 
     expect(result.model).toEqual({ provider: "openai", model: "gpt-6-luna" });
-    expect(result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id))).toEqual([
-      expect.objectContaining({ provider: "openai", model: "gpt-6-luna", confidence: 0.84 }),
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-6-luna",
+        confidence: 0.84,
+      }),
     ]);
   });
 
-  it("records usage with the actual decision provider and model", async () => {
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) => ({
-      ...decisionResult(questions, { provider: "openai" }),
-      usage: { inputTokens: 12, outputTokens: 4 },
+  it("splits long rule requests at the serialized decision payload limit", async () => {
+    const rules = Array.from({ length: 80 }, (_, index) => ({
+      id: `large-rule-${index}`,
+      name: `Large rule ${index}`,
+      condition: `Match this phrase ${"x".repeat(3_500)}`,
+      actions: [],
     }));
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions),
+    );
+
+    const result = await evaluateAiFilterBackfillRules(
+      [email],
+      rules,
+      "owner@example.com",
+    );
+
+    expect(result.evaluatedCount).toBe(rules.length);
+    expect(mocks.decide.mock.calls.length).toBeGreaterThan(1);
+    for (const [request] of mocks.decide.mock.calls) {
+      const serialized = JSON.stringify({
+        input: request.input,
+        questions: request.questions,
+      });
+      expect(
+        new TextEncoder().encode(serialized).byteLength,
+      ).toBeLessThanOrEqual(MAX_DECISION_PAYLOAD_BYTES);
+    }
+  });
+
+  it("records usage with the actual decision provider and model", async () => {
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => ({
+        ...decisionResult(questions, { provider: "openai" }),
+        usage: { inputTokens: 12, outputTokens: 4 },
+      }),
+    );
 
     await previewAutomationRules(
       [email],
-      [{ id: "rule-1", name: "Important", condition: "Finance updates", actions: [] }],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
       "owner@example.com",
     );
 
@@ -370,38 +536,67 @@ describe("Mail decision automation routing", () => {
   });
 
   it("keeps priority answers distinct across accounts and records the provider model", async () => {
-    mocks.decide.mockImplementationOnce(async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-      decisionResult(questions, { provider: "openai", probabilities: [0.2, 0.9] }),
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          provider: "openai",
+          probabilities: [0.2, 0.9],
+        }),
     );
     const result = await previewAutomationPriority(
-      [{ ...email, accountEmail: "first@example.test" }, { ...email, accountEmail: "second@example.test" }],
+      [
+        { ...email, accountEmail: "first@example.test" },
+        { ...email, accountEmail: "second@example.test" },
+      ],
       "owner@example.com",
       "Prioritize work messages.",
     );
 
-    expect(result.scores.get(aiPriorityEmailKey("first@example.test", email.id))).toMatchObject({ score: 0.2, provider: "openai", model: "gpt-6-luna" });
-    expect(result.scores.get(aiPriorityEmailKey("second@example.test", email.id))).toMatchObject({ score: 0.9, provider: "openai", model: "gpt-6-luna" });
-    const request = mocks.decide.mock.calls[0]?.[0] as { input: Array<{ value: { emails: Array<Record<string, unknown>> } }> };
+    expect(
+      result.scores.get(aiPriorityEmailKey("first@example.test", email.id)),
+    ).toMatchObject({ score: 0.2, provider: "openai", model: "gpt-6-luna" });
+    expect(
+      result.scores.get(aiPriorityEmailKey("second@example.test", email.id)),
+    ).toMatchObject({ score: 0.9, provider: "openai", model: "gpt-6-luna" });
+    const request = mocks.decide.mock.calls[0]?.[0] as {
+      input: Array<{ value: { emails: Array<Record<string, unknown>> } }>;
+    };
     expect(request.input[0]?.value.emails[0]).not.toHaveProperty("labels");
   });
 
   it("scores priority batches with a concurrency limit of three", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
-    mocks.decide.mockImplementation(async ({ questions }: { questions: Array<{ name: string; type: string }> }) => {
-      inFlight += 1;
-      maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      inFlight -= 1;
-      return decisionResult(questions, { probabilities: questions.map(() => 0.7) });
-    });
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inFlight -= 1;
+        return decisionResult(questions, {
+          probabilities: questions.map(() => 0.7),
+        });
+      },
+    );
     const emails = Array.from({ length: 200 }, (_, index) => ({
       ...email,
       id: "email-" + index,
       threadId: "thread-" + index,
     }));
 
-    const result = await previewAutomationPriority(emails, "owner@example.com", "Prioritize work messages.");
+    const result = await previewAutomationPriority(
+      emails,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
 
     expect(mocks.decide).toHaveBeenCalledTimes(4);
     expect(maxInFlight).toBe(3);
@@ -409,7 +604,10 @@ describe("Mail decision automation routing", () => {
   });
 
   it("keeps decision batches within the provider question limit", async () => {
-    const emails = Array.from({ length: 20 }, (_, index) => ({ ...email, id: "email-" + index }));
+    const emails = Array.from({ length: 20 }, (_, index) => ({
+      ...email,
+      id: "email-" + index,
+    }));
     const rules = Array.from({ length: 21 }, (_, index) => ({
       id: "rule-" + index,
       name: "Rule " + index,
@@ -417,38 +615,61 @@ describe("Mail decision automation routing", () => {
       actions: [],
     }));
 
-    const result = await previewAutomationRules(emails, rules, "owner@example.com");
+    const result = await previewAutomationRules(
+      emails,
+      rules,
+      "owner@example.com",
+    );
 
-    const requests = mocks.decide.mock.calls.map(([input]) => input as { questions: Array<unknown> });
-    expect(requests.map(({ questions }) => questions.length)).toEqual([400, 20]);
+    const requests = mocks.decide.mock.calls.map(
+      ([input]) => input as { questions: Array<unknown> },
+    );
+    expect(requests.map(({ questions }) => questions.length)).toEqual([
+      400, 20,
+    ]);
     expect(result.evaluatedCount).toBe(420);
   });
 
   it("continues to use a text model for rewriting AI-filter rules", async () => {
-    mocks.resolveTextAutomationModelSettings.mockResolvedValue({ engine: "anthropic", model: "claude-sonnet-5" });
+    mocks.resolveTextAutomationModelSettings.mockResolvedValue({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
     mocks.resolveCredential.mockResolvedValue(undefined);
     mocks.readDeployCredentialEnv.mockReturnValue(undefined);
     mocks.resolveEngine.mockResolvedValue({
       defaultModel: "claude-sonnet-5",
-      stream: async function* () { yield { type: "text-delta", text: "Invoices from the finance team" }; },
+      stream: async function* () {
+        yield { type: "text-delta", text: "Invoices from the finance team" };
+      },
     });
 
-    await expect(rewriteAutomationRuleCondition(
-      "owner@example.com",
-      { id: "rule-1", name: "Important", condition: "Old rule", actions: [] },
-      [],
-    )).resolves.toBe("Invoices from the finance team");
+    await expect(
+      rewriteAutomationRuleCondition(
+        "owner@example.com",
+        { id: "rule-1", name: "Important", condition: "Old rule", actions: [] },
+        [],
+      ),
+    ).resolves.toBe("Invoices from the finance team");
     expect(mocks.decide).not.toHaveBeenCalled();
   });
 
   it("reports unavailable decision status during automation polling", async () => {
-    mocks.getDecisionsStatus.mockRejectedValue(new Error("Decision provider status unavailable"));
+    mocks.getDecisionsStatus.mockRejectedValue(
+      new Error("Decision provider status unavailable"),
+    );
 
-    await expect(processAutomationsForAccount(
-      "owner@example.com",
-      "mailbox@example.com",
-      "google-access-token",
-    )).resolves.toMatchObject({ accountEmail: "mailbox@example.com", messagesProcessed: 0, errors: 1 });
+    await expect(
+      processAutomationsForAccount(
+        "owner@example.com",
+        "mailbox@example.com",
+        "google-access-token",
+      ),
+    ).resolves.toMatchObject({
+      accountEmail: "mailbox@example.com",
+      messagesProcessed: 0,
+      errors: 1,
+    });
   });
 
   it("emits received-mail events for new arrivals without local rules or Jev", async () => {
@@ -782,7 +1003,11 @@ describe("Mail decision automation routing", () => {
     });
     mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
     mocks.decide.mockImplementationOnce(
-      async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
         decisionResult(questions, { probabilities: questions.map(() => 0.99) }),
     );
     mocks.userSettings.set("owner@example.com:automation-watermark", {
@@ -865,7 +1090,11 @@ describe("Mail decision automation routing", () => {
       suggestionThreshold: 0.5,
     });
     mocks.decide.mockImplementationOnce(
-      async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
         decisionResult(questions, { probabilities: questions.map(() => 0.99) }),
     );
     mocks.executeActions
@@ -965,7 +1194,7 @@ describe("Mail decision automation routing", () => {
     ).toEqual([]);
   });
 
-  it("reports poll classification failures with account-scoped question details", async () => {
+  it("keeps failed poll classifications pending for a later retry", async () => {
     const now = Date.now();
     mocks.activeRules = [
       {
@@ -994,32 +1223,58 @@ describe("Mail decision automation routing", () => {
       lastHistoryId: "history-1",
       lastTimestamp: now,
     });
-    mocks.gmailListHistory.mockResolvedValueOnce({
-      historyId: "history-2",
-      history: [
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        historyId: "history-2",
+        history: [
+          {
+            messagesAdded: [
+              { message: { id: "partial", labelIds: ["INBOX"] } },
+            ],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ historyId: "history-3", history: [] });
+    mocks.gmailBatchGetMessages
+      .mockResolvedValueOnce([
         {
-          messagesAdded: [
-            { message: { id: "partial", labelIds: ["INBOX"] } },
-          ],
-        },
-      ],
-    });
-    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
-      {
-        id: "partial",
-        data: {
           id: "partial",
-          threadId: "thread-partial",
-          internalDate: String(now + 1_000),
-          labelIds: ["INBOX"],
-          payload: { headers: [] },
+          data: {
+            id: "partial",
+            threadId: "thread-partial",
+            internalDate: String(now + 1_000),
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
         },
-      },
-    ]);
-    mocks.decide.mockImplementationOnce(
-      async ({ questions }: { questions: Array<{ name: string; type: string }> }) =>
-        decisionResult(questions, { failures: ["q_0"] }),
-    );
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "partial",
+          data: {
+            id: "partial",
+            threadId: "thread-partial",
+            internalDate: String(now + 1_000),
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
+        },
+      ]);
+    mocks.decide
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) => decisionResult(questions, { failures: ["q_0"] }),
+      )
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) => decisionResult(questions),
+      );
 
     const result = await processAutomationsForAccount(
       "owner@example.com",
@@ -1039,6 +1294,27 @@ describe("Mail decision automation routing", () => {
       ],
     });
     expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({ pendingMessageIds: ["partial"] });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: [] });
+
+    const retried = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(retried.decisionFailures).toEqual([]);
+    expect(mocks.gmailBatchGetMessages).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["partial"] });
   });
 
   it("drops notification retries after the attempt limit", async () => {

@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: predicate、choice、score の名前付き質問。
 - **options**: signal、timeoutMs、providers、cacheKey の任意設定。
 
-成功時の result.status は ok です。結果には provider、model、質問名をキーとする answers が含まれ、cached と usage は任意です。not_configured には missing_credentials という理由と providers の一覧が含まれます。failed には型付きの理由が含まれ、provider と questionNames が付く場合があります。キャッシュは cacheKey を指定した場合にのみ有効です。キャッシュキーには owner、組織、provider、model、cacheKey、input、questions が含まれます。メモリー上のキャッシュは60秒で期限切れとなり、最大256件です。
+成功時の result.status は ok です。結果には provider、model、質問名をキーとする answers が含まれ、cached と usage は任意です。not_configured には missing_credentials という理由と providers の一覧が含まれます。failed には型付きの理由が含まれ、provider と questionNames が付く場合があります。キャッシュは cacheKey を指定した場合にのみ有効です。キャッシュキーには owner、組織、provider、model、cacheKey、input、questions が含まれます。メモリー上のキャッシュは60秒で期限切れとなり、最大256件です。 ok の結果には、回答が欠落または無効な質問を示す questionFailures が含まれる場合もあります。呼び出し側は、これらの質問を否定の回答ではなく分類の失敗として扱ってください。すべての質問が失敗した場合、answers が空で questionFailures に失敗した質問がすべて記録されることがあります。
 
 ## 機能対応に応じた provider のサポート
 

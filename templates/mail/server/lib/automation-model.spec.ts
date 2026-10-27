@@ -35,6 +35,7 @@ describe("Mail text model settings", () => {
     });
   });
 
+  // oracle-change: Mail text generation no longer inherits Jev decision-provider availability.
   it("defaults text generation to the available Builder model", async () => {
     await expect(
       resolveTextAutomationModelSettings("owner@example.com"),

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getDecisionsStatus } from "@agent-native/core/decisions";
 import {
   getRequestUserEmail,
@@ -25,7 +25,10 @@ export default defineAction({
       !decisionProviderConfigured &&
       decisionStatus.providers.some((provider) => provider.status === "unknown")
     ) {
-      throw new Error("Decision provider availability could not be checked.");
+      fail("Decision provider availability could not be checked.", {
+        errorCode: "jev_availability_failed",
+        statusCode: 503,
+      });
     }
     const availability = scheduledTriggerAvailability();
     const registered = hasRecurringSweepHandler("calendar-event-rules");

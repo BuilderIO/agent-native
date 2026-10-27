@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: predicate, choice 또는 score 유형의 이름 지정 질문.
 - **options**: 선택적 signal, timeoutMs, providers 또는 cacheKey 설정.
 
-성공하면 result.status는 ok입니다. 결과에는 provider, model, 질문 이름을 키로 한 answers가 포함되며 cached와 usage는 선택 항목입니다. not_configured에는 missing_credentials 사유와 providers 목록이 포함됩니다. failed에는 유형이 지정된 사유가 포함되며 provider와 questionNames가 있을 수 있습니다. 캐싱은 cacheKey를 제공한 경우에만 활성화됩니다. 캐시 키에는 owner, 조직, provider, model, cacheKey, input, questions가 포함됩니다. 메모리 캐시는 60초 후 만료되며 최대 256개 항목을 저장합니다.
+성공하면 result.status는 ok입니다. 결과에는 provider, model, 질문 이름을 키로 한 answers가 포함되며 cached와 usage는 선택 항목입니다. not_configured에는 missing_credentials 사유와 providers 목록이 포함됩니다. failed에는 유형이 지정된 사유가 포함되며 provider와 questionNames가 있을 수 있습니다. 캐싱은 cacheKey를 제공한 경우에만 활성화됩니다. 캐시 키에는 owner, 조직, provider, model, cacheKey, input, questions가 포함됩니다. 메모리 캐시는 60초 후 만료되며 최대 256개 항목을 저장합니다. ok 결과에는 답변이 누락되거나 유효하지 않은 질문을 위한 questionFailures도 포함될 수 있습니다. 호출자는 해당 질문을 부정 답변이 아니라 분류 실패로 처리해야 합니다. 모든 질문이 실패하면 answers는 비어 있고 questionFailures에는 실패한 질문이 모두 포함될 수 있습니다.
 
 ## 기능 인식 provider 지원
 

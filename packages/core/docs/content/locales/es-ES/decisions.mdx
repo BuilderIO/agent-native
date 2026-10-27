@@ -109,7 +109,7 @@ El objeto de argumentos contiene estos campos:
 - **questions**: Preguntas con nombre de tipo predicate, choice o score.
 - **options**: Ajustes opcionales signal, timeoutMs, providers o cacheKey.
 
-En caso de éxito, result.status es ok. El resultado incluye provider, model y answers indexadas por nombre de pregunta, además de cached y usage opcionales. not_configured incluye el motivo missing_credentials y una lista de providers. failed incluye un motivo tipado y puede incluir provider y questionNames. El almacenamiento en caché solo se activa al proporcionar cacheKey. La clave de caché tiene en cuenta la persona propietaria, la organización, el proveedor, el modelo, cacheKey, input y questions. La caché en memoria dura 60 segundos y admite hasta 256 entradas.
+En caso de éxito, result.status es ok. El resultado incluye provider, model y answers indexadas por nombre de pregunta, además de cached y usage opcionales. not_configured incluye el motivo missing_credentials y una lista de providers. failed incluye un motivo tipado y puede incluir provider y questionNames. El almacenamiento en caché solo se activa al proporcionar cacheKey. La clave de caché tiene en cuenta la persona propietaria, la organización, el proveedor, el modelo, cacheKey, input y questions. La caché en memoria dura 60 segundos y admite hasta 256 entradas. Un resultado ok también puede incluir questionFailures para preguntas con respuestas ausentes o no válidas. Los consumidores deben tratar esas preguntas como clasificaciones fallidas, no como respuestas negativas; si fallan todas, answers puede estar vacío y questionFailures enumerar cada pregunta fallida.
 
 ## Compatibilidad según las capacidades del proveedor
 
