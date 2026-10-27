@@ -14,12 +14,17 @@ const connectionMocks = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const sendToDesignAgentChat = vi.hoisted(() => vi.fn());
+const featureFlagMocks = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string =>
       options ? `${key}:${JSON.stringify(options)}` : key,
+}));
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => featureFlagMocks.enabled,
 }));
 
 vi.mock("@/lib/figma-connection", async () => ({
@@ -49,6 +54,7 @@ beforeEach(() => {
   connectionMocks.get.mockReset();
   connectionMocks.save.mockReset();
   sendToDesignAgentChat.mockReset();
+  featureFlagMocks.enabled = false;
 });
 
 afterEach(async () => {
@@ -171,6 +177,7 @@ describe("FigmaLinkComposerBubble", () => {
   });
 
   it("prefills separate screen and comment sync requests without submitting them", async () => {
+    featureFlagMocks.enabled = true;
     connectionMocks.get.mockResolvedValue({
       connected: true,
       status: "set",
@@ -195,6 +202,22 @@ describe("FigmaLinkComposerBubble", () => {
       submit: false,
       openSidebar: false,
     });
+  });
+
+  it("keeps the existing composer bubble unchanged while sync is disabled", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      last4: "5678",
+    });
+    await renderBubble("design-42");
+
+    expect(button("chat.figmaLink.importFrame")).toBeTruthy();
+    expect(button("chat.figmaLink.exportSvg")).toBeTruthy();
+    expect(container!.textContent).not.toContain("chat.figmaLink.syncDesign");
+    expect(container!.textContent).not.toContain("chat.figmaLink.syncComments");
   });
 
   it("keeps the newest connection result when status checks finish out of order", async () => {
@@ -300,7 +323,7 @@ describe("FigmaLinkComposerBubble", () => {
     await renderBubble();
 
     expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
-    expect(button("chat.figmaLink.syncDesign").disabled).toBe(true);
-    expect(button("chat.figmaLink.syncComments").disabled).toBe(true);
+    expect(container!.textContent).not.toContain("chat.figmaLink.syncDesign");
+    expect(container!.textContent).not.toContain("chat.figmaLink.syncComments");
   });
 });

@@ -1,0 +1,51 @@
+import { fail } from "@agent-native/core/action";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+
+import { FIGMA_SYNC } from "../../shared/design-flags.js";
+
+export const FIGMA_SYNC_AGENT_ACTIONS = [
+  "sync-figma-screen",
+  "sync-figma-comments",
+] as const;
+
+export const FIGMA_SYNC_AGENT_INSTRUCTIONS = `When Design sync is enabled, use sync-figma-screen mode check before a pull or push. Pull only a source-only change. For a push, require a Design-only result, export the screen with export-design-as-figma-svg and autoLayout=true, then use the connected official canvas-write tool on the linked file and node. Preserve every unmapped source node and report unsupported properties. After the write, check again and call record-push with the exact before and after version and node hashes. If both sides changed, access is missing, or any write is uncertain, stop without advancing the baseline. Use sync-figma-comments for comment import and publishing; resolution only flows from the source into Design.`;
+
+export function prepareFigmaSyncAgentRequest(
+  input: { message: string; displayMessage?: string },
+  enabled: boolean,
+): { message: string; displayMessage: string } | undefined {
+  if (!enabled) return undefined;
+  return {
+    message: `${input.message}\n\n${FIGMA_SYNC_AGENT_INSTRUCTIONS}`,
+    displayMessage: input.displayMessage ?? input.message,
+  };
+}
+
+export function filterFigmaSyncAgentActions(
+  availableActionNames: readonly string[],
+  enabled: boolean,
+): string[] {
+  if (enabled) return [...availableActionNames];
+  const hidden = new Set<string>(FIGMA_SYNC_AGENT_ACTIONS);
+  return availableActionNames.filter((name) => !hidden.has(name));
+}
+
+export async function isFigmaSyncEnabled(): Promise<boolean> {
+  return isFeatureFlagEnabled(FIGMA_SYNC, {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId(),
+  });
+}
+
+export async function assertFigmaSyncEnabled(): Promise<void> {
+  if (!(await isFigmaSyncEnabled())) {
+    fail("Design sync is not enabled for this account.", {
+      errorCode: "figma_sync_disabled",
+      statusCode: 403,
+    });
+  }
+}

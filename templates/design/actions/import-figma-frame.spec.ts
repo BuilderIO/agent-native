@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   executeProviderApiRequest: vi.fn(),
   getRequestUserEmail: vi.fn(),
+  isFigmaSyncEnabled: vi.fn(async () => false),
   assertAccess: vi.fn(),
   resolveImportDesignId: vi.fn(),
   saveImportedDesignFiles: vi.fn(),
@@ -40,6 +41,10 @@ vi.mock("../server/lib/provider-api.js", () => ({
   executeProviderApiRequest: mocks.executeProviderApiRequest,
 }));
 
+vi.mock("../server/lib/figma-sync-flag.js", () => ({
+  isFigmaSyncEnabled: mocks.isFigmaSyncEnabled,
+}));
+
 vi.mock("../server/lib/import-design-files.js", () => ({
   normalizeImportedHtmlDocument: vi.fn(
     (content: string, label: string) =>
@@ -73,6 +78,7 @@ const SIMPLE_FRAME = {
 describe("import-figma-frame", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isFigmaSyncEnabled.mockResolvedValue(false);
     mocks.getRequestUserEmail.mockReturnValue("designer@example.com");
     mocks.createDesign.mockResolvedValue({ id: "new-design" });
     mocks.deleteDesign.mockResolvedValue({ id: "new-design", deleted: true });
@@ -96,6 +102,39 @@ describe("import-figma-frame", () => {
       placedFrames: [],
       overview: true,
       urlPath: "/design/design-1",
+    });
+  });
+
+  it("does not add synchronization metadata to imports while the Labs flag is off", async () => {
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({
+        version: "12",
+        nodes: { "1:2": SIMPLE_FRAME },
+      }),
+    );
+
+    await action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any);
+
+    const files = mocks.saveImportedDesignFiles.mock.calls[0]?.[0].files;
+    expect(files?.[0]?.source).not.toHaveProperty("figmaSync");
+  });
+
+  it("records an import baseline only while the Labs flag is on", async () => {
+    mocks.isFigmaSyncEnabled.mockResolvedValue(true);
+    mocks.executeProviderApiRequest.mockResolvedValue(
+      jsonEnvelope({
+        version: "12",
+        lastModified: "2026-10-27T00:00:00.000Z",
+        nodes: { "1:2": SIMPLE_FRAME },
+      }),
+    );
+
+    await action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any);
+
+    const files = mocks.saveImportedDesignFiles.mock.calls[0]?.[0].files;
+    expect(files?.[0]?.source?.figmaSync).toMatchObject({
+      figmaVersion: "12",
+      figmaLastModified: "2026-10-27T00:00:00.000Z",
     });
   });
 

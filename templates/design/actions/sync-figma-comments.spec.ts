@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { checkActionProperties } from "@agent-native/core/action-properties";
 
 const mocks = vi.hoisted(() => {
   const state: {
@@ -106,6 +107,8 @@ const mocks = vi.hoisted(() => {
     insertReviewReplyIdempotently,
     resolveReviewThread,
     getRequestUserEmail: vi.fn(),
+    getRequestOrgId: vi.fn(),
+    isFeatureFlagEnabled: vi.fn(async () => true),
     fetchFigmaNodeSnapshot: vi.fn(),
     executeProviderApiRequest: vi.fn(),
     mutateDesignData,
@@ -114,15 +117,13 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (definition: unknown) => definition,
-  fail: (message: string, details?: Record<string, unknown>) => {
-    throw Object.assign(new Error(message), details);
-  },
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: mocks.isFeatureFlagEnabled,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestOrgId: mocks.getRequestOrgId,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -239,6 +240,8 @@ function sourceCommentStore() {
 describe("sync-figma-comments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isFeatureFlagEnabled.mockResolvedValue(true);
+    mocks.getRequestOrgId.mockReturnValue("org_example");
     setDesignData();
     mocks.state.reviewComments = [];
     mocks.state.role = "owner";
@@ -270,6 +273,30 @@ describe("sync-figma-comments", () => {
       ...mocks.state.reviewComments,
     ]);
     setSourceComments([]);
+  });
+
+  it("blocks all comment sync work when the Labs flag is off", async () => {
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+
+    await expect(
+      action.run({ designId: "design-1", fileId: "file-1" } as any),
+    ).rejects.toMatchObject({
+      errorCode: "figma_sync_disabled",
+      statusCode: 403,
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.db.select).not.toHaveBeenCalled();
+    expect(mocks.fetchFigmaNodeSnapshot).not.toHaveBeenCalled();
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+  });
+
+  it("satisfies generated action input and output properties", async () => {
+    await checkActionProperties(action, {
+      context: { caller: "tool" },
+      runs: 12,
+      seed: 28,
+    });
   });
 
   it("imports authors, reply threads, location metadata, and resolved state idempotently", async () => {

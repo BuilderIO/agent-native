@@ -33,8 +33,6 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 
 | Action | Purpose |
 | --- | --- |
-| sync-figma-screen | Check source drift, safely pull a one-sided source edit, or record a verified connected-tool write |
-| sync-figma-comments | Idempotently import comment threads and publish eligible own comments |
 | `list-design-templates` / `list-designs` | Search paged templates/designs |
 | `generate-home-suggestions` | Suggest prompts |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |

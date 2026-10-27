@@ -55,6 +55,8 @@ use them as durable asset references. Current limits are defined in
 
 ## Synchronization
 
+This workflow is available only while the `figma-sync` Labs feature flag is enabled.
+
 Each imported screen keeps its source file key, node id, file version, node
 hash, and Design HTML hash. sync-figma-screen reports which side changed. A
 pull is allowed only for a source-only change while the Design HTML still

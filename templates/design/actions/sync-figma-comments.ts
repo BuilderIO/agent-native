@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, defineActionErrors } from "@agent-native/core/action";
 import {
   assertReviewableResourceAccess,
   insertReviewCommentIdempotently,
@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   fetchFigmaNodeSnapshot,
   providerJson,
@@ -57,6 +58,38 @@ const schemaInput = z.object({
     ),
 });
 
+const errors = defineActionErrors(
+  "figma_sync_disabled",
+  "figma_comment_sync_pending",
+  "figma_comments_auth_failed",
+  "figma_comments_auth_required",
+  "figma_comments_identity_mismatch",
+  "figma_comments_invalid_request",
+  "figma_comments_invalid_response",
+  "figma_comments_owner_required",
+  "figma_comments_personal_draft_required",
+  "figma_comments_target_not_found",
+  "figma_comments_write_forbidden",
+  "figma_sync_screen_missing",
+  "figma_sync_unlinked",
+  "invalid_design_data",
+  "not_found",
+);
+
+function failAction(
+  message: string,
+  options: {
+    errorCode: (typeof errors.codes)[number];
+    statusCode?: number;
+    details?: Record<string, unknown>;
+  },
+): never {
+  return errors.fail(message, options.errorCode, {
+    ...(options.statusCode === undefined ? {} : { statusCode: options.statusCode }),
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -67,7 +100,7 @@ function parseDesignData(serialized: string | null): Record<string, unknown> {
     const value: unknown = JSON.parse(serialized);
     return isRecord(value) ? value : {};
   } catch {
-    fail("Design data is invalid and cannot be synchronized.", {
+    failAction("Design data is invalid and cannot be synchronized.", {
       errorCode: "invalid_design_data",
       statusCode: 409,
     });
@@ -77,7 +110,7 @@ function parseDesignData(serialized: string | null): Record<string, unknown> {
 function parseFigmaComments(envelope: unknown): FigmaComment[] {
   const payload = providerJson(envelope, "comments");
   if (!isRecord(payload) || !Array.isArray(payload.comments)) {
-    fail("The connected source returned an invalid comment list.", {
+    failAction("The connected source returned an invalid comment list.", {
       errorCode: "figma_comments_invalid_response",
       statusCode: 502,
     });
@@ -157,7 +190,7 @@ async function writeLocalMapping(input: {
       const file = isRecord(fileValue) ? fileValue : {};
       const existing = file[input.reviewCommentId];
       if (input.requireAbsent && existing) {
-        fail(
+        failAction(
           "This comment is already being synchronized. Run sync again to verify it.",
           {
             errorCode: "figma_comment_sync_pending",
@@ -170,7 +203,7 @@ async function writeLocalMapping(input: {
         (!isRecord(existing) ||
           existing.pendingSince !== input.expectedPendingSince)
       ) {
-        fail(
+        failAction(
           "The comment sync state changed while this request was running. Sync again to verify it.",
           {
             errorCode: "figma_comment_sync_pending",
@@ -259,8 +292,22 @@ export default defineAction({
   description:
     "Sync comments for a linked Design screen with its source file. Imports author handles, reply threads, source location metadata, and resolved state into Design; publishes only comments written by the connected user and only to a Draft the connected account created and owns. Repeated syncs are idempotent. The API can delete comments but this action does not sync deletions; it cannot edit comment text or source resolution state. Ambiguous POST results are reconciled before any retry.",
   schema: schemaInput,
+  outputSchema: z
+    .object({
+      fileKey: z.string(),
+      direction: z.enum(["from-figma", "to-figma", "both"]),
+      imported: z.number().int().nonnegative(),
+      resolved: z.number().int().nonnegative(),
+      published: z.number().int().nonnegative(),
+      skipped: z.number().int().nonnegative(),
+      warnings: z.array(z.string()),
+      resolvedStateDirection: z.literal("Source to Design"),
+    })
+    .strict(),
+  errors,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
+    await assertFigmaSyncEnabled();
     await assertAccess("design", args.designId, "editor");
     const reviewContext = context as ReviewResourceContext | undefined;
     const reviewAccess = await assertReviewableResourceAccess(
@@ -274,7 +321,7 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
     if (!design) {
-      fail("Design not found.", { errorCode: "not_found", statusCode: 404 });
+      failAction("Design not found.", { errorCode: "not_found", statusCode: 404 });
     }
     const [screen] = await getDb()
       .select({ id: schema.designFiles.id })
@@ -286,7 +333,7 @@ export default defineAction({
         ),
       );
     if (!screen) {
-      fail("Choose a screen linked to the source file.", {
+      failAction("Choose a screen linked to the source file.", {
         errorCode: "figma_sync_screen_missing",
         statusCode: 404,
       });
@@ -304,7 +351,7 @@ export default defineAction({
       typeof nodeId !== "string" ||
       parseFigmaNodeId(nodeId) !== nodeId
     ) {
-      fail("This screen is not linked to a readable source file.", {
+      failAction("This screen is not linked to a readable source file.", {
         errorCode: "figma_sync_unlinked",
         statusCode: 409,
       });
@@ -430,13 +477,13 @@ export default defineAction({
     if (args.direction !== "from-figma") {
       const userEmail = getRequestUserEmail()?.trim().toLowerCase();
       if (!userEmail) {
-        fail("Sign in to publish comments to the connected source.", {
+        failAction("Sign in to publish comments to the connected source.", {
           errorCode: "figma_comments_auth_required",
           statusCode: 401,
         });
       }
       if (figmaNode.role !== "owner") {
-        fail(
+        failAction(
           "Publishing comments is limited to a personal Draft created and owned by the connected account.",
           {
             errorCode: "figma_comments_owner_required",
@@ -454,7 +501,7 @@ export default defineAction({
         currentUser.email.trim().toLowerCase() !== userEmail ||
         typeof currentUser.id !== "string"
       ) {
-        fail(
+        failAction(
           "The connected source account must match your signed-in account before comments can be published.",
           {
             errorCode: "figma_comments_identity_mismatch",
@@ -483,7 +530,7 @@ export default defineAction({
         fileMetadata.role !== "owner" ||
         creator?.id !== currentUser.id
       ) {
-        fail(
+        failAction(
           "Publishing comments is limited to a personal Draft created and owned by the connected account.",
           {
             errorCode: "figma_comments_personal_draft_required",
@@ -644,7 +691,7 @@ export default defineAction({
               );
               continue;
             }
-            const failure = {
+            const failure = ({
               400: {
                 errorCode: "figma_comments_invalid_request",
                 message:
@@ -665,8 +712,8 @@ export default defineAction({
                 message:
                   "The linked source or reply target could not be found. Refresh the link and try again.",
               },
-            }[status as 400 | 401 | 403 | 404]!;
-            fail(failure.message, {
+            } as const)[status as 400 | 401 | 403 | 404]!;
+            failAction(failure.message, {
               errorCode: failure.errorCode,
               statusCode: status,
             });
@@ -723,7 +770,7 @@ export default defineAction({
       fileKey,
       direction: args.direction,
       ...result,
-      resolvedStateDirection: "Source to Design",
+      resolvedStateDirection: "Source to Design" as const,
     };
   },
 });

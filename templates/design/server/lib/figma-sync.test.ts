@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { classifyFigmaSync, hashJson, hashText } from "./figma-sync.js";
+import {
+  filterFigmaSyncAgentActions,
+  prepareFigmaSyncAgentRequest,
+} from "./figma-sync-flag.js";
 
 describe("Figma sync baselines", () => {
   const baseline = {
@@ -61,4 +65,45 @@ describe("Figma sync baselines", () => {
       );
     },
   );
+});
+
+describe("Figma sync Labs surface", () => {
+  const available = [
+    "import-figma-frame",
+    "sync-figma-screen",
+    "sync-figma-comments",
+  ];
+
+  it("hides sync tools from the agent when the flag is off", () => {
+    expect(filterFigmaSyncAgentActions(available, false)).toEqual([
+      "import-figma-frame",
+    ]);
+  });
+
+  it("keeps the existing tool surface when the flag is on", () => {
+    expect(filterFigmaSyncAgentActions(available, true)).toEqual(available);
+  });
+
+  it("leaves agent requests unchanged when the flag is off", () => {
+    expect(
+      prepareFigmaSyncAgentRequest(
+        { message: "Update the design", displayMessage: "Update it" },
+        false,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("adds sync guidance to internal agent context only when enabled", () => {
+    expect(
+      prepareFigmaSyncAgentRequest(
+        { message: "Update the design", displayMessage: "Update it" },
+        true,
+      ),
+    ).toEqual({
+      message: expect.stringMatching(
+        /^Update the design\n\nWhen Design sync is enabled,/,
+      ),
+      displayMessage: "Update it",
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, defineActionErrors } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { assertFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   buildScreenFilesFromFigmaNodes,
   fetchFigmaNodeSnapshot,
@@ -59,6 +60,33 @@ const schemaInput = z.object({
     ),
 });
 
+const errors = defineActionErrors(
+  "figma_sync_disabled",
+  "figma_sync_unlinked",
+  "figma_sync_screen_missing",
+  "invalid_design_data",
+  "not_found",
+  "figma_sync_untracked",
+  "figma_sync_baseline_changed",
+  "figma_sync_write_not_found",
+  "figma_sync_design_conflict",
+  "figma_sync_import_failed",
+);
+
+function failAction(
+  message: string,
+  options: {
+    errorCode: (typeof errors.codes)[number];
+    statusCode?: number;
+    details?: Record<string, unknown>;
+  },
+): never {
+  return errors.fail(message, options.errorCode, {
+    ...(options.statusCode === undefined ? {} : { statusCode: options.statusCode }),
+    ...(options.details === undefined ? {} : { details: options.details }),
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -69,7 +97,7 @@ function readDesignData(value: string | null): Record<string, unknown> {
     const parsed: unknown = JSON.parse(value);
     return isRecord(parsed) ? parsed : {};
   } catch {
-    fail("Design data is invalid and cannot be synchronized.", {
+    failAction("Design data is invalid and cannot be synchronized.", {
       errorCode: "invalid_design_data",
       statusCode: 409,
     });
@@ -138,7 +166,7 @@ async function persistBaseline(input: {
         currentBaseline.designHash !== input.previousBaseline.designHash ||
         currentBaseline.figmaVersion !== input.previousBaseline.figmaVersion
       ) {
-        fail(
+        failAction(
           "The source link changed while synchronization was running. Check again before retrying.",
           {
             errorCode: "figma_sync_baseline_changed",
@@ -156,13 +184,13 @@ async function persistBaseline(input: {
     mutateFiles: (_current, next, { files }) => {
       const screen = files.find((file) => file.id === input.fileId);
       if (!screen || screen.fileType !== "html") {
-        fail("The linked Design screen is no longer available.", {
+        failAction("The linked Design screen is no longer available.", {
           errorCode: "figma_sync_screen_missing",
           statusCode: 404,
         });
       }
       if (hashText(screen.content) !== input.expectedDesignHash) {
-        fail(
+        failAction(
           "The Design screen changed during synchronization. Nothing was overwritten; check again.",
           {
             errorCode: "figma_sync_design_conflict",
@@ -177,7 +205,7 @@ async function persistBaseline(input: {
         nextBaseline.figmaNodeHash !== input.nextBaseline.figmaNodeHash ||
         nextBaseline.designHash !== input.nextBaseline.designHash
       ) {
-        fail("The synchronization baseline could not be verified.", {
+        failAction("The synchronization baseline could not be verified.", {
           errorCode: "figma_sync_baseline_changed",
           statusCode: 409,
         });
@@ -204,8 +232,42 @@ export default defineAction({
   description:
     "Check or synchronize a Design screen linked to a source node. Tracks the source file version plus stable node and HTML hashes. A pull only replaces the screen when the source node changed and the Design screen still matches its last-synced hash; simultaneous edits are reported as conflicts and never overwritten. After an authorized connected-tool write, record-push requires matching before and after source snapshots and the exported Design hash.",
   schema: schemaInput,
+  outputSchema: z
+    .object({
+      status: z.enum([
+        "in-sync",
+        "figma-changed",
+        "design-changed",
+        "both-changed",
+        "untracked",
+      ]),
+      fileKey: z.string(),
+      nodeId: z.string(),
+      figmaVersion: z.string().nullable().optional(),
+      figmaNodeHash: z.string().optional(),
+      designHash: z.string().optional(),
+      lastSyncedVersion: z.string().nullable().optional(),
+      figmaChanged: z.boolean().optional(),
+      designChanged: z.boolean().optional(),
+      recorded: z.boolean().optional(),
+      applied: z.boolean().optional(),
+      reason: z.string().optional(),
+      warnings: z.array(z.string()).optional(),
+      _receipt: z
+        .object({
+          changed: z.boolean(),
+          verified: z.literal(true),
+          summary: z.string(),
+          subject: z.string(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+  errors,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args, context) => {
+    await assertFigmaSyncEnabled();
     await assertAccess("design", args.designId, "editor");
     const db = getDb();
     const [design] = await db
@@ -213,7 +275,7 @@ export default defineAction({
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
     if (!design) {
-      fail("Design not found.", { errorCode: "not_found", statusCode: 404 });
+      failAction("Design not found.", { errorCode: "not_found", statusCode: 404 });
     }
     const [screenFile] = await db
       .select({
@@ -230,7 +292,7 @@ export default defineAction({
         ),
       );
     if (!screenFile || screenFile.fileType !== "html") {
-      fail("Choose an HTML screen linked to a source node.", {
+      failAction("Choose an HTML screen linked to a source node.", {
         errorCode: "figma_sync_screen_missing",
         statusCode: 404,
       });
@@ -248,7 +310,7 @@ export default defineAction({
         : null;
     const baseline = readBaseline(screenMetadata.figmaSync);
     if (!fileKey || !nodeId) {
-      fail(
+      failAction(
         "This screen is not linked to a source node. Import it from a file or frame link to enable synchronization.",
         {
           errorCode: "figma_sync_unlinked",
@@ -281,7 +343,7 @@ export default defineAction({
     }
 
     if (!baseline) {
-      fail(
+      failAction(
         "This screen has no saved sync baseline. Import it again from its source link before synchronizing.",
         {
           errorCode: "figma_sync_untracked",
@@ -298,7 +360,7 @@ export default defineAction({
         args.expectedFigmaVersionAfter !== figmaSnapshot.version ||
         args.expectedFigmaNodeHashAfter !== figmaNodeHash
       ) {
-        fail(
+        failAction(
           "The source version or Design export changed. Check synchronization again before recording the connected write.",
           {
             errorCode: "figma_sync_baseline_changed",
@@ -307,7 +369,7 @@ export default defineAction({
         );
       }
       if (figmaNodeHash === baseline.figmaNodeHash) {
-        fail(
+        failAction(
           "The linked source node has not changed, so the write cannot be verified.",
           {
             errorCode: "figma_sync_write_not_found",
@@ -329,7 +391,7 @@ export default defineAction({
         expectedDesignHash: designHash,
       });
       return {
-        status: "in-sync",
+        status: "in-sync" as const,
         fileKey,
         nodeId,
         figmaVersion: figmaSnapshot.version,
@@ -363,7 +425,7 @@ export default defineAction({
     );
     const replacement = imported.files.find((file) => file.fileType === "html");
     if (!replacement) {
-      fail("The linked source node could not be converted to an HTML screen.", {
+      failAction("The linked source node could not be converted to an HTML screen.", {
         errorCode: "figma_sync_import_failed",
         statusCode: 422,
       });
@@ -373,7 +435,7 @@ export default defineAction({
     const latestFigmaHash = hashJson(latestSnapshot.node);
     if (latestFigmaHash !== figmaNodeHash) {
       return {
-        status: "figma-changed",
+        status: "figma-changed" as const,
         fileKey,
         nodeId,
         figmaVersion: latestSnapshot.version,
@@ -399,7 +461,7 @@ export default defineAction({
       content: replacement.content,
     });
     return {
-      status: "in-sync",
+      status: "in-sync" as const,
       fileKey,
       nodeId,
       figmaVersion: latestSnapshot.version,

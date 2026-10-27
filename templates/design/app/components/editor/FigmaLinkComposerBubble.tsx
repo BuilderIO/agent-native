@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   IconAlertTriangle,
   IconBrandFigma,
@@ -11,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { FIGMA_SYNC } from "../../../shared/design-flags";
 import {
   FigmaFileUrlUsedAsTokenError,
   getFigmaConnectionStatus,
@@ -52,6 +54,7 @@ export function FigmaLinkComposerBubble({
   designId,
 }: FigmaLinkComposerBubbleProps) {
   const t = useT();
+  const figmaSyncEnabled = useFeatureFlag(FIGMA_SYNC.key);
   const tRef = useRef(t);
   tRef.current = t;
   const [connection, setConnection] = useState<FigmaConnectionStatus | null>(
@@ -271,26 +274,30 @@ export function FigmaLinkComposerBubble({
           >
             {t("chat.figmaLink.exportSvg")}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-[11px]"
-            disabled={!designId}
-            onClick={() => handleAgentAction("sync")}
-          >
-            {t("chat.figmaLink.syncDesign")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-[11px]"
-            disabled={!designId}
-            onClick={() => handleAgentAction("sync-comments")}
-          >
-            {t("chat.figmaLink.syncComments")}
-          </Button>
+          {figmaSyncEnabled ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={!designId}
+                onClick={() => handleAgentAction("sync")}
+              >
+                {t("chat.figmaLink.syncDesign")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={!designId}
+                onClick={() => handleAgentAction("sync-comments")}
+              >
+                {t("chat.figmaLink.syncComments")}
+              </Button>
+            </>
+          ) : null}
           <span className="min-w-0 flex-1 text-end text-[9px] leading-tight text-muted-foreground">
             {t("chat.figmaLink.actionsPrefill")}
           </span>

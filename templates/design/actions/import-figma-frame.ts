@@ -15,6 +15,7 @@ import {
   summarizeFidelity,
 } from "../server/lib/figma-node-import.js";
 import { hashJson, hashText } from "../server/lib/figma-sync.js";
+import { isFigmaSyncEnabled } from "../server/lib/figma-sync-flag.js";
 import {
   resolveImportDesignId,
   saveImportedDesignFiles,
@@ -116,6 +117,7 @@ export default defineAction({
     }
 
     const nodeId = await resolveTargetNodeId(fileKey, requestedNodeId);
+    const figmaSyncEnabled = await isFigmaSyncEnabled();
     const figmaSnapshot = await fetchFigmaNodeSnapshot(fileKey, nodeId);
     const rootNode = figmaSnapshot.node;
 
@@ -126,12 +128,16 @@ export default defineAction({
         {
           source: (_nodeId, node, content) => ({
             figmaUrl: args.figmaUrl ?? null,
-            figmaSync: {
-              figmaVersion: figmaSnapshot.version,
-              figmaLastModified: figmaSnapshot.lastModified,
-              figmaNodeHash: hashJson(node),
-              designHash: hashText(content),
-            },
+            ...(figmaSyncEnabled
+              ? {
+                  figmaSync: {
+                    figmaVersion: figmaSnapshot.version,
+                    figmaLastModified: figmaSnapshot.lastModified,
+                    figmaNodeHash: hashJson(node),
+                    designHash: hashText(content),
+                  },
+                }
+              : {}),
           }),
         },
       );
