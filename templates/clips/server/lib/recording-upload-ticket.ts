@@ -275,14 +275,19 @@ async function issueRecordingUploadTicket(
   throw new Error("Could not reserve a recording upload ticket");
 }
 
-/** For a reservation whose recording was never created. */
+/**
+ * For a reservation whose recording was never created, while it is still the
+ * one that token's start made: a later start for the same recording id
+ * replaces it, and that start's ticket stays.
+ */
 export async function releaseRecordingUploadTicket(
   ownerEmail: string,
   recordingId: string,
+  issuedTokenHash: string,
 ): Promise<void> {
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const { raw, collection } = await readTicketsRow(ownerEmail);
-    if (!collection.tickets[recordingId]) return;
+    if (collection.tickets[recordingId]?.tokenHash !== issuedTokenHash) return;
     const { [recordingId]: _released, ...tickets } = collection.tickets;
     if (await compareAndSwapTickets(ownerEmail, raw, { tickets })) return;
   }

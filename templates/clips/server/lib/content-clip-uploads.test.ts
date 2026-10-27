@@ -241,7 +241,8 @@ const { CONTENT_CLIP_SCOPES: SCOPES, CONTENT_CLIP_PUBLIC_READER } =
   await import("../../shared/content-clip-contract.js");
 const { contentClipStorageFor, pairedContentOrigin } =
   await import("./content-clip-uploads.js");
-const { contentPageUrls } = await import("./content-uploads.js");
+const { contentPageUrls, refuseContentUploadChunk } =
+  await import("./content-uploads.js");
 const { default: uploadStartRoute } =
   await import("../routes/api/content-clips/uploads.post.js");
 const { default: uploadStatusRoute } =
@@ -250,8 +251,6 @@ const { default: contentChunkRoute } =
   await import("../routes/api/uploads/[recordingId]/content-chunk.post.js");
 const { default: contentCancelRoute } =
   await import("../routes/api/uploads/[recordingId]/content-cancel.post.js");
-const { default: agentChunkRoute } =
-  await import("../routes/api/uploads/[recordingId]/agent-chunk.post.js");
 const { default: authMiddleware } = await import("../middleware/auth.js");
 const { default: playbackRoute } =
   await import("../routes/api/content-clips/[recordingId]/playback.get.js");
@@ -1112,6 +1111,11 @@ describe("a start Content repeats for one picked file", () => {
       ).rejects.toThrow();
 
       expect(retake?.status).toBe(200);
+      const chunk = await postChunk(
+        `${retake?.body.chunkUrl}&index=0&isFinal=0`,
+        { origin: pairedContentOrigin()! },
+      );
+      expect(chunk.status).toBe(200);
       expect(await rows("recording_content_bindings")).toEqual([
         expect.objectContaining({
           recording_id: retake?.body.recordingId,
@@ -1733,7 +1737,12 @@ describe("chunks posted from the editor's browser", () => {
 
     expect(result.status).toBe(200);
     expect(state.chunks).toEqual([
-      { owner: expect.objectContaining({ ownerEmail: expect.any(String) }) },
+      {
+        owner: expect.objectContaining({
+          ownerEmail: expect.any(String),
+          fromContentPage: true,
+        }),
+      },
     ]);
     expect(result.headers.get("access-control-allow-origin")).toBe(paired);
     expect(result.headers.get("access-control-allow-credentials")).toBeNull();
@@ -1845,24 +1854,16 @@ describe("chunks posted from the editor's browser", () => {
     ).toBe(401);
   });
 
-  it("refuses a Content upload's ticket on the agent chunk route", async () => {
+  it("refuses a chunk off Content's own route for an upload from a page, and not for a Clip made in Clips", async () => {
     const editor = await clipsEditor();
     const { body } = await startUpload(await token({ sub: editor }));
-    const ticket = new URL(body.chunkUrl).searchParams.get("ticket");
-    const event = mockEvent(
-      `${CLIPS_URL}/api/uploads/${body.recordingId}/agent-chunk?index=0&total=1&isFinal=1`,
-      {
-        method: "POST",
-        headers: { authorization: `Bearer ${ticket}` },
-        body: Buffer.from("fake video bytes for one chunk"),
-      },
-    );
-    event.context.params = { recordingId: body.recordingId };
 
-    await expect(respond(agentChunkRoute, event)).rejects.toMatchObject({
-      status: 409,
-    });
-    expect(state.chunks).toEqual([]);
+    await expect(
+      refuseContentUploadChunk(body.recordingId),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      refuseContentUploadChunk("rec-made-in-clips"),
+    ).resolves.toBeUndefined();
   });
 });
 

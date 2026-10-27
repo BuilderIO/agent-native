@@ -76,17 +76,19 @@ export async function startRecordingUpload(
   } catch (error) {
     // create-recording fails its own half-made row, or the lease reaper does;
     // only the ticket, which the caller never received, is ours to release.
-    await releaseRecordingUploadTicket(ownerEmail, recordingId).catch(
-      (releaseError) => {
-        console.warn("[recording-upload] ticket release failed", {
-          recordingId,
-          error:
-            releaseError instanceof Error
-              ? releaseError.message
-              : String(releaseError),
-        });
-      },
-    );
+    await releaseRecordingUploadTicket(
+      ownerEmail,
+      recordingId,
+      ticket.tokenHash,
+    ).catch((releaseError) => {
+      console.warn("[recording-upload] ticket release failed", {
+        recordingId,
+        error:
+          releaseError instanceof Error
+            ? releaseError.message
+            : String(releaseError),
+      });
+    });
     throw error;
   }
 
