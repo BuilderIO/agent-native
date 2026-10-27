@@ -1696,14 +1696,14 @@ describe("in-place text session: Enter", () => {
     beforeInput(el, "insertParagraph");
     expect(el.children).toHaveLength(3);
     expect(el.children[2].firstElementChild!.textContent).toBe("●");
-    type(el, "Gamma");
+    type(el, "Three");
     beforeInput(el, "insertParagraph");
     expect(el.children).toHaveLength(4);
     beforeInput(el, "insertParagraph");
     expect(el.children).toHaveLength(4);
     session.end();
     const savedRows = Array.from(el.children, (child) => child.textContent);
-    expect(savedRows.slice(0, 3)).toEqual(["●Alpha", "●Beta", "●Gamma"]);
+    expect(savedRows.slice(0, 3)).toEqual(["●Alpha", "●Beta", "●Three"]);
     expect(savedRows[3]).toBe("");
   });
 
@@ -2302,13 +2302,13 @@ describe("in-place text session: deleting", () => {
 
   it("deletes a selection across list items and joins them", () => {
     const el = mount(
-      '<ul id="t"><li>Alpha</li><li>Beta</li><li>Gamma</li></ul>',
+      '<ul id="t"><li>Alpha</li><li>Beta</li><li>Three</li></ul>',
     );
     session = startInPlaceTextSession(el);
-    select(textOf(el, "Alpha"), 2, textOf(el, "Gamma"), 2);
+    select(textOf(el, "Alpha"), 2, textOf(el, "Three"), 2);
     beforeInput(el, "deleteContentBackward");
     session.end();
-    expect(el.innerHTML).toBe("<li>Almma</li>");
+    expect(el.innerHTML).toBe("<li>Alree</li>");
   });
 
   it("keeps nested lists structural when deleting from a paragraph into an item", () => {
