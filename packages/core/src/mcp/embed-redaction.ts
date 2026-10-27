@@ -58,6 +58,10 @@ const SHORT_EMBED_START_PATH = /^\/embed\/start(?:\/|$)/;
 // URLs. Ambiguous inputs beyond this linear budget are unreadable, not safe.
 const REFERENCE_READ_FACTOR = 6;
 const URL_REFERENCE_START = /https?:\/*|(?<![:/])\/{2,}[^/]/g;
+// Neither ? nor _ occurs in image bytes: they cannot carry a ticket-bearing
+// short reference or the canonical framework route.
+export const IMAGE_BYTES =
+  /^(?:data:image\/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/=\s]*$/i;
 export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
@@ -110,47 +114,76 @@ function decodeOnce(text: string): string {
 const UNREAD_ESCAPE =
   /&[a-z0-9#]+;|\\(?:u\{[0-9a-f]*\}|u[0-9a-f]{4}|x[0-9a-f]{2}|[0-7]{1,3}|[\s\S])/g;
 
+interface EmbedReference {
+  text: string;
+  allowRelative: boolean;
+  attachedTicket?: boolean;
+}
+
 /**
- * Raw query values retain their own bounds and may hold nested path references.
- * Fragment text does not introduce a relative reference.
+ * Inspect each query value only through the next field boundary. A nested
+ * reference's query can carry a ticket; retain that fact without copying the
+ * remaining query into every candidate. Fragments do not extend this scope.
  */
-function* queryReferences(
-  text: string,
-  nestedQuestions = true,
-): Iterable<string> {
+function* queryReferences(text: string): Iterable<EmbedReference> {
   const fragment = text.indexOf("#");
   const end = fragment < 0 ? text.length : fragment;
   const query = text.indexOf("?");
   if (query < 0 || query >= end) return;
   const parameters = text.slice(query, end);
-  const lastSlash = parameters.lastIndexOf("/");
-  const fields = nestedQuestions ? /[?&][^?&#=]*=/g : /(?:^\?|&)[^&=]*=/g;
-  for (const field of parameters.matchAll(fields)) {
+  if (!parameters.includes("/")) return;
+  const fields = [...parameters.matchAll(/[?&]([^?&#=]*)=/g)];
+  const values = fields.map((field, index) => {
     const start = field.index + field[0].length;
-    if (start > lastSlash) continue;
-    const ampersand = parameters.indexOf("&", start);
-    yield parameters.slice(
+    const value = parameters.slice(
       start,
-      ampersand < 0 ? parameters.length : ampersand,
+      fields[index + 1]?.index ?? parameters.length,
     );
+    const name = field[1];
+    const ticketKey =
+      name === "ticket" ||
+      (name.includes("%") && new URLSearchParams(`${name}=x`).has("ticket"));
+    return {
+      value,
+      question: field[0].startsWith("?"),
+      ticket: ticketKey && value.length > 0,
+      ampTicketFromHere: false,
+    };
+  });
+  let ampTicket = false;
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const field = values[index];
+    if (!field.question && field.ticket) ampTicket = true;
+    field.ampTicketFromHere = ampTicket;
+  }
+  for (const [index, field] of values.entries()) {
+    if (!field.value.includes("/")) continue;
+    const next = values.at(index + 1);
+    const hasQuery = field.value.includes("?");
+    const firstQuery = !hasQuery && next?.question === true;
+    yield {
+      text: field.value,
+      allowRelative: true,
+      attachedTicket:
+        (hasQuery || firstQuery) &&
+        ((firstQuery && next.ticket) || next?.ampTicketFromHere === true),
+    };
   }
 }
 
-interface EmbedReference {
-  text: string;
-  allowRelative: boolean;
-}
-
 function* references(text: string): Iterable<EmbedReference> {
+  if (IMAGE_BYTES.test(text)) return;
   const seen = new Set<string>();
   function* emit(
     value: string,
     allowRelative = true,
+    attachedTicket = false,
   ): Iterable<EmbedReference> {
-    const key = `${allowRelative ? 1 : 0}:${value}`;
-    if (!value || seen.has(key)) return;
+    const key = `${allowRelative ? 1 : 0}:${attachedTicket ? 1 : 0}:${value}`;
+    if (!value || seen.has(key) || (!attachedTicket && IMAGE_BYTES.test(value)))
+      return;
     seen.add(key);
-    yield { text: value, allowRelative };
+    yield { text: value, allowRelative, attachedTicket };
   }
   // Inspect the whole spelling first, before lexical boundaries divide lists
   // or line breaks. URL parsing itself removes controls inside a real URL.
@@ -158,15 +191,19 @@ function* references(text: string): Iterable<EmbedReference> {
   const firstUrl = text.search(URL_REFERENCE_START);
   if (firstUrl > 0) yield* emit(text.slice(firstUrl));
   for (const [token] of text.matchAll(/[^\s<>"'`()[\]{}]+/gu)) {
+    if (IMAGE_BYTES.test(token)) continue;
     yield* emit(token);
-    // Query values may themselves contain a comma in a browser path. Inspect
-    // each outer parameter once before treating commas as list separators.
-    for (const nested of queryReferences(token, false)) yield* emit(nested);
+    // Query paths may contain commas. Inspect their bounded values before
+    // treating commas as list separators.
+    for (const nested of queryReferences(token)) {
+      yield* emit(nested.text, nested.allowRelative, nested.attachedTicket);
+    }
     const fragment = token.indexOf("#");
     // List members have independent bounds, rather than repeatedly parsing
     // the entire remaining list after every scheme.
     for (const part of token.matchAll(/[^,;]+/g)) {
       const value = part[0];
+      if (IMAGE_BYTES.test(value)) continue;
       const absolute = /^(?:https?:|\/\/)/.test(value);
       const allowRelative = absolute || fragment < 0 || part.index <= fragment;
       yield* emit(value, allowRelative);
@@ -182,13 +219,17 @@ function* references(text: string): Iterable<EmbedReference> {
         ) {
           yield* emit(value.slice(assignment + 1));
         }
-        for (const nested of queryReferences(value)) yield* emit(nested);
+        for (const nested of queryReferences(value)) {
+          yield* emit(nested.text, nested.allowRelative, nested.attachedTicket);
+        }
       }
       for (const urlStart of value.matchAll(URL_REFERENCE_START)) {
         if (urlStart.index === 0) continue;
         const nested = value.slice(urlStart.index);
         yield* emit(nested);
-        for (const path of queryReferences(nested)) yield* emit(path);
+        for (const path of queryReferences(nested)) {
+          yield* emit(path.text, path.allowRelative, path.attachedTicket);
+        }
       }
     }
   }
@@ -208,7 +249,11 @@ function serverPathname(path: string): string {
   }
 }
 
-function isEmbedReference(reference: string, allowRelative: boolean): boolean {
+function isEmbedReference(
+  reference: string,
+  allowRelative: boolean,
+  attachedTicket = false,
+): boolean {
   if (!allowRelative && !/^(?:https?:|\/\/)/.test(reference)) return false;
   // Only parse path/URL candidates, not the ordinary words between them.
   if (!reference.includes("/") && !/^https?:/.test(reference)) return false;
@@ -217,9 +262,9 @@ function isEmbedReference(reference: string, allowRelative: boolean): boolean {
     return false;
   }
   const relative = !reference.startsWith("/") && !/^https?:/.test(reference);
-  const ticket = url.searchParams
-    .getAll("ticket")
-    .some((value) => value.length > 0);
+  const ticket =
+    attachedTicket ||
+    url.searchParams.getAll("ticket").some((value) => value.length > 0);
   // Bare embed/start is also ordinary route discussion. Its short relative
   // spelling is sensitive only when this reference has a nonempty ticket.
   if (relative && !ticket) return false;
@@ -288,7 +333,13 @@ function scanEmbedReferences(text: string): {
           return { complete: false, mentionsRoute: false };
         }
         remaining -= reference.text.length;
-        if (isEmbedReference(reference.text, reference.allowRelative)) {
+        if (
+          isEmbedReference(
+            reference.text,
+            reference.allowRelative,
+            reference.attachedTicket,
+          )
+        ) {
           return { complete: true, mentionsRoute: true };
         }
       }

@@ -11,6 +11,35 @@ const ticket = "synthetic-ticket";
 const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
 
 describe("embed redaction at diagnostic and proxy boundaries", () => {
+  it.each(["plain", "data URL", "Markdown"])(
+    "preserves opaque image bytes in %s form",
+    (form) => {
+      const bytes = "QUJD//".repeat(1_000);
+      const data = `data:image/png;base64,${bytes}`;
+      const content =
+        form === "plain"
+          ? bytes
+          : form === "data URL"
+            ? data
+            : `![probe](${data})`;
+      expect(readString(content)).toMatchObject({
+        complete: true,
+        mentionsRoute: false,
+      });
+      expect(redactEmbedCredentials({ content })).toEqual({ content });
+    },
+  );
+
+  it("still hides a known ticket echo consisting only of base64 characters", () => {
+    const credential = "A".repeat(43);
+    expect(
+      redactEmbedCredentials({
+        next: start.replace(ticket, credential),
+        data: credential,
+      }),
+    ).toEqual({ next: "[hidden embed URL]", data: "[hidden embed ticket]" });
+  });
+
   it("preserves ordinary diagnostic prose and non-route URLs", () => {
     for (const message of [
       "Check the embed start behavior.",
@@ -38,6 +67,7 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     "https://docs.example/_agent-native/embed/start.tsx?ticket=SUP-2026-123",
     "https://docs.example/docs/_agent-native/embed/start?ticket=SUP-2026-123",
     "https://docs.example/guide=/_agent-native/embed/start?ticket=SUP-2026-123",
+    "https://docs.example/login?next=embed/start?flag?ticket=SUP-2026-123",
     "objectives/tasks/Fix chat failing because the embed start URL is redacted.md",
     "Saved the note about the embed start URL.",
   ])(
@@ -71,6 +101,18 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
     [
       "relative path in a later outer query",
       `https://mail.agent-native.com/login?mode=read&next=embed/start?ticket=${ticket}`,
+    ],
+    [
+      "relative path with a later ticket parameter",
+      `https://mail.agent-native.com/login?next=embed/start?mode=read&ticket=${ticket}`,
+    ],
+    [
+      "encoded ticket key with opaque path resolution",
+      `https://mail.agent-native.com/login?next=embed/a%2Fb/%2e%2e/start?%74icket=${ticket}`,
+    ],
+    [
+      "ordinary mention before a nested credential",
+      `Use embed/start then https://mail.agent-native.com/login?next=embed/start?ticket=${ticket}`,
     ],
     ["absolute URL adjacent to prose", `Token${start}`],
     [
@@ -155,15 +197,25 @@ describe("embed redaction at diagnostic and proxy boundaries", () => {
 
   it.each(
     [",", ";", "\n", "\r\n", "\t", " "].flatMap((separator) =>
-      [true, false].map((fragment) => [separator, fragment] as const),
+      [true, false].flatMap((fragment) =>
+        ["absolute", "rooted", "relative"].map(
+          (kind) => [separator, fragment, kind] as const,
+        ),
+      ),
     ),
   )(
-    "preserves an ordinary URL list separated by %j, fragment=%s",
-    (separator, fragment) => {
+    "preserves an ordinary URL list separated by %j, fragment=%s, kind=%s",
+    (separator, fragment, kind) => {
+      const prefix =
+        kind === "absolute"
+          ? "https://docs.example/"
+          : kind === "rooted"
+            ? "/docs/"
+            : "docs/";
       const content = Array.from(
         { length: 30 },
         (_, index) =>
-          `https://docs.example/guide-${index}?page=${index}${fragment ? "#section" : ""}`,
+          `${prefix}guide-${index}?page=${index}${fragment ? "#section" : ""}`,
       ).join(separator);
       expect(readString(content)).toMatchObject({
         complete: true,

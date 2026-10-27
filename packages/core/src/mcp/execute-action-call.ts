@@ -37,6 +37,7 @@ import {
   CIRCULAR_RESULT,
   EMBED_RESULT_SENSITIVE_KEYS,
   HIDDEN_EMBED_URL,
+  IMAGE_BYTES,
   isEmbedCredentialKey,
   readString,
   redactEmbedText,
@@ -128,9 +129,6 @@ const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
 // A ticket is base64url, so a ticket that ends a sentence is read without
 // the punctuation after it.
 const TICKET_PARAMETER = /[?&#;]ticket=([A-Za-z0-9_-]+)/gi;
-// Image bytes, plain or as an image data URL. They can run to megabytes, and
-// cannot hold a start URL: its `?` and `_` are in neither form.
-const IMAGE_BYTES = /^(?:data:image\/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/=\s]*$/i;
 const TICKET_RUN = /^[A-Za-z0-9_-]+/;
 
 /**
