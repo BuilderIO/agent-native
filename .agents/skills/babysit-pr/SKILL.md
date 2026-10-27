@@ -153,7 +153,8 @@ commit, no revert. Publish only the paths that belong to the fix.
 
 ## Merging
 
-Under `/ship`, merge as soon as its gate holds, using its exact command. Just
+Under `/ship`, or standalone when the user asks you to merge, merge only once
+`ship`'s gate holds, using its exact command. Just
 before merging, rerun the unreplied-comments query and the review-bodies call
 above so no new bot round slips in, and confirm
 `git rev-parse HEAD` equals the live `headRefOid` (nothing local left

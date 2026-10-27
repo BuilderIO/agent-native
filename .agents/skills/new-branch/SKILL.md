@@ -46,7 +46,10 @@ else
 fi
 ```
 
-Never branch from a local `main`, which can be stale. Dirty files come along
+If HEAD's commits belong to a PR that has already merged
+(`gh pr list --head <branch> --state merged`), they're on `main` as a squash
+commit: branch from `origin/main` instead. Never branch from a local `main`,
+which can be stale. Dirty files come along
 on the switch, so check the list first: if some belong to another task, leave
 the checkout where it is and name those paths. If the branch is for an
 existing PR update, base it on that PR's freshly fetched live head instead of
