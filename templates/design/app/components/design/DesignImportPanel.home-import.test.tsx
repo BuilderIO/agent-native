@@ -523,6 +523,48 @@ describe("home-picked .fig handoff", () => {
     expect(mocks.importSourceMutate).not.toHaveBeenCalled();
   });
 
+  it("does not import a pending file after pasted HTML is submitted", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    const pasted = "<html><body>pasted source</body></html>";
+    await setHtmlDraft(pasted);
+    let resolveRead!: (content: string) => void;
+    const read = new Promise<string>((resolve) => {
+      resolveRead = resolve;
+    });
+    const file = new File([], "pending.html", { type: "text/html" });
+    Object.defineProperty(file, "text", {
+      configurable: true,
+      value: () => read,
+    });
+    await chooseHtmlFile(file);
+
+    await click("designEditor.import.importHtml");
+    expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1);
+    expect(mocks.importSourceMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: pasted,
+        originalName: "html-import.html",
+      }),
+      expect.any(Object),
+    );
+
+    await act(async () => {
+      resolveRead("<!doctype html><html><body>selected file</body></html>");
+      await read;
+    });
+
+    expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector<HTMLTextAreaElement>("textarea")?.value,
+    ).toBe(pasted);
+  });
+
   it("picks pages and blocks a selection over the frame limit before converting", async () => {
     mocks.shouldWarn.mockReturnValue(true);
     mocks.prepare.mockImplementation(async () =>

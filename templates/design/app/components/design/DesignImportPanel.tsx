@@ -373,6 +373,7 @@ export const DesignImportPanel = forwardRef<
         toast.error(t("designEditor.import.errors.notHtml"));
         return;
       }
+      htmlFileReadRef.current += 1;
       importSource.mutate(
         {
           designId: context.designId,

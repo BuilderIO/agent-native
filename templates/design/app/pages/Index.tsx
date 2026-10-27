@@ -239,10 +239,11 @@ export default function Index() {
         : "templates",
   );
   const homeLibraryTabWasSelectedRef = useRef(false);
-  const selectedTemplateId = searchParams.get("templateId");
+  const checklistSearch = searchParams.toString();
   const previousChecklistLocationRef = useRef({
     isSaveTemplateGettingStarted,
-    selectedTemplateId,
+    search: checklistSearch,
+    hash: location.hash,
   });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
@@ -265,34 +266,39 @@ export default function Index() {
 
   useEffect(() => {
     const previousLocation = previousChecklistLocationRef.current;
-    const templateSelectionReplace =
+    const checklistQueryReplace =
       navigationType === "REPLACE" &&
       previousLocation.isSaveTemplateGettingStarted &&
       isSaveTemplateGettingStarted &&
-      previousLocation.selectedTemplateId !== selectedTemplateId;
+      previousLocation.search !== checklistSearch;
     previousChecklistLocationRef.current = {
       isSaveTemplateGettingStarted,
-      selectedTemplateId,
+      search: checklistSearch,
+      hash: location.hash,
     };
-    if (templateSelectionReplace) return;
 
-    if (isSaveTemplateGettingStarted) {
+    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
       homeLibraryTabWasSelectedRef.current = true;
       setHomeSection("recent");
     }
 
     const targetId = location.hash.slice(1);
-    if (!targetId) return;
+    if (
+      !targetId ||
+      (checklistQueryReplace && previousLocation.hash === location.hash)
+    ) {
+      return;
+    }
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [
     isSaveTemplateGettingStarted,
+    checklistSearch,
     location.hash,
     location.key,
     navigationType,
-    selectedTemplateId,
   ]);
 
   const skipToEditorPendingRef = useRef(false);
@@ -685,6 +691,7 @@ export default function Index() {
       const next = new URLSearchParams(searchParams);
       if (templateId) next.set("templateId", templateId);
       else next.delete("templateId");
+      if (next.toString() === searchParams.toString()) return;
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],

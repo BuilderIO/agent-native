@@ -1767,7 +1767,7 @@ describe("home library", () => {
     ).toBe("home.recent");
   });
 
-  it("preserves the selected tab during a checklist query replacement", async () => {
+  it("preserves the selected tab during checklist query replacements", async () => {
     await act(async () => root.unmount());
     mocks.queryString = "gettingStarted=save-template";
     mocks.locationHash = "#design-home-library";
@@ -1800,6 +1800,28 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
+
+    mocks.queryString =
+      "gettingStarted=save-template&templateId=selected&previewTemplateId=preview";
+    mocks.locationKey = "template-preview";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
+  it("does not replace the checklist location when the selected template is unchanged", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template&templateId=selected";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+    mocks.setSearchParams.mockClear();
+
+    await act(async () => mocks.promptProps?.onTemplateChange("selected"));
+
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
