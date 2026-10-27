@@ -43,7 +43,7 @@ features:
     - title: Las definiciones de métricas de tu equipo
       body: Un administrador escribe qué significa «activo» o «registro» en la página **Capa semántica**. El agente la lee antes de escribir SQL.
     - title: Consultas que no pueden cambiar datos
-      body: En BigQuery, el SQL del agente no puede insertar, actualizar ni borrar, y se conecta con una cuenta de servicio que solo puede leer tablas y ejecutar consultas.
+      body: En BigQuery, el SQL del agente no puede insertar, actualizar ni borrar, y usa una cuenta de servicio que solo lee tablas y ejecuta consultas.
     - title: Paneles que edita el agente
       body: Pide en el chat otro gráfico, un filtro o un desglose por plan, y el agente cambia el panel para todas las personas con las que lo has compartido.
     - title: Preguntas que cruzan tus herramientas

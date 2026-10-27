@@ -39,13 +39,13 @@ features:
   heading: Alles, um Antworten aus Ihrer Datenbank zu bekommen
   items:
     - title: Das SQL hinter jeder Antwort
-      body: Öffnen Sie **SQL anzeigen** an einem Dashboard-Diagramm oder fragen Sie im Chat, um die Abfrage des Agenten zu sehen und sie zum eigenen Ausführen zu kopieren.
+      body: Über **SQL anzeigen** am Diagramm oder im Chat sehen Sie die Abfrage des Agenten und können sie selbst ausführen.
     - title: Die Kennzahl-Definitionen Ihres Teams
       body: Ein Admin hält auf der Seite **Semantische Ebene** fest, was „aktiv“ oder „Signup“ bedeutet. Der Agent liest das, bevor er SQL schreibt.
     - title: Abfragen, die keine Daten ändern können
-      body: In BigQuery kann das SQL des Agenten nichts einfügen, ändern oder löschen, und er verbindet sich über ein Dienstkonto, das nur Tabellen lesen und Abfragen ausführen darf.
+      body: In BigQuery kann das SQL des Agenten nichts einfügen, ändern oder löschen. Sein Dienstkonto darf nur Tabellen lesen und Abfragen ausführen.
     - title: Dashboards, die der Agent bearbeitet
-      body: Bitten Sie im Chat um ein weiteres Panel, einen Filter oder eine Aufschlüsselung nach Tarif, und der Agent ändert das Dashboard für alle, mit denen Sie es geteilt haben.
+      body: Bitten Sie im Chat um ein Panel, einen Filter oder eine Aufteilung nach Tarif. Der Agent ändert das geteilte Dashboard für alle.
     - title: Fragen über Ihre Tools hinweg
       body: Stellen Sie eine Frage, die Tabellen aus Ihrem Warehouse mit Umsatz aus Stripe, Deals aus HubSpot oder Events aus PostHog verbindet.
     - title: Das Dashboard im Postfach
@@ -80,7 +80,7 @@ other_uses:
     - title: Erkennen, wo neue Nutzer abspringen
       url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
       body: Sehen Sie, bei welchem Schritt Signups hängen bleiben, und schauen Sie sich die Session-Replays dahinter an.
-    - title: Ihre Sales-Pipeline mit HubSpot- und Gong-Daten prüfen
+    - title: Ihre Sales-Pipeline mit HubSpot und Gong prüfen
       url: https://www.agent-native.com/use-cases/ai-sales-analytics/
       body: Prüfen Sie, wie sich Deals bewegen, mit Antworten aus Ihrem CRM und aufgezeichneten Sales-Calls.
 faqs:

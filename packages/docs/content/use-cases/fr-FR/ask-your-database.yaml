@@ -39,11 +39,11 @@ features:
   heading: Tout ce qu'il faut pour obtenir des réponses de votre base de données
   items:
     - title: Le SQL derrière chaque réponse
-      body: Ouvrez **Voir SQL** sur un graphique du tableau de bord, ou demandez dans le chat, pour voir la requête écrite par l'agent et la copier pour l'exécuter vous-même.
+      body: Ouvrez **Voir SQL** sur un graphique, ou demandez dans le chat, pour voir la requête de l'agent et la copier.
     - title: Les définitions de métriques de votre équipe
       body: Un admin note ce que « actif » ou « inscription » veut dire dans la page **Couche sémantique**. L'agent la lit avant d'écrire du SQL.
-    - title: Des requêtes qui ne peuvent pas modifier les données
-      body: Dans BigQuery, le SQL de l'agent ne peut ni insérer, ni modifier, ni supprimer, et il se connecte via un compte de service qui peut seulement lire les tables et exécuter des requêtes.
+    - title: Des requêtes en lecture seule
+      body: Dans BigQuery, le SQL de l'agent ne peut rien insérer, modifier ou supprimer, et son compte de service peut seulement lire et lancer des requêtes.
     - title: Des tableaux de bord que l'agent modifie
       body: Demandez dans le chat un autre panneau, un filtre ou une ventilation par offre, et l'agent modifie le tableau de bord pour tous ceux avec qui vous l'avez partagé.
     - title: Des questions qui croisent vos outils
@@ -80,7 +80,7 @@ other_uses:
     - title: Trouvez où décrochent vos nouveaux inscrits
       url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
       body: Repérez l'étape où les inscriptions bloquent, et regardez les replays de session qui l'expliquent.
-    - title: Passez en revue votre pipeline avec HubSpot et Gong
+    - title: Analysez votre pipeline avec HubSpot et Gong
       url: https://www.agent-native.com/use-cases/ai-sales-analytics/
       body: Voyez comment avancent vos deals, avec des réponses tirées de votre CRM et de vos appels commerciaux enregistrés.
 faqs:
