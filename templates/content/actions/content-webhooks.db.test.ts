@@ -8,7 +8,7 @@ import {
   writeAppSecret,
 } from "@agent-native/core/secrets";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -20,6 +20,7 @@ import {
 } from "vitest";
 
 import { verifyContentWebhook } from "../server/lib/content-webhook-signature.js";
+import { firstRow } from "../server/lib/first-row.js";
 
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
@@ -59,6 +60,59 @@ vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
   };
 });
 
+const tombstoneReads = vi.hoisted(() => ({
+  /** Runs once, right after the next tombstone read and before its values. */
+  thenWrite: null as null | (() => Promise<void>),
+}));
+
+// Lets a test land a write between a read's tombstones and its values, the
+// race a read's generations and change IDs must not fall into.
+vi.mock("./_property-generations.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_property-generations.js")>();
+  return {
+    ...actual,
+    readPropertyTombstones: async (
+      ...args: Parameters<typeof actual.readPropertyTombstones>
+    ) => {
+      const stored = await actual.readPropertyTombstones(...args);
+      const write = tombstoneReads.thenWrite;
+      tombstoneReads.thenWrite = null;
+      if (write) await write();
+      return stored;
+    },
+  };
+});
+
+type LockTx = Parameters<
+  (typeof import("./_content-database-mutation-lock.js"))["lockContentDatabaseMutation"]
+>[0];
+
+const lockHook = vi.hoisted(() => ({
+  /** Runs once inside the next collection lock call, just before the lock. */
+  beforeNext: null as null | ((tx: LockTx) => Promise<unknown>),
+}));
+
+// Lets a test land a write between a source writer's unlocked scan and the
+// locked write that follows it.
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    lockContentDatabaseMutation: async (
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) => {
+      const write = lockHook.beforeNext;
+      lockHook.beforeNext = null;
+      if (write) await write(args[0]);
+      return actual.lockContentDatabaseMutation(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-webhooks-${process.pid}-${Date.now()}.pglite`,
@@ -74,12 +128,36 @@ function found<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`${what} not found.`);
   return value;
 }
+
+/** One property's generation in a read; throws when the read has none. */
+function generationOf(
+  read: { propertyGenerations?: Record<string, number> },
+  propertyId: string,
+): number {
+  return found(
+    read.propertyGenerations?.[propertyId],
+    `Generation of ${propertyId}`,
+  );
+}
+
+/** One property's change ID in a read, null when empty; throws when the read has none. */
+function changeIdOf(
+  read: { propertyChangeIds?: Record<string, number | null> },
+  propertyId: string,
+): number | null {
+  return found(
+    read.propertyChangeIds?.[propertyId],
+    `Change ID of ${propertyId}`,
+  );
+}
+
 let getDb: (typeof import("../server/db/index.js"))["getDb"];
 let schema: Schema;
 let hooks: typeof import("./_content-webhooks.js");
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let getDatabase: typeof import("./get-content-database.js").default;
+let getDocument: typeof import("./get-document.js").default;
 let createRow: typeof import("./add-database-item.js").default;
 let updateRow: typeof import("./update-database-item.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
@@ -109,6 +187,7 @@ beforeAll(async () => {
   configureProperty = (await import("./configure-document-property.js"))
     .default;
   getDatabase = (await import("./get-content-database.js")).default;
+  getDocument = (await import("./get-document.js")).default;
   createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
@@ -1495,5 +1574,1127 @@ describe("content webhooks", () => {
       .from(schema.contentWebhooks)
       .where(eq(schema.contentWebhooks.scopeId, ids.databaseId));
     expect(stored).toHaveLength(10);
+  });
+});
+
+describe("property generations", () => {
+  async function readItem(databaseId: string, itemId: string) {
+    const response = await asOwner(() =>
+      getDatabase.run({ databaseId, limit: 500 }),
+    );
+    if (!("items" in response)) throw new Error("Collection has no rows.");
+    return found(
+      response.items.find((item) => item.id === itemId),
+      `Row ${itemId}`,
+    );
+  }
+
+  function valueRow(documentId: string, propertyId: string) {
+    return and(
+      eq(schema.documentPropertyValues.documentId, documentId),
+      eq(schema.documentPropertyValues.propertyId, propertyId),
+    );
+  }
+
+  async function storedValue(documentId: string, propertyId: string) {
+    const row = firstRow(
+      await getDb()
+        .select({ valueJson: schema.documentPropertyValues.valueJson })
+        .from(schema.documentPropertyValues)
+        .where(valueRow(documentId, propertyId)),
+    );
+    return row ? JSON.parse(row.valueJson) : undefined;
+  }
+
+  const setTurn = (
+    ids: Awaited<ReturnType<typeof fixture>>,
+    value: string,
+    expectedGeneration?: number,
+  ) =>
+    asOwner(() =>
+      setProperty.run({
+        documentId: ids.rows[0].documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.turn,
+        value,
+        ...(expectedGeneration === undefined ? {} : { expectedGeneration }),
+      }),
+    );
+
+  it("goes up on every change, A to B to A included, and reads and events carry it", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+        propertyIds: [ids.properties.turn],
+      }),
+    );
+    const before = await readItem(ids.databaseId, row.itemId);
+    const start = generationOf(before, ids.properties.turn);
+    expect(start).toBeGreaterThan(0);
+    expect(
+      Object.keys(found(before.propertyGenerations, "Generations")),
+    ).toEqual(expect.arrayContaining(Object.values(ids.properties)));
+    expect(
+      Object.keys(found(before.propertyGenerations, "Generations")),
+    ).toHaveLength(3);
+    const page = await asOwner(() =>
+      getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+    );
+    expect(page.propertyGenerations).toEqual(before.propertyGenerations);
+
+    const toAgent = await setTurn(ids, "agent");
+    const backToAlice = await setTurn(ids, "alice");
+    const unchanged = await setTurn(ids, "alice");
+    expect(toAgent.generation).toBeGreaterThan(start);
+    expect(backToAlice.generation).toBeGreaterThan(toAgent.generation);
+    expect(unchanged.generation).toBe(backToAlice.generation);
+
+    // The row revision hashes values, so it can't tell A from A → B → A.
+    const after = await readItem(ids.databaseId, row.itemId);
+    expect(after.rowRevision).toBe(before.rowRevision);
+    expect(generationOf(after, ids.properties.turn)).toBe(
+      backToAlice.generation,
+    );
+    expect(generationOf(after, ids.properties.notes)).toBe(
+      generationOf(before, ids.properties.notes),
+    );
+
+    await settled(webhook.id, 2);
+    expect(
+      eventsFor(webhook.id).map((request) => [
+        request.event.data.newValue,
+        request.event.data.generation,
+      ]),
+    ).toEqual([
+      ["agent", toAgent.generation],
+      ["alice", backToAlice.generation],
+    ]);
+  });
+
+  it("set-document-property with a stale expectedGeneration writes nothing", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const read = generationOf(
+      await readItem(ids.databaseId, row.itemId),
+      ids.properties.turn,
+    );
+    await setTurn(ids, "agent");
+    const current = (await setTurn(ids, "alice")).generation;
+
+    // A finish computed from the first read must not land on the new turn.
+    await expect(setTurn(ids, "agent", read)).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      statusCode: 409,
+      details: {
+        documentId: row.documentId,
+        conflicts: [
+          { propertyId: ids.properties.turn, expected: read, current },
+        ],
+      },
+    });
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "alice",
+    );
+
+    const written = await setTurn(ids, "agent", current);
+    expect(written.generation).toBeGreaterThan(current);
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "agent",
+    );
+  });
+
+  it("a cleared value can't make an old generation current again", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: ids.databaseDocumentId,
+        databaseId: ids.databaseId,
+        name: "Owner",
+        type: "text",
+      }),
+    );
+    const owner = found(
+      configured.properties.find(
+        (candidate) => candidate.definition.name === "Owner",
+      ),
+      "Property Owner",
+    ).definition.id;
+    const empty = await readItem(ids.databaseId, row.itemId);
+    expect(generationOf(empty, owner)).toBe(0);
+    const notesBefore = generationOf(empty, ids.properties.notes);
+
+    const filled = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Ada",
+      }),
+    );
+    // Clearing a field outright, as a type change or source binding does,
+    // deletes the value row and its generation with it.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, row.documentId),
+          eq(schema.documentPropertyValues.propertyId, owner),
+        ),
+      );
+
+    const cleared = await readItem(ids.databaseId, row.itemId);
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+    expect(generationOf(cleared, owner)).toBeGreaterThan(filled.generation);
+    // The tombstone is this property's alone; the page's others keep theirs.
+    expect(generationOf(cleared, ids.properties.notes)).toBe(notesBefore);
+    await expect(
+      asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: owner,
+          value: "Grace",
+          expectedGeneration: 0,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "PROPERTY_GENERATION_CONFLICT" });
+    expect(await storedValue(row.documentId, owner)).toBeUndefined();
+
+    const written = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Grace",
+        expectedGeneration: generationOf(cleared, owner),
+      }),
+    );
+    expect(written.generation).toBeGreaterThan(generationOf(cleared, owner));
+    expect(
+      generationOf(await readItem(ids.databaseId, row.itemId), owner),
+    ).toBe(written.generation);
+  });
+
+  it("row receipts and set-document-property list a cleared property's generation", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: ids.databaseDocumentId,
+        databaseId: ids.databaseId,
+        name: "Owner",
+        type: "text",
+      }),
+    );
+    const owner = found(
+      configured.properties.find(
+        (candidate) => candidate.definition.name === "Owner",
+      ),
+      "Property Owner",
+    ).definition.id;
+    await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: owner,
+        value: "Ada",
+      }),
+    );
+    // Cleared outright, as a type change does, so only a tombstone is left.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, row.documentId),
+          eq(schema.documentPropertyValues.propertyId, owner),
+        ),
+      );
+    const cleared = await readItem(ids.databaseId, row.itemId);
+    const tombstone = generationOf(cleared, owner);
+    expect(tombstone).toBeGreaterThan(0);
+
+    const discovered = await contract(ids.databaseId);
+    const updated = await asOwner(() =>
+      updateRow.run({
+        ...envelope(discovered, "cleared-receipt"),
+        itemId: row.itemId,
+        documentId: row.documentId,
+        expectedRowRevision: found(cleared.rowRevision, "Row revision"),
+        propertyValues: { [ids.properties.notes]: "done" },
+      }),
+    );
+    const afterUpdate = await readItem(ids.databaseId, row.itemId);
+    expect(updated.receipt.readback.propertyGenerations).toEqual(
+      afterUpdate.propertyGenerations,
+    );
+    expect(updated.receipt.readback.propertyChangeIds).toEqual(
+      afterUpdate.propertyChangeIds,
+    );
+    expect(generationOf(updated.receipt.readback, owner)).toBe(tombstone);
+    expect(changeIdOf(updated.receipt.readback, owner)).toBeNull();
+
+    const patchContract = await contract(ids.databaseId);
+    const patched = await asOwner(() =>
+      patchRows.run({
+        ...envelope(patchContract, "cleared-patch-receipt"),
+        rows: [
+          {
+            itemId: row.itemId,
+            documentId: row.documentId,
+            expectedRowRevision: found(afterUpdate.rowRevision, "Row revision"),
+            propertyEntries: [
+              {
+                propertyId: ids.properties.rank,
+                propertyType: "number" as const,
+                value: 7,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const afterPatch = await readItem(ids.databaseId, row.itemId);
+    expect(patched.receipt.rows[0].readback.propertyGenerations).toEqual(
+      afterPatch.propertyGenerations,
+    );
+    expect(patched.receipt.rows[0].readback.propertyChangeIds).toEqual(
+      afterPatch.propertyChangeIds,
+    );
+    expect(generationOf(patched.receipt.rows[0].readback, owner)).toBe(
+      tombstone,
+    );
+
+    const written = await asOwner(() =>
+      setProperty.run({
+        documentId: row.documentId,
+        databaseId: ids.databaseId,
+        propertyId: ids.properties.notes,
+        value: "later",
+      }),
+    );
+    expect(generationOf(written, owner)).toBe(tombstone);
+    expect(changeIdOf(written, owner)).toBeNull();
+    expect(changeIdOf(written, ids.properties.notes)).toBe(written.changeId);
+    expect(written.propertyGenerations).toEqual(
+      (await readItem(ids.databaseId, row.itemId)).propertyGenerations,
+    );
+  });
+
+  it("update-database-item and patch-database-items refuse a stale generation the row revision misses", async () => {
+    const ids = await fixture(2);
+    const [first, second] = ids.rows;
+    const firstRead = await readItem(ids.databaseId, first.itemId);
+    const secondRead = await readItem(ids.databaseId, second.itemId);
+    await setTurn(ids, "agent");
+    await setTurn(ids, "alice");
+
+    const discovered = await contract(ids.databaseId);
+    const update = (key: string, generations: Record<string, number>) =>
+      asOwner(() =>
+        updateRow.run({
+          ...envelope(discovered, key),
+          itemId: first.itemId,
+          documentId: first.documentId,
+          expectedRowRevision: found(firstRead.rowRevision, "Row revision"),
+          expectedPropertyGenerations: generations,
+          propertyValues: { [ids.properties.notes]: "done" },
+        }),
+      );
+    await expect(
+      update("stale-update", {
+        [ids.properties.turn]: generationOf(firstRead, ids.properties.turn),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      details: {
+        documentId: first.documentId,
+        conflicts: [{ propertyId: ids.properties.turn }],
+      },
+    });
+    expect(await storedValue(first.documentId, ids.properties.notes)).toBe(
+      "first",
+    );
+
+    const fresh = found(
+      (await readItem(ids.databaseId, first.itemId)).propertyGenerations,
+      "Generations",
+    );
+    const updated = await update("fresh-update", {
+      [ids.properties.turn]: fresh[ids.properties.turn],
+    });
+    expect(updated.receipt.readback.propertyValues).toMatchObject({
+      [ids.properties.notes]: "done",
+    });
+    expect(
+      generationOf(updated.receipt.readback, ids.properties.notes),
+    ).toBeGreaterThan(fresh[ids.properties.notes]);
+
+    const firstNow = await readItem(ids.databaseId, first.itemId);
+    const patch = (key: string, secondTurn: number) =>
+      asOwner(async () =>
+        patchRows.run({
+          ...envelope(await contract(ids.databaseId), key),
+          rows: [
+            {
+              itemId: first.itemId,
+              documentId: first.documentId,
+              expectedRowRevision: found(firstNow.rowRevision, "Row revision"),
+              expectedPropertyGenerations: {
+                [ids.properties.turn]: generationOf(
+                  firstNow,
+                  ids.properties.turn,
+                ),
+              },
+              propertyEntries: [
+                {
+                  propertyId: ids.properties.rank,
+                  propertyType: "number" as const,
+                  value: 20,
+                },
+              ],
+            },
+            {
+              itemId: second.itemId,
+              documentId: second.documentId,
+              expectedRowRevision: found(
+                secondRead.rowRevision,
+                "Row revision",
+              ),
+              expectedPropertyGenerations: {
+                [ids.properties.turn]: secondTurn,
+              },
+              propertyEntries: [
+                {
+                  propertyId: ids.properties.rank,
+                  propertyType: "number" as const,
+                  value: 21,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    await expect(
+      patch("stale-patch", generationOf(secondRead, ids.properties.turn) + 1),
+    ).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+      details: {
+        rows: [
+          {
+            index: 1,
+            itemId: second.itemId,
+            documentId: second.documentId,
+            conflicts: [{ propertyId: ids.properties.turn }],
+          },
+        ],
+      },
+    });
+    expect(await storedValue(first.documentId, ids.properties.rank)).toBe(0);
+
+    const patched = await patch(
+      "fresh-patch",
+      generationOf(secondRead, ids.properties.turn),
+    );
+    expect(await storedValue(first.documentId, ids.properties.rank)).toBe(20);
+    // Both maps cover the whole row, not just the patched property.
+    for (const [index, patchedRow] of [first, second].entries()) {
+      const fresh = await readItem(ids.databaseId, patchedRow.itemId);
+      expect(patched.receipt.rows[index].readback.propertyGenerations).toEqual(
+        fresh.propertyGenerations,
+      );
+      expect(patched.receipt.rows[index].readback.propertyChangeIds).toEqual(
+        fresh.propertyChangeIds,
+      );
+    }
+  });
+
+  it("update-database-item and patch-database-items refuse a guard on a property with no generation", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const addProperty = async (name: string, type: "blocks" | "created_time") =>
+      found(
+        (
+          await asOwner(() =>
+            configureProperty.run({
+              documentId: ids.databaseDocumentId,
+              databaseId: ids.databaseId,
+              name,
+              type,
+            }),
+          )
+        ).properties.find((candidate) => candidate.definition.name === name),
+        `Property ${name}`,
+      ).definition.id;
+    const blocks = await addProperty("Brief", "blocks");
+    const createdTime = await addProperty("Created", "created_time");
+    const read = await readItem(ids.databaseId, row.itemId);
+    expect(read.propertyGenerations).not.toHaveProperty(blocks);
+    expect(read.propertyGenerations).not.toHaveProperty(createdTime);
+    const discovered = await contract(ids.databaseId);
+
+    // Each would read 0 forever, so a guard of 0 used to pass unchecked.
+    for (const propertyId of ["no-such-property", blocks, createdTime]) {
+      const generations = {
+        [ids.properties.turn]: generationOf(read, ids.properties.turn),
+        [propertyId]: 0,
+      };
+      await expect(
+        asOwner(() =>
+          updateRow.run({
+            ...envelope(discovered, `unguardable-update-${propertyId}`),
+            itemId: row.itemId,
+            documentId: row.documentId,
+            expectedRowRevision: found(read.rowRevision, "Row revision"),
+            expectedPropertyGenerations: generations,
+            propertyValues: { [ids.properties.notes]: "done" },
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_NOT_GUARDABLE",
+        details: {
+          itemId: row.itemId,
+          documentId: row.documentId,
+          propertyIds: [propertyId],
+        },
+      });
+      await expect(
+        asOwner(() =>
+          patchRows.run({
+            ...envelope(discovered, `unguardable-patch-${propertyId}`),
+            rows: [
+              {
+                itemId: row.itemId,
+                documentId: row.documentId,
+                expectedRowRevision: found(read.rowRevision, "Row revision"),
+                expectedPropertyGenerations: generations,
+                propertyEntries: [
+                  {
+                    propertyId: ids.properties.rank,
+                    propertyType: "number" as const,
+                    value: 20,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_NOT_GUARDABLE",
+        details: {
+          rows: [
+            {
+              index: 0,
+              itemId: row.itemId,
+              documentId: row.documentId,
+              propertyIds: [propertyId],
+            },
+          ],
+        },
+      });
+    }
+    expect(await storedValue(row.documentId, ids.properties.notes)).toBe(
+      "first",
+    );
+    expect(await storedValue(row.documentId, ids.properties.rank)).toBe(0);
+  });
+
+  it("a change ID moves only when its own value does, and reads, writes and events agree", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["property.changed"],
+        propertyIds: [ids.properties.turn],
+      }),
+    );
+    const readChangeIds = async () => {
+      const item = await readItem(ids.databaseId, row.itemId);
+      const page = await asOwner(() =>
+        getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+      );
+      expect(page.propertyChangeIds).toEqual(item.propertyChangeIds);
+      return item;
+    };
+
+    const toAgent = await setTurn(ids, "agent");
+    const before = await readChangeIds();
+    expect(changeIdOf(before, ids.properties.turn)).toBe(toAgent.changeId);
+
+    // Clearing another field moves that field's generation and leaves this
+    // property's generation and change ID as they were.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(valueRow(row.documentId, ids.properties.notes));
+    const cleared = await readChangeIds();
+    expect(generationOf(cleared, ids.properties.turn)).toBe(
+      generationOf(before, ids.properties.turn),
+    );
+    expect(generationOf(cleared, ids.properties.notes)).not.toBe(
+      generationOf(before, ids.properties.notes),
+    );
+    expect(cleared.propertyChangeIds).toMatchObject({
+      [ids.properties.turn]: toAgent.changeId,
+      [ids.properties.notes]: null,
+    });
+
+    // Agent → Alice → Agent is two changes, so two new IDs. A write that
+    // leaves the value as it was keeps its ID.
+    const toAlice = await setTurn(ids, "alice");
+    const backToAgent = await setTurn(ids, "agent");
+    const unchanged = await setTurn(ids, "agent");
+    expect(
+      new Set([toAgent.changeId, toAlice.changeId, backToAgent.changeId]).size,
+    ).toBe(3);
+    expect(unchanged.changeId).toBe(backToAgent.changeId);
+    const after = await readChangeIds();
+    expect(changeIdOf(after, ids.properties.turn)).toBe(backToAgent.changeId);
+
+    await settled(webhook.id, 3);
+    expect(
+      eventsFor(webhook.id).map((request) => [
+        request.event.data.newValue,
+        request.event.data.changeId,
+      ]),
+    ).toEqual([
+      ["agent", toAgent.changeId],
+      ["alice", toAlice.changeId],
+      ["agent", backToAgent.changeId],
+    ]);
+
+    const updated = await asOwner(async () =>
+      updateRow.run({
+        ...envelope(await contract(ids.databaseId), "change-id-update"),
+        itemId: row.itemId,
+        documentId: row.documentId,
+        expectedRowRevision: found(after.rowRevision, "Row revision"),
+        propertyValues: { [ids.properties.turn]: "alice" },
+      }),
+    );
+    const updatedTurn = changeIdOf(
+      updated.receipt.readback,
+      ids.properties.turn,
+    );
+    expect(updatedTurn).not.toBe(backToAgent.changeId);
+    expect(changeIdOf(await readChangeIds(), ids.properties.turn)).toBe(
+      updatedTurn,
+    );
+  });
+
+  it("a read takes each value and its change ID from one row", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const toAgent = await setTurn(ids, "agent");
+    const writeTurn = (value: string) => async () => {
+      await getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify(value) })
+        .where(valueRow(row.documentId, ids.properties.turn));
+    };
+    const storedChangeId = async () => {
+      const [stored] = await getDb()
+        .select({ generation: schema.documentPropertyValues.generation })
+        .from(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.turn));
+      return Number(stored.generation);
+    };
+
+    // A writer lands after get-document reads tombstones and before it reads
+    // values. The value, its change ID and its generation all come from the
+    // new row.
+    tombstoneReads.thenWrite = writeTurn("alice");
+    const page = await asOwner(() =>
+      getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
+    );
+    expect(
+      found(
+        page.properties.find(
+          (property) => property.definition.id === ids.properties.turn,
+        ),
+        "Turn",
+      ).value,
+    ).toBe("alice");
+    const aliceChangeId = await storedChangeId();
+    expect(aliceChangeId).not.toBe(toAgent.changeId);
+    expect(changeIdOf(page, ids.properties.turn)).toBe(aliceChangeId);
+    expect(generationOf(page, ids.properties.turn)).toBe(aliceChangeId);
+
+    tombstoneReads.thenWrite = writeTurn("agent");
+    const item = await readItem(ids.databaseId, row.itemId);
+    expect(
+      found(
+        item.properties.find(
+          (property) => property.definition.id === ids.properties.turn,
+        ),
+        "Turn",
+      ).value,
+    ).toBe("agent");
+    const agentChangeId = await storedChangeId();
+    expect(changeIdOf(item, ids.properties.turn)).toBe(agentChangeId);
+    expect(generationOf(item, ids.properties.turn)).toBe(agentChangeId);
+
+    // A deletion lands in the same gap. The read shows no value and the
+    // generation from before the deletion, so a write guarded on it conflicts
+    // and rereads instead of passing.
+    tombstoneReads.thenWrite = async () => {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.turn));
+    };
+    const emptied = await readItem(ids.databaseId, row.itemId);
+    expect(changeIdOf(emptied, ids.properties.turn)).toBeNull();
+    const staleGeneration = generationOf(emptied, ids.properties.turn);
+    await expect(setTurn(ids, "alice", staleGeneration)).rejects.toMatchObject({
+      errorCode: "PROPERTY_GENERATION_CONFLICT",
+    });
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      undefined,
+    );
+    const reread = await readItem(ids.databaseId, row.itemId);
+    expect(generationOf(reread, ids.properties.turn)).not.toBe(staleGeneration);
+    await setTurn(ids, "alice", generationOf(reread, ids.properties.turn));
+    expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+      "alice",
+    );
+  });
+
+  it("a deletion elsewhere can't make a stale write pass", async () => {
+    const ids = await fixture();
+    const [row] = ids.rows;
+    const setSequence = (value: number) =>
+      getDb().execute(
+        sql`SELECT setval('content_property_value_generation_seq', ${value})`,
+      );
+    const toAgent = await setTurn(ids, "agent");
+    try {
+      // Stands in for a write that takes its number, then commits after a
+      // deletion on the same page takes a larger one: the sequence moves
+      // ahead for the deletion and back for the write.
+      await setSequence(toAgent.generation + 10);
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(valueRow(row.documentId, ids.properties.notes));
+      const read = await readItem(ids.databaseId, row.itemId);
+      expect(generationOf(read, ids.properties.turn)).toBe(toAgent.generation);
+      await setSequence(toAgent.generation);
+      const toAlice = await setTurn(ids, "alice");
+      expect(toAlice.generation).toBeLessThan(
+        generationOf(read, ids.properties.notes),
+      );
+
+      // The agent's finish, computed from the read, must not land on Alice's
+      // turn.
+      await expect(
+        setTurn(ids, "agent", generationOf(read, ids.properties.turn)),
+      ).rejects.toMatchObject({
+        errorCode: "PROPERTY_GENERATION_CONFLICT",
+        details: {
+          conflicts: [
+            {
+              propertyId: ids.properties.turn,
+              expected: toAgent.generation,
+              current: toAlice.generation,
+            },
+          ],
+        },
+      });
+      expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
+        "alice",
+      );
+    } finally {
+      await setSequence(toAgent.generation + 1000);
+    }
+  });
+
+  it("the Source column fill writes only rows whose source changed", async () => {
+    const ids = await fixture(3);
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = ["Sheet A", "Sheet B"].map((name, index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: name,
+      sourceTable: name,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const linkRow = (row: number, source: number) =>
+      getDb()
+        .insert(schema.contentDatabaseSourceRows)
+        .values({
+          id: `${ids.rows[row].itemId}-link`,
+          ownerEmail: OWNER,
+          sourceId: sources[source].id,
+          databaseItemId: ids.rows[row].itemId,
+          documentId: ids.rows[row].documentId,
+          sourceRowId: `row-${row}`,
+          sourceQualifiedId: `row-${row}`,
+          sourceDisplayKey: `row-${row}`,
+        });
+    const sourceColumn = async () => {
+      const [definition] = await getDb()
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+            eq(schema.documentPropertyDefinitions.name, "Source"),
+          ),
+        );
+      const values = await getDb()
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+      return ids.rows.map((row) => {
+        const value = found(
+          values.find(
+            (candidate: { documentId: string }) =>
+              candidate.documentId === row.documentId,
+          ),
+          `Value of ${row.documentId}`,
+        );
+        return {
+          source: JSON.parse(value.valueJson),
+          generation: value.generation,
+          updatedAt: value.updatedAt,
+        };
+      });
+    };
+
+    await linkRow(0, 0);
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T10:00:00.000Z",
+    });
+    const first = await sourceColumn();
+    expect(first.map((cell) => cell.source)).toEqual([
+      sources[0].id,
+      "local",
+      "local",
+    ]);
+
+    await linkRow(1, 1);
+    await ensureDatabaseSourceProperty({
+      database,
+      now: "2026-10-24T11:00:00.000Z",
+    });
+    const second = await sourceColumn();
+    expect(second.map((cell) => cell.source)).toEqual([
+      sources[0].id,
+      sources[1].id,
+      "local",
+    ]);
+    // Only the row that moved was written: the others keep their generation
+    // and their write time.
+    expect(second[1].generation).toBeGreaterThan(first[1].generation);
+    expect(second[1].updatedAt).toBe("2026-10-24T11:00:00.000Z");
+    for (const row of [0, 2]) expect(second[row]).toEqual(first[row]);
+  });
+
+  it("the source writers work out their writes again under the lock", async () => {
+    const ids = await fixture(2);
+    const {
+      ensureDatabaseSourceProperty,
+      materializeSourceFieldPropertyValues,
+    } = await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = ["Sheet A", "Sheet B"].map((name, index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: name,
+      sourceTable: name,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const links = schema.contentDatabaseSourceRows;
+    await getDb()
+      .insert(links)
+      .values(
+        ids.rows.map((row, index) => ({
+          id: `${row.itemId}-link`,
+          ownerEmail: OWNER,
+          sourceId: sources[0].id,
+          databaseItemId: row.itemId,
+          documentId: row.documentId,
+          sourceRowId: `row-${index}`,
+          sourceQualifiedId: `row-${index}`,
+          sourceDisplayKey: `row-${index}`,
+          sourceValuesJson: JSON.stringify({ note: "from the scan" }),
+        })),
+      );
+    const [noteField] = await getDb()
+      .insert(schema.contentDatabaseSourceFields)
+      .values({
+        id: `${sources[0].id}-note`,
+        ownerEmail: OWNER,
+        sourceId: sources[0].id,
+        propertyId: ids.properties.notes,
+        localFieldKey: ids.properties.notes,
+        sourceFieldKey: "note",
+        sourceFieldLabel: "Note",
+        sourceFieldType: "text",
+      })
+      .returning();
+
+    // A refresh of the first row lands between the materializer's scan and
+    // its lock. The write must carry the refresh, not what the scan read.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceValuesJson: JSON.stringify({ note: "from the refresh" }) })
+        .where(eq(links.documentId, ids.rows[0].documentId));
+    await materializeSourceFieldPropertyValues({
+      database,
+      sourceId: sources[0].id,
+      fields: [noteField],
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(
+      await storedValue(ids.rows[0].documentId, ids.properties.notes),
+    ).toBe("from the refresh");
+    expect(
+      await storedValue(ids.rows[1].documentId, ids.properties.notes),
+    ).toBe("from the scan");
+
+    // The second row moves to the other source between the Source column's
+    // scan and its lock.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceId: sources[1].id })
+        .where(eq(links.documentId, ids.rows[1].documentId));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    const [source] = await getDb()
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, source.id)).toBe(
+      sources[0].id,
+    );
+    expect(await storedValue(ids.rows[1].documentId, source.id)).toBe(
+      sources[1].id,
+    );
+  });
+
+  it("the Source column scans again for a row that moves after its scan", async () => {
+    const ids = await fixture(2);
+    const { ensureDatabaseSourceProperty } =
+      await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = [0, 1].map((index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: `Sheet ${index}`,
+      sourceTable: `Sheet ${index}`,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb().insert(schema.contentDatabaseSources).values(sources);
+    const links = schema.contentDatabaseSourceRows;
+    const link = (row: number, source: number) => ({
+      id: `${ids.rows[row].itemId}-link`,
+      ownerEmail: OWNER,
+      sourceId: sources[source].id,
+      databaseItemId: ids.rows[row].itemId,
+      documentId: ids.rows[row].documentId,
+      sourceRowId: `row-${row}`,
+      sourceQualifiedId: `row-${row}`,
+      sourceDisplayKey: `row-${row}`,
+    });
+    await getDb().insert(links).values(link(0, 0));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    const [sourceColumn] = await getDb()
+      .select({ id: schema.documentPropertyDefinitions.id })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
+
+    // The second row joins the second source, so the next fill's scan finds
+    // it. The first row, which that scan finds correct, moves to the second
+    // source just before the lock that writes the second row. (The fill's
+    // first lock sets the options; the hook waits for the next one.) The scan
+    // after that locked pass catches the move.
+    await getDb().insert(links).values(link(1, 1));
+    lockHook.beforeNext = async () => {
+      lockHook.beforeNext = (tx) =>
+        tx
+          .update(links)
+          .set({ sourceId: sources[1].id })
+          .where(eq(links.documentId, ids.rows[0].documentId));
+    };
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    for (const row of ids.rows)
+      expect(await storedValue(row.documentId, sourceColumn.id)).toBe(
+        sources[1].id,
+      );
+
+    // With nothing to change, a fill still scans after its lock: the first row
+    // moves back while the options are set, and the fill's scan catches it.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(links)
+        .set({ sourceId: sources[0].id })
+        .where(eq(links.documentId, ids.rows[0].documentId));
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
+  });
+
+  it("the source writers read bindings and sources again under the lock", async () => {
+    const ids = await fixture(2);
+    const {
+      ensureDatabaseSourceProperty,
+      materializeSourceFieldPropertyValues,
+    } = await import("./_database-source-utils.js");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const sources = [0, 1, 2].map((index) => ({
+      id: `${ids.databaseId}-source-${index}`,
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      sourceType: "test",
+      sourceName: `Sheet ${index}`,
+      sourceTable: `Sheet ${index}`,
+      createdAt: new Date(Date.now() + index).toISOString(),
+    }));
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values(sources.slice(0, 2));
+    const links = schema.contentDatabaseSourceRows;
+    const link = (row: number, source: number) => ({
+      id: `${ids.rows[row].itemId}-link`,
+      ownerEmail: OWNER,
+      sourceId: sources[source].id,
+      databaseItemId: ids.rows[row].itemId,
+      documentId: ids.rows[row].documentId,
+      sourceRowId: `row-${row}`,
+      sourceQualifiedId: `row-${row}`,
+      sourceDisplayKey: `row-${row}`,
+      sourceValuesJson: JSON.stringify({ note: "from the source" }),
+    });
+    await getDb().insert(links).values(link(0, 0));
+    const fields = schema.contentDatabaseSourceFields;
+    const [noteField] = await getDb()
+      .insert(fields)
+      .values({
+        id: `${sources[0].id}-note`,
+        ownerEmail: OWNER,
+        sourceId: sources[0].id,
+        propertyId: ids.properties.notes,
+        localFieldKey: ids.properties.notes,
+        sourceFieldKey: "note",
+        sourceFieldLabel: "Note",
+        sourceFieldType: "text",
+      })
+      .returning();
+
+    // The field is unbound between the materializer's scan and its lock, so
+    // the column it fed keeps its own value.
+    lockHook.beforeNext = (tx) =>
+      tx
+        .update(fields)
+        .set({ propertyId: null, localFieldKey: "note" })
+        .where(eq(fields.id, noteField.id));
+    await materializeSourceFieldPropertyValues({
+      database,
+      sourceId: sources[0].id,
+      fields: [noteField],
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    expect(
+      await storedValue(ids.rows[0].documentId, ids.properties.notes),
+    ).toBe("first");
+
+    // A third source, holding the second row, is attached between the Source
+    // column's scan and its lock. That row's Source is the new source, not
+    // Local, and the column lists it as an option. (The fill's first lock
+    // sets the options; the hook waits for the lock that writes the rows.)
+    lockHook.beforeNext = async () => {
+      lockHook.beforeNext = async (tx) => {
+        await tx.insert(schema.contentDatabaseSources).values(sources[2]);
+        await tx.insert(links).values(link(1, 2));
+      };
+    };
+    await ensureDatabaseSourceProperty({
+      database,
+      now: new Date().toISOString(),
+    });
+    expect(lockHook.beforeNext).toBeNull();
+    const [sourceColumn] = await getDb()
+      .select({
+        id: schema.documentPropertyDefinitions.id,
+        optionsJson: schema.documentPropertyDefinitions.optionsJson,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, ids.databaseId),
+          eq(schema.documentPropertyDefinitions.name, "Source"),
+        ),
+      );
+    expect(await storedValue(ids.rows[0].documentId, sourceColumn.id)).toBe(
+      sources[0].id,
+    );
+    expect(await storedValue(ids.rows[1].documentId, sourceColumn.id)).toBe(
+      sources[2].id,
+    );
+    expect(
+      JSON.parse(sourceColumn.optionsJson).options.map(
+        (option: { id: string }) => option.id,
+      ),
+    ).toEqual([...sources.map((source) => source.id), "local"]);
   });
 });

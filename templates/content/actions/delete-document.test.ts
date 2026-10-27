@@ -106,6 +106,10 @@ const { schema } = vi.hoisted(() => ({
       documentId: "documentPropertyValues.documentId",
       ownerEmail: "documentPropertyValues.ownerEmail",
     },
+    documentPropertyValueTombstones: {
+      documentId: "documentPropertyValueTombstones.documentId",
+      propertyId: "documentPropertyValueTombstones.propertyId",
+    },
     documentBlockFieldContents: {
       propertyId: "documentBlockFieldContents.propertyId",
       documentId: "documentBlockFieldContents.documentId",
