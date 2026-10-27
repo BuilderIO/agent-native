@@ -293,7 +293,7 @@ export function undoRevealForOps(
 }
 
 /**
- * The objects a history step changed, as Google Slides re-selects them after
+ * The objects a history step changed are selected again after
  * Undo/Redo: edited objects stay selected, a restored or re-created object is
  * selected, and undoing a paste or duplicate selects the original. `null`
  * means one side has no HTML slide to compare, which is not the same as a step

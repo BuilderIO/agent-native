@@ -284,26 +284,10 @@ can change within minutes, so re-check before every actionable push.
 
 ## Latest-feedback handoff
 
-If the PR body or branch cites `/review-latest-feedback`, treat its start
-cursor, grouped reports, evidence links, and disposition table as part of the
-PR's review state. At the first tick, record that handoff. On every later tick
-before the merge gate, re-read the handoff and check for new Slack replies,
-GitHub feedback, and Sentry findings after its cursor using the configured
-connectors. Re-query first-party Agent-Native Analytics error issues with
-`list-error-issues` and its available filters; it has no time cursor and caps
-results at 100, so record bounded coverage and do not claim exhaustive newness.
-A new actionable report resets the soak timer and must reach either
-a verified **Fixed** result with a concise reply and `✅`, a verified
-**Shipped** result with a concise reply, a verified **Live verified** result
-(reply only when informative), or a non-fixed terminal ledger disposition
-with its existing `👀` before merge (`✅` only for **Fixed**). An
-active/evidence-limited disposition or a reply without one of those outcomes
-blocks merge; the eye remains on every claimed item. Reactions are append-only;
-newer thread evidence controls the current disposition.
-Evidence-limited or active dispositions retain the workflow's eye; it remains
-after resolution. Keep active and terminal state in thread text or linked
-work; do not repeat a status already recorded. If a connector is unavailable,
-record it as unavailable in the recap rather than treating it as no findings.
+If the PR body has a `Reports` section (from `/review-latest-feedback`),
+`/ship` closes out those Slack threads after the merge. Babysitting doesn't
+read Slack: a reply saying the fix didn't work is picked up by the next sweep,
+which handles open items first.
 
 **Then proceed with PR checks:**
 

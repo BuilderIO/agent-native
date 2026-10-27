@@ -80,7 +80,8 @@ function dropPlacement(event: DragEvent<HTMLElement>): SlidesLayerPlacement {
   return position < 0.3 ? "after" : position > 0.7 ? "before" : "inside";
 }
 
-// Tabler has no large/small "Aa" glyph; this is Lucide's a-large-small, which the Figma spec uses for text layers.
+// Use Lucide's a-large-small glyph for text layers; Tabler lacks a large/small
+// "Aa" glyph.
 function TextLayerIcon({ className }: { className?: string }) {
   return (
     <svg

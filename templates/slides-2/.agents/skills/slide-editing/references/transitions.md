@@ -9,9 +9,9 @@ Set it with `patch-deck` `patch-slide`, or on creation with a `patch-deck`
 `add-slide` op. `update-slide` does not take transition fields.
 
 - `transition`: one of `none`, `dissolve`, `fade`, `slide-from-right`,
-  `slide-from-left`, `flip`, `cube`, `gallery`. These match the Google Slides
-  Transitions panel. Legacy `instant`, `slide` and `zoom` are accepted and stored
-  as `none`, `slide-from-right` and `dissolve`. `null` resets it to `none`. On
+  `slide-from-left`, `flip`, `cube`, `gallery`. These are supported by the
+  transition controls. Legacy `instant`, `slide` and `zoom` are accepted and
+  stored as `none`, `slide-from-right` and `dissolve`. `null` resets it to `none`. On
   `patch-slide`, omitting it keeps the current type; on `add-slide`, omitting it
   means `none`.
 - `transitionSpeed`: integer 0..49, default 45. Duration is `(5.0 - 0.1 * v)`

@@ -173,8 +173,8 @@ export function findBuildStepElements(
   );
 }
 
-// Fade in is opacity only, linear, one second. Google Slides has no object
-// duration control yet, so this is the only length.
+// Fade in is opacity only, linear, one second. Object duration controls are
+// not supported yet, so this is the only length.
 const FADE_REVEAL = "elem-appear 1000ms linear both";
 
 /**
