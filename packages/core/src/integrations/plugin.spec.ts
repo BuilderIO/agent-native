@@ -490,7 +490,7 @@ describe("integrations plugin routes", () => {
     ["scopes", "POST"],
     ["slack/oauth/install", "GET"],
   ])(
-    "fails closed when a signed-in org member's lookup fails on %s",
+    "fails closed when a signed-in org member's permanent lookup fails on %s",
     async (action, method) => {
       getSessionMock.mockResolvedValue({
         email: "member@example.test",
@@ -509,8 +509,8 @@ describe("integrations plugin routes", () => {
         method,
       );
       expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
-      expect(response.status).toBe(503);
-      expect(response.headers.get("retry-after")).toBe("5");
+      expect(response.status).toBe(500);
+      expect(response.headers.get("retry-after")).toBeNull();
       expect(JSON.stringify(response.body)).not.toContain("org_members");
     },
   );
