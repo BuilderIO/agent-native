@@ -125,6 +125,7 @@ export const DesignImportPanel = forwardRef<
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
+  const htmlFileReadRef = useRef(0);
   const [homeImport, setHomeImport] = useState(() =>
     readPendingDesignImport(context.designId),
   );
@@ -507,18 +508,24 @@ export const DesignImportPanel = forwardRef<
 
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
+      const readId = ++htmlFileReadRef.current;
+      if (htmlFileInputRef.current) htmlFileInputRef.current.value = "";
       if (!file) return;
       setActiveMode("html");
-      setHtmlText("");
       try {
         const content = await file.text();
+        if (readId !== htmlFileReadRef.current) return;
         setHtmlText(content);
         importHtmlString(content, file.name);
-      } finally {
-        if (htmlFileInputRef.current) htmlFileInputRef.current.value = "";
+      } catch {
+        if (readId === htmlFileReadRef.current) {
+          toast.error(t("designEditor.import.errors.importFailed"), {
+            description: t("common.genericError"),
+          });
+        }
       }
     },
-    [importHtmlString],
+    [importHtmlString, t],
   );
 
   const runPreparedFigImport = useCallback(

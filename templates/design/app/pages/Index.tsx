@@ -263,7 +263,7 @@ export default function Index() {
       document.getElementById(targetId)?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isSaveTemplateGettingStarted, location.hash]);
+  }, [isSaveTemplateGettingStarted, location.hash, location.key]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);

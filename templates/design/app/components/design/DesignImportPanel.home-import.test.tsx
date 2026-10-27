@@ -123,6 +123,19 @@ async function click(label: string) {
   expect(button).toBeTruthy();
   await act(async () => button!.click());
 }
+async function chooseHtmlFile(file: File) {
+  const input = container.querySelector<HTMLInputElement>(
+    'input[type="file"][accept=".html,.htm"]',
+  );
+  if (!input) throw new Error("Missing HTML file picker");
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [file],
+  });
+  await act(async () =>
+    input.dispatchEvent(new Event("change", { bubbles: true })),
+  );
+}
 async function selectPage(name: string) {
   const checkbox = container.querySelector<HTMLButtonElement>(
     `[role="checkbox"][aria-label="${name}"]`,
@@ -366,6 +379,107 @@ describe("home-picked .fig handoff", () => {
     await vi.waitFor(() => expect(textarea.value).toContain("newer draft"));
     expect(button("designEditor.import.importHtml")?.disabled).toBe(false);
   });
+
+  it("keeps pasted HTML when a selected file cannot be read", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) throw new Error("Missing HTML import field");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(textarea, "<html><body>pasted source</body></html>");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const unreadable = new File([], "unreadable.html", { type: "text/html" });
+    Object.defineProperty(unreadable, "text", {
+      configurable: true,
+      value: () => Promise.reject(new Error("file read failed")),
+    });
+    await chooseHtmlFile(unreadable);
+
+    await vi.waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "designEditor.import.errors.importFailed",
+        { description: "common.genericError" },
+      ),
+    );
+    expect(textarea.value).toBe("<html><body>pasted source</body></html>");
+    expect(mocks.importSourceMutate).not.toHaveBeenCalled();
+  });
+
+  it("imports only the most recently selected HTML file when reads overlap", async () => {
+    await render();
+    const htmlToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-controls="html-import"]',
+    );
+    if (!htmlToggle) throw new Error("Missing HTML import toggle");
+    await act(async () => htmlToggle.click());
+
+    const firstRead = (() => {
+      let resolve!: (content: string) => void;
+      const promise = new Promise<string>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    const secondRead = (() => {
+      let resolve!: (content: string) => void;
+      const promise = new Promise<string>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    const first = new File([], "first.html", { type: "text/html" });
+    Object.defineProperty(first, "text", {
+      configurable: true,
+      value: () => firstRead.promise,
+    });
+    const second = new File([], "second.html", { type: "text/html" });
+    Object.defineProperty(second, "text", {
+      configurable: true,
+      value: () => secondRead.promise,
+    });
+
+    await chooseHtmlFile(first);
+    await chooseHtmlFile(second);
+    const secondContent =
+      "<!doctype html><html><body>second file</body></html>";
+    await act(async () => {
+      secondRead.resolve(secondContent);
+      await secondRead.promise;
+    });
+    await vi.waitFor(() =>
+      expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.importSourceMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: secondContent,
+        originalName: "second.html",
+      }),
+      expect.any(Object),
+    );
+
+    const firstContent = "<!doctype html><html><body>first file</body></html>";
+    await act(async () => {
+      firstRead.resolve(firstContent);
+      await firstRead.promise;
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector<HTMLTextAreaElement>("textarea")?.value,
+      ).toBe(secondContent),
+    );
+    expect(mocks.importSourceMutate).toHaveBeenCalledTimes(1);
+  });
+
   it("picks pages and blocks a selection over the frame limit before converting", async () => {
     mocks.shouldWarn.mockReturnValue(true);
     mocks.prepare.mockImplementation(async () =>
