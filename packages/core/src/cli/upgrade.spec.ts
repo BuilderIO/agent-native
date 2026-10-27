@@ -1004,7 +1004,7 @@ describe("runUpgrade", () => {
     });
     const spawnCalls: string[][] = [];
     const skills = vi.fn(async () => {});
-    const { io } = captureIo({
+    const { io, err, out } = captureIo({
       spawn: (command, args) => {
         spawnCalls.push([command, ...args]);
         if (args.includes("install")) writeInstalledPackage(root, "0.131.4");
@@ -1202,8 +1202,8 @@ describe("runUpgrade", () => {
       'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
     fs.writeFileSync(source, original);
     const { io, err } = captureIo({
-      spawn: () => ({
-        status: 1,
+      spawn: (_command, args) => ({
+        status: args[0] === "install" ? 1 : 0,
         pid: 1,
         output: [],
         stdout: "",
@@ -1356,6 +1356,191 @@ describe("runUpgrade", () => {
     expect(read("apps", "tasks").dependencies["@agent-native/scheduling"]).toBe(
       "workspace:*",
     );
+  });
+
+  it("refreshes floating latest specs before install", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", packageManager: "pnpm@10.29.0" },
+      apps: {
+        chat: {
+          name: "chat",
+          dependencies: {
+            "@agent-native/dispatch": "latest",
+            "@agent-native/otel": "latest",
+          },
+          devDependencies: { "@agent-native/dispatch": "workspace:*" },
+        },
+      },
+    });
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      cwd: string;
+    }> = [];
+    const { io } = captureIo({
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, cwd: options.cwd });
+        if (args[0] === "update") {
+          writeInstalledPackage(root, "0.40.40", "@agent-native/dispatch");
+          writeInstalledPackage(root, "0.1.25", "@agent-native/otel");
+          const manifestPath = path.join(options.cwd, "package.json");
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
+          manifest.dependencies["@agent-native/otel"] = "^0.1.25";
+          manifest.devDependencies["@agent-native/dispatch"] = "^0.40.40";
+          fs.writeFileSync(
+            manifestPath,
+            `${JSON.stringify(manifest, null, 2)}\n`,
+          );
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    expect(await runUpgrade(args, io)).toBe(0);
+
+    expect(spawnCalls.slice(0, 2)).toEqual([
+      {
+        command: "pnpm",
+        args: [
+          "update",
+          "--latest",
+          "@agent-native/dispatch",
+          "@agent-native/otel",
+        ],
+        cwd: path.join(root, "apps", "chat"),
+      },
+      { command: "pnpm", args: ["install"], cwd: root },
+    ]);
+    const appPackage = JSON.parse(
+      fs.readFileSync(path.join(root, "apps", "chat", "package.json"), "utf-8"),
+    );
+    expect(appPackage.dependencies["@agent-native/dispatch"]).toBe("0.40.40");
+    expect(appPackage.dependencies["@agent-native/otel"]).toBe("0.1.25");
+    expect(appPackage.devDependencies["@agent-native/dispatch"]).toBe(
+      "workspace:*",
+    );
+  });
+
+  it("rejects invalid package names before manifest edits", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        packageManager: "pnpm@10.29.0",
+        dependencies: {
+          "@agent-native/core": "^0.8.0",
+          "@agent-native/dispatch;echo": "^0.1.0",
+        },
+      },
+      workspaceYaml: "packages:\n  - apps/*\nminimumReleaseAgeExclude: []\n",
+    });
+    const manifestPath = path.join(root, "package.json");
+    const workspacePath = path.join(root, "pnpm-workspace.yaml");
+    const originalManifest = fs.readFileSync(manifestPath, "utf-8");
+    const originalWorkspace = fs.readFileSync(workspacePath, "utf-8");
+    const spawnCalls: string[] = [];
+    const { io, err } = captureIo({
+      spawn: (command) => {
+        spawnCalls.push(command);
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    expect(await runUpgrade(args, io)).toBe(1);
+    expect(spawnCalls).toEqual([]);
+    expect(err.join("\n")).toContain("invalid @agent-native package name");
+    expect(fs.readFileSync(manifestPath, "utf-8")).toBe(originalManifest);
+    expect(fs.readFileSync(workspacePath, "utf-8")).toBe(originalWorkspace);
+  });
+
+  it("keeps unrelated specs during Yarn Berry refresh", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: { name: "ws", packageManager: "yarn@4.11.0" },
+      apps: {
+        chat: {
+          name: "chat",
+          dependencies: { "@agent-native/dispatch": "latest" },
+        },
+        other: {
+          name: "other",
+          dependencies: {
+            "@agent-native/dispatch": "workspace:*",
+            react: "^19.0.0",
+          },
+        },
+      },
+    });
+    fs.writeFileSync(path.join(root, "yarn.lock"), "");
+    const spawnCalls: Array<{
+      command: string;
+      args: string[];
+      cwd: string;
+    }> = [];
+    const { io, err, out } = captureIo({
+      spawn: (command, args, options) => {
+        spawnCalls.push({ command, args, cwd: options.cwd });
+        if (args[0] === "add") {
+          writeInstalledPackage(root, "0.40.40", "@agent-native/dispatch");
+          const manifestPath = path.join(options.cwd, "package.json");
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+          manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
+          fs.writeFileSync(
+            manifestPath,
+            `${JSON.stringify(manifest, null, 2)}\n`,
+          );
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const args = ["--cwd", root, "--skip-skills", "--skip-verify"];
+    const exitCode = await runUpgrade(args, io);
+    expect(exitCode, [...err, ...out].join("\n")).toBe(0);
+
+    expect(spawnCalls.slice(0, 2)).toEqual([
+      {
+        command: "yarn",
+        args: ["add", "@agent-native/dispatch@latest"],
+        cwd: path.join(root, "apps", "chat"),
+      },
+      { command: "yarn", args: ["install"], cwd: root },
+    ]);
+    const otherPackage = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "apps", "other", "package.json"),
+        "utf-8",
+      ),
+    );
+    expect(otherPackage.dependencies["@agent-native/dispatch"]).toBe(
+      "workspace:*",
+    );
+    expect(otherPackage.dependencies.react).toBe("^19.0.0");
   });
 
   it("fails loudly instead of leaving a spec floating on latest", async () => {

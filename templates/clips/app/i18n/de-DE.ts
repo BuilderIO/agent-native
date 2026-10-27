@@ -353,6 +353,8 @@ const messages = {
     fillerCompleted: "Füllwörter wurden entfernt",
     workflowReady: "Workflow bereit",
     workflowFailed: "Workflow konnte nicht erstellt werden",
+    workflowCancelled: "Workflow-Erstellung abgebrochen",
+    workflowTimedOut: "Zeitüberschreitung bei der Workflow-Erstellung",
     transcriptionCompleted: "Transkription abgeschlossen",
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
@@ -367,6 +369,8 @@ const messages = {
     fillerQueued: "Füllwörter werden entfernt…",
     silenceQueued: "Pausen werden entfernt…",
     workflowQueued: "Workflow wird erstellt…",
+    workflowStillGenerating: "Workflow wird weiterhin erstellt…",
+    workflowTakingLonger: "Das dauert länger als üblich…",
     pageTitle: "Clip-Aufnahme · Clips",
     loomMissingUrl: "Dieser Loom-Aufnahme fehlt die Quelle URL.",
     finalizeFailed: "Finalisierung fehlgeschlagen ({{status}})",
