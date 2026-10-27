@@ -1480,6 +1480,77 @@ describe("startMailAiFilterBackfill", () => {
     expect(mocks.writeLocalEmails).toHaveBeenCalled();
   });
 
+  it("preserves a successful rule match across retries of its failed sibling", async () => {
+    const matchedRule = rule("rule-a");
+    const retryingRule = rule("rule-b");
+    mocks.rules = [matchedRule, retryingRule];
+    mocks.emails = [localEmail()];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = {
+      ...backfillState([matchedRule, retryingRule]),
+      evaluations: {},
+    };
+    const row = runningRow([matchedRule, retryingRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+          [
+            {
+              emailId: "thread-a",
+              ruleId: retryingRule.id,
+              reason: "provider_error",
+              retryable: true,
+            },
+          ],
+        ),
+      )
+      .mockResolvedValueOnce(
+        ruleEvaluation(new Map([[key, []]]), [
+          {
+            emailId: "thread-a",
+            ruleId: retryingRule.id,
+            reason: "provider_error",
+            retryable: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(ruleEvaluation(new Map([[key, []]])));
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    let saved = JSON.parse(row.stateJson);
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: matchedRule.id, confidence: 0.95 },
+    ]);
+    saved.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(saved);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    saved = JSON.parse(row.stateJson);
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: matchedRule.id, confidence: 0.95 },
+    ]);
+    saved.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(saved);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("completed");
+    saved = JSON.parse(row.stateJson);
+    expect(saved.appliedThreadKeys).toEqual(["local:thread-a"]);
+    expect(saved.decisionFailures).toEqual([]);
+    expect(mocks.writeLocalEmails).toHaveBeenCalled();
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(3);
+  });
+
   it("resets the retry budget after a successful decision batch despite incomplete coverage", async () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];

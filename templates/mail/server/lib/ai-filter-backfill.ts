@@ -1862,6 +1862,22 @@ async function ensureEvaluations(
       aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
     ),
   );
+  const previousMatchedRuleIdsByEmail = new Map<string, Set<string>>();
+  for (const candidate of batch) {
+    const key = aiPriorityEmailKey(candidate.accountEmail, candidate.email.id);
+    const ruleIds = new Set(
+      (state.evaluations[candidate.key] ?? []).map((match) => match.ruleId),
+    );
+    if (ruleIds.size > 0) previousMatchedRuleIdsByEmail.set(key, ruleIds);
+  }
+  const failures = evaluation.failures.filter(
+    (failure) =>
+      !previousMatchedRuleIdsByEmail
+        .get(aiPriorityEmailKey(failure.accountEmail, failure.emailId))
+        ?.has(failure.ruleId),
+  );
+  const retainedMatchFailureCount =
+    evaluation.failures.length - failures.length;
   const evaluations = batch.map((candidate) => {
     const matches = matchMap.get(
       aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
@@ -1871,16 +1887,23 @@ async function ensureEvaluations(
         "Mail AI-filter evaluation did not classify every thread.",
       );
     }
-    return [
-      candidate.key,
-      matches.map(({ ruleId, confidence, reason, provider, model }) => ({
-        ruleId,
-        confidence,
-        ...(provider ? { provider } : {}),
-        ...(model ? { model } : {}),
-        ...(reason ? { reason } : {}),
-      })),
-    ] as const;
+    // A retry reruns every rule, so retain earlier positives while a sibling recovers.
+    const mergedMatches = new Map<string, StoredMatch>(
+      (state.evaluations[candidate.key] ?? []).map((match) => [
+        match.ruleId,
+        match,
+      ]),
+    );
+    for (const match of matches) {
+      mergedMatches.set(match.ruleId, {
+        ruleId: match.ruleId,
+        confidence: match.confidence,
+        ...(match.provider ? { provider: match.provider } : {}),
+        ...(match.model ? { model: match.model } : {}),
+        ...(match.reason ? { reason: match.reason } : {}),
+      });
+    }
+    return [candidate.key, Array.from(mergedMatches.values())] as const;
   });
   const previousFailureCounts = new Map<string, number>();
   for (const failure of previousFailures) {
@@ -1902,7 +1925,8 @@ async function ensureEvaluations(
   }
   state.evaluatedCount =
     Math.max(0, (state.evaluatedCount ?? 0) - replacedEvaluationCount) +
-    evaluation.evaluatedCount;
+    evaluation.evaluatedCount +
+    retainedMatchFailureCount;
   const replacedFailureCount = previousFailures.filter((failure) =>
     evaluatedEmailKeys.has(
       aiPriorityEmailKey(failure.accountEmail, failure.emailId),
@@ -1910,7 +1934,7 @@ async function ensureEvaluations(
   ).length;
   state.failedCount =
     Math.max(0, (state.failedCount ?? 0) - replacedFailureCount) +
-    evaluation.failedCount;
+    failures.length;
   state.decisionFailures = [
     ...(state.decisionFailures ?? []).filter(
       (failure) =>
@@ -1918,9 +1942,9 @@ async function ensureEvaluations(
           aiPriorityEmailKey(failure.accountEmail, failure.emailId),
         ),
     ),
-    ...evaluation.failures,
+    ...failures,
   ];
-  if (!evaluation.failures.some((failure) => failure.retryable)) {
+  if (!failures.some((failure) => failure.retryable)) {
     state.retryCount = 0;
     delete state.retryAfterAt;
   }
@@ -1936,7 +1960,7 @@ async function ensureEvaluations(
   const saved = await saveRunState(row.id, claimId, state, "running");
   if (!saved) return false;
   if (
-    evaluation.failures.some((failure) => failure.retryable) &&
+    failures.some((failure) => failure.retryable) &&
     (state.retryCount ?? 0) < MAX_BACKFILL_RETRIES
   ) {
     const error = new Error("Mail AI-filter decision failed temporarily.");
