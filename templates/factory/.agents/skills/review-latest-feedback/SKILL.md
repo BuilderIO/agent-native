@@ -56,12 +56,19 @@ Every claimed report gets **one** reply in its thread per outcome:
 - End with the bold line `**This was sent from a bot**` on its own line,
   once.
 
-Good:
+Good (each is the first line; the footer goes on the line below it):
 
-- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.\n**This was sent from a bot**`
-- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly.\n**This was sent from a bot**`
-- `thanks - moving that button is a product call, so I've left it for Sid to decide.\n**This was sent from a bot**`
-- `thanks - I couldn't reproduce this; could you share the link to the deck where it happened?\n**This was sent from a bot**`
+- `thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.`
+- `thanks for flagging - the export now keeps your column order (<https://github.com/BuilderIO/agent-native/pull/1234|fix>), and it'll be on beta shortly.`
+- `thanks - moving that button is a product call, so I've left it for Sid to decide.`
+- `thanks - I couldn't reproduce this; could you share the link to the deck where it happened?`
+
+So a full reply looks like:
+
+```text
+thanks for flagging - <https://github.com/BuilderIO/agent-native/pull/1234|fix> is merged and will be on beta shortly.
+**This was sent from a bot**
+```
 
 Bad: anything that spells out a PR number or SHA, lists "verified scopes", explains
 reactions, says "Great catch!!", repeats the bug back, or posts a second reply
@@ -118,9 +125,9 @@ the invocation gives), plus 14 days for open items.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
   hand to things he is working on himself, so a 👀 from his account is not
   enough to make a root this workflow's. Treat it as the workflow's only when
-  the thread already has a reply from Steve's account ending in
-  "This was sent from a bot" (any case; older replies end in
-  `this was sent from a bot.`), or when the root is listed under "Claimed, not
+  the thread already has a reply from Steve's account whose last line is
+  "This was sent from a bot", ignoring case, `*`, punctuation, and
+  whitespace (older replies end in `this was sent from a bot.`), or when the root is listed under "Claimed, not
   yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
   has it: leave it alone. Of the workflow's roots, any without ✅ or 🎫, or
   with a human reply newer than our last reply, comes first in this run. A
