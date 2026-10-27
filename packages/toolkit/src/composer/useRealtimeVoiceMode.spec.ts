@@ -455,6 +455,22 @@ describe("Realtime voice client transport", () => {
     );
   });
 
+  it("sends the level of preferences that do not say whether it was chosen", async () => {
+    const fetchMock = vi.fn(async () => new Response("answer-sdp"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRealtimeVoiceSessionWithCapability("offer-sdp", {
+      preferences: { language: "en", intelligence: "deep", voice: "marin" },
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(init.headers).toMatchObject({
+      "X-Agent-Native-Realtime-Intelligence": "deep",
+    });
+  });
+
   it("sends function calls to the authenticated Agent-Native tool bridge", async () => {
     const signal = new AbortController().signal;
     const fetchMock = vi.fn(async () =>

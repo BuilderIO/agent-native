@@ -46,13 +46,14 @@ describe("realtime voice turn metrics", () => {
     tracker.userSpeechEnded(1_000);
     tracker.assistantAudioStarted(1_400);
     tracker.toolCallStarted()(2_000, { status: "completed", readOnly: true });
-    tracker.toolCallStarted()(3_000, { status: "completed" });
+    tracker.toolCallStarted()(3_000, { status: "completed", readOnly: false });
+    tracker.toolCallStarted()(3_500, { status: "completed" });
     tracker.userSpeechStarted(7_000);
 
     expect(emit.mock.calls[0]![1]).toMatchObject({
       speech_to_audio_ms: 400,
       latency_clock: "browser",
-      tool_calls: 2,
+      tool_calls: 3,
       write_tool_calls: 1,
       spoke_again_after_edit: true,
       ms_after_edit: 4_000,
@@ -62,7 +63,7 @@ describe("realtime voice turn metrics", () => {
   it("does not count a reply long after the edit, or a failed edit", () => {
     const { emit, tracker } = metrics();
     tracker.userSpeechEnded(0);
-    tracker.toolCallStarted()(500, { status: "completed" });
+    tracker.toolCallStarted()(500, { status: "completed", readOnly: false });
     tracker.userSpeechStarted(20_000);
     tracker.userSpeechEnded(21_000);
     tracker.toolCallStarted()(21_500, { status: "failed" });
@@ -77,6 +78,21 @@ describe("realtime voice turn metrics", () => {
         spoke_again_after_edit: null,
       },
     ]);
+  });
+
+  it("counts neither an unclassified nor a cancelled call as an edit or a failure", () => {
+    const { emit, tracker } = metrics();
+    tracker.userSpeechEnded(0);
+    tracker.toolCallStarted()(500, { status: "completed" });
+    tracker.toolCallStarted()(600, { status: "cancelled" });
+    tracker.userSpeechStarted(1_000);
+
+    expect(emit.mock.calls[0]![1]).toMatchObject({
+      tool_calls: 2,
+      write_tool_calls: 0,
+      failed_tool_calls: 0,
+      spoke_again_after_edit: null,
+    });
   });
 
   it("keeps one turn while the user pauses with no reply yet", () => {
@@ -116,14 +132,15 @@ describe("realtime voice turn metrics", () => {
     tracker.userSpeechEnded(1_500);
     expect(emit).not.toHaveBeenCalled();
 
-    finishEdit(2_000, { status: "completed" });
+    finishEdit(2_000, { status: "completed", readOnly: false });
     expect(emit).toHaveBeenCalledTimes(1);
+    // Speaking before the edit finished is not a reaction to it.
     expect(emit.mock.calls[0]![1]).toMatchObject({
       turn_index: 0,
       tool_calls: 1,
       write_tool_calls: 1,
-      spoke_again_after_edit: true,
-      ms_after_edit: 0,
+      spoke_again_after_edit: false,
+      ms_after_edit: null,
     });
 
     tracker.assistantResponded();

@@ -1786,7 +1786,7 @@ describe("realtime voice tool route", () => {
     });
   });
 
-  it("marks a call read-only from its own arguments' plan-mode effect", async () => {
+  it("classifies a call from its own arguments' plan-mode effect", async () => {
     const executeTool = vi
       .fn()
       .mockResolvedValue({ status: "completed", output: "{}" });
@@ -1809,6 +1809,14 @@ describe("realtime voice tool route", () => {
           },
           run: vi.fn(),
         },
+        "unclassified-action": {
+          tool: {
+            name: "unclassified-action",
+            description: "Declares no read-only flag",
+            parameters: { type: "object", properties: {} },
+          },
+          run: vi.fn(),
+        },
       },
     });
     const capability = await issueToolCapability(handlers);
@@ -1821,7 +1829,16 @@ describe("realtime voice tool route", () => {
       );
 
     expect(await call("list", "call_list")).toMatchObject({ readOnly: true });
-    expect(await call("delete", "call_delete")).not.toHaveProperty("readOnly");
+    expect(await call("delete", "call_delete")).toMatchObject({
+      readOnly: false,
+    });
+    const unclassified = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        { name: "unclassified-action", args: {}, callId: "call_unknown" },
+        withToolCapability(capability),
+      ),
+    );
+    expect(unclassified).not.toHaveProperty("readOnly");
   });
 
   it("routes navigation execution through the active browser tab", async () => {

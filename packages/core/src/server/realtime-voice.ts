@@ -998,9 +998,17 @@ function normalizeExecutionResult(
   };
 }
 
+/** Omitted when the call is unclassified, so it never reads as a write. */
+function readOnlyField(readOnly: boolean | undefined) {
+  return readOnly === undefined ? {} : { readOnly };
+}
+
 function createToolHandler(
   getToolsByName: () => ReadonlyMap<string, RealtimeFunctionTool>,
-  isReadOnlyCall: (name: string, args: Record<string, unknown>) => boolean,
+  isReadOnlyCall: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => boolean | undefined,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -1104,9 +1112,7 @@ function createToolHandler(
           return {
             callId: request.callId,
             ...result,
-            ...(isReadOnlyCall(request.name, request.args)
-              ? { readOnly: true }
-              : {}),
+            ...readOnlyField(isReadOnlyCall(request.name, request.args)),
             ...(expandedTools.length > 0
               ? {
                   expandedTools,
@@ -1153,7 +1159,7 @@ export function mountRealtimeVoiceRoutes(
   app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(getTools, options));
   const isReadOnlyCall = (name: string, args: Record<string, unknown>) => {
     const entry = Object.hasOwn(mounted, name) ? mounted[name] : undefined;
-    return entry ? actionCallReadOnly(entry, args) === true : false;
+    return entry ? actionCallReadOnly(entry, args) : undefined;
   };
   app.use(
     REALTIME_VOICE_TOOL_PATH,

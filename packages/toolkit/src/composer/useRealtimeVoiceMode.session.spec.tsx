@@ -257,6 +257,49 @@ describe("realtime voice session controls", () => {
     session.unmount();
   });
 
+  it("records a tool call that teardown aborted as cancelled", async () => {
+    const work: RealtimeVoiceWorkUpdate[] = [];
+    const unregister = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-teardown",
+      active: true,
+      append: () => true,
+      appendWork: (update) => {
+        work.push(update);
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+    const session = await startSession();
+    await session.send({ type: "response.created" });
+    await session.send({
+      type: "response.function_call_arguments.done",
+      call_id: "call-edit",
+      name: "web-search",
+      arguments: "{}",
+    });
+
+    await act(async () => {
+      session.api().end();
+      await new Promise((done) => setTimeout(done, 0));
+    });
+
+    expect(work.at(-1)?.calls.map((call) => [call.id, call.status])).toEqual([
+      ["call-edit", "cancelled"],
+    ]);
+    unregister();
+    session.unmount();
+  });
+
   it("reports each turn's timing without the words spoken", async () => {
     const trackEvent = vi.fn();
     const session = await startSession(undefined, trackEvent);

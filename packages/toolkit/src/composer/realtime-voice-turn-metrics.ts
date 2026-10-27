@@ -7,7 +7,10 @@ export interface RealtimeVoiceTurnMetricsContext {
   intelligenceSource: "user" | "default";
 }
 
-/** Records how a tool call that started in a turn ended. */
+/**
+ * Records how a tool call that started in a turn ended. Only a call classified
+ * `readOnly: false` counts as an edit; an unclassified call is neither.
+ */
 export type RealtimeVoiceTurnToolCallFinish = (
   at: number,
   result: { status: string; readOnly?: boolean | undefined },
@@ -88,9 +91,12 @@ export function createRealtimeVoiceTurnMetrics(
           current.firstAudioAt !== undefined
         ? current.firstAudioAt - current.speechEndedAt
         : null;
+    // Speech that began while the edit still ran did not answer the edit.
     const msAfterEdit =
-      current.lastWriteCompletedAt !== undefined && nextSpeechAt !== undefined
-        ? Math.max(0, Math.round(nextSpeechAt - current.lastWriteCompletedAt))
+      current.lastWriteCompletedAt !== undefined &&
+      nextSpeechAt !== undefined &&
+      nextSpeechAt >= current.lastWriteCompletedAt
+        ? Math.round(nextSpeechAt - current.lastWriteCompletedAt)
         : null;
     emit(REALTIME_VOICE_TURN_EVENT, {
       protocol: context?.protocol ?? null,
@@ -168,7 +174,7 @@ export function createRealtimeVoiceTurnMetrics(
         owner.pendingToolCalls -= 1;
         if (result.status === "failed") {
           owner.failedToolCalls += 1;
-        } else if (result.status === "completed" && result.readOnly !== true) {
+        } else if (result.status === "completed" && result.readOnly === false) {
           owner.writeToolCalls += 1;
           owner.lastWriteCompletedAt = at;
         }

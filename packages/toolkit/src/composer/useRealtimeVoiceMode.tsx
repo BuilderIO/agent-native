@@ -107,7 +107,10 @@ export interface RealtimeVoicePreferences {
   language: RealtimeVoiceLanguage;
   intelligence: RealtimeVoiceIntelligence;
   voice: RealtimeVoice;
-  /** False until the user picks a level; until then the app's default applies. */
+  /**
+   * False until the user picks a level; until then the app's default applies.
+   * Omitted means `intelligence` was chosen.
+   */
   intelligenceChosen?: boolean;
 }
 
@@ -1098,7 +1101,7 @@ export async function createRealtimeVoiceSessionWithCapability(
               preferences.language,
               options.browserLanguages,
             ),
-            ...(preferences.intelligenceChosen
+            ...(preferences.intelligenceChosen !== false
               ? {
                   [REALTIME_VOICE_INTELLIGENCE_HEADER]:
                     preferences.intelligence,
@@ -2350,9 +2353,13 @@ function useRealtimeVoiceModeController(
       } finally {
         toolAbortControllersRef.current.delete(toolAbortController);
       }
-      // An approval-gated call did not run; the user approves it in chat.
+      // Session teardown aborted the call, so it did not fail. An
+      // approval-gated call did not run; the user approves it in chat.
       workCall.status =
-        result.status === "approval_required" ? "cancelled" : result.status;
+        toolAbortController.signal.aborted ||
+        result.status === "approval_required"
+          ? "cancelled"
+          : result.status;
       workCall.output = result.output;
       workCall.completedAt = new Date().toISOString();
       if (workSegment) {
@@ -2365,7 +2372,10 @@ function useRealtimeVoiceModeController(
           publishRealtimeVoiceWorkSegment(workSegment);
         }
       }
-      finishTurnToolCall(performance.now(), result);
+      finishTurnToolCall(
+        performance.now(),
+        toolAbortController.signal.aborted ? { status: "cancelled" } : result,
+      );
       if (
         transportGeneration !== transportGenerationRef.current ||
         channelRef.current !== transportChannel
