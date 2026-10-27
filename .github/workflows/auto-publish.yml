@@ -423,6 +423,20 @@ jobs:
           # Link snapshot-rewritten plain ranges, as in the nightly job.
           pnpm install --lockfile-only --link-workspace-packages
 
+      - name: Require Core and Dispatch in Beta snapshot
+        if: ${{ inputs.betaTag != '' }}
+        run: |
+          set -euo pipefail
+          for package in core dispatch; do
+            manifest="packages/$package/package.json"
+            base_version="$(git show "HEAD:$manifest" | jq -r '.version')"
+            snapshot_version="$(jq -r '.version' "$manifest")"
+            if [ "$base_version" = "$snapshot_version" ]; then
+              echo "::error::Beta snapshot must include a new @agent-native/$package version before publishing."
+              exit 1
+            fi
+          done
+
       - name: Build all packages
         run: pnpm -r build
 

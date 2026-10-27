@@ -2560,6 +2560,22 @@ fi
       );
     });
 
+    it("requires new Core and Dispatch versions before a Beta publish", () => {
+      const steps = devSnapshot.steps as Workflow[];
+      const preflight = steps.find(
+        (step) => step.name === "Require Core and Dispatch in Beta snapshot",
+      );
+      const publishIndex = steps.findIndex(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      assert(preflight);
+      assert.equal(preflight.if, "${{ inputs.betaTag != '' }}");
+      assert.match(String(preflight.run), /for package in core dispatch/);
+      assert.match(String(preflight.run), /git show "HEAD:\$manifest"/);
+      assert.match(String(preflight.run), /Beta snapshot must include a new/);
+      assert(steps.indexOf(preflight) < publishIndex);
+    });
+
     it("reuses the npm-publish environment for OIDC trusted publishing", () => {
       assert.equal(devSnapshot.environment, "npm-publish");
       assert.deepEqual(devSnapshot.permissions, {
