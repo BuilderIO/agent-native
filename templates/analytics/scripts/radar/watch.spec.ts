@@ -1,7 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { safeRadarEventLabel } from "./event-labels.ts";
-import { safeCampaignLabel } from "./watch.ts";
+import { loadUploadRejectionRows, safeCampaignLabel } from "./watch.ts";
+
+const queryMocks = vi.hoisted(() => ({
+  resolveRadarBigQueryEventsTable: vi.fn(),
+  runBigQuery: vi.fn(),
+  runPostgresQuery: vi.fn(),
+}));
+
+vi.mock("./query.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./query.ts")>();
+  return {
+    ...actual,
+    ...queryMocks,
+  };
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("campaign label output", () => {
   it("preserves the reviewed outage campaign and redacts arbitrary labels", () => {
@@ -18,6 +36,73 @@ describe("radar event labels", () => {
     expect(safeRadarEventLabel("signup")).toBe("signup");
     expect(safeRadarEventLabel("alice@example.com | private note")).toBe(
       "unreviewed event",
+    );
+  });
+});
+
+describe("upload rejection evidence routing", () => {
+  it("reads rejection events from BigQuery when it is the configured sink", async () => {
+    queryMocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+      "`project_id.analytics.events_raw_query_range`",
+    );
+    queryMocks.runBigQuery.mockResolvedValue({
+      rows: [
+        {
+          app: "clips",
+          reason: "storage",
+          status: "413",
+          rejected_recorders: 2,
+        },
+      ],
+    });
+    queryMocks.runPostgresQuery.mockResolvedValue({
+      rows: [{ app: "clips", recorders: 8 }],
+    });
+
+    const rows = await loadUploadRejectionRows(
+      { sink: "bigquery", table: "analytics.events" },
+      "2026-10-25",
+      "org-id",
+    );
+
+    expect(queryMocks.runBigQuery).toHaveBeenCalledWith(
+      expect.stringContaining("session_replay_upload_rejected"),
+      expect.objectContaining({ cache: false, fresh: true }),
+    );
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
+      expect.stringContaining("FROM session_recordings r"),
+      ["2026-10-25", "2026-10-25", "org-id"],
+      { fresh: true },
+    );
+    expect(queryMocks.runPostgresQuery.mock.calls[0]?.[0]).not.toContain(
+      "session_replay_upload_rejected",
+    );
+    expect(rows).toEqual([
+      {
+        app: "clips",
+        reason: "storage",
+        status: "413",
+        rejected_recorders: 2,
+        recorders: 8,
+      },
+    ]);
+  });
+
+  it("uses the combined Postgres query for Postgres and dual sinks", async () => {
+    queryMocks.runPostgresQuery.mockResolvedValue({
+      rows: [{ app: "clips", reason: "storage", recorders: 8 }],
+    });
+
+    await loadUploadRejectionRows(
+      { sink: "dual", table: null },
+      "2026-10-25",
+      "org-id",
+    );
+
+    expect(queryMocks.runBigQuery).not.toHaveBeenCalled();
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
+      expect.stringContaining("session_replay_upload_rejected"),
+      ["2026-10-25", "2026-10-25", "org-id"],
     );
   });
 });

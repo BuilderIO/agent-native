@@ -5,6 +5,8 @@ import {
   buildFirstTouchEventsCte,
   buildFunnelDailySql,
   buildTriageSql,
+  buildUploadRecorderCountsSql,
+  buildUploadRejectionSql,
   identityExclusionSql,
   normalizedAppSql,
   referralSourceSql,
@@ -98,6 +100,16 @@ describe("first-touch SQL helpers", () => {
     expect(funnel).toContain("'design_created'");
     expect(funnel).toContain("clips_activated_24h");
     expect(funnel).toContain("interval '24 hours'");
+    expect(funnel).toContain(
+      "HAVING min(happened_at) + interval '24 hours' <= $4::timestamptz",
+    );
+  });
+
+  it("groups upload rejections by the emitted failure reason", () => {
+    const upload = buildUploadRejectionSql();
+    expect(upload).toContain("properties ->> 'failure_reason'");
+    expect(upload).not.toContain("properties ->> 'reason'");
+    expect(buildUploadRecorderCountsSql()).toContain("session_recordings r");
   });
 
   it("uses the session event, trouble, friction, and performance indexes without user content", () => {

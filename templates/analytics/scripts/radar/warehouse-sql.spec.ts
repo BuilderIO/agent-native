@@ -8,6 +8,7 @@ import {
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
   buildBigQueryTriageEventsSql,
+  buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
 
 const range = "`project_id.analytics.events_raw_query_range`";
@@ -85,6 +86,19 @@ describe("first-party BigQuery radar SQL", () => {
     expect(funnel).toContain("'design_created'");
     expect(funnel).toContain("clips_activated_24h");
     expect(funnel).toContain("INTERVAL 24 HOUR");
+    expect(funnel).toContain(
+      "HAVING timestamp_add(min(happened_at), INTERVAL 24 HOUR) <= @cutoff",
+    );
+  });
+
+  it("uses the BigQuery event sink and the emitted upload failure reason", () => {
+    const upload = buildBigQueryUploadRejectionSql(range);
+    expect(upload).toContain("session_replay_upload_rejected");
+    expect(upload).toContain("$.failure_reason");
+    expect(upload).not.toContain("$.reason");
+    expect(upload).toContain("@start_date");
+    expect(upload).toContain("@end_date");
+    expect(upload).toContain("@org_id");
   });
 
   it("joins campaign activity to hashed recipients and returns aggregate counts only", () => {

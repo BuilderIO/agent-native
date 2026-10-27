@@ -305,6 +305,7 @@ signup_cohort AS (
   FROM base_events
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key, app, event_date
+  HAVING min(happened_at) + interval '24 hours' <= $4::timestamptz
 ),
 funnel_events AS (
   SELECT person_key, app, event_name, happened_at
@@ -497,7 +498,7 @@ recorders AS (
 ),
 rejected AS (
   SELECT app,
-    lower(coalesce(properties ->> 'reason', 'unknown')) AS reason,
+    lower(coalesce(properties ->> 'failure_reason', 'unknown')) AS reason,
     lower(coalesce(properties ->> 'status', properties ->> 'status_code', 'unknown')) AS status,
     count(DISTINCT session_id)::int AS rejected_recorders
   FROM base_events
@@ -509,6 +510,18 @@ SELECT r.app, x.reason, x.status,
 FROM recorders r
 LEFT JOIN rejected x ON r.app = x.app
 ORDER BY r.app, rejected_recorders DESC`;
+}
+
+export function buildUploadRecorderCountsSql(): string {
+  const app = recorderAppSql("r");
+  return `SELECT ${app} AS app, count(DISTINCT r.session_id)::int AS recorders
+FROM session_recordings r
+WHERE r.org_id = $3
+  AND r.started_at::timestamptz >= $1::date
+  AND r.started_at::timestamptz < ($2::date + interval '1 day')
+  AND ${recorderIdentityFilters("r")}
+  AND lower(${app}) IN ('design', 'slides', 'clips')
+GROUP BY ${app}`;
 }
 
 export function buildErrorIssuesSql(): string {

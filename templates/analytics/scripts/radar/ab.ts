@@ -22,6 +22,9 @@ function itemAt<T>(items: readonly T[], index: number): T | undefined {
 const EXPERIMENT_ID = "first_run_builder_credits";
 const DEFAULT_START = "2026-10-19";
 const MIN_ARM_SIZE = 30;
+const CONFIGURED_VARIANTS = ["control", "credits"] as const;
+type ConfiguredVariant = (typeof CONFIGURED_VARIANTS)[number];
+const configuredVariantSet = new Set<string>(CONFIGURED_VARIANTS);
 const FIRST_TOUCH_APPS = new Set(["design", "slides", "clips"]);
 // Downstream events inherit the cohort from exposure; they often omit the variant property.
 const AB_CTE = `${buildFirstTouchEventsCte({ startDate: "$1", endDate: "$2", orgId: "$3", includeAllApps: true })},
@@ -35,7 +38,7 @@ experiment_events AS (
     coalesce(properties ->> 'experiment_id', '') AS experiment_id
   FROM base_events
   WHERE event_name = 'onboarding_experiment_exposed'
-    AND nullif(properties ->> 'experiment_variant', '') IS NOT NULL
+    AND properties ->> 'experiment_variant' IN ('control', 'credits')
     AND coalesce(properties ->> 'flow', '') = 'first_run'
     AND coalesce(properties ->> 'experiment_id', '') = '${EXPERIMENT_ID}'
     AND happened_at <= $4::timestamptz
@@ -141,7 +144,7 @@ experiment_events AS (
     coalesce(json_value(properties, '$.experiment_id'), '') AS experiment_id
   FROM base_events
   WHERE event_name = 'onboarding_experiment_exposed'
-    AND nullif(json_value(properties, '$.experiment_variant'), '') IS NOT NULL
+    AND json_value(properties, '$.experiment_variant') IN ('control', 'credits')
     AND coalesce(json_value(properties, '$.flow'), '') = 'first_run'
     AND coalesce(json_value(properties, '$.experiment_id'), '') = '${EXPERIMENT_ID}'
     AND happened_at <= @as_of
@@ -262,6 +265,12 @@ export interface AbReadout {
   sampleRatioMismatch: { pValue: number; flagged: boolean };
   arms: AbArmSummary[];
   generatedAt: string;
+}
+
+export function isConfiguredAbVariant(
+  value: unknown,
+): value is ConfiguredVariant {
+  return typeof value === "string" && configuredVariantSet.has(value);
 }
 
 function normalCdf(value: number): number {
@@ -411,6 +420,12 @@ export async function runAbReadout(
           },
         );
   const { rows } = result;
+  if (rows.some((row) => !isConfiguredAbVariant(row.variant))) {
+    throw new RadarQueryError(
+      "A/B readout returned an unconfigured experiment variant; output was suppressed.",
+      1,
+    );
+  }
   const overall = rows.filter((row) => String(row.app) === "all");
   const appRows = rows.filter((row) => String(row.app) !== "all");
   const variants = [

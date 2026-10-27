@@ -120,7 +120,14 @@ let loadedFirstPartyBackend:
   | { sink: "postgres" | "dual" | "bigquery"; table: string | null }
   | undefined;
 let pgClient: ReturnType<typeof postgres> | undefined;
-let bqAuth: { token: string; project: string; expiresAt: number } | undefined;
+let bqAuth:
+  | {
+      token: string;
+      project: string;
+      expiresAt: number;
+      campaignRecipientDigestKey: Buffer;
+    }
+  | undefined;
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   if (index < 0 || index >= items.length) return undefined;
@@ -1074,8 +1081,38 @@ async function getBigQueryAuth(): Promise<{ token: string; project: string }> {
     token: tokenResponse.access_token,
     project,
     expiresAt: Date.now() + 3_500_000,
+    campaignRecipientDigestKey: crypto
+      .createHmac("sha256", serviceAccount.private_key)
+      .update("agent-native:first-touch-radar:campaign-recipient:v1")
+      .digest(),
   };
   return { token: bqAuth.token, project: bqAuth.project };
+}
+
+export function radarCampaignRecipientFingerprint(
+  email: string,
+  key: string | Buffer,
+): string {
+  return crypto
+    .createHmac("sha256", key)
+    .update(email.trim().toLowerCase())
+    .digest("hex");
+}
+
+export async function digestRadarCampaignRecipient(
+  email: string,
+): Promise<string> {
+  await getBigQueryAuth();
+  if (!bqAuth) {
+    throw new RadarQueryError(
+      "Campaign recipient digest key is unavailable.",
+      2,
+    );
+  }
+  return radarCampaignRecipientFingerprint(
+    email,
+    bqAuth.campaignRecipientDigestKey,
+  );
 }
 
 function encodeParameters(params: readonly BqParameter[] = []) {

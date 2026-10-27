@@ -35,12 +35,14 @@ import {
   buildFunnelDailySql,
   buildPromptOutputSloSql,
   buildTroubleSql,
+  buildUploadRecorderCountsSql,
   buildUploadRejectionSql,
 } from "./sql.ts";
 import {
   buildBigQueryEventStatsSql,
   buildBigQueryFunnelDailySql,
   buildBigQueryPromptOutputSloSql,
+  buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
 
 interface QueryRow extends Record<string, unknown> {
@@ -182,6 +184,47 @@ const SAFE_CAMPAIGN_LABELS = new Set(["outage_recovery_20261026"]);
 export function safeCampaignLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
   return SAFE_CAMPAIGN_LABELS.has(normalized) ? normalized : "other";
+}
+
+export async function loadUploadRejectionRows(
+  backend: { sink: "postgres" | "dual" | "bigquery"; table: string | null },
+  date: string,
+  orgId: string,
+): Promise<QueryRow[]> {
+  if (backend.sink !== "bigquery") {
+    const { rows } = await runPostgresQuery(buildUploadRejectionSql(), [
+      date,
+      date,
+      orgId,
+    ]);
+    return rows as QueryRow[];
+  }
+
+  const table = await resolveRadarBigQueryEventsTable();
+  const [rejected, recorders] = await Promise.all([
+    runBigQuery(buildBigQueryUploadRejectionSql(table), {
+      params: [
+        { name: "start_date", type: "DATE", value: date },
+        { name: "end_date", type: "DATE", value: date },
+        { name: "org_id", type: "STRING", value: orgId },
+      ],
+      fresh: true,
+      cache: false,
+    }),
+    runPostgresQuery(buildUploadRecorderCountsSql(), [date, date, orgId], {
+      fresh: true,
+    }),
+  ]);
+  const recordersByApp = new Map(
+    (recorders.rows as QueryRow[]).map((row) => [
+      String(row.app ?? "unknown"),
+      row.recorders,
+    ]),
+  );
+  return (rejected.rows as QueryRow[]).map((row) => ({
+    ...row,
+    recorders: recordersByApp.get(String(row.app ?? "unknown")) ?? 0,
+  }));
 }
 
 function eventCampaigns(
@@ -1052,6 +1095,7 @@ export async function runWatch(
   if (window === "daily") {
     const funnelStart = addDays(date, -8);
     const funnelEnd = addDays(date, 1);
+    const funnelCutoff = new Date().toISOString();
     const [funnel, trouble, upload, issues, slo] = await Promise.all([
       backend.sink === "bigquery"
         ? runBigQuery(
@@ -1063,6 +1107,7 @@ export async function runWatch(
                 { name: "start_date", type: "DATE", value: funnelStart },
                 { name: "end_date", type: "DATE", value: funnelEnd },
                 { name: "org_id", type: "STRING", value: orgId },
+                { name: "cutoff", type: "TIMESTAMP", value: funnelCutoff },
               ],
             },
           )
@@ -1070,9 +1115,10 @@ export async function runWatch(
             funnelStart,
             funnelEnd,
             orgId,
+            funnelCutoff,
           ]),
       runPostgresQuery(buildTroubleSql(), [date, date, orgId]),
-      runPostgresQuery(buildUploadRejectionSql(), [date, date, orgId]),
+      loadUploadRejectionRows(backend, date, orgId),
       runPostgresQuery(buildErrorIssuesSql(), [
         orgId,
         `${date}T00:00:00.000Z`,
@@ -1099,10 +1145,10 @@ export async function runWatch(
     ]);
     funnelRows = funnel.rows as QueryRow[];
     troubleRows = trouble.rows as QueryRow[];
-    uploadRows = upload.rows as QueryRow[];
+    uploadRows = upload;
     issueRows = issues.rows as QueryRow[];
     sloRows = slo.rows as QueryRow[];
-    additionalQueries = 5;
+    additionalQueries = 5 + (backend.sink === "bigquery" ? 1 : 0);
     if (options.includeCampaign !== false) {
       additionalQueries += 1;
       try {

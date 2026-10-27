@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  digestRadarCampaignRecipient: vi.fn(),
   resolveRadarBigQueryEventsTable: vi.fn(),
   resolveRadarFirstPartyBackend: vi.fn(),
   runBigQuery: vi.fn(),
@@ -24,6 +25,7 @@ describe("campaign follow-up query privacy", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.digestRadarCampaignRecipient.mockResolvedValue("a".repeat(64));
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "radar-campaign-test-"));
     const sentFile = path.join(directory, "sent.jsonl");
     fs.writeFileSync(
@@ -117,10 +119,13 @@ describe("campaign follow-up query privacy", () => {
     }>;
     expect(roster).toHaveLength(1);
     expect(roster[0]).toMatchObject({
-      email_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      email_hash: "a".repeat(64),
       sent_at: "2026-10-26T12:00:00.000Z",
       recipient_app: "clips",
     });
+    expect(mocks.digestRadarCampaignRecipient).toHaveBeenCalledExactlyOnceWith(
+      "recipient@example.test",
+    );
     expect(rosterJson).not.toContain("recipient@example.test");
     expect(options).toMatchObject({ fresh: true, cache: false });
     expect(mocks.runPostgresQuery).not.toHaveBeenCalled();

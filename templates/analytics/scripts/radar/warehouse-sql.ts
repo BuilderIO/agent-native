@@ -229,6 +229,7 @@ signup_cohort AS (
   FROM base_events
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key, app, signup_date
+  HAVING timestamp_add(min(happened_at), INTERVAL 24 HOUR) <= @cutoff
 ),
 funnel_events AS (
   SELECT person_key, app, event_name, happened_at
@@ -399,6 +400,24 @@ percentiles AS (
 SELECT c.app, c.sample_size, p.p90_seconds
 FROM counts c JOIN percentiles p USING (app)
 ORDER BY c.app`;
+}
+
+export function buildBigQueryUploadRejectionSql(
+  eventsTableRange: string,
+): string {
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
+rejected AS (
+  SELECT app,
+    lower(coalesce(json_value(properties, '$.failure_reason'), 'unknown')) AS reason,
+    lower(coalesce(json_value(properties, '$.status'), json_value(properties, '$.status_code'), 'unknown')) AS status,
+    count(DISTINCT session_id) AS rejected_recorders
+  FROM base_events
+  WHERE event_name = 'session_replay_upload_rejected'
+  GROUP BY app, reason, status
+)
+SELECT app, reason, status, rejected_recorders
+FROM rejected
+ORDER BY app, rejected_recorders DESC`;
 }
 
 export function buildBigQueryCampaignActivitySql(

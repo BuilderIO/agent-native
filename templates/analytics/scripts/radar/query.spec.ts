@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,10 +17,33 @@ import {
   radarCliExitCode,
   radarRunCliExitCode,
   radarJsonbParam,
+  radarCampaignRecipientFingerprint,
   RadarQueryError,
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("uses a keyed, normalized HMAC for BigQuery campaign recipient matching", () => {
+    const first = radarCampaignRecipientFingerprint(
+      " Person@Example.test ",
+      "private service-account material",
+    );
+    expect(first).toBe(
+      radarCampaignRecipientFingerprint(
+        "person@example.test",
+        "private service-account material",
+      ),
+    );
+    expect(first).not.toBe(
+      radarCampaignRecipientFingerprint(
+        "person@example.test",
+        "different private material",
+      ),
+    );
+    expect(first).not.toBe(
+      crypto.createHash("sha256").update("person@example.test").digest("hex"),
+    );
+  });
+
   it("binds explicit JSONB parameters through postgres.js JSON serialization", () => {
     const roster = [{ email: "recipient@example.test", app: "clips" }];
     const json = vi.fn((value: unknown) => ({ type: 3802, value }));

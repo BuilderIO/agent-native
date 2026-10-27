@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +5,7 @@ import path from "node:path";
 import {
   RadarQueryError,
   REPO_ROOT,
+  digestRadarCampaignRecipient,
   radarJsonbParam,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
@@ -122,10 +122,6 @@ interface BigQueryCampaignActivityRow extends Record<string, unknown> {
   period: string;
   metric: string;
   recipients_with_activity: number | string;
-}
-
-function recipientFingerprint(email: string): string {
-  return crypto.createHash("sha256").update(email).digest("hex");
 }
 
 function campaignRowsFromBigQuery(
@@ -394,11 +390,15 @@ export async function runCampaignFollowup(
                     name: "recipients_json",
                     type: "STRING",
                     value: JSON.stringify(
-                      recipients.map((recipient) => ({
-                        email_hash: recipientFingerprint(recipient.email),
-                        sent_at: recipient.sent_at,
-                        recipient_app: recipient.app,
-                      })),
+                      await Promise.all(
+                        recipients.map(async (recipient) => ({
+                          email_hash: await digestRadarCampaignRecipient(
+                            recipient.email,
+                          ),
+                          sent_at: recipient.sent_at,
+                          recipient_app: recipient.app,
+                        })),
+                      ),
                     ),
                   },
                   {

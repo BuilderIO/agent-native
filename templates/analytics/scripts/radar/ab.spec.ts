@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBigQueryAbSql, buildPostgresAbSql } from "./ab.ts";
+import {
+  buildBigQueryAbSql,
+  buildPostgresAbSql,
+  isConfiguredAbVariant,
+} from "./ab.ts";
 
 describe("experiment cohort SQL", () => {
+  it.each([
+    ["PostgreSQL", buildPostgresAbSql()],
+    ["BigQuery", buildBigQueryAbSql("`project.analytics.events_query_range`")],
+  ])("only selects configured experiment variants (%s)", (_name, sql) => {
+    expect(sql).toContain("'control', 'credits'");
+  });
+
   it.each([
     ["PostgreSQL", buildPostgresAbSql()],
     ["BigQuery", buildBigQueryAbSql("`project.analytics.events_query_range`")],
@@ -36,6 +47,19 @@ describe("experiment cohort SQL", () => {
       expect(sql).toContain(cutoff);
       expect(sql).toContain("d1_mature");
       expect(sql).toContain("d7_mature");
+    },
+  );
+});
+
+describe("configured experiment variants", () => {
+  it.each(["control", "credits"])("accepts %s", (variant) => {
+    expect(isConfiguredAbVariant(variant)).toBe(true);
+  });
+
+  it.each(["unexpected-arm", "control\nprivate text", null, undefined, 2])(
+    "rejects unconfigured values without exposing them",
+    (variant) => {
+      expect(isConfiguredAbVariant(variant)).toBe(false);
     },
   );
 });
