@@ -1,7 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -67,27 +68,6 @@ export default defineAction({
       throw new Error(`Change-set state is not reviewable: ${changeSet.state}`);
     }
 
-    if (changeSet.state === "approved" && args.decision === "reject") {
-      const [execution] = await getDb()
-        .select({ id: schema.contentDatabaseSourceExecutions.id })
-        .from(schema.contentDatabaseSourceExecutions)
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
-            eq(
-              schema.contentDatabaseSourceExecutions.changeSetId,
-              changeSet.id,
-            ),
-          ),
-        )
-        .limit(1);
-      if (execution) {
-        throw new Error(
-          "Cannot reject an approved change-set after an execution gate has been prepared.",
-        );
-      }
-    }
-
     const now = new Date().toISOString();
     const stateTo = args.decision === "approve" ? "approved" : "rejected";
     const reviewerEmail =
@@ -98,6 +78,33 @@ export default defineAction({
       // Staging and pushes change review items under this lock. The decision
       // applies only to the item as the reviewer read it.
       await lockContentDatabaseMutation(db, database.id);
+      // The lock can be held a while, so access is checked again.
+      await assertAccess("document", database.documentId, "editor", {
+        ...currentAccess(),
+        transaction: getDbExec(),
+      });
+      // A push claims an approved item under this lock, so a gate prepared
+      // after this check can't be claimed once the item is rejected.
+      if (changeSet.state === "approved" && args.decision === "reject") {
+        const [execution = null] = await db
+          .select({ id: schema.contentDatabaseSourceExecutions.id })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
+              eq(
+                schema.contentDatabaseSourceExecutions.changeSetId,
+                changeSet.id,
+              ),
+            ),
+          )
+          .limit(1);
+        if (execution) {
+          throw new Error(
+            "Cannot reject an approved change-set after an execution gate has been prepared.",
+          );
+        }
+      }
       const [decided = null] = await db
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
@@ -112,6 +119,16 @@ export default defineAction({
               schema.contentDatabaseSourceChangeSets.updatedAt,
               changeSet.updatedAt,
             ),
+            eq(
+              schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+              changeSet.fieldChangesJson,
+            ),
+            changeSet.bodyChangeJson === null
+              ? isNull(schema.contentDatabaseSourceChangeSets.bodyChangeJson)
+              : eq(
+                  schema.contentDatabaseSourceChangeSets.bodyChangeJson,
+                  changeSet.bodyChangeJson,
+                ),
           ),
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });

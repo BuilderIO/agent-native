@@ -2952,6 +2952,8 @@ async function materializeBodyReadFieldValues(
   );
   const documentIds = args.rows.map((row) => row.documentId);
   await lockDocumentRows(tx as ReturnType<typeof getDb>, documentIds);
+  const titleUpdates: Array<{ id: string; value: string }> = [];
+  const editConflicts: Array<{ id: string; value: string }> = [];
   for (const idChunk of chunks(documentIds, idChunkSize())) {
     // guard:allow-unscoped — reads the titles of the source's own pages, which this body read locked with their rows.
     const documents: Array<{ id: string; title: string }> = await tx
@@ -2996,10 +2998,7 @@ async function materializeBodyReadFieldValues(
         displayKey: row.sourceDisplayKey,
       });
       if (read.title) {
-        await tx
-          .update(schema.documents)
-          .set({ title: read.title, updatedAt: args.now })
-          .where(eq(schema.documents.id, row.documentId));
+        titleUpdates.push({ id: row.documentId, value: read.title });
       }
       const nextSourceValues = withBuilderCmsEditConflicts(sourceValues, {
         ownedKeys: [BUILDER_CMS_TITLE_CONFLICT_KEY],
@@ -3009,16 +3008,15 @@ async function materializeBodyReadFieldValues(
         stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) !==
         stableValueString(sourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY])
       ) {
-        await tx
-          .update(schema.contentDatabaseSourceRows)
-          .set({
-            sourceValuesJson: JSON.stringify(nextSourceValues),
-            updatedAt: args.now,
-          })
-          .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+        editConflicts.push({
+          id: row.id,
+          value: JSON.stringify(nextSourceValues),
+        });
       }
     }
   }
+  await writeDocumentTitles(tx, titleUpdates, args.now);
+  await writeSourceValuesJson(tx, editConflicts, args.now);
 }
 
 type PreparedPristineBuilderBodyHydration = {
@@ -3042,6 +3040,56 @@ function hydrationCaseSql<T>(
 ) {
   const cases = values.map(({ id, value }) => sql`WHEN ${id} THEN ${value}`);
   return sql<T>`CASE ${idColumn} ${sql.join(cases, sql` `)} ELSE ${fallbackColumn} END`;
+}
+
+async function writeDocumentTitles(
+  tx: ReturnType<typeof getDb>,
+  updates: Array<{ id: string; value: string }>,
+  now: string,
+) {
+  for (const batch of chunks(updates, bulkChunkSizeForColumnCount(3))) {
+    await tx
+      .update(schema.documents)
+      .set({
+        title: hydrationCaseSql(
+          schema.documents.id,
+          schema.documents.title,
+          batch,
+        ),
+        updatedAt: now,
+      })
+      .where(
+        inArray(
+          schema.documents.id,
+          batch.map((update) => update.id),
+        ),
+      );
+  }
+}
+
+async function writeSourceValuesJson(
+  tx: ReturnType<typeof getDb>,
+  updates: Array<{ id: string; value: string }>,
+  now: string,
+) {
+  for (const batch of chunks(updates, bulkChunkSizeForColumnCount(3))) {
+    await tx
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: hydrationCaseSql(
+          schema.contentDatabaseSourceRows.id,
+          schema.contentDatabaseSourceRows.sourceValuesJson,
+          batch,
+        ),
+        updatedAt: now,
+      })
+      .where(
+        inArray(
+          schema.contentDatabaseSourceRows.id,
+          batch.map((update) => update.id),
+        ),
+      );
+  }
 }
 
 const BUILDER_BODY_HYDRATION_SOURCE_ROW_CHANGED =
@@ -6795,24 +6843,7 @@ async function refreshBuilderPageTitles(
         : { ...row, sourceValuesJson: JSON.stringify(nextSourceValues) },
     );
   }
-  for (const batch of chunks(titleUpdates, bulkChunkSizeForColumnCount(3))) {
-    await tx
-      .update(schema.documents)
-      .set({
-        title: hydrationCaseSql(
-          schema.documents.id,
-          schema.documents.title,
-          batch,
-        ),
-        updatedAt: args.now,
-      })
-      .where(
-        inArray(
-          schema.documents.id,
-          batch.map((update) => update.id),
-        ),
-      );
-  }
+  await writeDocumentTitles(tx, titleUpdates, args.now);
   return rows;
 }
 
@@ -7037,24 +7068,7 @@ async function materializeLockedSourceFieldPropertyValues(
     boundFields,
     args.documentIds,
   );
-  for (const batch of chunks(editConflicts, bulkChunkSizeForColumnCount(3))) {
-    await tx
-      .update(schema.contentDatabaseSourceRows)
-      .set({
-        sourceValuesJson: hydrationCaseSql(
-          schema.contentDatabaseSourceRows.id,
-          schema.contentDatabaseSourceRows.sourceValuesJson,
-          batch,
-        ),
-        updatedAt: args.now,
-      })
-      .where(
-        inArray(
-          schema.contentDatabaseSourceRows.id,
-          batch.map((update) => update.id),
-        ),
-      );
-  }
+  await writeSourceValuesJson(tx, editConflicts, args.now);
   await upsertSourcePropertyValues(tx, values);
 }
 

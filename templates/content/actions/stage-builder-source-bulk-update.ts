@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { assertAccess } from "@agent-native/core/sharing";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -20,6 +21,10 @@ import {
   normalizePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import {
+  parseContentDatabaseSourceFieldReadOnly,
+  parseContentDatabaseSourceWriteOwner,
+} from "../shared/source-field-policy.js";
 import { BUILDER_CMS_FIXTURE_ROW_PROVENANCE } from "./_builder-cms-source-adapter.js";
 import {
   readBuilderCmsEditConflicts,
@@ -335,6 +340,7 @@ type LockedSourceRow = {
 async function lockRowsForStage(args: {
   db: ReturnType<typeof getDb>;
   databaseId: string;
+  databaseDocumentId: string;
   sourceId: string;
   field: ContentDatabaseSourceFieldMapping;
   propertyId: string;
@@ -351,6 +357,11 @@ async function lockRowsForStage(args: {
   const db = args.db;
   const documentIds = args.rows.map((row) => row.documentId);
   await lockContentDatabaseMutation(db, args.databaseId);
+  // The lock can be held a while, so access is checked again.
+  await assertAccess("document", args.databaseDocumentId, "editor", {
+    ...currentAccess(),
+    transaction: getDbExec(),
+  });
   // Refreshes and pushes rewrite these rows under the same lock.
   await lockDatabaseMemberships(
     db,
@@ -389,6 +400,8 @@ async function lockRowsForStage(args: {
       propertyId: schema.contentDatabaseSourceFields.propertyId,
       localFieldKey: schema.contentDatabaseSourceFields.localFieldKey,
       sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
     })
     .from(schema.contentDatabaseSourceFields)
     .where(
@@ -400,7 +413,11 @@ async function lockRowsForStage(args: {
   if (
     lockedField?.propertyId !== args.propertyId ||
     lockedField.localFieldKey !== args.field.localFieldKey ||
-    lockedField.sourceFieldKey !== args.field.sourceFieldKey
+    lockedField.sourceFieldKey !== args.field.sourceFieldKey ||
+    parseContentDatabaseSourceWriteOwner(lockedField.writeOwner) !==
+      args.field.writeOwner ||
+    parseContentDatabaseSourceFieldReadOnly(lockedField.readOnly) !==
+      args.field.readOnly
   ) {
     fail(
       "The field's mapping changed while this update was staging. Choose the field and stage it again.",
@@ -759,6 +776,7 @@ async function stageBuilderSourceBulkUpdateWithDeps(
       const { openChangeSets, sourceRows } = await lockRowsForStage({
         db,
         databaseId: database.id,
+        databaseDocumentId: database.documentId,
         sourceId: source.id,
         field,
         propertyId,

@@ -844,6 +844,224 @@ describe("stage-builder-source-bulk-update", () => {
     ).toEqual([]);
   });
 
+  it.each([
+    { name: "read-only", policy: { readOnly: 1 } },
+    { name: "Content-owned", policy: { writeOwner: "local" } },
+  ])(
+    "refuses to stage when the field is made $name after the stage read it",
+    async ({ policy }) => {
+      const seeded = await seedBuilderDatabase({});
+      const [row] = seeded.rows;
+      snapshotRead.after = async () => {
+        await getDb()
+          .update(schema.contentDatabaseSourceFields)
+          .set(policy)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceFields.sourceId, seeded.sourceId),
+              eq(
+                schema.contentDatabaseSourceFields.propertyId,
+                seeded.propertyId,
+              ),
+            ),
+          );
+      };
+      try {
+        await expect(
+          asOwner(() =>
+            stageBulkUpdate.run({
+              documentId: seeded.databaseDocumentId,
+              sourceId: seeded.sourceId,
+              itemIds: [row.itemId],
+              field: { propertyId: seeded.propertyId, value: "Architects" },
+              dryRun: false,
+            }),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: "builder_bulk_stage_field_changed",
+        });
+      } finally {
+        snapshotRead.after = null;
+      }
+
+      expect(
+        await valuesFor(seeded.propertyId, [row.documentId]),
+      ).not.toContainEqual(
+        expect.objectContaining({ valueJson: JSON.stringify("Architects") }),
+      );
+    },
+  );
+
+  it("refuses a stage or review decision when collection access is revoked while it waits for the lock", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const [row] = seeded.rows;
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const collaborator = "collaborator@example.com";
+    const shareFilter = and(
+      eq(schema.documentShares.resourceId, seeded.databaseDocumentId),
+      eq(schema.documentShares.principalId, collaborator),
+    );
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: seeded.databaseDocumentId,
+        principalType: "user",
+        principalId: collaborator,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    const asCollaborator = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: collaborator }, fn);
+    const revokeBeforeLock = () => {
+      databaseLock.beforeNextLock = async () => {
+        await getDb()
+          .update(schema.documentShares)
+          .set({ role: "viewer" })
+          .where(shareFilter);
+      };
+    };
+    const revoked = `Requires editor role on document ${seeded.databaseDocumentId} (have viewer)`;
+    try {
+      revokeBeforeLock();
+      await expect(
+        asCollaborator(() =>
+          stageBulkUpdate.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            itemIds: [row.itemId],
+            field: { propertyId: seeded.propertyId, value: "Architects" },
+            dryRun: false,
+          }),
+        ),
+      ).rejects.toThrow(revoked);
+      await expect(
+        valuesFor(seeded.propertyId, [row.documentId]),
+      ).resolves.toEqual([]);
+
+      await getDb()
+        .update(schema.documentShares)
+        .set({ role: "editor" })
+        .where(shareFilter);
+      revokeBeforeLock();
+      await expect(
+        asCollaborator(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toThrow(revoked);
+      const [changeSet] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSetId));
+      expect(changeSet.state).toBe("pending_push");
+    } finally {
+      databaseLock.beforeNextLock = null;
+      await getDb().delete(schema.documentShares).where(shareFilter);
+    }
+  });
+
+  it("refuses a review decision on an item whose changes were rewritten after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    // Same state and timestamp, so only the changes tell it apart.
+    databaseLock.beforeNextLock = async () => {
+      await getDb()
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({ fieldChangesJson: "[]" })
+        .where(changeSetFilter);
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "source_change_set_changed",
+      });
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("pending_push");
+  });
+
+  it("refuses to reject an approved item whose push gate was prepared after the reviewer read it", async () => {
+    const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
+    const changeSetId = `change_${seeded.sourceId.slice("src_".length)}`;
+    const changeSetFilter = eq(
+      schema.contentDatabaseSourceChangeSets.id,
+      changeSetId,
+    );
+    await getDb()
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "approved" })
+      .where(changeSetFilter);
+    databaseLock.beforeNextLock = async () => {
+      const preparedAt = new Date().toISOString();
+      await getDb()
+        .insert(schema.contentDatabaseSourceExecutions)
+        .values({
+          id: `execution_${changeSetId}`,
+          ownerEmail: OWNER,
+          sourceId: seeded.sourceId,
+          changeSetId,
+          adapter: "builder-cms",
+          pushMode: "autosave",
+          state: "ready",
+          idempotencyKey: `builder-cms:${seeded.sourceId}:${changeSetId}:autosave`,
+          summary: "Ready.",
+          payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+          attemptToken: null,
+          lastError: null,
+          createdAt: preparedAt,
+          updatedAt: preparedAt,
+        });
+    };
+    try {
+      await expect(
+        asOwner(() =>
+          reviewChangeSet.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetId,
+            decision: "reject",
+          }),
+        ),
+      ).rejects.toThrow(
+        "Cannot reject an approved change-set after an execution gate has been prepared.",
+      );
+    } finally {
+      databaseLock.beforeNextLock = null;
+    }
+
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(changeSetFilter);
+    expect(changeSet.state).toBe("approved");
+  });
+
   it("keeps an edit when staging the other selected rows fails", async () => {
     const seeded = await seedBuilderDatabase({ existingOpenChangeIndex: 0 });
     const [editedRow, stagedRow] = seeded.rows;
