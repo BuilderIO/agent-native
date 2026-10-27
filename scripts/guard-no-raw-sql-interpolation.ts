@@ -49,6 +49,7 @@ function isExecuteCall(
     return symbol !== undefined && aliases.has(symbol);
   }
   return (
+    isExecuteMethodWrapper(expression, "apply", checker, sourceFile) ||
     isExecuteMethodWrapper(expression, "call", checker, sourceFile) ||
     isExecuteReference(expression, checker, sourceFile)
   );
@@ -59,9 +60,16 @@ function executeArgument(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): ts.Expression | undefined {
-  return isExecuteMethodWrapper(call.expression, "call", checker, sourceFile)
-    ? call.arguments[1]
-    : call.arguments[0];
+  if (isExecuteMethodWrapper(call.expression, "call", checker, sourceFile)) {
+    return call.arguments[1];
+  }
+  if (isExecuteMethodWrapper(call.expression, "apply", checker, sourceFile)) {
+    const args = call.arguments[1];
+    return args && ts.isArrayLiteralExpression(args)
+      ? args.elements[0]
+      : undefined;
+  }
+  return call.arguments[0];
 }
 
 function staticStringPropertyName(
@@ -197,7 +205,11 @@ function isCoreDbExecModule(moduleName: string, file: string): boolean {
 }
 
 function isDbExecFactoryName(name: string): boolean {
-  return name === "getDbExec" || name === "getScopedDbExec";
+  return (
+    name === "createDbExec" ||
+    name === "getDbExec" ||
+    name === "getScopedDbExec"
+  );
 }
 
 function isCoreStateMachineModule(moduleName: string, file: string): boolean {
@@ -524,6 +536,7 @@ function isDbExecExpression(
   let current = expression;
   while (
     ts.isParenthesizedExpression(current) ||
+    ts.isAwaitExpression(current) ||
     ts.isAsExpression(current) ||
     ts.isSatisfiesExpression(current) ||
     ts.isTypeAssertionExpression(current)
@@ -1038,7 +1051,7 @@ function isPostgresParameterFormatterCall(
 
 function isExecuteMethodWrapper(
   expression: ts.Expression,
-  method: "bind" | "call",
+  method: "apply" | "bind" | "call",
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
@@ -2773,15 +2786,120 @@ function gitGrepMatches(names: readonly string[]): string[] {
   }
 }
 
+function nodeTouchesAddedLines(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  addedLines: readonly number[],
+): boolean {
+  if (addedLines.length === 0) return false;
+  const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+  const endLine = lineNumberAt(sourceFile, node.end);
+  let lower = 0;
+  let upper = addedLines.length;
+  while (lower < upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    const line = addedLines[middle];
+    if (line !== undefined && line < startLine) lower = middle + 1;
+    else upper = middle;
+  }
+  const firstLine = addedLines[lower];
+  return firstLine !== undefined && firstLine <= endLine;
+}
+
+function changedSqlSourceSymbols(
+  analysis: SqlAnalysis,
+  addedLines: readonly number[],
+): Set<ts.Symbol> {
+  const symbols = new Set<ts.Symbol>();
+  for (const [symbol, assignments] of analysis.assignments) {
+    if (
+      assignments.some((assignment) =>
+        nodeTouchesAddedLines(assignment.node, analysis.sourceFile, addedLines),
+      )
+    ) {
+      symbols.add(symbol);
+    }
+  }
+  for (const [symbol, declarations] of analysis.functions) {
+    if (
+      declarations.some((declaration) =>
+        nodeTouchesAddedLines(declaration, analysis.sourceFile, addedLines),
+      )
+    ) {
+      symbols.add(symbol);
+    }
+  }
+  let previousSize = -1;
+  while (previousSize !== symbols.size) {
+    previousSize = symbols.size;
+    for (const [symbol, assignments] of analysis.assignments) {
+      if (
+        !symbols.has(symbol) &&
+        assignments.some((assignment) =>
+          referencesChangedSqlSource(assignment.expression, analysis, symbols),
+        )
+      ) {
+        symbols.add(symbol);
+      }
+    }
+    for (const [symbol, declarations] of analysis.functions) {
+      if (
+        !symbols.has(symbol) &&
+        declarations.some((declaration) =>
+          referencesChangedSqlSource(declaration, analysis, symbols),
+        )
+      ) {
+        symbols.add(symbol);
+      }
+    }
+  }
+  return symbols;
+}
+
+function referencesChangedSqlSource(
+  node: ts.Node,
+  analysis: SqlAnalysis,
+  changedSymbols: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (changedSymbols.size === 0) return false;
+  let found = false;
+  const visit = (current: ts.Node) => {
+    if (found) return;
+    if (ts.isIdentifier(current)) {
+      const symbol = analysis.checker.getSymbolAtLocation(current);
+      if (symbol && changedSymbols.has(symbol)) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
+}
+
 function hasInterpolatedTemplate(
   expression: ts.Expression,
   analysis: SqlAnalysis,
+  addedLines: readonly number[],
+  changedSymbols: ReadonlySet<ts.Symbol>,
 ): boolean {
+  const sourceFile = analysis.sourceFile;
+  if (
+    !nodeTouchesAddedLines(expression, sourceFile, addedLines) &&
+    !referencesChangedSqlSource(expression, analysis, changedSymbols)
+  ) {
+    return false;
+  }
+
   return [
     ...findUnsafeSqlSources(expression, analysis, new Set(), new Set(), true),
   ].some(
     (source) =>
-      ts.isTemplateExpression(source) || ts.isTaggedTemplateExpression(source),
+      (ts.isTemplateExpression(source) ||
+        ts.isTaggedTemplateExpression(source)) &&
+      (nodeTouchesAddedLines(source, sourceFile, addedLines) ||
+        referencesChangedSqlSource(source, analysis, changedSymbols)),
   );
 }
 
@@ -2800,12 +2918,21 @@ export function addChangedSqlExecuteWrapperModules(
     );
     const checker = createChecker(sourceFile);
     const analysis = buildSqlAnalysis(sourceFile, checker);
+    const addedLines = [...input.addedLines].sort(
+      (left, right) => left - right,
+    );
+    const changedSymbols = changedSqlSourceSymbols(analysis, addedLines);
     const calledNames = new Set<string>();
     const collectCalls = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
         node.arguments.some((argument) =>
-          hasInterpolatedTemplate(argument, analysis),
+          hasInterpolatedTemplate(
+            argument,
+            analysis,
+            addedLines,
+            changedSymbols,
+          ),
         )
       ) {
         if (ts.isIdentifier(node.expression)) {

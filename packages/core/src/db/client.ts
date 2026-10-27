@@ -921,7 +921,8 @@ export function toPostgresParams(
     }
     if (ch === "$") {
       const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
-      if (match) {
+      const previous = sql.charAt(i - 1);
+      if (match && !/[A-Za-z0-9_$]/.test(previous)) {
         dollarTag = match[0];
         out += dollarTag;
         i += dollarTag.length;

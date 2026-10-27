@@ -1371,6 +1371,16 @@ describe("toPostgresParams", () => {
     );
   });
 
+  it("does not treat dollar delimiters inside identifiers as dollar quotes", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT foo$bar$col FROM records WHERE id = ${sql.value("record-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe("SELECT foo$bar$col FROM records WHERE id = $1");
+  });
+
   it("converts placeholders after a backslash SQL string literal", async () => {
     const { toPostgresParams } = await import("./client.js");
 
