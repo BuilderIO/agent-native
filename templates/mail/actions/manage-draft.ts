@@ -189,15 +189,20 @@ async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Removes a Gmail draft this call saved when no Mail draft points at it.
- * The caller is already failing with the error that matters, so a failed
- * cleanup is logged rather than thrown in its place.
+ * Removes a Gmail draft this call saved when no Mail draft points at it, and
+ * returns whether it did. The caller is already failing with the error that
+ * matters, so a failed cleanup is logged rather than thrown in its place, and
+ * the caller names the draft left in Gmail.
  */
-async function discardUnstoredGmailDraft(gmailDraft: GmailDraftRef) {
+async function discardUnstoredGmailDraft(
+  gmailDraft: GmailDraftRef,
+): Promise<boolean> {
   try {
     await deleteGmailDraft(gmailDraft);
+    return true;
   } catch (error) {
     console.error("[manage-draft] unstored Gmail draft cleanup failed:", error);
+    return false;
   }
 }
 
@@ -212,7 +217,8 @@ type GmailDraftRef = {
  * whether it did. The write can commit before it throws, so a throw rereads
  * the key, and finding this draft there counts as stored. Anything else
  * means it wasn't: the Gmail draft this call saved, if any, is removed and
- * the error rethrown. If the reread fails too, the outcome is unknown, so
+ * the error rethrown. If that Gmail draft can't be removed, the error names
+ * it instead. If the reread fails too, the outcome is unknown, so
  * that Gmail draft stays (Mail may point at it) and the error says to check
  * before creating the draft again.
  */
@@ -253,7 +259,20 @@ async function storeNewComposeDraft(
       ? stored?.savedDraftId === draft.savedDraftId
       : isDeepStrictEqual(stored, draft);
     if (stillOurs) return true;
-    if (newGmailDraft) await discardUnstoredGmailDraft(newGmailDraft);
+    if (newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))) {
+      console.error(`[manage-draft] draft ${draft.id} write failed:`, error);
+      fail(
+        `Mail couldn't store draft "${draft.id}" or remove the Gmail draft it saved (${newGmailDraft.draftId}), which stays in Gmail's drafts.`,
+        {
+          errorCode: "draft_store_failed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            leftoverGmailDraftId: newGmailDraft.draftId,
+          },
+        },
+      );
+    }
     throw error;
   }
 }
@@ -437,11 +456,23 @@ export default defineAction({
             }
           : null;
       if (!(await storeNewComposeDraft(draft, newGmailDraft))) {
-        if (newGmailDraft) await discardUnstoredGmailDraft(newGmailDraft);
-        fail(`Draft "${id}" already exists; use update to revise it.`, {
-          errorCode: "draft_already_exists",
-          statusCode: 409,
-        });
+        const leftover =
+          newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))
+            ? newGmailDraft.draftId
+            : null;
+        const leftoverNote = leftover
+          ? ` The Gmail draft this call saved (${leftover}) couldn't be removed and stays in Gmail's drafts.`
+          : "";
+        fail(
+          `Draft "${id}" already exists; use update to revise it.${leftoverNote}`,
+          {
+            errorCode: "draft_already_exists",
+            statusCode: 409,
+            ...(leftover
+              ? { details: { draftId: id, leftoverGmailDraftId: leftover } }
+              : {}),
+          },
+        );
       }
       track(
         "draft_created",

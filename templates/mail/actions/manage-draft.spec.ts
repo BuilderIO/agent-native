@@ -812,8 +812,12 @@ describe("manage-draft create collisions", () => {
     await expect(
       action.run({ action: "create", id: "same-id", body: "New draft" }),
     ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "The Gmail draft this call saved (gmail-new) couldn't be removed",
+      ),
       errorCode: "draft_already_exists",
       statusCode: 409,
+      details: { draftId: "same-id", leftoverGmailDraftId: "gmail-new" },
     });
     expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
     consoleError.mockRestore();
@@ -896,7 +900,7 @@ describe("manage-draft create when the draft write throws", () => {
     consoleError.mockRestore();
   });
 
-  it("rethrows the write error when Gmail cleanup also fails", async () => {
+  it("names the Gmail draft it left behind when Gmail cleanup also fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -905,9 +909,21 @@ describe("manage-draft create when the draft write throws", () => {
 
     await expect(
       action.run({ action: "create", id: "fresh", body: "New draft" }),
-    ).rejects.toBe(writeError);
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "remove the Gmail draft it saved (gmail-new)",
+      ),
+      errorCode: "draft_store_failed",
+      statusCode: 503,
+      details: { draftId: "fresh", leftoverGmailDraftId: "gmail-new" },
+    });
 
+    expect(appState.has("compose-fresh")).toBe(false);
     expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("draft fresh write failed"),
+      writeError,
+    );
     consoleError.mockRestore();
   });
 });
