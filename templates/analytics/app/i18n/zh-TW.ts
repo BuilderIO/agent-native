@@ -1468,6 +1468,7 @@ export default {
     columnFormatCurrency: "貨幣",
     columnFormatPercent: "百分比",
     columnFormatDate: "日期",
+    columnFormatDuration: "時長（秒）",
     columnRename: "重新命名欄位",
     columnHide: "隱藏欄位",
     columnShow: '顯示"{{name}}"',

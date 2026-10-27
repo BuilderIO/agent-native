@@ -1466,6 +1466,7 @@ export default {
     columnFormatCurrency: "通貨",
     columnFormatPercent: "パーセント",
     columnFormatDate: "日付",
+    columnFormatDuration: "所要時間（秒）",
     columnRename: "列の名前を変更",
     columnHide: "列を非表示",
     columnShow: '"{{name}}" を表示',

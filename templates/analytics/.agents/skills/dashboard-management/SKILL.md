@@ -664,6 +664,19 @@ Read `custom-blocks` before creating, embedding, cloning, or repairing one.
 }
 ```
 
+## Value Formats
+
+Metric tiles, chart axes and tooltips take `config.yFormatter` (and
+`rightYFormatter`): `"number"`, `"currency"`, `"percent"`, or `"duration"`.
+Table columns take `config.columns[].format`: `"number"`, `"currency"`,
+`"percent"`, `"delta"`, `"date"`, `"link"`, `"text"`, or `"duration"`.
+
+For a time span (time to merge, CI run time, session length), return a number
+of **seconds** and use `"duration"`. It shows "45 sec", "16 min", "7.4 hours"
+or "3.1 days", a table sorts it by the number, and an empty cell shows "–".
+Don't turn durations into text such as "16 min" in SQL or a Data Program: text
+sorts "16 min" before "2 min".
+
 ## Filters And Variables
 
 `filters[]` defines dashboard-wide controls. Filter values are available in panel SQL through `{{var}}` interpolation. Date ranges emit `{{<id>Start}}` and `{{<id>End}}`.
