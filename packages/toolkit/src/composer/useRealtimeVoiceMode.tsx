@@ -147,6 +147,7 @@ export interface RealtimeVoiceToolResult {
   status: "completed" | "failed" | "approval_required";
   output: string;
   approvalKey?: string;
+  approvalId?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
   capability?: string;
   readOnly?: boolean;
@@ -528,6 +529,7 @@ interface PendingApproval {
   name: string;
   args: Record<string, unknown>;
   approvalKey: string;
+  approvalId: string | undefined;
   workCall: RealtimeVoiceWorkCall;
   workSegment: RealtimeVoiceWorkSegment | null;
 }
@@ -1229,6 +1231,9 @@ export async function executeRealtimeVoiceTool(input: {
   capability?: string | undefined;
   signal?: AbortSignal | undefined;
   approvedToolCalls?: readonly string[] | undefined;
+  approvalId?: string | undefined;
+  /** Declines that approval record instead of running the call. */
+  declinedApprovalId?: string | undefined;
 }): Promise<RealtimeVoiceToolResult> {
   const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
     method: "POST",
@@ -1250,6 +1255,10 @@ export async function executeRealtimeVoiceTool(input: {
       browserTabId: input.browserTabId,
       ...(input.approvedToolCalls?.length
         ? { approvedToolCalls: input.approvedToolCalls }
+        : {}),
+      ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+      ...(input.declinedApprovalId
+        ? { declinedApprovalId: input.declinedApprovalId }
         : {}),
     }),
     signal: input.signal,
@@ -2511,6 +2520,7 @@ function useRealtimeVoiceModeController(
           name: call.name,
           args: workCall.input,
           approvalKey,
+          approvalId: result.approvalId,
           workCall,
           workSegment,
         });
@@ -2551,6 +2561,7 @@ function useRealtimeVoiceModeController(
             capability: capabilityRef.current,
             signal: toolAbortController.signal,
             approvedToolCalls: [pending.approvalKey],
+            approvalId: pending.approvalId,
           });
         } catch (toolError) {
           result = {
@@ -2562,6 +2573,23 @@ function useRealtimeVoiceModeController(
           toolAbortControllersRef.current.delete(toolAbortController);
         }
         aborted = toolAbortController.signal.aborted;
+      } else if (pending.approvalId) {
+        // A declined record left pending would make a later identical
+        // request's approval ambiguous on the server.
+        await executeRealtimeVoiceTool({
+          name: pending.name,
+          args: pending.args,
+          callId: `${callId}_declined`,
+          sessionId: sessionIdRef.current,
+          browserTabId,
+          capability: capabilityRef.current,
+          declinedApprovalId: pending.approvalId,
+        }).catch((declineError: unknown) => {
+          console.warn(
+            "Could not record the declined voice approval.",
+            declineError,
+          );
+        });
       }
       finishPendingApproval(pending, aborted || !result ? null : result);
       if (

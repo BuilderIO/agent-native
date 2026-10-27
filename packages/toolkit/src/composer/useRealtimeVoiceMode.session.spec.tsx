@@ -296,13 +296,14 @@ describe("realtime voice session controls", () => {
           >;
           requests.push(body);
           return Response.json(
-            body.approvedToolCalls
+            body.approvedToolCalls || body.declinedApprovalId
               ? { callId: body.callId, status: "completed", output: "deleted" }
               : {
                   callId: body.callId,
                   status: "approval_required",
                   output: "Awaiting approval",
                   approvalKey: "delete-slide:key",
+                  approvalId: "approval-1",
                 },
           );
         }),
@@ -332,17 +333,16 @@ describe("realtime voice session controls", () => {
       });
 
       expect(session.api().approvals).toEqual([]);
-      expect(requests.slice(1)).toEqual(
+      expect(requests.slice(1)).toEqual([
         approved
-          ? [
-              expect.objectContaining({
-                name: "delete-slide",
-                args: { slideId: "s1" },
-                approvedToolCalls: ["delete-slide:key"],
-              }),
-            ]
-          : [],
-      );
+          ? expect.objectContaining({
+              name: "delete-slide",
+              args: { slideId: "s1" },
+              approvedToolCalls: ["delete-slide:key"],
+              approvalId: "approval-1",
+            })
+          : expect.objectContaining({ declinedApprovalId: "approval-1" }),
+      ]);
       expect(work.at(-1)?.calls.map((call) => call.status)).toEqual([
         approved ? "completed" : "cancelled",
       ]);

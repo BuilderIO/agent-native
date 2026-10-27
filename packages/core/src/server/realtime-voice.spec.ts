@@ -61,6 +61,7 @@ vi.mock("../agent/production-agent.js", () => ({
 const approvalStore = vi.hoisted(() => ({
   createAgentToolApproval: vi.fn(),
   consumeAgentToolApproval: vi.fn(),
+  denyAgentToolApproval: vi.fn(),
   isAgentToolAlwaysAllowed: vi.fn(),
 }));
 vi.mock("../agent/tool-approval-store.js", () => approvalStore);
@@ -2022,6 +2023,16 @@ describe("realtime voice tool route", () => {
       callId: "call_asked_approved",
     });
 
+    expect(asked.recordedApprovalId()).toBe("approval-1");
+    const exactRetry = realtimeVoiceApprovalHooks({
+      userEmail: "person@example.com",
+      sessionId: "voice-session-1",
+      callId: "call_exact",
+      approvedToolCalls: ["delete-slide:key"],
+      approvalId: "approval-1",
+    });
+    expect(exactRetry.approvedToolCallAskId).toBe("approval-1");
+
     await asked.isToolAlwaysAllowed(binding("call_asked"));
     expect(approvalStore.isAgentToolAlwaysAllowed).toHaveBeenCalledWith({
       ownerEmail: "person@example.com",
@@ -2048,6 +2059,59 @@ describe("realtime voice tool route", () => {
     });
     expect(event.statusCode).toBe(503);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("declines the approval record without running the call", async () => {
+    approvalStore.denyAgentToolApproval.mockResolvedValue("denied");
+    const executeTool = vi.fn();
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        {
+          name: "navigate",
+          args: {},
+          callId: "call_declined",
+          sessionId: "voice-session-1",
+          declinedApprovalId: "agent-tool-approval-1",
+        },
+        withToolCapability(capability),
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "completed" });
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(approvalStore.denyAgentToolApproval).toHaveBeenCalledWith({
+      approvalId: "agent-tool-approval-1",
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      threadId: "realtime:voice-session-1",
+    });
+  });
+
+  it("returns the approval record a call asked for", async () => {
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "approval_required",
+      output: "Awaiting approval",
+      approvalKey: "navigate:key",
+      approvalId: "agent-tool-approval-2",
+    });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    expect(
+      await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          { name: "navigate", args: {}, callId: "call_asks" },
+          withToolCapability(capability),
+        ),
+      ),
+    ).toMatchObject({
+      status: "approval_required",
+      approvalKey: "navigate:key",
+      approvalId: "agent-tool-approval-2",
+    });
   });
 
   it("never offers one person's MCP tools to another", async () => {

@@ -5069,8 +5069,10 @@ export function createAgentChatPlugin(
             .filter(Boolean)
             .join("\n\n");
         },
-        executeTool: async (request) =>
-          executeAgentToolCall({
+        executeTool: async (request) => {
+          const { recordedApprovalId, ...approvalHooks } =
+            realtimeVoiceApprovalHooks(request);
+          const result = await executeAgentToolCall({
             actions: request.actions,
             name: request.name,
             input: request.args,
@@ -5080,8 +5082,11 @@ export function createAgentChatPlugin(
             appId: options?.appId,
             threadId: realtimeVoiceThreadId(request),
             turnId: request.callId,
-            ...realtimeVoiceApprovalHooks(request),
-          }),
+            ...approvalHooks,
+          });
+          const approvalId = recordedApprovalId();
+          return approvalId ? { ...result, approvalId } : result;
+        },
       });
 
       // Wire the prod run-code bridge supplier so it sees the fully-assembled

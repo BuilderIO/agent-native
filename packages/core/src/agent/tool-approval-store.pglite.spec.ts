@@ -428,6 +428,64 @@ describe("voice chat approvals", () => {
     });
     expect(run).toHaveBeenCalledOnce();
   });
+
+  it("runs the exact approval the user approved after an identical request was declined", async () => {
+    const run = vi.fn(async () => ({ deleted: true }));
+    const actions = {
+      "delete-slide": defineAction({
+        description: "Delete a slide.",
+        schema: z.object({ slideId: z.string() }),
+        needsApproval: true,
+        run,
+      }) as unknown as ActionEntry,
+    };
+    const voiceCall = (
+      callId: string,
+      approval?: { key: string; id: string },
+    ) => {
+      const hooks = realtimeVoiceApprovalHooks({
+        userEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        sessionId: "voice-session-2",
+        callId,
+        ...(approval
+          ? { approvedToolCalls: [approval.key], approvalId: approval.id }
+          : {}),
+      });
+      const { recordedApprovalId, ...approvalHooks } = hooks;
+      return executeAgentToolCall({
+        actions,
+        name: "delete-slide",
+        input: { slideId: "s1" },
+        callId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+        turnId: callId,
+        ...approvalHooks,
+      }).then((result) => ({ result, approvalId: recordedApprovalId() }));
+    };
+
+    const declined = await voiceCall("call_first");
+    expect(
+      await denyAgentToolApproval({
+        approvalId: declined.approvalId!,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: "realtime:voice-session-2",
+      }),
+    ).toBe("denied");
+    // Left pending, the first record would sit beside this one.
+    const asked = await voiceCall("call_second");
+    await voiceCall("call_third");
+    const approved = await voiceCall("call_second_approved", {
+      key: asked.result.approvalKey!,
+      id: asked.approvalId!,
+    });
+
+    expect(approved.result).toMatchObject({ status: "completed" });
+    expect(run).toHaveBeenCalledOnce();
+  });
 });
 
 describe("tool approvals bound to a revision", () => {

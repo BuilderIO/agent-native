@@ -18,6 +18,7 @@ import {
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  denyAgentToolApproval,
   isAgentToolAlwaysAllowed,
   type AgentToolApprovalBinding,
 } from "../agent/tool-approval-store.js";
@@ -88,6 +89,7 @@ const MAX_APPROVED_TOOL_CALLS = 4;
 const REALTIME_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const CALL_ID = /^[A-Za-z0-9_-]{1,256}$/;
 const SESSION_ID = /^[A-Za-z0-9_.:-]{1,256}$/;
+const APPROVAL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const BROWSER_TAB_ID = /^[A-Za-z0-9_-]{1,96}$/;
 const ISO_639_1_LANGUAGE = /^[A-Za-z]{2}$/;
 const REALTIME_VOICE_BUILT_INS = new Set([
@@ -150,6 +152,8 @@ export interface RealtimeVoiceToolExecutionRequest extends RealtimeVoiceRequestC
    * server recorded an approval for in this voice session.
    */
   approvedToolCalls?: string[];
+  /** The approval record the user approved, from the call that asked. */
+  approvalId?: string;
   sessionId?: string;
 }
 
@@ -157,6 +161,8 @@ export interface RealtimeVoiceToolExecutionResult {
   status: "completed" | "failed" | "approval_required";
   output: string;
   approvalKey?: string;
+  /** The approval record the call asked for, so a decision names exactly it. */
+  approvalId?: string;
 }
 
 export interface RealtimeVoiceInstructions {
@@ -1003,10 +1009,20 @@ function parseToolRequest(value: unknown): {
   sessionId?: string;
   browserTabId?: string;
   approvedToolCalls?: string[];
+  approvalId?: string;
+  declinedApprovalId?: string;
 } | null {
   if (!isRecord(value)) return null;
-  const { name, args, callId, sessionId, browserTabId, approvedToolCalls } =
-    value;
+  const {
+    name,
+    args,
+    callId,
+    sessionId,
+    browserTabId,
+    approvedToolCalls,
+    approvalId,
+    declinedApprovalId,
+  } = value;
   if (typeof name !== "string" || !REALTIME_TOOL_NAME.test(name)) return null;
   if (typeof callId !== "string" || !CALL_ID.test(callId)) return null;
   if (!isRecord(args)) return null;
@@ -1035,6 +1051,11 @@ function parseToolRequest(value: unknown): {
   ) {
     return null;
   }
+  for (const id of [approvalId, declinedApprovalId]) {
+    if (id !== undefined && (typeof id !== "string" || !APPROVAL_ID.test(id))) {
+      return null;
+    }
+  }
   return {
     name,
     args,
@@ -1044,6 +1065,8 @@ function parseToolRequest(value: unknown): {
     ...(approvedToolCalls?.length
       ? { approvedToolCalls: approvedToolCalls as string[] }
       : {}),
+    ...(typeof approvalId === "string" ? { approvalId } : {}),
+    ...(typeof declinedApprovalId === "string" ? { declinedApprovalId } : {}),
   };
 }
 
@@ -1070,6 +1093,11 @@ function normalizeExecutionResult(
     result.approvalKey.length > 0 &&
     result.approvalKey.length <= MAX_APPROVAL_KEY_CHARS
       ? { approvalKey: result.approvalKey }
+      : {}),
+    ...(status === "approval_required" &&
+    typeof result.approvalId === "string" &&
+    APPROVAL_ID.test(result.approvalId)
+      ? { approvalId: result.approvalId }
       : {}),
   };
 }
@@ -1162,6 +1190,23 @@ function createToolHandler(
         },
       },
       async () => {
+        if (request.declinedApprovalId) {
+          const declined = await denyAgentToolApproval({
+            approvalId: request.declinedApprovalId,
+            ownerEmail: auth.userEmail,
+            orgId: auth.orgId ?? null,
+            threadId,
+          });
+          if (declined === "not_applied") setResponseStatus(event, 409);
+          return {
+            callId: request.callId,
+            status: declined === "not_applied" ? "failed" : "completed",
+            output:
+              declined === "not_applied"
+                ? "The approval could not be declined."
+                : "Declined; the call did not run.",
+          };
+        }
         try {
           const { actions, toolsByName } = await resolveTools(auth);
           const result = normalizeExecutionResult(
@@ -1230,9 +1275,15 @@ export function realtimeVoiceThreadId(request: {
 export function realtimeVoiceApprovalHooks(
   request: Pick<
     RealtimeVoiceToolExecutionRequest,
-    "userEmail" | "orgId" | "sessionId" | "callId" | "approvedToolCalls"
+    | "userEmail"
+    | "orgId"
+    | "sessionId"
+    | "callId"
+    | "approvedToolCalls"
+    | "approvalId"
   >,
 ) {
+  let recordedApprovalId: string | undefined;
   const scope = realtimeVoiceThreadId(request);
   const orgId = request.orgId ?? null;
   const storeBinding = (
@@ -1253,8 +1304,17 @@ export function realtimeVoiceApprovalHooks(
     ...(request.approvedToolCalls
       ? { approvedToolCalls: request.approvedToolCalls }
       : {}),
-    onApprovalRequired: (binding: AgentApprovalBinding) =>
-      createAgentToolApproval(storeBinding(binding)),
+    // Consuming that exact record keeps a duplicate pending request from
+    // making the match ambiguous.
+    ...(request.approvalId
+      ? { approvedToolCallAskId: request.approvalId }
+      : {}),
+    onApprovalRequired: async (binding: AgentApprovalBinding) => {
+      recordedApprovalId = await createAgentToolApproval(storeBinding(binding));
+      return recordedApprovalId;
+    },
+    /** The approval record this call asked for, once it asked. */
+    recordedApprovalId: () => recordedApprovalId,
     consumeApproval: (binding: AgentApprovalBinding) =>
       consumeAgentToolApproval(storeBinding(binding)),
     isToolAlwaysAllowed: (binding: AgentApprovalBinding) =>
