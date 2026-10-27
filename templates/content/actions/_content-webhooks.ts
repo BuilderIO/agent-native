@@ -40,6 +40,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { contentWebhookHeaders } from "../server/lib/content-webhook-signature.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   parsePropertyOptions,
   parsePropertyValue,
@@ -105,14 +106,6 @@ const TRASH_RECHECK_MS = 15 * 60_000;
 const MAX_VALUE_CHARS = 16_000;
 const MAX_COMMENT_CHARS = 2_000;
 const AGENT_CALLERS = new Set(["tool", "mcp", "webmcp", "a2a"]);
-
-/**
- * The first row a query returned, typed as possibly missing: Drizzle types an
- * empty result's first row as present, which hides the not-found check.
- */
-export function firstRow<T>(rows: readonly T[]): T | undefined {
-  return rows[0];
-}
 
 export function contentWebhookSecretRef(webhook: {
   secretKey: string;
