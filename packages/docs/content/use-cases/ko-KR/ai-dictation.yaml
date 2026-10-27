@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: 궁금한 점이 있으신가요? 답해 드릴게요
   items:
-    - q: Clips는 무료인가요?
+    - q: Agent-Native Clips는 무료인가요?
       a: "네. Agent-Native Clips는 무료 오픈 소스이고, 데스크톱 앱에서는 음성 받아쓰기가 기본으로 켜져 있어요. AI 정리는 Builder.io AI 크레딧이나 내 키로 실행되므로 무제한은 아니에요. Clips는 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
     - q: Clips는 컴퓨터에 내장된 받아쓰기와 무엇이 다른가요?
       a: "내장 받아쓰기는 설정 없이 쓸 수 있지만 [말한 내용의 검색 가능한 기록](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)은 남기지 않아요. Clips는 모든 받아쓰기를 원본과 정리된 텍스트로 저장하고, 내 용어를 배우고, AI로 텍스트를 다듬어요. Clips 에이전트는 내가 한 말을 찾아 횡설수설을 글머리 기호로 바꾸는 식으로 다시 정리해 줄 수도 있어요."

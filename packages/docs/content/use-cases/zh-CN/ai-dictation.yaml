@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: 有疑问？这里有答案
   items:
-    - q: Clips 免费吗？
+    - q: Agent-Native Clips 免费吗？
       a: 是的。Agent-Native Clips 免费且开源，桌面应用默认开启语音听写。AI 清理使用 Builder.io AI 额度或你自己的密钥运行，所以并非无限使用。Clips 目前处于 alpha 阶段，随着它成长还会有变化。
     - q: Clips 和我电脑自带的听写有什么不同？
       a: 自带的听写无需设置，但不会保留[可搜索的说话历史](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)。Clips 会保存每一次听写的原文和已清理的文字，学习你的用词，并用 AI 整理文字。Clips agent 能找到你说过的内容并改写，比如把一段絮叨整理成要点。

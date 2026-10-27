@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: Fragen? Wir haben Antworten
   items:
-    - q: Ist Clips kostenlos?
+    - q: Ist Agent-Native Clips kostenlos?
       a: Ja. Agent-Native Clips ist kostenlos und Open Source, und das Sprachdiktat ist in der Desktop-App standardmäßig aktiv. Die KI-Bereinigung läuft über Builder.io-KI-Guthaben oder Ihren eigenen Schlüssel und ist daher nicht unbegrenzt. Clips ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
     - q: Worin unterscheidet sich Clips vom Diktat, das mein Computer schon mitbringt?
       a: Das eingebaute Diktat braucht keine Einrichtung, führt aber keinen [durchsuchbaren Verlauf des Gesagten](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). Clips speichert jedes Diktat mit Original- und bereinigtem Text, lernt Ihre Wörter und glättet den Text mit KI. Der Clips-Agent kann Gesagtes finden und überarbeiten, etwa Gerede in Stichpunkte verwandeln.

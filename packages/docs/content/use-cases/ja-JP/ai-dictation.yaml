@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: よくある質問
   items:
-    - q: Clipsは無料ですか？
+    - q: Agent-Native Clipsは無料ですか？
       a: はい。Agent-Native Clipsは無料のオープンソースで、デスクトップアプリでは音声ディクテーションがデフォルトでオンです。AIクリーンアップはBuilder.io AIクレジットまたはご自身のキーで実行されるため、無制限ではありません。Clipsはアルファ版のため、今後変更が加わる可能性があります。
     - q: パソコン内蔵のディクテーションとは何が違いますか？
       a: 内蔵のディクテーションは設定不要ですが、[話した内容を検索できる履歴](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)は残りません。Clipsは、すべてのディクテーションを元のテキストとクリーンアップ後のテキストで保存し、あなたの言葉を学習して、AIでテキストを整えます。Clipsエージェントは、話した内容を探し出して、とりとめのない話を箇条書きにするなど書き直すこともできます。

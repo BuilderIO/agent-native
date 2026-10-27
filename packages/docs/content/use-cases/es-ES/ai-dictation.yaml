@@ -90,7 +90,7 @@ other_uses:
 faqs:
   heading: ¿Dudas? Aquí tienes las respuestas
   items:
-    - q: ¿Clips es gratis?
+    - q: ¿Agent-Native Clips es gratis?
       a: Sí. Agent-Native Clips es gratuito y de código abierto, y el dictado por voz viene activado por defecto en la aplicación de escritorio. La limpieza con IA funciona con créditos de IA de Builder.io o con tu propia clave, así que no es ilimitada. Clips está en alfa, así que espera cambios a medida que crece.
     - q: ¿En qué se diferencia Clips del dictado integrado en mi ordenador?
       a: El dictado integrado no necesita configuración, pero no guarda un [historial consultable de lo que dijiste](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). Clips guarda cada dictado con su texto original y limpio, aprende tus palabras y ordena el texto con IA. El agente de Clips puede encontrar lo que dijiste y reelaborarlo, por ejemplo convertir un discurso en viñetas.
