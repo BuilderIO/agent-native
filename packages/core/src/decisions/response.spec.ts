@@ -30,8 +30,8 @@ function parse(question: DecisionQuestion, answer: Record<string, unknown>) {
 }
 
 describe("parseDecisionAnswers", () => {
-  it("rejects duplicate choice probability values", () => {
-    expect(() =>
+  it("marks malformed choice probability values as a per-question failure", () => {
+    expect(
       parse(choiceQuestion, {
         type: "choice",
         choice: "billing",
@@ -40,11 +40,11 @@ describe("parseDecisionAnswers", () => {
           { value: "billing", probability: 0.4 },
         ],
       }),
-    ).toThrow(DecisionResponseError);
+    ).toMatchObject({ questionFailures: { route: "invalid_response" } });
   });
 
-  it("rejects duplicate score probability values", () => {
-    expect(() =>
+  it("marks malformed score probability values as a per-question failure", () => {
+    expect(
       parse(scoreQuestion, {
         type: "score",
         score: 1,
@@ -53,7 +53,7 @@ describe("parseDecisionAnswers", () => {
           { value: 1, probability: 0.4 },
         ],
       }),
-    ).toThrow(DecisionResponseError);
+    ).toMatchObject({ questionFailures: { urgency: "invalid_response" } });
   });
 
   it("rejects present invalid confidence values", () => {
@@ -65,12 +65,16 @@ describe("parseDecisionAnswers", () => {
       { question: scoreQuestion, answer: { type: "score", score: 1 } },
     ]) {
       for (const confidence of [Number.NaN, undefined]) {
-        expect(() =>
+        expect(
           parse(questionAnswer.question, {
             ...questionAnswer.answer,
             confidence,
           }),
-        ).toThrow(DecisionResponseError);
+        ).toMatchObject({
+          questionFailures: {
+            [questionAnswer.question.name]: "invalid_response",
+          },
+        });
       }
     }
   });
@@ -99,5 +103,38 @@ describe("parseDecisionAnswers", () => {
       probability: 0.8,
     });
     expect(Object.getPrototypeOf(result.answers)).toBe(Object.prototype);
+  });
+
+  it("keeps successful siblings when one answer is refused or omitted", () => {
+    const predicateQuestions: DecisionQuestion[] = [
+      { type: "predicate", name: "first", instructions: "First?" },
+      { type: "predicate", name: "second", instructions: "Second?" },
+      { type: "predicate", name: "third", instructions: "Third?" },
+    ];
+    const result = parseDecisionAnswers("openai", predicateQuestions, {
+      answers: [
+        { name: "first", type: "predicate", probability: 0.8 },
+        { name: "second", type: "refusal" },
+      ],
+    });
+
+    expect(result).toEqual({
+      answers: {
+        first: { type: "predicate", name: "first", probability: 0.8 },
+        second: { type: "refusal", name: "second" },
+      },
+      questionFailures: { third: "invalid_response" },
+    });
+  });
+
+  it("rejects answers for unknown questions", () => {
+    expect(() =>
+      parseDecisionAnswers("openai", [choiceQuestion], {
+        answers: [
+          { name: "route", type: "choice", choice: "billing" },
+          { name: "unexpected", type: "choice", choice: "billing" },
+        ],
+      }),
+    ).toThrow(DecisionResponseError);
   });
 });

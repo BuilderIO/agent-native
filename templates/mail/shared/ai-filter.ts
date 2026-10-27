@@ -8,6 +8,28 @@ export const AI_FILTER_RULE_NAME = "AI filter learned examples";
 export const AI_FILTER_MIN_LEARNED_EXAMPLES = 3;
 export const AI_FILTER_DEFAULT_THRESHOLD = 0.92;
 export const AI_FILTER_DEFAULT_SUGGESTION_THRESHOLD = 0.72;
+// Tune provider calibration through templates/mail-2/evals/triage.
+export const AI_FILTER_THRESHOLDS_BY_PROVIDER = {
+  jev: { match: 0.5, suggestion: 0.72, auto: 0.92 },
+  openai: { match: 0.5, suggestion: 0.72, auto: 0.92 },
+} as const;
+export type AiFilterDecisionProvider = keyof typeof AI_FILTER_THRESHOLDS_BY_PROVIDER;
+
+export function getAiFilterThreshold(
+  provider: AiFilterDecisionProvider,
+  kind: "match" | "suggestion" | "auto",
+  configuredValue?: number,
+): number {
+  const defaultValue =
+    kind === "auto"
+      ? AI_FILTER_DEFAULT_THRESHOLD
+      : kind === "suggestion"
+        ? AI_FILTER_DEFAULT_SUGGESTION_THRESHOLD
+        : AI_FILTER_THRESHOLDS_BY_PROVIDER.jev.match;
+  return configuredValue === undefined || configuredValue === defaultValue
+    ? AI_FILTER_THRESHOLDS_BY_PROVIDER[provider][kind]
+    : configuredValue;
+}
 
 export const AI_FILTER_ACTIONS: AutomationAction[] = [
   { type: "label", labelName: AI_FILTER_LABEL },
@@ -94,6 +116,13 @@ export const aiFilterPreviewMatchSchema = z.object({
   ruleId: z.string().min(1).max(64),
   confidence: z.number().min(0).max(1),
   reason: z.string().max(500).optional(),
+});
+
+export const aiFilterPreviewFailureSchema = z.object({
+  emailId: z.string().min(1).max(256),
+  accountEmail: z.string().email().optional(),
+  ruleId: z.string().min(1).max(64),
+  reason: z.enum(["invalid_response", "refusal"]),
 });
 
 export type AiFilterPreviewMatch = z.infer<typeof aiFilterPreviewMatchSchema>;

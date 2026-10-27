@@ -1,64 +1,73 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
+  getDecisionsStatus: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  isJevEnabled: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/decisions", () => ({
+  getDecisionsStatus: mocks.getDecisionsStatus,
+}));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
-  isJevEnabled: mocks.isJevEnabled,
 }));
 
 import action from "./get-jev-availability";
 
+function status(
+  providers: Array<{
+    provider: "jev" | "openai";
+    status: "ready" | "not_configured" | "unknown";
+  }>,
+) {
+  return { providers };
+}
+
 describe("get-jev-availability action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth: null,
-    });
-    mocks.isJevEnabled.mockResolvedValue(false);
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.getDecisionsStatus.mockResolvedValue(
+      status([
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "not_configured" },
+      ]),
+    );
   });
 
-  it("fails closed when Jev is unavailable", async () => {
-    await expect(action.run({})).resolves.toEqual({ configured: false });
-  });
-
-  it.each([
-    [
-      "a direct key",
-      {
-        apiKey: "jev-test-key",
-        personalApiKey: "jev-test-key",
-        builderAuth: null,
-      },
-    ],
-    [
-      "Builder entitlement",
-      {
-        apiKey: undefined,
-        personalApiKey: undefined,
-        builderAuth: { authorization: "Bearer test" },
-      },
-    ],
-  ])("reports configured with %s", async (_label, credentials) => {
-    mocks.getJevContextCredentials.mockResolvedValue(credentials);
-    mocks.isJevEnabled.mockResolvedValue(true);
+  it("keeps the configured result shape and accepts OpenAI-only access", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(
+      status([
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "ready" },
+      ]),
+    );
 
     await expect(action.run({})).resolves.toEqual({ configured: true });
-    expect(mocks.isJevEnabled).toHaveBeenCalledWith(credentials);
+    expect(mocks.getDecisionsStatus).toHaveBeenCalledWith("owner@example.test");
   });
 
-  it("does not look up credentials without an authenticated user", async () => {
-    mocks.getRequestUserEmail.mockReturnValue(undefined);
+  it("reports false only when all providers are known to be unavailable", async () => {
+    await expect(action.run({})).resolves.toEqual({ configured: false });
+  });
+
+  it("does not turn unknown provider status into not configured", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(
+      status([
+        { provider: "jev", status: "unknown" },
+        { provider: "openai", status: "not_configured" },
+      ]),
+    );
+
+    await expect(action.run({})).rejects.toThrow(
+      "Decision provider availability could not be checked.",
+    );
+  });
+
+  it("does not look up status without an authenticated user", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
 
     await expect(action.run({})).resolves.toEqual({ configured: false });
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.getDecisionsStatus).not.toHaveBeenCalled();
   });
 });

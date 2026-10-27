@@ -36,6 +36,10 @@ const decisionAnswerSchema = z.discriminatedUnion("type", [
       .optional(),
     confidence: z.number().optional(),
   }),
+  z.object({
+    type: z.literal("refusal"),
+    name: z.string(),
+  }),
 ]);
 const decisionOutputSchema = z.discriminatedUnion("status", [
   z.object({
@@ -43,6 +47,9 @@ const decisionOutputSchema = z.discriminatedUnion("status", [
     provider: providerSchema,
     model: z.string(),
     answers: z.record(z.string(), decisionAnswerSchema),
+    questionFailures: z
+      .record(z.string(), z.literal("invalid_response"))
+      .optional(),
     cached: z.boolean().optional(),
     usage: z
       .object({

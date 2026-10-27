@@ -1,4 +1,6 @@
 export { decide, getDecisionsStatus } from "./decide.js";
+export { JEV_DECISIONS_MODEL } from "./decide.js";
+export { OPENAI_DECISIONS_MODEL } from "./providers/openai.js";
 export { DECISION_PROVIDER_CAPABILITIES } from "./capabilities.js";
 export type {
   ChoiceQuestion,
@@ -11,6 +13,7 @@ export type {
   DecisionInputPart,
   DecisionProbability,
   DecisionProvider,
+  DecisionQuestionFailureReason,
   DecisionQuestion,
   DecisionQuestionCapability,
   DecisionQuestionType,

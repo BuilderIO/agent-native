@@ -34,8 +34,10 @@ const messages = {
       newest: "Mais recentes",
       priority: "Prioridade",
       priorityFailed: "Não foi possível ordenar a caixa de entrada.",
+      priorityPartialFailed:
+        "Não foi possível classificar {{count}} mensagens. Elas aparecem depois das mensagens avaliadas.",
       priorityScoreHelp:
-        "Uma pontuação maior significa que o Jev considera a mensagem mais importante.",
+        "Uma pontuação maior indica que esta mensagem tem mais chances de ser importante.",
       priorityFeedbackSuggestion:
         "Transforme esse padrão em uma regra de importância ou arquivamento automático.",
       priorityFeedbackAskAgent: "Pedir ao agente que sugira regras",
@@ -741,7 +743,7 @@ const messages = {
       freeBuilderOrApiKey:
         "Grátis com Builder.io ou adicione uma chave de API.",
       jevAvailabilityFailed:
-        "Não foi possível verificar se o Jev está disponível.",
+        "Não foi possível verificar se um provedor de decisões de IA está disponível.",
       connectBuilder: "Usar Builder.io",
       addJevApiKey: "Adicionar chave de API",
     },

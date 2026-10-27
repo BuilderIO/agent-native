@@ -63,6 +63,8 @@ describe("AI priority cache", () => {
         },
       ],
       "a".repeat(64),
+      "jev",
+      "jev-latest",
     );
 
     expect([...scores.values()].map(({ score }) => score)).toEqual([0.2, 0.9]);
@@ -76,5 +78,45 @@ describe("AI priority cache", () => {
         null,
       ).entries,
     ).toHaveLength(2);
+  });
+
+  it("keeps legacy entries Jev-only and separates provider/model caches", () => {
+    const cache = {
+      ...createEmptyAiPriorityCache(),
+      entries: [
+        entry("legacy", "a", 1, undefined, 0.7),
+        {
+          ...entry("current", "b", 2, undefined, 0.9),
+          provider: "openai" as const,
+          model: "gpt-6-luna",
+        },
+      ],
+    };
+    const emailKeys = [
+      { id: "legacy", fingerprint: "f".repeat(64) },
+      { id: "current", fingerprint: "f".repeat(64) },
+    ];
+
+    const jevScores = getCachedPriorityScores(
+      cache,
+      emailKeys,
+      "a".repeat(64),
+      "jev",
+      "jev-latest",
+    );
+    const openAiScores = getCachedPriorityScores(
+      cache,
+      emailKeys,
+      "b".repeat(64),
+      "openai",
+      "gpt-6-luna",
+    );
+
+    expect([...jevScores.values()].map(({ emailId }) => emailId)).toEqual([
+      "legacy",
+    ]);
+    expect([...openAiScores.values()].map(({ emailId }) => emailId)).toEqual([
+      "current",
+    ]);
   });
 });

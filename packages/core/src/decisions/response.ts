@@ -65,7 +65,9 @@ function answerForQuestion(
   value: unknown,
 ): DecisionAnswer {
   if (!isRecord(value)) throw new DecisionResponseError("invalid_response");
-  if (value.type === "refusal") throw new DecisionResponseError("refusal");
+  if (value.type === "refusal") {
+    return { type: "refusal", name: question.name };
+  }
 
   if (question.type === "predicate") {
     const expectedType = provider === "jev" ? "noul" : "predicate";
@@ -148,6 +150,7 @@ export function parseDecisionAnswers(
   value: unknown,
 ): {
   answers: Record<string, DecisionAnswer>;
+  questionFailures?: Record<string, "invalid_response">;
   usage?: { inputTokens?: number; outputTokens?: number };
 } {
   if (!isRecord(value)) throw new DecisionResponseError("invalid_response");
@@ -182,22 +185,45 @@ function buildParsedAnswers(
   rawUsage: unknown,
 ): {
   answers: Record<string, DecisionAnswer>;
+  questionFailures?: Record<string, "invalid_response">;
   usage?: { inputTokens?: number; outputTokens?: number };
 } {
-  if (values.size !== questions.length) {
+  const questionNames = new Set(questions.map(({ name }) => name));
+  if ([...values.keys()].some((name) => !questionNames.has(name))) {
     throw new DecisionResponseError("invalid_response");
   }
   const answers: Record<string, DecisionAnswer> = {};
+  const questionFailures: Record<string, "invalid_response"> = {};
   for (const question of questions) {
     if (!values.has(question.name)) {
-      throw new DecisionResponseError("invalid_response");
+      Object.defineProperty(questionFailures, question.name, {
+        configurable: true,
+        enumerable: true,
+        value: "invalid_response",
+        writable: true,
+      });
+      continue;
     }
-    Object.defineProperty(answers, question.name, {
-      configurable: true,
-      enumerable: true,
-      value: answerForQuestion(provider, question, values.get(question.name)),
-      writable: true,
-    });
+    try {
+      Object.defineProperty(answers, question.name, {
+        configurable: true,
+        enumerable: true,
+        value: answerForQuestion(
+          provider,
+          question,
+          values.get(question.name),
+        ),
+        writable: true,
+      });
+    } catch (error) {
+      if (!(error instanceof DecisionResponseError)) throw error;
+      Object.defineProperty(questionFailures, question.name, {
+        configurable: true,
+        enumerable: true,
+        value: "invalid_response",
+        writable: true,
+      });
+    }
   }
 
   let usage: { inputTokens?: number; outputTokens?: number } | undefined;
@@ -223,5 +249,9 @@ function buildParsedAnswers(
       };
     }
   }
-  return { answers, ...(usage ? { usage } : {}) };
+  return {
+    answers,
+    ...(Object.keys(questionFailures).length > 0 ? { questionFailures } : {}),
+    ...(usage ? { usage } : {}),
+  };
 }

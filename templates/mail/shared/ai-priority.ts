@@ -19,6 +19,13 @@ export const aiPriorityScoreSchema = z.object({
 });
 export type AiPriorityScore = z.infer<typeof aiPriorityScoreSchema>;
 
+export const aiPriorityFailureSchema = z.object({
+  emailId: z.string().min(1).max(256),
+  accountEmail: z.string().email().optional(),
+  reason: z.enum(["invalid_response", "refusal"]),
+});
+export type AiPriorityFailure = z.infer<typeof aiPriorityFailureSchema>;
+
 export function aiPriorityEmailKey(
   accountEmail: string | undefined,
   emailId: string,

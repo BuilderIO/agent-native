@@ -36,6 +36,18 @@ export const aiFilterBackfillStatusSchema = z.object({
   matchedThreads: z.number().int().nonnegative(),
   appliedThreads: z.number().int().nonnegative(),
   failedThreads: z.number().int().nonnegative(),
+  evaluatedCount: z.number().int().nonnegative().optional(),
+  failedCount: z.number().int().nonnegative().optional(),
+  decisionFailures: z
+    .array(
+      z.object({
+        emailId: z.string().min(1).max(256),
+        accountEmail: z.string().email().optional(),
+        ruleId: z.string().min(1).max(64),
+        reason: z.enum(["invalid_response", "refusal"]),
+      }),
+    )
+    .optional(),
   restoredThreads: z.number().int().nonnegative().optional(),
   undoFailures: z.number().int().nonnegative().optional(),
   perRule: z.array(aiFilterBackfillRuleProgressSchema),

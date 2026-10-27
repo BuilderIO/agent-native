@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  assertMailJevEnabled: vi.fn(),
+  assertMailDecisionProviderAvailable: vi.fn(),
   createAutomationRule: vi.fn(),
   getAccessTokens: vi.fn(),
   gmailGetMessage: vi.fn(),
@@ -44,7 +44,7 @@ vi.mock("../server/lib/automation-actions.js", () => ({
 }));
 
 vi.mock("../server/lib/automations.js", () => ({
-  assertMailJevEnabled: mocks.assertMailJevEnabled,
+  assertMailDecisionProviderAvailable: mocks.assertMailDecisionProviderAvailable,
   createAutomationRule: mocks.createAutomationRule,
   listAutomationRules: mocks.listAutomationRules,
 }));
@@ -107,8 +107,8 @@ describe("apply-ai-filter Jev gate", () => {
       (_ownerEmail: string, mutate: () => Promise<unknown>) => mutate(),
     );
     mocks.writeLocalEmails.mockResolvedValue(undefined);
-    mocks.assertMailJevEnabled.mockRejectedValue(
-      Object.assign(new Error("Jev is not enabled for this account."), {
+    mocks.assertMailDecisionProviderAvailable.mockRejectedValue(
+      Object.assign(new Error("Connect an AI provider to use Mail rules."), {
         errorCode: "jev_not_enabled",
         statusCode: 403,
       }),
@@ -121,7 +121,7 @@ describe("apply-ai-filter Jev gate", () => {
       settings: { enabled: false },
     });
 
-    expect(mocks.assertMailJevEnabled).not.toHaveBeenCalled();
+    expect(mocks.assertMailDecisionProviderAvailable).not.toHaveBeenCalled();
     expect(mocks.saveAiFilterState).toHaveBeenCalledWith("owner@example.test", {
       enabled: false,
     });
@@ -152,7 +152,7 @@ describe("apply-ai-filter Jev gate", () => {
   it.each(["filter", "keep"] as const)(
     "returns a change for successful %s updates without exposing subjects",
     async (mode) => {
-      mocks.assertMailJevEnabled.mockResolvedValue(undefined);
+      mocks.assertMailDecisionProviderAvailable.mockResolvedValue(undefined);
       mocks.readLocalEmails.mockResolvedValue([
         {
           id: "message-1",
@@ -185,7 +185,7 @@ describe("apply-ai-filter Jev gate", () => {
   );
 
   it("preserves a Gmail failure without returning a success change", async () => {
-    mocks.assertMailJevEnabled.mockResolvedValue(undefined);
+    mocks.assertMailDecisionProviderAvailable.mockResolvedValue(undefined);
     mocks.isConnected.mockResolvedValue(true);
     mocks.getAccessTokens.mockResolvedValue([
       { email: "owner@example.test", accessToken: "token" },
@@ -210,7 +210,7 @@ describe("apply-ai-filter Jev gate", () => {
       action.run({ mode: "settings", settings }),
     ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
 
-    expect(mocks.assertMailJevEnabled).toHaveBeenCalledWith(
+    expect(mocks.assertMailDecisionProviderAvailable).toHaveBeenCalledWith(
       "owner@example.test",
     );
     expect(mocks.saveAiFilterState).not.toHaveBeenCalled();

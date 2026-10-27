@@ -34,8 +34,10 @@ const messages = {
       newest: "Newest",
       priority: "Priority",
       priorityFailed: "Couldn’t rank this inbox.",
+      priorityPartialFailed:
+        "Couldn’t rank {{count}} messages. They’re shown after scored messages.",
       priorityScoreHelp:
-        "Higher scores mean Jev expects the message to be more important.",
+        "Higher scores mean this message is more likely to be important.",
       priorityFeedbackSuggestion:
         "Turn this feedback pattern into an importance or auto-archive rule.",
       priorityFeedbackAskAgent: "Ask agent to suggest rules",
@@ -715,7 +717,8 @@ const messages = {
       connectJev: "Connect Jev",
       connectJevToRunTriage: "Connect Jev to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
-      jevAvailabilityFailed: "Could not check whether Jev is available.",
+      jevAvailabilityFailed:
+        "Could not check whether an AI decision provider is available.",
       connectBuilder: "Use Builder.io",
       addJevApiKey: "Add API key",
     },

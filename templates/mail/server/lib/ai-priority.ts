@@ -14,6 +14,8 @@ const cacheEntrySchema = aiPriorityScoreSchema.extend({
   fingerprint: z.string().length(64),
   instructionKey: z.string().length(64),
   evaluatedAt: z.number().int().nonnegative(),
+  provider: z.enum(["openai", "jev"]).optional(),
+  model: z.string().optional(),
 });
 
 const cacheSchema = z.object({
@@ -22,6 +24,7 @@ const cacheSchema = z.object({
     .object({
       engine: z.string().optional(),
       model: z.string().optional(),
+      provider: z.enum(["openai", "jev"]).optional(),
     })
     .nullable(),
 });
@@ -67,10 +70,17 @@ export function getCachedPriorityScores(
     fingerprint: string;
   }>,
   instructionKey: string,
+  provider: "openai" | "jev",
+  model: string,
 ): Map<string, AiPriorityScore> {
   const entriesById = new Map(
     cache.entries
-      .filter((entry) => entry.instructionKey === instructionKey)
+      .filter(
+        (entry) =>
+          entry.instructionKey === instructionKey &&
+          (entry.provider ?? "jev") === provider &&
+          (entry.model ?? "jev-latest") === model,
+      )
       .map((entry) => [
         aiPriorityEmailKey(entry.accountEmail, entry.emailId),
         entry,
@@ -105,20 +115,38 @@ export function mergePriorityCache(
   model: AiPriorityCache["model"],
 ): AiPriorityCache {
   if (entries.length === 0) return cache;
-  const instructionKey = entries[0].instructionKey;
-  const byId = new Map(
-    cache.entries
-      .filter((entry) => entry.instructionKey === instructionKey)
-      .map((entry) => [
-        aiPriorityEmailKey(entry.accountEmail, entry.emailId),
-        entry,
+  const replaced = new Set(
+    entries.map((entry) =>
+      JSON.stringify([
+        entry.instructionKey,
+        entry.accountEmail ?? "",
+        entry.emailId,
       ]),
+    ),
   );
+  const byKey = new Map(
+    cache.entries.map((entry) => [
+      JSON.stringify([
+        entry.instructionKey,
+        entry.accountEmail ?? "",
+        entry.emailId,
+      ]),
+      entry,
+    ]),
+  );
+  for (const key of replaced) byKey.delete(key);
   for (const entry of entries) {
-    byId.set(aiPriorityEmailKey(entry.accountEmail, entry.emailId), entry);
+    byKey.set(
+      JSON.stringify([
+        entry.instructionKey,
+        entry.accountEmail ?? "",
+        entry.emailId,
+      ]),
+      entry,
+    );
   }
   return {
-    entries: [...byId.values()]
+    entries: [...byKey.values()]
       .sort((a, b) => b.evaluatedAt - a.evaluatedAt)
       .slice(0, AI_PRIORITY_MAX_EMAILS),
     model,

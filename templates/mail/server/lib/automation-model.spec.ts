@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
   getSetting: vi.fn(),
-  isJevEnabled: vi.fn(),
   isResolvedEngineUsableForRequest: vi.fn(),
-  readDeployCredentialEnv: vi.fn(),
   registerBuiltinEngines: vi.fn(),
   resolveEngine: vi.fn(),
 }));
@@ -17,9 +14,6 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   resolveEngine: mocks.resolveEngine,
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
-  isJevEnabled: mocks.isJevEnabled,
-  readDeployCredentialEnv: mocks.readDeployCredentialEnv,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
 }));
@@ -28,61 +22,22 @@ import {
   DEFAULT_AUTOMATION_ENGINE,
   DEFAULT_AUTOMATION_MODEL,
   resolveAutomationModelSettings,
-  TYPESAFE_AUTOMATION_ENGINE,
-  TYPESAFE_AUTOMATION_MODEL,
+  resolveTextAutomationModelSettings,
 } from "./automation-model.js";
 
-describe("Mail automation model defaults", () => {
+describe("Mail text model settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth: null,
-    });
-    mocks.readDeployCredentialEnv.mockReturnValue(undefined);
-    mocks.isJevEnabled.mockResolvedValue(false);
+    mocks.getSetting.mockResolvedValue(null);
     mocks.isResolvedEngineUsableForRequest.mockResolvedValue(true);
     mocks.resolveEngine.mockResolvedValue({
       defaultModel: DEFAULT_AUTOMATION_MODEL,
     });
   });
 
-  it.each([
-    [
-      "Builder entitlement",
-      {
-        apiKey: undefined,
-        personalApiKey: undefined,
-        builderAuth: { authorization: "Bearer test" },
-      },
-    ],
-    [
-      "a personal key",
-      {
-        apiKey: "personal-jev-key",
-        personalApiKey: "personal-jev-key",
-        builderAuth: null,
-      },
-    ],
-  ])("defaults to Jev when enabled through %s", async (_label, credential) => {
-    mocks.getJevContextCredentials.mockResolvedValue(credential);
-    mocks.isJevEnabled.mockResolvedValue(true);
-
+  it("defaults text generation to the available Builder model", async () => {
     await expect(
-      resolveAutomationModelSettings("owner@example.com", null),
-    ).resolves.toEqual({
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    });
-    expect(mocks.resolveEngine).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the regular model when Jev availability cannot be checked", async () => {
-    mocks.isJevEnabled.mockRejectedValue(new Error("Jev status unavailable"));
-
-    await expect(
-      resolveAutomationModelSettings("owner@example.com", null),
+      resolveTextAutomationModelSettings("owner@example.com"),
     ).resolves.toEqual({
       engine: DEFAULT_AUTOMATION_ENGINE,
       model: DEFAULT_AUTOMATION_MODEL,
@@ -92,24 +47,24 @@ describe("Mail automation model defaults", () => {
     });
   });
 
-  it("preserves the legacy Typesafe default for existing Mail deployments", async () => {
-    mocks.readDeployCredentialEnv.mockReturnValue("legacy-typesafe-key");
+  it("uses the saved default agent model when the standard providers are unavailable", async () => {
+    mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
+    mocks.getSetting.mockResolvedValue({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
 
     await expect(
-      resolveAutomationModelSettings("owner@example.com", null),
-    ).resolves.toEqual({
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    });
-    expect(mocks.resolveEngine).not.toHaveBeenCalled();
+      resolveTextAutomationModelSettings("owner@example.com"),
+    ).resolves.toEqual({ engine: "anthropic", model: "claude-sonnet-5" });
   });
 
-  it("does not resolve Jev when the user selected an explicit model", async () => {
-    const selected = { engine: "anthropic", model: "claude-test" };
+  it("preserves an explicitly selected text model", async () => {
+    const selected = { engine: "anthropic", model: "claude-sonnet-5" };
 
     await expect(
       resolveAutomationModelSettings("owner@example.com", selected),
     ).resolves.toEqual(selected);
-    expect(mocks.getJevContextCredentials).not.toHaveBeenCalled();
+    expect(mocks.resolveEngine).not.toHaveBeenCalled();
   });
 });

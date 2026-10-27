@@ -131,6 +131,58 @@ describe("decide", () => {
     expect(mocks.getJevContextCredentials).toHaveBeenCalledOnce();
   });
 
+  it("returns per-question failures without discarding sibling answers", async () => {
+    mocks.requestOpenAiDecision.mockResolvedValueOnce({
+      answers: [
+        { type: "predicate", name: "keep", probability: 0.8 },
+        { type: "refusal", name: "refused" },
+      ],
+    });
+    const questions = [
+      { type: "predicate" as const, name: "keep", instructions: "Keep?" },
+      { type: "predicate" as const, name: "refused", instructions: "Refuse?" },
+      { type: "predicate" as const, name: "missing", instructions: "Missing?" },
+    ];
+
+    const result = await decide({ ownerEmail, input: "mail", questions });
+
+    expect(result).toEqual({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: {
+        keep: { type: "predicate", name: "keep", probability: 0.8 },
+        refused: { type: "refusal", name: "refused" },
+      },
+      questionFailures: { missing: "invalid_response" },
+    });
+    await decide({ ownerEmail, input: "mail", questions });
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls through when a Builder Jev space reports the enterprise denial", async () => {
+    mocks.getJevContextCredentials.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: {
+        authorization: "Bearer fake-builder-session",
+        spaceId: "space-test",
+      },
+    });
+    mocks.isJevEnabled.mockResolvedValue(false);
+
+    const result = await decide({
+      ownerEmail,
+      input: "I was charged twice.",
+      questions: [choiceQuestion],
+      options: { providers: ["jev", "openai"] },
+    });
+
+    expect(result).toMatchObject({ status: "ok", provider: "openai" });
+    expect(mocks.requestJev).not.toHaveBeenCalled();
+    expect(mocks.requestOpenAiDecision).toHaveBeenCalledOnce();
+  });
+
   it("times out when OpenAI credential lookup exceeds the decision budget", async () => {
     vi.useFakeTimers();
     mocks.getOwnerApiKeyForEngine.mockReturnValue(new Promise(() => {}));

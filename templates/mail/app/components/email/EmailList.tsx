@@ -862,6 +862,21 @@ export function EmailList({
       const cache = priorityScoreCache(queryClient);
       const next = new Map(cache);
       const scoredKeys = new Set<string>();
+      const failedKeys = new Set<string>();
+      for (const failure of result.failures) {
+        const email =
+          failure.accountEmail === undefined
+            ? uniquePendingEmailById.get(failure.emailId)
+            : pendingEmailsByKey.get(
+                aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+              );
+        if (!email) throw new Error(t("mail.sort.priorityFailed"));
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
+        failedKeys.add(key);
+      }
       for (const score of result.scores) {
         const email =
           score.accountEmail === undefined
@@ -870,15 +885,12 @@ export function EmailList({
                 aiPriorityEmailKey(score.accountEmail, score.emailId),
               );
         if (!email) {
-          if (
-            score.accountEmail === undefined &&
-            uniquePendingEmailById.has(score.emailId)
-          ) {
-            throw new Error(t("mail.sort.priorityFailed"));
-          }
-          continue;
+          throw new Error(t("mail.sort.priorityFailed"));
         }
         const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (scoredKeys.has(key) || failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
         scoredKeys.add(key);
         const inputKey = pendingInputKeys.get(key);
         if (inputKey) {
@@ -887,17 +899,24 @@ export function EmailList({
           rememberPriorityScore(next, key, cachedScore);
         }
       }
-      if (scoredKeys.size !== uncachedPriorityEmails.length) {
+      if (
+        scoredKeys.size + failedKeys.size !== uncachedPriorityEmails.length
+      ) {
         throw new Error(t("mail.sort.priorityFailed"));
       }
       setPriorityScores(next);
-    } catch (error) {
+      if (result.failures.length > 0) {
+        toast.error(
+          t("mail.sort.priorityPartialFailed", {
+            count: result.failures.length,
+          }),
+        );
+      }
+    } catch {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
       onSortModeChange?.("newest");
-      toast.error(
-        error instanceof Error ? error.message : t("mail.sort.priorityFailed"),
-      );
+      toast.error(t("mail.sort.priorityFailed"));
     }
   }, [
     onSortModeChange,
@@ -949,9 +968,18 @@ export function EmailList({
                 (chronologicalIndexes.get(bKey) ?? 0)
               );
             }
+            const aScore = cachedPriorityScores.get(aKey);
+            const bScore = cachedPriorityScores.get(bKey);
+            if (aScore === undefined && bScore !== undefined) return 1;
+            if (aScore !== undefined && bScore === undefined) return -1;
+            if (
+              aScore !== undefined &&
+              bScore !== undefined &&
+              aScore !== bScore
+            ) {
+              return bScore - aScore;
+            }
             return (
-              (cachedPriorityScores.get(bKey) ?? 0.5) -
-                (cachedPriorityScores.get(aKey) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
                 new Date(a.latestMessage.date).getTime() ||
               b.latestMessage.id.localeCompare(a.latestMessage.id)

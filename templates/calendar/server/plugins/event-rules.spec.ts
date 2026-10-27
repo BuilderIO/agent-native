@@ -3,14 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   calendarListEvents: vi.fn(),
   getClientsForAccountsWithErrors: vi.fn(),
-  getJevContextCredentials: vi.fn(),
   getSetting: vi.fn(),
   getUserSetting: vi.fn(),
-  isJevEnabled: vi.fn(),
   listOAuthAccounts: vi.fn(),
   mutateUserSetting: vi.fn(),
   registerRecurringSweepHandler: vi.fn(),
-  requestJevThroughBuilder: vi.fn(),
+  decide: vi.fn(),
   getEvent: vi.fn(),
   rsvpEvent: vi.fn(),
   runWithRequestContext: vi.fn(),
@@ -19,11 +17,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   listOAuthAccounts: mocks.listOAuthAccounts,
 }));
+vi.mock("@agent-native/core/decisions", () => ({
+  decide: mocks.decide,
+}));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
-  isJevEnabled: mocks.isJevEnabled,
   registerRecurringSweepHandler: mocks.registerRecurringSweepHandler,
-  requestJevThroughBuilder: mocks.requestJevThroughBuilder,
   runWithRequestContext: mocks.runWithRequestContext,
   scheduledTriggerAvailability: () => ({ available: false }),
 }));
@@ -56,6 +54,21 @@ import {
   isEligibleInvitation,
   runCalendarEventRulesOnce,
 } from "./event-rules.js";
+
+function decision(probability: number) {
+  return {
+    status: "ok",
+    provider: "openai",
+    model: "gpt-6-luna",
+    answers: {
+      event_0_0: {
+        type: "predicate",
+        name: "event_0_0",
+        probability,
+      },
+    },
+  };
+}
 
 describe("calendar event rules sweep", () => {
   beforeEach(() => {
@@ -94,10 +107,17 @@ describe("calendar event rules sweep", () => {
     };
     let mutationQueue: Promise<unknown> = Promise.resolve();
     mocks.listOAuthAccounts.mockResolvedValue([{ owner }]);
-    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: { event_0_0: { noul: 1 } },
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: {
+        event_0_0: {
+          type: "predicate",
+          name: "event_0_0",
+          probability: 1,
+        },
+      },
     });
     mocks.getUserSetting.mockImplementation(
       async (email: string, key: string) => settingsByOwner[email]?.[key],
@@ -168,24 +188,24 @@ describe("calendar event rules sweep", () => {
     ).toBe(false);
   });
 
-  it("does not apply a Jev decision after the sweep is aborted", async () => {
+  it("does not apply a decision after the sweep is aborted", async () => {
     configureOwnerSweep();
-    let finishJev!: (response: { answers: Record<string, unknown> }) => void;
-    mocks.requestJevThroughBuilder.mockImplementationOnce(
+    let finishDecision!: (result: ReturnType<typeof decision>) => void;
+    mocks.decide.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          finishJev = resolve;
+          finishDecision = resolve;
         }),
     );
     const controller = new AbortController();
     const sweep = runCalendarEventRulesOnce(controller.signal);
 
     await vi.waitFor(() =>
-      expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1),
+      expect(mocks.decide).toHaveBeenCalledTimes(1),
     );
     const mutationCount = mocks.mutateUserSetting.mock.calls.length;
     controller.abort();
-    finishJev({ answers: { event_0_0: { noul: 1 } } });
+    finishDecision(decision(1));
 
     await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
     expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount);
@@ -446,11 +466,7 @@ describe("calendar event rules sweep", () => {
       { owner: "first@example.com" },
       { owner: "second@example.com" },
     ]);
-    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: { event_0_0: { noul: 1 } },
-    });
+    mocks.decide.mockResolvedValue(decision(1));
     mocks.getUserSetting.mockImplementation(
       async (owner: string, key: string) => settingsByOwner[owner]?.[key],
     );
@@ -599,11 +615,9 @@ describe("calendar event rules sweep", () => {
       attendees: [{ email: "one@example.com", responseStatus: "needsAction" }],
     };
     mocks.listOAuthAccounts.mockResolvedValue([{ owner: "owner@example.com" }]);
-    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.requestJevThroughBuilder
+    mocks.decide
       .mockRejectedValueOnce(new Error("Jev unavailable"))
-      .mockResolvedValue({ answers: { event_0_0: { noul: 0 } } });
+      .mockResolvedValue(decision(0));
     mocks.getUserSetting.mockImplementation(
       async (owner: string, key: string) => settingsByOwner[owner]?.[key],
     );
@@ -667,11 +681,7 @@ describe("calendar event rules sweep", () => {
     };
     let failActivityWrite = true;
     mocks.listOAuthAccounts.mockResolvedValue([{ owner }]);
-    mocks.getJevContextCredentials.mockResolvedValue({ builderAuth: "auth" });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: { event_0_0: { noul: 1 } },
-    });
+    mocks.decide.mockResolvedValue(decision(1));
     mocks.getUserSetting.mockImplementation(
       async (email: string, key: string) => settingsByOwner[email]?.[key],
     );
@@ -797,7 +807,7 @@ describe("calendar event rules sweep", () => {
     });
 
     expect(mocks.calendarListEvents).toHaveBeenCalledTimes(1);
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1);
+    expect(mocks.decide).toHaveBeenCalledTimes(1);
     expect(mocks.rsvpEvent).toHaveBeenCalledWith(
       "event-1",
       "accepted",
@@ -858,7 +868,7 @@ describe("calendar event rules sweep", () => {
 
     await runCalendarEventRulesOnce();
 
-    expect(mocks.requestJevThroughBuilder).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
@@ -868,7 +878,7 @@ describe("calendar event rules sweep", () => {
 
     await runCalendarEventRulesOnce();
 
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1);
+    expect(mocks.decide).toHaveBeenCalledTimes(1);
     expect(mocks.getEvent).toHaveBeenCalledTimes(1);
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
@@ -882,12 +892,12 @@ describe("calendar event rules sweep", () => {
     await runCalendarEventRulesOnce();
 
     expect(mocks.getSetting).toHaveBeenCalledTimes(2);
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1);
+    expect(mocks.decide).toHaveBeenCalledTimes(1);
     expect(mocks.getEvent).toHaveBeenCalledTimes(1);
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
-  it("tells Jev invitation content is untrusted and excludes attendee data", async () => {
+  it("tells the decision provider invitation content is untrusted and excludes attendee data", async () => {
     configureOwnerSweep({
       event: {
         id: "event-1",
@@ -904,20 +914,33 @@ describe("calendar event rules sweep", () => {
       },
     });
     let request: any;
-    mocks.requestJevThroughBuilder.mockImplementationOnce(
-      async (_auth: string, input: any) => {
-        request = input;
-        return { answers: { event_0_0: { noul: 0 } } };
-      },
-    );
+    mocks.decide.mockImplementationOnce(async (input: any) => {
+      request = input;
+      return decision(0);
+    });
 
     await runCalendarEventRulesOnce();
 
-    expect(request.questions.event_0_0.instructions).toContain(
+    expect(request.questions[0].instructions).toContain(
       "untrusted invitation data",
     );
-    expect(request.state.events[0]).not.toHaveProperty("attendees");
+    expect(request.input[0].value.events[0]).not.toHaveProperty("attendees");
     expect(JSON.stringify(request)).not.toContain("guest@example.com");
+  });
+
+  it("does not apply an event rule when one decision answer is incomplete", async () => {
+    configureOwnerSweep();
+    mocks.decide.mockResolvedValueOnce({
+      ...decision(1),
+      answers: {},
+      questionFailures: { event_0_0: "invalid_response" },
+    });
+
+    await expect(runCalendarEventRulesOnce()).rejects.toMatchObject({
+      name: "AggregateError",
+    });
+    expect(mocks.getEvent).not.toHaveBeenCalled();
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
   describe("runtime setting write volume", () => {
@@ -928,9 +951,7 @@ describe("calendar event rules sweep", () => {
 
     it("writes the runtime setting once for repeated sweeps with the same outcome", async () => {
       const { owner, settingsByOwner } = configureOwnerSweep();
-      mocks.requestJevThroughBuilder.mockResolvedValue({
-        answers: { event_0_0: { noul: 0 } },
-      });
+      mocks.decide.mockResolvedValue(decision(0));
 
       await runCalendarEventRulesOnce();
       const writesAfterFirstSweep = runtimeWrites();

@@ -3,9 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { aiPriorityEmailKey } from "../shared/ai-priority.js";
 
 const mocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
+  getDecisionsStatus: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  isJevEnabled: vi.fn(),
   getUserSetting: vi.fn(),
   getAiPriorityCache: vi.fn(),
   getCachedPriorityScores: vi.fn(),
@@ -13,12 +12,16 @@ const mocks = vi.hoisted(() => ({
   saveAiPriorityCache: vi.fn(),
   listAutomationRules: vi.fn(),
   previewAutomationPriority: vi.fn(),
+  cacheLookups: [] as Array<{ provider: string; model: string }>,
 }));
 
+vi.mock("@agent-native/core/decisions", () => ({
+  getDecisionsStatus: mocks.getDecisionsStatus,
+  JEV_DECISIONS_MODEL: "jev-latest",
+  OPENAI_DECISIONS_MODEL: "gpt-6-luna",
+}));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
-  isJevEnabled: mocks.isJevEnabled,
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
@@ -38,189 +41,267 @@ vi.mock("../server/lib/automation-engine.js", () => ({
 
 import action from "./get-ai-priority";
 
+const email = (id: string, accountEmail?: string) => ({
+  id,
+  threadId: `thread-${id}`,
+  ...(accountEmail ? { accountEmail } : {}),
+  from: "sender@example.test",
+  to: "owner@example.test",
+  subject: "Synthetic test message",
+  snippet: "No real email data.",
+  labelIds: ["INBOX"],
+  date: "2026-09-22T00:00:00.000Z",
+  isArchived: false,
+  isTrashed: false,
+});
+
+function status(
+  ready: Array<"jev" | "openai">,
+  providerOrder: Array<"jev" | "openai"> = ["jev", "openai"],
+) {
+  return {
+    providerOrder,
+    providers: (["jev", "openai"] as const).map((provider) => ({
+      provider,
+      status: ready.includes(provider) ? "ready" : "not_configured",
+    })),
+  };
+}
+
 describe("get-ai-priority action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.cacheLookups = [];
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
-    mocks.isJevEnabled.mockResolvedValue(false);
+    mocks.getDecisionsStatus.mockResolvedValue(status([]));
     mocks.getUserSetting.mockResolvedValue(null);
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      builderAuth: null,
-      personalApiKey: undefined,
-    });
     mocks.getAiPriorityCache.mockResolvedValue({ entries: [], model: null });
-    mocks.getCachedPriorityScores.mockReturnValue(new Map());
+    mocks.getCachedPriorityScores.mockImplementation(
+      (_cache, _emails, _key, provider, model) => {
+        mocks.cacheLookups.push({ provider, model });
+        return new Map();
+      },
+    );
     mocks.mergePriorityCache.mockImplementation((_cache, entries, model) => ({
       entries,
       model,
     }));
     mocks.listAutomationRules.mockResolvedValue([]);
     mocks.saveAiPriorityCache.mockResolvedValue({ entries: [], model: null });
-  });
-
-  it("rejects direct action calls when Jev is not configured", async () => {
-    await expect(action.run({ emails: [] })).rejects.toThrow(
-      /Jev is not enabled/,
-    );
-    expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
-  });
-
-  it("checks Jev entitlement even when Builder credentials resolve", async () => {
-    const credentials = {
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth: { authorization: "Bearer builder-test-token" },
-    };
-    mocks.getJevContextCredentials.mockResolvedValue(credentials);
-
-    await expect(action.run({ emails: [] })).rejects.toThrow(
-      /Jev is not enabled/,
-    );
-
-    expect(mocks.isJevEnabled).toHaveBeenCalledWith(credentials);
-    expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
-  });
-
-  it("reuses cached scores when only volatile labels change", async () => {
-    const fingerprints: string[][] = [];
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth: { authorization: "Bearer builder-test-token" },
-    });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.getCachedPriorityScores.mockImplementation(
-      (
-        _cache,
-        emails: Array<{
-          id: string;
-          accountEmail?: string;
-          fingerprint: string;
-        }>,
-      ) => {
-        fingerprints.push(emails.map((email) => email.fingerprint));
-        return new Map(
-          emails.map((email) => [
-            aiPriorityEmailKey(email.accountEmail, email.id),
-            { emailId: email.id, score: 0.8 },
-          ]),
-        );
-      },
-    );
-
-    const email = {
-      id: "email-1",
-      threadId: "thread-1",
-      from: "sender@example.test",
-      to: "owner@example.test",
-      subject: "Synthetic test message",
-      snippet: "No real email data.",
-      date: "2026-09-22T00:00:00.000Z",
-      isArchived: false,
-      isTrashed: false,
-    };
-    await action.run({ emails: [{ ...email, labelIds: ["INBOX"] }] });
-    await action.run({
-      emails: [
-        {
-          ...email,
-          labelIds: [
-            "INBOX",
-            "UNREAD",
-            "STARRED",
-            "agent-native-important",
-            "[superhuman]/ai/automated",
-          ],
-        },
-      ],
-    });
-
-    expect(fingerprints[1]).toEqual(fingerprints[0]);
-    expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
-  });
-
-  it("uses Builder credentials to score Mail Priority with Jev", async () => {
-    const builderAuth = {
-      authorization: "Bearer builder-test-token",
-      spaceId: "builder-space-1",
-      userId: "builder-user-1",
-    };
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth,
-    });
-    mocks.isJevEnabled.mockResolvedValue(true);
-    mocks.previewAutomationPriority.mockResolvedValue({
-      scores: new Map([
-        [aiPriorityEmailKey(undefined, "email-1"), { score: 0.9 }],
-      ]),
-      model: { engine: "typesafe", model: "typesafe/jev-latest" },
-    });
-
-    await action.run({
-      emails: [
-        {
-          id: "email-1",
-          threadId: "thread-1",
-          from: "sender@example.test",
-          to: "owner@example.test",
-          subject: "Synthetic test message",
-          snippet: "No real email data.",
-          labelIds: ["INBOX"],
-          date: "2026-09-22T00:00:00.000Z",
-          isArchived: false,
-          isTrashed: false,
-        },
-      ],
-    });
-
-    expect(mocks.previewAutomationPriority).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "email-1" })]),
-      "owner@example.com",
-      expect.any(String),
-      { apiKey: undefined, personalApiKey: undefined, builderAuth },
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("scores matching message IDs independently across accounts", async () => {
-    const model = { engine: "typesafe", model: "typesafe/jev-latest" };
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth: { authorization: "Bearer builder-test-token" },
-    });
-    mocks.isJevEnabled.mockResolvedValue(true);
     mocks.previewAutomationPriority.mockImplementation(
       async (emails: Array<{ id: string; accountEmail?: string }>) => ({
         scores: new Map(
-          emails.map((email) => [
-            aiPriorityEmailKey(email.accountEmail, email.id),
+          emails.map((item) => [
+            aiPriorityEmailKey(item.accountEmail, item.id),
             {
-              score: email.accountEmail === "first@example.test" ? 0.2 : 0.9,
+              score: 0.8,
+              provider: "openai",
+              model: "gpt-6-luna",
             },
           ]),
         ),
-        model,
+        failures: [],
+        evaluatedCount: emails.length,
+        failedCount: 0,
+        model: { provider: "openai", model: "gpt-6-luna" },
+      }),
+    );
+  });
+
+  it("returns a typed not-configured error when no decision provider is ready", async () => {
+    await expect(action.run({ emails: [] })).rejects.toMatchObject({
+      errorCode: "jev_not_enabled",
+      statusCode: 403,
+    });
+    expect(mocks.previewAutomationPriority).not.toHaveBeenCalled();
+  });
+
+  it("uses OpenAI when it is the only configured provider", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
+
+    const result = await action.run({ emails: [email("email-1")] });
+
+    expect(result.scores).toEqual([
+      { emailId: "email-1", score: 0.8 },
+    ]);
+    expect(result).toMatchObject({
+      eligibleCount: 1,
+      evaluatedCount: 1,
+      failedCount: 0,
+      model: { provider: "openai", model: "gpt-6-luna" },
+    });
+    expect(mocks.cacheLookups).toEqual([
+      { provider: "openai", model: "gpt-6-luna" },
+    ]);
+    expect(mocks.previewAutomationPriority).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "email-1" })],
+      "owner@example.com",
+      expect.any(String),
+      expect.any(AbortSignal),
+    );
+    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            emailId: "email-1",
+            provider: "openai",
+            model: "gpt-6-luna",
+          }),
+        ],
+        model: { provider: "openai", model: "gpt-6-luna" },
+      }),
+    );
+  });
+
+  it("keeps Jev-first provider selection when both providers are configured", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["jev", "openai"]));
+    mocks.previewAutomationPriority.mockResolvedValueOnce({
+      scores: new Map([
+        [aiPriorityEmailKey(undefined, "email-1"), {
+          score: 0.9,
+          provider: "jev",
+          model: "jev-latest",
+        }],
+      ]),
+      failures: [],
+      evaluatedCount: 1,
+      failedCount: 0,
+      model: { provider: "jev", model: "jev-latest" },
+    });
+
+    const result = await action.run({ emails: [email("email-1")] });
+
+    expect(mocks.cacheLookups[0]).toEqual({
+      provider: "jev",
+      model: "jev-latest",
+    });
+    expect(result.model).toEqual({ provider: "jev", model: "jev-latest" });
+    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        entries: [expect.objectContaining({ provider: "jev", model: "jev-latest" })],
+      }),
+    );
+  });
+
+  it("changes the cache provider identity when the ready provider changes", async () => {
+    mocks.getDecisionsStatus
+      .mockResolvedValueOnce(status(["openai"]))
+      .mockResolvedValueOnce(status(["jev"]));
+    mocks.previewAutomationPriority
+      .mockResolvedValueOnce({
+        scores: new Map([
+          [aiPriorityEmailKey(undefined, "email-1"), {
+            score: 0.4,
+            provider: "openai",
+            model: "gpt-6-luna",
+          }],
+        ]),
+        failures: [],
+        evaluatedCount: 1,
+        failedCount: 0,
+        model: { provider: "openai", model: "gpt-6-luna" },
+      })
+      .mockResolvedValueOnce({
+        scores: new Map([
+          [aiPriorityEmailKey(undefined, "email-1"), {
+            score: 0.7,
+            provider: "jev",
+            model: "jev-latest",
+          }],
+        ]),
+        failures: [],
+        evaluatedCount: 1,
+        failedCount: 0,
+        model: { provider: "jev", model: "jev-latest" },
+      });
+
+    await action.run({ emails: [email("email-1")] });
+    await action.run({ emails: [email("email-1")] });
+
+    expect(mocks.cacheLookups).toEqual([
+      { provider: "openai", model: "gpt-6-luna" },
+      { provider: "jev", model: "jev-latest" },
+    ]);
+    expect(mocks.previewAutomationPriority).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns successful scores with per-email failures and no fallback scores", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
+    mocks.previewAutomationPriority.mockResolvedValueOnce({
+      scores: new Map([
+        [aiPriorityEmailKey(undefined, "email-1"), {
+          score: 0.92,
+          provider: "openai",
+          model: "gpt-6-luna",
+        }],
+      ]),
+      failures: [
+        { emailId: "email-2", reason: "refusal" },
+      ],
+      evaluatedCount: 1,
+      failedCount: 1,
+      model: { provider: "openai", model: "gpt-6-luna" },
+    });
+
+    const result = await action.run({
+      emails: [email("email-1"), email("email-2")],
+    });
+
+    expect(result.scores).toEqual([{ emailId: "email-1", score: 0.92 }]);
+    expect(result).toMatchObject({
+      eligibleCount: 2,
+      evaluatedCount: 1,
+      failedCount: 1,
+      failures: [{ emailId: "email-2", reason: "refusal" }],
+    });
+    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        entries: [expect.objectContaining({ emailId: "email-1" })],
+      }),
+    );
+  });
+
+  it("falls through the unavailable Jev space to OpenAI", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
+
+    await action.run({ emails: [email("email-1")] });
+
+    expect(mocks.cacheLookups[0]).toEqual({
+      provider: "openai",
+      model: "gpt-6-luna",
+    });
+    expect(mocks.previewAutomationPriority).toHaveBeenCalledOnce();
+  });
+
+  it("scores matching message IDs independently across accounts", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
+    mocks.previewAutomationPriority.mockImplementationOnce(
+      async (emails: Array<{ id: string; accountEmail?: string }>) => ({
+        scores: new Map(
+          emails.map((item) => [
+            aiPriorityEmailKey(item.accountEmail, item.id),
+            {
+              score: item.accountEmail === "first@example.test" ? 0.2 : 0.9,
+              provider: "openai",
+              model: "gpt-6-luna",
+            },
+          ]),
+        ),
+        failures: [],
+        evaluatedCount: emails.length,
+        failedCount: 0,
+        model: { provider: "openai", model: "gpt-6-luna" },
       }),
     );
 
     const result = await action.run({
-      emails: ["first", "second"].map((account) => ({
-        id: "shared-message-id",
-        threadId: `thread-${account}`,
-        accountEmail: `${account}@example.test`,
-        from: "sender@example.test",
-        to: "owner@example.test",
-        subject: "Synthetic test message",
-        snippet: "No real email data.",
-        labelIds: ["INBOX"],
-        date: "2026-09-22T00:00:00.000Z",
-        isArchived: false,
-        isTrashed: false,
-      })),
+      emails: [
+        email("shared-message-id", "first@example.test"),
+        email("shared-message-id", "second@example.test"),
+      ],
     });
 
     expect(result.scores).toEqual([
@@ -235,22 +316,5 @@ describe("get-ai-priority action", () => {
         score: 0.9,
       },
     ]);
-    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
-      "owner@example.com",
-      expect.objectContaining({
-        entries: expect.arrayContaining([
-          expect.objectContaining({
-            emailId: "shared-message-id",
-            accountEmail: "first@example.test",
-            score: 0.2,
-          }),
-          expect.objectContaining({
-            emailId: "shared-message-id",
-            accountEmail: "second@example.test",
-            score: 0.9,
-          }),
-        ]),
-      }),
-    );
   });
 });

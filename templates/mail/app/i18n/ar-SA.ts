@@ -34,7 +34,9 @@ const messages = {
       newest: "الأحدث",
       priority: "الأولوية",
       priorityFailed: "تعذّر ترتيب الوارد.",
-      priorityScoreHelp: "تعني الدرجة الأعلى أن Jev يرى الرسالة أكثر أهمية.",
+      priorityPartialFailed:
+        "تعذّر ترتيب {{count}} من الرسائل. ستظهر بعد الرسائل التي تم تقييمها.",
+      priorityScoreHelp: "تعني الدرجة الأعلى أن احتمال أهمية هذه الرسالة أكبر.",
       priorityFeedbackSuggestion:
         "حوّل هذا النمط إلى قاعدة للأهمية أو للأرشفة التلقائية.",
       priorityFeedbackAskAgent: "اطلب من الوكيل اقتراح قواعد",
@@ -711,7 +713,7 @@ const messages = {
       connectJev: "ربط Jev",
       connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
-      jevAvailabilityFailed: "تعذّر التحقق مما إذا كان Jev متاحًا.",
+      jevAvailabilityFailed: "تعذّر التحقق من توفر مزوّد قرارات ذكاء اصطناعي.",
       connectBuilder: "استخدم Builder.io",
       addJevApiKey: "إضافة مفتاح API",
     },

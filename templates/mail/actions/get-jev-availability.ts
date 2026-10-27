@@ -1,14 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import {
-  getJevContextCredentials,
-  getRequestUserEmail,
-  isJevEnabled,
-} from "@agent-native/core/server";
+import { getDecisionsStatus } from "@agent-native/core/decisions";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Check whether Jev is configured for this account through Builder or a direct Jev API key.",
+    "Check whether a decision provider is configured for this account. Mail priority sort and AI rules use any ready provider.",
   schema: z.object({}),
   outputSchema: z.object({ configured: z.boolean() }),
   http: { method: "GET" },
@@ -17,7 +14,17 @@ export default defineAction({
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) return { configured: false };
-    const credentials = await getJevContextCredentials(ownerEmail);
-    return { configured: await isJevEnabled(credentials) };
+    const status = await getDecisionsStatus(ownerEmail);
+    if (
+      status.providers.some((provider) => provider.status === "unknown") &&
+      !status.providers.some((provider) => provider.status === "ready")
+    ) {
+      throw new Error("Decision provider availability could not be checked.");
+    }
+    return {
+      configured: status.providers.some(
+        (provider) => provider.status === "ready",
+      ),
+    };
   },
 });

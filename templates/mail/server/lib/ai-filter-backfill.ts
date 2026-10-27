@@ -39,6 +39,7 @@ import {
   type AiFilterPreviewRule,
   type AiFilterDecision,
   type AiFilterState,
+  getAiFilterThreshold,
   createDefaultAiFilterState,
 } from "../../shared/ai-filter.js";
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
@@ -104,7 +105,16 @@ type BackfillCandidate = {
   messageIds: string[];
 };
 
-type StoredMatch = Pick<RuleMatch, "ruleId" | "confidence" | "reason">;
+type StoredMatch = Pick<
+  RuleMatch,
+  "ruleId" | "confidence" | "reason" | "provider" | "model"
+>;
+type StoredDecisionFailure = {
+  emailId: string;
+  accountEmail?: string;
+  ruleId: string;
+  reason: "invalid_response" | "refusal";
+};
 type BackfillAiFilterSettings = Pick<
   AiFilterState,
   "autoFilter" | "autoFilterThreshold" | "suggestionThreshold" | "feedback"
@@ -134,6 +144,9 @@ type BackfillState = {
   candidates: BackfillCandidate[];
   candidateIndex: number;
   evaluations: Record<string, StoredMatch[]>;
+  evaluatedCount?: number;
+  failedCount?: number;
+  decisionFailures?: StoredDecisionFailure[];
   processedIds: string[];
   seenMatchIds: string[];
   pendingDecisions: AiFilterDecision[];
@@ -266,6 +279,9 @@ function emptyState(
     candidates: [],
     candidateIndex: 0,
     evaluations: {},
+    evaluatedCount: 0,
+    failedCount: 0,
+    decisionFailures: [],
     processedIds: [],
     seenMatchIds: [],
     pendingDecisions: [],
@@ -316,6 +332,9 @@ function parseState(raw: string): BackfillState {
   ) {
     throw new Error("Mail AI backfill progress is unreadable.");
   }
+  state.evaluatedCount ??= 0;
+  state.failedCount ??= 0;
+  state.decisionFailures ??= [];
   return state;
 }
 
@@ -445,6 +464,12 @@ function resultStatus(
   row: BackfillRow,
   state: BackfillState,
 ): AiFilterBackfillStatus {
+  const failedThreadKeys = new Set(state.failedKeys);
+  for (const failure of state.decisionFailures ?? []) {
+    failedThreadKeys.add(
+      JSON.stringify([failure.accountEmail ?? "", failure.emailId]),
+    );
+  }
   return {
     runId: row.id,
     status: row.status as BackfillStatus,
@@ -452,7 +477,12 @@ function resultStatus(
     processedThreads: state.processedThreads,
     matchedThreads: state.matchedThreadKeys.length,
     appliedThreads: state.appliedThreadKeys.length,
-    failedThreads: state.failedKeys.length,
+    failedThreads: failedThreadKeys.size,
+    evaluatedCount: state.evaluatedCount ?? 0,
+    failedCount: state.failedCount ?? 0,
+    ...(state.decisionFailures?.length
+      ? { decisionFailures: state.decisionFailures }
+      : {}),
     ...(row.status === "undone" || row.status === "failed"
       ? { restoredThreads: state.restoredThreads }
       : {}),
@@ -1641,16 +1671,34 @@ function shouldApply(
   aiFilterState: AiFilterState,
 ): "apply" | "suggest" | "ignore" {
   const archiving = rule.actions.some((action) => action.type === "archive");
+  const provider = match.provider ?? "jev";
   if (archiving) {
-    if (match.confidence >= aiFilterState.suggestionThreshold) {
+    if (
+      match.confidence >=
+      getAiFilterThreshold(
+        provider,
+        "suggestion",
+        aiFilterState.suggestionThreshold,
+      )
+    ) {
       return aiFilterState.autoFilter &&
-        match.confidence >= aiFilterState.autoFilterThreshold
+        match.confidence >=
+          getAiFilterThreshold(
+            provider,
+            "auto",
+            aiFilterState.autoFilterThreshold,
+          )
         ? "apply"
         : "suggest";
     }
     return "ignore";
   }
-  return match.confidence >= aiFilterState.suggestionThreshold
+  return match.confidence >=
+    getAiFilterThreshold(
+      provider,
+      "suggestion",
+      aiFilterState.suggestionThreshold,
+    )
     ? "apply"
     : "ignore";
 }
@@ -1701,15 +1749,12 @@ async function ensureEvaluations(
     .slice(state.candidateIndex, state.candidateIndex + THREADS_PER_TICK)
     .filter((candidate) => matchedForCandidate(candidate, state) === undefined);
   if (batch.length === 0) return true;
-  const matchMap = await evaluateAiFilterBackfillRules(
+  const evaluation = await evaluateAiFilterBackfillRules(
     batch.map((candidate) => candidate.email),
     state.rules,
     ownerEmail,
-    {
-      ...createDefaultAiFilterState(),
-      ...state.aiFilterSettings,
-    },
   );
+  const matchMap = evaluation.matches;
   if (matchMap.size !== batch.length) {
     throw new Error("Mail AI-filter evaluation did not classify every thread.");
   }
@@ -1724,9 +1769,11 @@ async function ensureEvaluations(
     }
     return [
       candidate.key,
-      matches.map(({ ruleId, confidence, reason }) => ({
+      matches.map(({ ruleId, confidence, reason, provider, model }) => ({
         ruleId,
         confidence,
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
         ...(reason ? { reason } : {}),
       })),
     ] as const;
@@ -1734,6 +1781,12 @@ async function ensureEvaluations(
   for (const [key, matches] of evaluations) {
     state.evaluations[key] = matches;
   }
+  state.evaluatedCount = (state.evaluatedCount ?? 0) + evaluation.evaluatedCount;
+  state.failedCount = (state.failedCount ?? 0) + evaluation.failedCount;
+  state.decisionFailures = [
+    ...(state.decisionFailures ?? []),
+    ...evaluation.failures,
+  ];
   return saveRunState(row.id, claimId, state, "running");
 }
 

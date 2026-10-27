@@ -1,10 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
-import {
-  getJevContextCredentials,
-  getRequestUserEmail,
-  isJevEnabled,
-} from "@agent-native/core/server";
+import { getDecisionsStatus } from "@agent-native/core/decisions";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   MAIL_SETTINGS_SECTIONS,
   mailSettingsRoute,
@@ -13,7 +10,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view, inbox sort, or email thread. Priority sort requires Jev access. Writes a navigate command to application state which the UI reads and auto-deletes; settings opens its URL in the current tab.",
+    "Navigate the UI to a specific view, inbox sort, or email thread. Priority sort requires a configured decision provider. Writes a navigate command to application state which the UI reads and auto-deletes; settings opens its URL in the current tab.",
   schema: z.object({
     view: z
       .string()
@@ -70,13 +67,20 @@ export default defineAction({
   run: async (args) => {
     if (args.sort === "priority") {
       const ownerEmail = getRequestUserEmail();
-      const credentials = ownerEmail
-        ? await getJevContextCredentials(ownerEmail)
+      const status = ownerEmail
+        ? await getDecisionsStatus(ownerEmail)
         : null;
-      if (!credentials || !(await isJevEnabled(credentials))) {
-        fail("Priority sort requires Jev to be enabled for this account.", {
+      if (
+        !status ||
+        !status.providers.some((provider) => provider.status === "ready")
+      ) {
+        fail("Priority sort requires an AI decision provider for this account.", {
           errorCode: "jev_not_enabled",
-          statusCode: 403,
+          statusCode: status?.providers.some(
+            (provider) => provider.status === "unknown",
+          )
+            ? 503
+            : 403,
         });
       }
     }

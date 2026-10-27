@@ -34,7 +34,7 @@ import type {
 } from "./types.js";
 import { validateDecisionInput } from "./validation.js";
 
-const JEV_MODEL = "jev-latest";
+export const JEV_DECISIONS_MODEL = "jev-latest";
 const DECISION_CACHE_TTL_MS = 60_000;
 const DECISION_CACHE_MAX_ENTRIES = 256;
 
@@ -144,7 +144,7 @@ function toJevRequest(
   questions: readonly DecisionQuestion[],
 ): JevRequest {
   return {
-    model: JEV_MODEL,
+    model: JEV_DECISIONS_MODEL,
     state: toJevState(input),
     questions: Object.fromEntries(
       questions.map((question) => [question.name, toJevQuestion(question)]),
@@ -393,7 +393,8 @@ export async function decide(input: {
       continue;
     }
 
-    const model = provider === "openai" ? OPENAI_DECISIONS_MODEL : JEV_MODEL;
+    const model =
+      provider === "openai" ? OPENAI_DECISIONS_MODEL : JEV_DECISIONS_MODEL;
     const key = getDecisionCacheKey(
       input.ownerEmail,
       provider,
@@ -446,10 +447,18 @@ export async function decide(input: {
         provider,
         model,
         answers: parsed.answers,
+        ...(parsed.questionFailures
+          ? { questionFailures: parsed.questionFailures }
+          : {}),
         ...(parsed.usage ? { usage: parsed.usage } : {}),
         ...(input.options?.cacheKey ? { cached: false } : {}),
       };
-      writeDecisionCache(key, result);
+      if (
+        !result.questionFailures &&
+        !Object.values(result.answers).some((answer) => answer.type === "refusal")
+      ) {
+        writeDecisionCache(key, result);
+      }
       return result;
     } catch (error) {
       if (input.options?.signal?.aborted) {

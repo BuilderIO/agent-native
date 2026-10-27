@@ -34,8 +34,10 @@ const messages = {
       newest: "नवीनतम",
       priority: "प्राथमिकता",
       priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
+      priorityPartialFailed:
+        "{{count}} संदेशों की प्राथमिकता तय नहीं हो सकी। वे स्कोर किए गए संदेशों के बाद दिखेंगे।",
       priorityScoreHelp:
-        "ज़्यादा स्कोर का मतलब है कि Jev इस संदेश को अधिक महत्वपूर्ण मानता है।",
+        "ज़्यादा स्कोर का मतलब है कि यह संदेश महत्वपूर्ण होने की अधिक संभावना है।",
       priorityFeedbackSuggestion:
         "इस पैटर्न को महत्व या अपने-आप संग्रह करने के नियम में बदलें।",
       priorityFeedbackAskAgent: "एजेंट से नियम सुझाने को कहें",
@@ -711,7 +713,8 @@ const messages = {
       connectJev: "Jev कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
-      jevAvailabilityFailed: "Jev उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
+      jevAvailabilityFailed:
+        "AI निर्णय प्रदाता उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
       connectBuilder: "Builder.io इस्तेमाल करें",
       addJevApiKey: "API कुंजी जोड़ें",
     },
