@@ -61,7 +61,7 @@ integrations:
         - name: Google Analytics
         - name: BigQuery
       body: エージェントは、これらのツールですでに集めている製品データや、アプリからAnalyticsに送られるイベントに対してクエリを実行します。
-    - title: リプレイをコーディングエージェントに貼り付け
+    - title: リプレイをエージェントに貼り付け
       logos:
         - name: Claude Code
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
@@ -88,7 +88,7 @@ other_uses:
     - title: 普段の言葉でデータに質問
       url: https://www.agent-native.com/use-cases/ask-your-database/
       body: BigQueryのデータに質問すると、エージェントが確認できる読み取り専用のSQLを書きます。
-    - title: スプレッドシートなしで週次マーケティングレポートを作成
+    - title: 表計算なしで週次マーケティングレポートを作成
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: マーケティングの1週間の成果を質問すると、エージェントがGoogle AnalyticsとHubSpotのデータからダッシュボードで答えます。
 faqs:

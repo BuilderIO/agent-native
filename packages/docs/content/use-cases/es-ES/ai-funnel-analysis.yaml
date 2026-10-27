@@ -88,7 +88,7 @@ other_uses:
     - title: Pregunta a tus datos en lenguaje natural
       url: https://www.agent-native.com/use-cases/ask-your-database/
       body: Haz preguntas sobre tus datos de BigQuery y el agente escribe SQL de solo lectura que puedes revisar.
-    - title: Haz tu informe semanal de marketing sin hojas de cálculo
+    - title: Haz tu informe semanal sin hojas de cálculo
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: Pregunta cómo fue tu semana de marketing y el agente responde con Google Analytics y HubSpot en un panel.
 faqs:

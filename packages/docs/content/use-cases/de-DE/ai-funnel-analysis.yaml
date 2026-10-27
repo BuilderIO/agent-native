@@ -45,7 +45,7 @@ features:
     - title: Die fehlgeschlagene Anfrage sehen
       body: Öffnen Sie **Dev-Tools** in einem Replay, um Konsole und Netzwerkanfragen zu lesen, und springen Sie zum Moment des Fehlers.
     - title: Geschwärzte Replays für Agenten
-      body: Ein externer Agent erhält Konsolen- und Netzwerkeinträge des Replays, Fehler zuerst, nie die Aufnahme selbst. Der Link läuft nach zwei Stunden ab.
+      body: Ein externer Agent erhält Konsolen- und Netzwerk-Logs des Replays, Fehler zuerst, nie die Aufnahme. Der Link gilt zwei Stunden.
     - title: Standardmäßig privat
       body: Eingaben werden in jedem Replay maskiert, und Sie wählen, welche anderen Teile der Seite verborgen bleiben.
     - title: Der Funnel jeden Tag
@@ -88,7 +88,7 @@ other_uses:
     - title: Ihren Daten Fragen in normaler Sprache stellen
       url: https://www.agent-native.com/use-cases/ask-your-database/
       body: Stellen Sie Fragen zu Ihren BigQuery-Daten, und der Agent schreibt prüfbares Read-only-SQL.
-    - title: Den Marketing-Wochenbericht ohne Tabellen erstellen
+    - title: Marketing-Wochenbericht ohne Tabellen erstellen
       url: https://www.agent-native.com/use-cases/weekly-marketing-report/
       body: Fragen Sie, wie Ihre Marketingwoche lief, und der Agent antwortet aus Google Analytics und HubSpot in einem Dashboard.
 faqs:
