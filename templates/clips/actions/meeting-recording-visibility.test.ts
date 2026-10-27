@@ -4,7 +4,6 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { PGlite } from "@electric-sql/pglite";
-import { eq } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import {
