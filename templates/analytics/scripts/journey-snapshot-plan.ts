@@ -15,7 +15,7 @@ export const SNAPSHOT_PRESET = Object.freeze({
   minWidth: 1100,
   maxWidth: 1920,
   minAspect: 1.25,
-  maxAspect: 1.85,
+  maxAspect: 1.8,
   requireKnownViewport: true,
   recency: "newest" as const,
   settleMs: 300,

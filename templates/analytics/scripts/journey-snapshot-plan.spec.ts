@@ -98,7 +98,7 @@ describe("weekly snapshot preset", () => {
       emailFilter: "exclude_builder",
       excludeNonProductionHosts: true,
       minAspect: 1.25,
-      maxAspect: 1.85,
+      maxAspect: 1.8,
     });
   });
 
