@@ -136,13 +136,17 @@ describe("undo in a Toggle's summary", () => {
       ),
     );
     await settle(300);
-    return { editor: captured.editor!, onChange };
+    const editor = captured.editor;
+    if (!editor) throw new Error("The editor didn't open");
+    return { editor, onChange };
   }
 
   function summaryInput(index: number) {
-    return container.querySelectorAll<HTMLInputElement>(
+    const input = container.querySelectorAll<HTMLInputElement>(
       "input.content-toggle__summary",
-    )[index]!;
+    )[index];
+    if (!input) throw new Error(`No Toggle summary at ${index}`);
+    return input;
   }
 
   function storedSummaries(editor: Editor) {
@@ -160,7 +164,7 @@ describe("undo in a Toggle's summary", () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )!.set!.call(input, value);
+      )?.set?.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await settle();
