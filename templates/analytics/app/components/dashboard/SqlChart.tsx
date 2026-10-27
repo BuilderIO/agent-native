@@ -37,7 +37,7 @@ import {
   type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
-import { numberTableColumns } from "@shared/table-columns";
+import { numberTableColumns, tableQuantity } from "@shared/table-columns";
 import {
   FUNNEL_OUTCOME_FILLS,
   FUNNEL_OUTCOME_SEGMENTS,
@@ -2480,6 +2480,8 @@ export function sortTableRows(
   rows: Record<string, unknown>[],
   sorts: TableSort[],
   columns: TableColumnConfig[] = [],
+  // The columns that line up as numbers, when the caller already has them.
+  numberColumns?: ReadonlySet<string>,
 ): Record<string, unknown>[] {
   if (sorts.length === 0) return rows;
 
@@ -2489,8 +2491,30 @@ export function sortTableRows(
   const isEmpty = (key: string, value: unknown) =>
     formats.get(key) === "duration" ? isEmptyDuration(value) : value == null;
 
+  // Text that reads as a number sorts by it, and a duration such as
+  // "4.8 days" by how long it is, in a column that lines up as numbers.
+  const numeric =
+    numberColumns ??
+    numberTableColumns(
+      sorts.map(
+        (sort) =>
+          columns.find((col) => col.key === sort.key) ?? { key: sort.key },
+      ),
+      rows,
+    );
+  const quantity = (key: string, value: unknown) =>
+    numericTableValue(value) ??
+    (numeric.has(key) ? tableQuantity(value) : null);
+
   return rows
-    .map((row, index) => ({ row, index }))
+    .map((row, index) => ({
+      row,
+      index,
+      // Read each sorted cell once, not on every comparison.
+      quantities: new Map<string, number | null>(
+        sorts.map((sort) => [sort.key, quantity(sort.key, row[sort.key])]),
+      ),
+    }))
     .sort((a, b) => {
       for (const sort of sorts) {
         const av = a.row[sort.key];
@@ -2501,8 +2525,8 @@ export function sortTableRows(
         if (aEmpty) return 1;
         if (bEmpty) return -1;
 
-        const an = numericTableValue(av);
-        const bn = numericTableValue(bv);
+        const an = a.quantities.get(sort.key) ?? null;
+        const bn = b.quantities.get(sort.key) ?? null;
 
         if (an !== null && bn === null) return -1;
         if (an === null && bn !== null) return 1;
@@ -3070,11 +3094,17 @@ function TableRenderer({
   const [requestedPage, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
 
+  // Formats, not widths, decide these, so resizing a column doesn't redo it.
+  const numberColumns = useMemo(
+    () => numberTableColumns(savedColumns, limitedRows),
+    [savedColumns, limitedRows],
+  );
+
   const sortedRows = useMemo(() => {
     return sortable
-      ? sortTableRows(limitedRows, sortColumns, savedColumns)
+      ? sortTableRows(limitedRows, sortColumns, savedColumns, numberColumns)
       : limitedRows;
-  }, [limitedRows, sortColumns, sortable, savedColumns]);
+  }, [limitedRows, sortColumns, sortable, savedColumns, numberColumns]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   // A refresh can return fewer rows than the page a viewer was on; show the
@@ -3082,10 +3112,6 @@ function TableRenderer({
   const page = Math.min(requestedPage, Math.max(pageCount - 1, 0));
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
 
-  const numberColumns = useMemo(
-    () => numberTableColumns(columns, limitedRows),
-    [columns, limitedRows],
-  );
   const fillKey = tableFillColumn(columns, numberColumns);
   // The fill column's max-width of 0 drops its content from the table's
   // minimum width, so it takes only the spare width; a width set on it (saved

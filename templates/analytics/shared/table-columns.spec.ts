@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { isNumericColumnFormat, numberTableColumns } from "./table-columns";
+import {
+  isNumericColumnFormat,
+  numberTableColumns,
+  tableQuantity,
+} from "./table-columns";
 
 describe("numberTableColumns", () => {
-  it("right-aligns number formats and text that is a number, maybe with a unit", () => {
+  it("right-aligns number formats and text that reads as a number", () => {
     const columns = numberTableColumns(
       [
         { key: "name" },
         { key: "count" },
         { key: "share", format: "percent" },
         { key: "wait" },
+        { key: "avgTime" },
         { key: "price" },
         { key: "code", format: "text" },
         { key: "day" },
@@ -23,6 +28,7 @@ describe("numberTableColumns", () => {
           count: "1,200",
           share: 0.4,
           wait: "4.8 days",
+          avgTime: "1m 42s",
           price: "$12.50",
           code: "123",
           day: "2026-10-01",
@@ -35,6 +41,7 @@ describe("numberTableColumns", () => {
           count: 7,
           share: 0.6,
           wait: "3 min",
+          avgTime: "0m 58s",
           price: "€8",
           code: "456",
           day: "2026-10-02",
@@ -44,16 +51,40 @@ describe("numberTableColumns", () => {
         },
       ],
     );
-    expect([...columns]).toEqual(["count", "share", "wait", "price", "code"]);
+    expect([...columns]).toEqual([
+      "count",
+      "share",
+      "wait",
+      "avgTime",
+      "price",
+    ]);
   });
 
-  it("keeps a column left when one value is not a number", () => {
+  it("keeps a column left when one value is not a number, however far down", () => {
+    const rows = Array.from({ length: 300 }, () => ({ wait: "4.8 days" }));
+    rows.push({ wait: "pending" });
+    expect([...numberTableColumns([{ key: "wait" }], rows)]).toEqual([]);
+  });
+
+  it("keeps a column left when its values don't share a unit", () => {
+    const columns = numberTableColumns(
+      [{ key: "prs" }, { key: "day" }, { key: "size" }, { key: "time" }],
+      [
+        { prs: "3 PRs", day: "12 Jan", size: "512 B", time: "5m" },
+        { prs: "12 PRs", day: "3 Feb", size: "5 MB", time: "5M" },
+        { prs: 0, day: "28 Feb", size: "2 GB", time: "5" },
+      ],
+    );
+    expect([...columns]).toEqual(["prs"]);
+  });
+
+  it("reads a dash as a missing value", () => {
     expect([
       ...numberTableColumns(
-        [{ key: "wait" }],
-        [{ wait: "4.8 days" }, { wait: "pending" }],
+        [{ key: "median" }],
+        [{ median: "4 min" }, { median: "–" }, { median: " " }],
       ),
-    ]).toEqual([]);
+    ]).toEqual(["median"]);
   });
 
   it("names the number formats", () => {
@@ -64,5 +95,49 @@ describe("numberTableColumns", () => {
     ).toBe(true);
     expect(isNumericColumnFormat("text")).toBe(false);
     expect(isNumericColumnFormat(undefined)).toBe(false);
+  });
+});
+
+describe("tableQuantity", () => {
+  it("reads numbers, money, percents and counts with a unit", () => {
+    expect(tableQuantity(12)).toBe(12);
+    expect(tableQuantity(Number.NaN)).toBeNull();
+    expect(tableQuantity("1,200")).toBe(1200);
+    expect(tableQuantity("-3.1")).toBe(-3.1);
+    expect(tableQuantity("$12.50")).toBe(12.5);
+    expect(tableQuantity("12%")).toBe(12);
+    expect(tableQuantity("3 PRs")).toBe(3);
+  });
+
+  it("reads thousands, millions and billions", () => {
+    expect(tableQuantity("1.2K")).toBe(1200);
+    expect(tableQuantity("3.4M")).toBe(3_400_000);
+    expect(tableQuantity("$5m")).toBe(5_000_000);
+    expect(tableQuantity("2bn")).toBe(2e9);
+  });
+
+  it("reads durations as seconds", () => {
+    expect(tableQuantity("45 sec")).toBe(45);
+    expect(tableQuantity("4 min")).toBe(240);
+    expect(tableQuantity("5m")).toBe(300);
+    expect(tableQuantity("7.4 hours")).toBeCloseTo(26_640);
+    expect(tableQuantity("4.8 days")).toBeCloseTo(414_720);
+    expect(tableQuantity("1m 42s")).toBe(102);
+    expect(tableQuantity("2 hours 5 min")).toBe(7500);
+  });
+
+  it("returns null for text that isn't a quantity", () => {
+    for (const value of [
+      "",
+      "pending",
+      "2026-10-01",
+      "09:30",
+      "v1.2",
+      "3 PRs 2 reviews",
+      null,
+      true,
+    ]) {
+      expect(tableQuantity(value), String(value)).toBeNull();
+    }
   });
 });
