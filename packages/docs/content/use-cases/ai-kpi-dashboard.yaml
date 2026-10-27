@@ -1,0 +1,102 @@
+template: v2
+slug: ai-kpi-dashboard
+app: analytics
+title: Build a KPI dashboard for your startup
+seo_title: AI KPI dashboard for startup founders
+meta_description: Describe the metrics you track, and Agent-Native Analytics builds your startup's KPI dashboard from Stripe, HubSpot and product data, then tells you what moved.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics puts your MRR, churn and signups in one dashboard, built from Stripe, HubSpot and product data. Describe what you track, and the agent builds it and says why any number moved.
+  button:
+    label: Build your dashboard
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: A startup's KPI dashboard in Analytics, with MRR, churn, new signups and activation cards above monthly MRR and signup charts. The agent sidebar answers which plan drove MRR growth this quarter, with a table by plan.
+how_to:
+  heading: How to build a KPI dashboard with AI
+  steps:
+    - title: Connect your revenue and product data
+      body: On the **Data Sources** page, paste your Stripe secret key, then add HubSpot and the product analytics tool you use. Choose **Test connection** from a source's menu to check that Analytics can read it.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: Close-up of Stripe on the Data Sources page, marked Connected, with its secret key configured and "Connection successful" after testing the connection.
+    - title: Describe the dashboard you want
+      body: Click **New Dashboard** and describe the [SaaS metrics you track](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/), for example "MRR and churn from Stripe, new signups and activation from PostHog, month by month". The agent may ask questions first, then builds each panel and opens the dashboard.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: Close-up of the New dashboard box opened from the sidebar's Dashboards list, with a description of a startup KPI dashboard typed in.
+    - title: Ask why a number moved
+      body: Choose **Chat with panel** from a chart's menu and ask a question, such as "Why did churn go up in September?". The agent answers from your connected data, and adds a panel to the dashboard when you ask it to.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "The churn by month panel with the agent chat beside it. Asked why churn went up in September, the agent breaks the rise down by plan: Starter churn nearly doubled."
+features:
+  heading: Everything you need to track your startup's KPIs
+  items:
+    - title: Revenue, pipeline and usage together
+      body: MRR from Stripe, deals from HubSpot and signups from PostHog or Mixpanel sit side by side in one dashboard.
+    - title: Edit by hand or ask
+      body: Change a filter yourself or ask the agent for a new panel. Both land on the same dashboard, and its history restores any earlier version.
+    - title: The query behind each number
+      body: Click any point on a chart to see the records behind it, the SQL that found them, and a CSV download.
+    - title: Your definition of MRR
+      body: Write down how your company counts MRR or an active user on the **Semantic Layer** page. The agent checks it before writing a query.
+    - title: Private until you share it
+      body: A new dashboard is yours alone. Share it with a co-founder or your whole company when it's ready, to view or to edit.
+    - title: Your KPIs by email
+      body: "The numbers come to you: get the dashboard as an email every morning, at the time you choose, for up to five people."
+integrations:
+  heading: Connect Analytics to the tools you already use
+  cards:
+    - title: Your revenue and pipeline
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: Analytics reads subscriptions and payments from Stripe and deals from HubSpot, so revenue numbers come straight from the source.
+    - title: Your product usage
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: Signups, active users and activation come from the product analytics tool or data warehouse you already use.
+    - title: Connect anything through MCP
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Analytics
+  cards:
+    - title: Ask your data questions in plain English
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Ask a question about your BigQuery data and get the answer without writing SQL.
+    - title: Find where new users drop off
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: See where new users stop in your signup and onboarding steps.
+    - title: Make your weekly marketing report without spreadsheets
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Build your weekly marketing report once and stop rebuilding it by hand.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Analytics free?
+      a: Yes, Agent-Native Analytics is free and open source. The agent runs on Builder.io AI credits or your own model key, and each data source needs its own credentials, such as a Stripe secret key. Analytics is in alpha, so screens and features may still change.
+    - q: Which tools can Analytics pull my KPIs from?
+      a: Analytics connects to Stripe, HubSpot, PostHog, Mixpanel, Amplitude, Google Analytics (GA4), BigQuery and more than a dozen other sources. You add each one on the [Data Sources page](https://www.agent-native.com/docs/template-analytics-connectors/) with its own key, and one dashboard can mix several sources.
+    - q: Do I need to know SQL to build a KPI dashboard?
+      a: No. You describe the dashboard or ask a question in plain English, and the agent writes the SQL. The query stays visible behind every chart, so someone who knows your data can check it or edit it.
+    - q: How do I know the numbers are right?
+      a: Every number on the dashboard comes from a query the agent ran on your connected data, and you can open the query and the records behind any chart. When the agent couldn't run a query, it marks the figure "Unverified". Check a few numbers against Stripe before you rely on the dashboard.
+    - q: Who can see my KPI dashboard?
+      a: Only you, until you share it. You can [share a dashboard](https://www.agent-native.com/docs/sharing/) with a teammate or your whole organization as a viewer, editor or admin. Filters you change apply only to you; save a view or send the link to share them.
+    - q: How is Analytics different from the AI in my analytics tool?
+      a: "An AI assistant inside one analytics tool works with that tool's data. Analytics works across Stripe, your CRM and your product data, and its agent builds and edits the dashboard you look at, so its answers become panels you keep. That's what makes Analytics an [agentic app](https://www.agent-native.com/articles/what-is-an-agent-native-app/): the brains of an agent, the intuitiveness of an app."
