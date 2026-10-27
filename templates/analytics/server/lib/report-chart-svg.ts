@@ -789,12 +789,12 @@ function renderCartesianChartSvg({
         );
 
   // Each axis formats its values like the first series drawn on it.
-  const axisFormatter = (seriesIndexes: number[]) => {
-    const first = seriesIndexes.at(0);
-    return first === undefined ? undefined : series.at(first)?.formatter;
-  };
-  const leftFormatter = axisFormatter(leftAxisIndexes);
-  const rightFormatter = axisFormatter(rightAxisIndexes);
+  const leftFormatter = series.find(
+    (entry) => entry.axis !== "right",
+  )?.formatter;
+  const rightFormatter = series.find(
+    (entry) => entry.axis === "right",
+  )?.formatter;
   const leftScale = buildAxisScale(
     axisValues(
       dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes),
