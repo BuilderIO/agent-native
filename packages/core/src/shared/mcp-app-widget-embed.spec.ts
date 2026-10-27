@@ -30,7 +30,10 @@ function setParent(parent: Window): void {
   });
 }
 
-function runBootScript(basePath: string, workspaceRuntime: boolean): boolean {
+function runBootScript(
+  basePath: string | undefined,
+  workspaceRuntime: boolean,
+): boolean {
   new Function(
     getMcpAppWidgetEmbedBootScriptBody(basePath, workspaceRuntime),
   )();
@@ -47,6 +50,10 @@ function resetDocument(): void {
   sessionStorage.clear();
   delete (window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown })
     .__AGENT_NATIVE_EXTERNAL_EMBED;
+  delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+    .__AGENT_NATIVE_CONFIG__;
+  delete (window as Window & { __reactRouterContext?: unknown })
+    .__reactRouterContext;
 }
 
 describe("MCP app widget embed boot storage", () => {
@@ -75,6 +82,18 @@ describe("MCP app widget embed boot storage", () => {
         workspaceAppMountPaths: ["/deck"],
       }),
     ).toBe("/deck");
+    expect(
+      resolveExternalEmbedTargetBasePath("/deck/reports", {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+      }),
+    ).toBe("/deck");
+    expect(
+      resolveExternalEmbedTargetBasePath("/reports", {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+      }),
+    ).toBe("");
     expect(
       resolveExternalEmbedTargetBasePath("/mail/inbox/threads", {
         workspaceRuntime: true,
@@ -115,6 +134,52 @@ describe("MCP app widget embed boot storage", () => {
 
     setTestUrl("http://localhost:3000/event-finder/inbox");
     expect(runBootScript("/event-finder", true)).toBe(true);
+  });
+
+  it("resolves the workspace mount in the first-paint script after SSR", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl("http://localhost:3000/event-finder/inbox");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/event-finder",
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    sessionStorage.setItem(
+      embedTokenStorageKey("/event-finder", true),
+      "child-token",
+    );
+    sessionStorage.setItem(
+      mcpChatBridgeStorageKey("/event-finder", true),
+      "child-token",
+    );
+
+    expect(runBootScript(undefined, true)).toBe(true);
+  });
+
+  it("uses the external target fallback instead of an explicit root mount", () => {
+    setParent({ postMessage() {} } as unknown as Window);
+    setTestUrl("http://localhost:3000/event-finder/inbox");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/",
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = { target: "/event-finder/inbox" };
+    sessionStorage.setItem(
+      embedTokenStorageKey("/event-finder", true),
+      "child-token",
+    );
+    sessionStorage.setItem(
+      mcpChatBridgeStorageKey("/event-finder", true),
+      "child-token",
+    );
+
+    expect(runBootScript(undefined, true)).toBe(true);
   });
 
   it("recognizes a transplanted active bridge before sessionStorage is written", () => {

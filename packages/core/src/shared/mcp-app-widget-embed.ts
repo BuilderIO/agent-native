@@ -11,8 +11,10 @@ export const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 
 export interface WorkspaceAppMountPathOptions {
   explicitRootPath?: boolean;
+  fallbackOverridesExplicitRoot?: boolean;
   fallbackPath?: string;
   frameworkRoutePrefix?: string;
+  preferDeclaredMounts?: boolean;
   routerBasePath?: unknown;
   workspaceAppMountPaths?: unknown;
   workspaceAppPath?: unknown;
@@ -42,6 +44,7 @@ export function resolveWorkspaceAppMountPath(
 
   if (routerBasePath && matches(routerBasePath)) return routerBasePath;
   if (configuredPath && matches(configuredPath)) return configuredPath;
+  if (explicitRootPath && !options.preferDeclaredMounts) return "";
 
   const segment = pathname.split("/").find(Boolean);
   if (!segment) {
@@ -68,6 +71,8 @@ export function resolveWorkspaceAppMountPath(
     .filter((basePath) => matches(basePath))
     .sort((left, right) => right.length - left.length)[0];
   if (matchingMount) return matchingMount;
+  if (fallbackPath && options.fallbackOverridesExplicitRoot)
+    return fallbackPath;
   if (explicitRootPath) return "";
   return fallbackPath || undefined;
 }
@@ -101,9 +106,11 @@ export function resolveExternalEmbedTargetBasePath(
   }
   if (!options.workspaceRuntime) return undefined;
 
-  const segment = url.pathname.split("/").find(Boolean);
+  const segments = url.pathname.split("/").filter(Boolean);
+  const segment = segments[0];
   const frameworkRoutePrefix = options.frameworkRoutePrefix || "/_agent-native";
   const fallbackPath =
+    segments.length > 1 &&
     segment &&
     `/${segment}` !== "/_agent-native" &&
     `/${segment}` !== frameworkRoutePrefix &&
@@ -113,6 +120,8 @@ export function resolveExternalEmbedTargetBasePath(
   return resolveWorkspaceAppMountPath(url.pathname, {
     ...options,
     fallbackPath,
+    fallbackOverridesExplicitRoot: true,
+    preferDeclaredMounts: true,
   });
 }
 
@@ -171,27 +180,60 @@ export const MCP_APP_WIDGET_EMBED_ATTRIBUTE = "data-agent-native-mcp-widget";
  * runs both over one table so they cannot drift.
  */
 export function getMcpAppWidgetEmbedBootScriptBody(
-  basePath = "",
+  basePath?: string,
   workspaceRuntime = false,
 ): string {
-  const tokenStorageKey = embedTokenStorageKey(basePath, workspaceRuntime);
-  const bridgeStorageKey = mcpChatBridgeStorageKey(basePath, workspaceRuntime);
+  const dynamicWorkspaceBasePath = workspaceRuntime && basePath === undefined;
+  const tokenStorageKey = dynamicWorkspaceBasePath
+    ? EMBED_TOKEN_STORAGE_KEY
+    : embedTokenStorageKey(basePath ?? "", workspaceRuntime);
+  const bridgeStorageKey = dynamicWorkspaceBasePath
+    ? MCP_CHAT_BRIDGE_STORAGE_KEY
+    : mcpChatBridgeStorageKey(basePath ?? "", workspaceRuntime);
   return `(function __anMcpWidgetBoot() {
   try {
     var w = window;
     if (w.parent === w) return;
+    var tokenStorageKey = ${safeJsonForHtml(tokenStorageKey)};
+    var bridgeStorageKey = ${safeJsonForHtml(bridgeStorageKey)};
+    var external = w[${safeJsonForHtml(EXTERNAL_EMBED_WINDOW_KEY)}];
+    ${
+      dynamicWorkspaceBasePath
+        ? `var appConfig = w.__AGENT_NATIVE_CONFIG__ || {};
+    var runtimeConfig = appConfig.runtime && typeof appConfig.runtime === "object"
+      ? appConfig.runtime
+      : {};
+    var resolveWorkspaceAppMountPath = ${resolveWorkspaceAppMountPath.toString()};
+    var resolveExternalEmbedTargetBasePath = ${resolveExternalEmbedTargetBasePath.toString()};
+    var workspaceOptions = {
+      workspaceAppPath: appConfig.workspaceAppPath,
+      workspaceAppMountPaths: appConfig.workspaceAppMountPaths,
+      routerBasePath: w.__reactRouterContext && w.__reactRouterContext.basename,
+      frameworkRoutePrefix: runtimeConfig.frameworkRoutePrefix || appConfig.frameworkRoutePrefix
+    };
+    var basePath = external && typeof external.target === "string"
+      ? resolveExternalEmbedTargetBasePath(external.target, Object.assign({ workspaceRuntime: true }, workspaceOptions))
+      : resolveWorkspaceAppMountPath(w.location.pathname, workspaceOptions);
+    if (typeof basePath !== "string") return;
+    var normalizedBasePath = basePath.trim();
+    normalizedBasePath = !normalizedBasePath || normalizedBasePath === "/"
+      ? ""
+      : "/" + normalizedBasePath.replace(/^\\/+/, "").replace(/\\/+$/, "");
+    tokenStorageKey += ":" + (normalizedBasePath || "/");
+    bridgeStorageKey += ":" + (normalizedBasePath || "/");`
+        : ""
+    }
     var params = new URLSearchParams(w.location.search);
     var stored = function (key) {
       // coercion-ok: denied storage reads as absent, exactly as isEmbedMcpChatBridgeActive does.
       try { return w.sessionStorage.getItem(key); } catch (e) { return null; }
     };
-    var external = w[${safeJsonForHtml(EXTERNAL_EMBED_WINDOW_KEY)}];
-    var token = params.get(${safeJsonForHtml(EMBED_TOKEN_QUERY_PARAM)}) || stored(${safeJsonForHtml(tokenStorageKey)}) || (external && typeof external.token === "string" ? external.token : "");
+    var token = params.get(${safeJsonForHtml(EMBED_TOKEN_QUERY_PARAM)}) || stored(tokenStorageKey) || (external && typeof external.token === "string" ? external.token : "");
     var mode = params.get(${safeJsonForHtml(EMBED_MODE_QUERY_PARAM)});
     var flag = params.get(${safeJsonForHtml(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)});
     var externalBridgeActive = external && external.chatBridgeActive === true;
     if (!token && mode !== "1" && mode !== "true" && !externalBridgeActive) return;
-    var scope = stored(${safeJsonForHtml(bridgeStorageKey)});
+    var scope = stored(bridgeStorageKey);
     if (flag === "1" || flag === "true" || externalBridgeActive || (scope && (!token || scope === token))) {
       document.documentElement.setAttribute(${safeJsonForHtml(MCP_APP_WIDGET_EMBED_ATTRIBUTE)}, "1");
     }

@@ -135,13 +135,15 @@ function EarlyBetaRedirectScript() {
 // Marks <html> as an MCP App widget before the server-rendered skeleton below
 // paints, so the widget never flashes the app's own sidebar.
 function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
       dangerouslySetInnerHTML={{
         __html: getMcpAppWidgetEmbedBootScriptBody(
-          resolveAppBasePath(),
-          isWorkspaceRuntime(),
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
         ),
       }}
     />
