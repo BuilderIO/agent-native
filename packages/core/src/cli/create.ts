@@ -2799,7 +2799,9 @@ export async function _downloadToFile(
     });
 
     await pipeline(
-      Readable.fromWeb(response.body),
+      Readable.fromWeb(
+        response.body as unknown as import("node:stream/web").ReadableStream,
+      ),
       sizeLimit,
       fs.createWriteStream(tarPath),
       { signal: controller.signal },

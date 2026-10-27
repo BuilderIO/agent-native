@@ -1406,10 +1406,7 @@ describe("runUpgrade", () => {
     });
 
     expect(
-      await runUpgrade(
-        ["--cwd", root, "--skip-skills", "--skip-verify"],
-        io,
-      ),
+      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
     ).toBe(0);
 
     expect(spawnCalls.slice(0, 2)).toEqual([
@@ -1461,10 +1458,7 @@ describe("runUpgrade", () => {
     });
 
     expect(
-      await runUpgrade(
-        ["--cwd", root, "--skip-skills", "--skip-verify"],
-        io,
-      ),
+      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
     ).toBe(1);
     expect(spawnCalls).toEqual([]);
     expect(err.join("\n")).toContain("invalid @agent-native package name");
@@ -1509,10 +1503,7 @@ describe("runUpgrade", () => {
     });
 
     expect(
-      await runUpgrade(
-        ["--cwd", root, "--skip-skills", "--skip-verify"],
-        io,
-      ),
+      await runUpgrade(["--cwd", root, "--skip-skills", "--skip-verify"], io),
     ).toBe(0);
 
     expect(spawnCalls.slice(0, 2)).toEqual([

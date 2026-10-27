@@ -1197,10 +1197,7 @@ function refreshLatestAgentNativeDependencies(
     }
     for (const declaration of group.declarations) {
       const dependencies = read.value[declaration.section];
-      if (
-        !dependencies ||
-        dependencies[declaration.name] === undefined
-      ) {
+      if (!dependencies || dependencies[declaration.name] === undefined) {
         continue;
       }
       dependencies[declaration.name] = declaration.restoreToLatest
