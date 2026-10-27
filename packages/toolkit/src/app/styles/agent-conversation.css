@@ -536,7 +536,14 @@
 }
 
 .agent-markdown {
-  line-height: var(--agentkit-transcript-message-line-height, 1.5);
+  line-height: 1.5;
+}
+
+/* Inside an AgentKit transcript, markdown follows its line height. The
+   default lives in this fallback, not a declaration on the chat root, so a
+   host can still set the variable on any ancestor. */
+:is(.agentkit-chat, .agentkit-tokens) .agent-markdown {
+  line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
 }
 
 .agent-markdown > :last-child {
