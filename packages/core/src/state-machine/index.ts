@@ -266,3 +266,5 @@ export function defineMachine<
     },
   });
 }
+
+export { renderMachineTrace } from "./trace.js";
