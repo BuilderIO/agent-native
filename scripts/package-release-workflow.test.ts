@@ -2639,9 +2639,11 @@ fi
       );
     });
 
-    it("serializes Beta and dev snapshots through one tag lock", () => {
-      const group = String((workflow.concurrency as Workflow).group);
+    it("queues Beta and dev snapshots through one tag lock", () => {
+      const concurrency = workflow.concurrency as Workflow;
+      const group = String(concurrency.group);
       const snapshotGroup = group.split(" || format(")[0];
+      assert.equal(concurrency.queue, "max");
       assert.match(group, /inputs\.betaTag \|\| inputs\.devTag/);
       assert.match(
         snapshotGroup,
