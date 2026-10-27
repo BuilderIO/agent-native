@@ -3,7 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   _resetChangeVersionStoreForTests,
@@ -105,6 +105,18 @@ describe("use-change-version", () => {
 
     await act(async () => bumpChangeVersion("projects", 1));
     expect(renders).toBe(3);
+  });
+
+  it("shares updates across duplicate module instances", async () => {
+    vi.resetModules();
+    const duplicateModule = await import("./use-change-version.js");
+    expect(duplicateModule.getChangeVersion("resources")).toBe(0);
+
+    bumpChangeVersion("resources", 1);
+    expect(duplicateModule.getChangeVersion("resources")).toBe(1);
+
+    duplicateModule.bumpChangeVersion("resources", 2);
+    expect(getChangeVersion("resources")).toBe(2);
   });
 
   it("uses the preserved zero snapshot during SSR", () => {
