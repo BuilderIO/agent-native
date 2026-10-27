@@ -306,7 +306,23 @@ jobs:
               echo "::error::Folding main $current_main into the release PR returned no commit; refusing admin-merge." >&2
               exit 1
             fi
-            echo "::notice::Folded main $current_main into release PR head $folded_sha; the new head re-validates before merge." >&2
+            # The fold only helps if the re-validation actually starts. A push
+            # made with the App token should trigger this workflow on the new
+            # head; if no run appears, fail here instead of ending green while
+            # the release silently stalls.
+            run_count=0
+            for _ in $(seq 1 20); do
+              run_count=$(GH_TOKEN="$GH_ACTIONS_TOKEN" gh api \
+                "repos/$REPO/actions/workflows/auto-merge-version-packages.yml/runs?head_sha=$folded_sha" \
+                --jq '.total_count')
+              [ "$run_count" -gt 0 ] && break
+              sleep 15
+            done
+            if [ "$run_count" -eq 0 ]; then
+              echo "::error::Folded main into $folded_sha, but no re-validation run started on that head; the release is stalled." >&2
+              exit 1
+            fi
+            echo "::notice::Folded main $current_main into release PR head $folded_sha; re-validation run started." >&2
             exit 0
           fi
           node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
