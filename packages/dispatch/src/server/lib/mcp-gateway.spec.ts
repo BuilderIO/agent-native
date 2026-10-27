@@ -131,7 +131,6 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
-  clearWorkspaceMountCache,
   createGrantedDispatchMcpEmbedSession,
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
@@ -171,7 +170,6 @@ function withSignedMutationReceipts(
 }
 
 beforeEach(() => {
-  clearWorkspaceMountCache();
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
@@ -485,34 +483,6 @@ describe("Dispatch MCP gateway app discovery", () => {
     );
 
     expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
-  });
-
-  it("reuses one Workspace registry read across discovery calls", async () => {
-    mocks.listWorkspaceApps.mockResolvedValue([]);
-    const context = {
-      userEmail: "owner@example.test",
-      requestOrigin: "http://localhost:8092",
-    };
-
-    await runWithRequestContext(context, () => listGrantedDispatchMcpApps());
-    await runWithRequestContext(context, () => listGrantedDispatchMcpApps());
-
-    expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not cache a failed Workspace registry read", async () => {
-    mocks.listWorkspaceApps
-      .mockRejectedValueOnce({ status: 503 })
-      .mockResolvedValue([]);
-    const context = {
-      userEmail: "owner@example.test",
-      requestOrigin: "http://localhost:8092",
-    };
-
-    await runWithRequestContext(context, () => listGrantedDispatchMcpApps());
-    await runWithRequestContext(context, () => listGrantedDispatchMcpApps());
-
-    expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(2);
   });
 
   it("defaults to exposing every discovered app", async () => {
