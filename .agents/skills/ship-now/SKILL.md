@@ -45,7 +45,9 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
    recovered through targeted checks if it did. Don't say the whole command
    passed when it didn't.
 
-4. Push everything in one update:
+4. Push everything in one update. `ship:push` stages every publishable path,
+   so first check `git status`: if a dirty path isn't part of this task, stop
+   and leave it alone.
 
    ```bash
    corepack pnpm ship:push -m "<subject naming the actual change>"
@@ -65,8 +67,8 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
    gh pr merge <number> --squash --admin --match-head-commit <head-oid>
    ```
 
-   If the head moved, recheck and merge against the new head. Don't wait for
-   remote CI or release checks.
+   If the head moved, someone pushed. Redo steps 2-4 for the new head before
+   you merge it. Don't wait for remote CI or release checks.
 
 6. Fetch `origin/main` and confirm the merge commit is in it, then rotate with
    `/new-branch`'s post-merge step.
