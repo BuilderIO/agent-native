@@ -868,10 +868,6 @@ export function FirstRunOnboarding({
     }
     creditsV2ExposureConfirmationStartedRef.current = true;
     let confirmationFinished = false;
-    const confirmationTimeout = window.setTimeout(() => {
-      confirmationFinished = true;
-      setCreditsV2ExposureConfirmationFailed(true);
-    }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     const confirmExposure = async () => {
       let lastError: unknown;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -890,7 +886,6 @@ export function FirstRunOnboarding({
             );
           }
           confirmationFinished = true;
-          window.clearTimeout(confirmationTimeout);
           setOnboardingExperiment({
             id: creditsV2Assignment.experiment_id,
             variant: creditsV2Assignment.experiment_variant,
@@ -904,7 +899,6 @@ export function FirstRunOnboarding({
       }
       if (confirmationFinished) return;
       confirmationFinished = true;
-      window.clearTimeout(confirmationTimeout);
       setCreditsV2ExposureConfirmationFailed(true);
       console.error(
         "Failed to confirm first-run Builder credits v2 exposure:",
@@ -914,7 +908,6 @@ export function FirstRunOnboarding({
     void confirmExposure();
     return () => {
       confirmationFinished = true;
-      window.clearTimeout(confirmationTimeout);
     };
   }, [
     creditsV2Assignment,
