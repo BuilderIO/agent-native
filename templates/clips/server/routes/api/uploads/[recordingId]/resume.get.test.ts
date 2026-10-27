@@ -316,6 +316,34 @@ describe("/api/uploads/:recordingId/resume route", () => {
     expect(mockDb.update).toHaveBeenCalledOnce();
   });
 
+  it("drops where an earlier final chunk left the upload when it takes chunks again", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockReadAppState.mockResolvedValueOnce({
+      recordingId: "rec-1",
+      status: "failed",
+      uploadGenerationId: "generation-1",
+      finalChunkOutcome: "finished",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ resumable: true, status: "uploading" }),
+    );
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).toMatchObject({
+      status: "uploading",
+    });
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).not.toHaveProperty(
+      "finalChunkOutcome",
+    );
+  });
+
   it("accepts an interruption with its detailed retryable reason", async () => {
     mockSelectRows.rows = [
       {

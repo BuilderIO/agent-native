@@ -246,6 +246,18 @@ export async function recordFinalChunkOutcome(
   return contention();
 }
 
+/**
+ * An upload state taking chunks again, as a resumed upload's does, without
+ * the outcome an earlier final chunk left: that upload isn't finished or
+ * parked any more, and its phase would otherwise still say so.
+ */
+export function withoutFinalChunkOutcome(
+  uploadState: Record<string, unknown>,
+): Record<string, unknown> {
+  const { [OUTCOME]: _outcome, ...reopened } = uploadState;
+  return reopened;
+}
+
 /** Gives the claim up once its final chunk is done with. */
 export async function releaseFinalChunk(
   recordingId: string,
