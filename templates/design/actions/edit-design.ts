@@ -175,6 +175,16 @@ export function applySearchReplaceEdits(
   return { content: next, applied: edits.length };
 }
 
+export function preCheckpointNoWriteError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  return new NoWriteError(
+    error instanceof Error ? error.message : String(error),
+    error instanceof ActionContractError
+      ? { errorCode: error.errorCode, statusCode: error.statusCode }
+      : undefined,
+  );
+}
+
 export default defineAction({
   description:
     "Edit ONE file in a design after reading it with get-design-snapshot. " +
@@ -419,7 +429,10 @@ export default defineAction({
             edits ?? [],
           ));
         } catch (error) {
-          if (checkpointed && error instanceof NoWriteError) {
+          if (!checkpointed) {
+            throw preCheckpointNoWriteError(error);
+          }
+          if (error instanceof NoWriteError) {
             throw new ActionContractError(error.message, {
               errorCode: error.errorCode,
               statusCode: error.statusCode,

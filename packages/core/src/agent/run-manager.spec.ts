@@ -257,6 +257,11 @@ import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  IncompleteAgentRunError,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
+import {
   abortRun,
   abortRunDurably,
   abortRunAndTurnDurably,
@@ -5285,6 +5290,60 @@ describe("run manager soft timeout", () => {
       });
     }
   });
+
+  it.each([
+    [
+      RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      "I ran out of time before finishing this step.",
+    ],
+    [AGENT_RUN_NO_OUTPUT_ERROR_CODE, "The agent run ended without output."],
+  ])(
+    "does not capture expected incomplete-run error %s to Sentry",
+    async (code, message) => {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-incomplete-${code}-no-capture`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        const run = startRun(
+          `run-incomplete-${code}-no-capture`,
+          `thread-incomplete-${code}-no-capture`,
+          async () => {
+            throw new IncompleteAgentRunError(
+              { code, message },
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                model: "test-model",
+              },
+            );
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await run.finalized;
+
+        expect(run.status).toBe("errored");
+        expect(provider).not.toHaveBeenCalled();
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            error: message,
+            errorCode: code,
+          }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;

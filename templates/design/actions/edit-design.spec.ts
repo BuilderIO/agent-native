@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/action", async (importOriginal) => {
@@ -24,7 +25,39 @@ vi.mock("@agent-native/core/action", async (importOriginal) => {
   };
 });
 
-import action, { applySearchReplaceEdits } from "./edit-design.js";
+import action, {
+  applySearchReplaceEdits,
+  preCheckpointNoWriteError,
+} from "./edit-design.js";
+
+describe("pre-checkpoint Design edit failures", () => {
+  it("keeps unexpected failures distinguishable as verified no-write errors", () => {
+    expect(
+      preCheckpointNoWriteError(new Error("invalid edit value")),
+    ).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "action_failed",
+      statusCode: 400,
+      message: "invalid edit value",
+    });
+  });
+
+  it("preserves an existing contract error code when adding no-write status", () => {
+    const contractError = new ActionContractError("invalid context", {
+      errorCode: "creative_context_pack_mismatch",
+      statusCode: 409,
+    });
+
+    expect(preCheckpointNoWriteError(contractError)).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "creative_context_pack_mismatch",
+      statusCode: 409,
+      message: "invalid context",
+    });
+  });
+});
 
 describe("edit-design action schema", () => {
   it("keeps variant replacement guidance compact", () => {

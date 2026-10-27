@@ -40,6 +40,10 @@ import {
   type ExecutionFence,
 } from "./execution-fence.js";
 import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
+import {
   type AgentTurnInitiator,
   AgentRunEventNotPersistedError,
   insertRun,
@@ -401,6 +405,8 @@ function shouldCaptureRunError(err: unknown): boolean {
   const normalizedCode = errorCode.toLowerCase();
   return (
     !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== AGENT_RUN_NO_OUTPUT_ERROR_CODE &&
+    normalizedCode !== RUN_BUDGET_EXHAUSTED_ERROR_CODE &&
     normalizedCode !== "builder_gateway_network_error" &&
     normalizedCode !== "builder_gateway_stream_ended" &&
     normalizedCode !== PROVIDER_NETWORK_ERROR_CODE &&
