@@ -2661,30 +2661,24 @@ function DatabaseTable({
     ) {
       return;
     }
-    if (
-      !activeBuilderReview ||
-      !databaseBuilderReviewSelectedChangeSetIds(
-        activeBuilderReview,
-        reviewSource,
-        selection.changeSetIds,
-        !builderReviewResult
-          ? completeBuilderReviewPreview?.changeSetIds
-          : undefined,
-      )
-    ) {
+    const selectedChangeSetIds = activeBuilderReview
+      ? databaseBuilderReviewSelectedChangeSetIds(
+          activeBuilderReview,
+          reviewSource,
+          selection.changeSetIds,
+          databaseBuilderReviewAuthoritativeChangeSetIds({
+            prepared: builderReviewResult,
+            preparedChangeSetIdMap: builderReviewSelectionRemap,
+            completeChangeSetIds: completeBuilderReviewPreview?.changeSetIds,
+          }),
+        )
+      : null;
+    if (!activeBuilderReview || !selectedChangeSetIds) {
       toast.error(dbText("builderUpdateFailed"), {
         description: dbText("needsAFreshReview"),
       });
       return;
     }
-    const selectedChangeSetIds = databaseBuilderReviewSelectedChangeSetIds(
-      activeBuilderReview,
-      reviewSource,
-      selection.changeSetIds,
-      !builderReviewResult
-        ? completeBuilderReviewPreview?.changeSetIds
-        : undefined,
-    )!;
     const selectedChangeSetIdSet = new Set(selectedChangeSetIds);
     const selectionFingerprint = builderReviewSelectionFingerprint({
       changeSetIds: selectedChangeSetIds,
@@ -4753,6 +4747,23 @@ export function databaseBuilderPreparedReviewSelection(
       ]),
     ),
   };
+}
+
+/**
+ * The change set ids a review must come from. A collection page carries only
+ * its own rows' change sets, so a review of a row past the first page can't be
+ * checked against the page: before prepare it's checked against the complete
+ * preview, and after prepare against the ids prepare returned.
+ */
+export function databaseBuilderReviewAuthoritativeChangeSetIds(args: {
+  prepared: ContentDatabaseSourceReviewPayload | null;
+  preparedChangeSetIdMap: Record<string, string> | null;
+  completeChangeSetIds: string[] | undefined;
+}) {
+  if (!args.prepared) return args.completeChangeSetIds;
+  return args.preparedChangeSetIdMap
+    ? Object.values(args.preparedChangeSetIdMap)
+    : undefined;
 }
 
 export function databaseBuilderReviewSelectedChangeSetIds(
