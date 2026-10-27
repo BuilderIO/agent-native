@@ -86,8 +86,8 @@ const EMBEDDED_BEARER = new RegExp(
 // A line that opens another field, such as `Body: visible`.
 const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
 // A field left empty takes its value from the next line, unless that line
-// opens another field.
-const VALUE_START = String.raw`(?:[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[ \t]*`;
+// opens another field. Whitespace alone is never a value.
+const VALUE_START = String.raw`(?:[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[ \t]*(?=\S)`;
 // What can follow a scheme as its credentials (RFC 7235): one token alone on
 // its line, quoted or not, or `name=value` parameters.
 const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
