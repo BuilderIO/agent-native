@@ -61,6 +61,8 @@ import {
   databaseNavigationState,
   databaseAttachedBuilderModelNames,
   databaseAttachedBuilderSource,
+  databaseBuilderReviewAfterExecution,
+  databaseBuilderReviewAfterPartialExecution,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -1219,6 +1221,149 @@ describe("Builder source settings helpers", () => {
       status: "failed",
       message: "Builder push failed. The change remains retryable.",
     });
+  });
+
+  it("builds a pushed review from every row's own execution response", () => {
+    const rowSource = (
+      id: string,
+      changeSet: Partial<ContentDatabaseSourceChangeSet> = {},
+    ) =>
+      builderSource({
+        capabilities: {
+          ...builderSource().capabilities,
+          liveWritesEnabled: true,
+        },
+        rows: builderSource().rows.map((row) => ({
+          ...row,
+          id: `row-source-${id}`,
+          databaseItemId: `item-${id}`,
+          documentId: id,
+          sourceDisplayKey: `Builder ${id}`,
+        })),
+        changeSets: [
+          builderChangeSet({
+            id: `change-${id}`,
+            databaseItemId: `item-${id}`,
+            documentId: id,
+            fieldChanges: [],
+            ...changeSet,
+          }),
+        ],
+      });
+    const preparedSecond = rowSource("second");
+    const prepared = [rowSource("first"), preparedSecond];
+    const preparedReview = buildClientBuilderReviewPayload(
+      { ...preparedSecond, rows: prepared.flatMap((source) => source.rows) },
+      prepared.flatMap((source) => source.changeSets),
+    );
+    const pushedRow = (id: string) => ({
+      changeSetId: `change-${id}`,
+      source: rowSource(id, {
+        state: "applied",
+        executions: [
+          builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
+        ],
+      }),
+    });
+    const pushedFirst = pushedRow("first");
+    const pushed = [pushedFirst, pushedRow("second")];
+
+    const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
+
+    expect(
+      review?.rows.map((row) => [
+        row.changeSetId,
+        row.title,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "Builder first", "succeeded"],
+      ["change-second", "Builder second", "succeeded"],
+    ]);
+    expect(review?.result).toMatchObject({
+      status: "succeeded",
+      message: "Pushed to Builder and reconciled locally.",
+    });
+    expect(
+      databaseBuilderReviewAfterExecution(preparedReview, [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ]),
+    ).toBeNull();
+
+    const skipped = databaseBuilderReviewAfterExecution(
+      preparedReview,
+      pushed.slice(1),
+    );
+    expect(
+      skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
+    ).toEqual([
+      [
+        "change-first",
+        preparedReview.rows.find((row) => row.changeSetId === "change-first")
+          ?.execution?.state,
+      ],
+      ["change-second", "succeeded"],
+    ]);
+    expect(skipped?.result.status).toBe("succeeded");
+    expect(skipped?.summary).toBe(preparedReview.summary);
+
+    const failedAfterFirst = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [pushedFirst],
+      "Builder rejected the second entry.",
+    );
+    expect(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "succeeded"],
+      [
+        "change-second",
+        preparedReview.rows.find((row) => row.changeSetId === "change-second")
+          ?.execution?.state,
+      ],
+    ]);
+    expect(failedAfterFirst?.result).toEqual({
+      status: "failed",
+      message: "Builder rejected the second entry.",
+    });
+    const unconfirmedSecond = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ],
+      "Builder rejected the third entry.",
+    );
+    expect(
+      unconfirmedSecond?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    );
+    expect(unconfirmedSecond?.result.status).toBe("failed");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [pushedFirst],
+        "Builder execution is already running.",
+      )?.result.status,
+    ).toBe("running");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [],
+        "Builder rejected the first entry.",
+      ),
+    ).toBeNull();
   });
 });
 

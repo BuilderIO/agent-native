@@ -38,6 +38,37 @@ describe("short-lived-token", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("keeps a token signed with an explicit key apart from the server secret", () => {
+    const signingKey = "explicit-short-lived-key-0123456789abcdef";
+    const explicit = signShortLivedToken(
+      { resourceId: "rec_abc" },
+      { signingKey },
+    );
+    const server = signShortLivedToken({ resourceId: "rec_abc" });
+
+    expect(verifyShortLivedToken(explicit, "rec_abc", { signingKey }).ok).toBe(
+      true,
+    );
+    expect(verifyShortLivedToken(explicit, "rec_abc")).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+    expect(verifyShortLivedToken(server, "rec_abc", { signingKey })).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
+  it("refuses an empty explicit key instead of using the server secret", () => {
+    const token = signShortLivedToken({ resourceId: "rec_abc" });
+    expect(() =>
+      signShortLivedToken({ resourceId: "rec_abc" }, { signingKey: "" }),
+    ).toThrow("An explicit short-lived token signing key is empty.");
+    expect(() =>
+      verifyShortLivedToken(token, "rec_abc", { signingKey: "" }),
+    ).toThrow("An explicit short-lived token signing key is empty.");
+  });
+
   it("includes viewerEmail in claims when supplied", () => {
     const token = signShortLivedToken({
       resourceId: "rec_abc",
