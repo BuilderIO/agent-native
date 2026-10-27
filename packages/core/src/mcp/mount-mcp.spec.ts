@@ -5,6 +5,7 @@ const mockServerState = vi.hoisted(() => ({
     readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
   },
   McpIdentityVerificationUnavailableError: class extends Error {},
+  registerAuthPublicPaths: vi.fn(),
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
   validateMcpDirectoryProfile: vi.fn(),
@@ -25,7 +26,10 @@ vi.mock("../server/framework-request-handler.js", () => ({
 }));
 
 vi.mock("../server/auth.js", () => ({
+  getConfiguredLoginHtml: vi.fn(),
+  getSession: vi.fn(),
   isLoopbackRequest: () => false,
+  registerAuthPublicPaths: mockServerState.registerAuthPublicPaths,
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
@@ -73,10 +77,12 @@ describe("mountMCP", () => {
       } as any),
     ).not.toThrow();
 
-    const [directoryPath, directoryHandler] = use.mock.calls[0]!;
+    const directoryHandler = use.mock.calls.find(
+      ([path]) => path === "/mcp/directory",
+    )?.[1];
+    expect(directoryHandler).toBeTypeOf("function");
     const event = {};
     const directoryResult = await directoryHandler(event);
-    expect(directoryPath).toBe("/mcp/directory");
     expect(directoryResult).toMatchObject({ error: "Unauthorized" });
     expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 401);
     expect(mockServerState.validateMcpDirectoryProfile).not.toHaveBeenCalled();
@@ -112,28 +118,70 @@ describe("mountMCP", () => {
     expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
-  it("mounts the public and legacy protocol paths by default", () => {
+  // A prefix mount also matches every path under it, so the approval review
+  // page must be mounted before the MCP endpoint that contains its path.
+  it("mounts the approval review page, then the public and legacy protocol paths by default", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {} } as any);
 
     expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/_agent-native/mcp/approvals",
       "/_agent-native/mcp",
       "/mcp",
     ]);
+    expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+      ["/_agent-native/mcp/approvals/:id(uuidv4)"],
+      { use },
+    );
   });
 
-  it("does not add the public alias to a custom route prefix", () => {
+  it("serves the review page on a custom route prefix, without the public alias", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {} } as any, "/custom");
 
-    expect(use.mock.calls.map(([path]) => path)).toEqual(["/custom/mcp"]);
+    expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/custom/mcp/approvals",
+      "/custom/mcp",
+    ]);
+    // The review page serves its own sign-in, so the auth guard lets it
+    // through wherever it is mounted.
+    expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+      ["/custom/mcp/approvals/:id(uuidv4)"],
+      { use },
+    );
   });
+
+  it.each(["", "/workspace"])(
+    "registers the canonical approval exception with base path %s",
+    (basePath) => {
+      vi.stubEnv("APP_BASE_PATH", basePath);
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/framework",
+      );
+      try {
+        const use = vi.fn();
+        mountMCP(
+          { h3: { use } },
+          { actions: {} } as any,
+          `${basePath}/framework`,
+        );
+        expect(mockServerState.registerAuthPublicPaths).toHaveBeenCalledWith(
+          ["/_agent-native/mcp/approvals/:id(uuidv4)"],
+          { use },
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it("mounts the curated directory before the broader public MCP prefix", () => {
     const use = vi.fn();
     mountMCP({ h3: { use } }, { actions: {}, directoryProfile: {} } as any);
 
     expect(use.mock.calls.map(([path]) => path)).toEqual([
+      "/_agent-native/mcp/approvals",
       "/mcp/directory",
       "/_agent-native/mcp",
       "/mcp",

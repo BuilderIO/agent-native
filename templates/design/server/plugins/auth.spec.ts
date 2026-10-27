@@ -71,18 +71,17 @@ describe("design auth plugin", () => {
   });
 
   it("declares Builder identity as an explicit cookie-only browser provider", async () => {
-    vi.stubEnv("BUILDER_IDENTITY", "1");
     vi.resetModules();
+    vi.stubEnv("BUILDER_IDENTITY", "1");
+    mocks.createAuthPlugin.mockClear();
     try {
       const { getBuilderIdentitySession } =
         await import("../lib/builder-identity.js");
       await import("./auth.js");
-      expect(mocks.createAuthPlugin).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          getSession: getBuilderIdentitySession,
-          getBrowserSession: getBuilderIdentitySession,
-        }),
-      );
+      const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+      expect(options.getSession).toBeTypeOf("function");
+      expect(options.getBrowserSession).toBe(options.getSession);
+      expect(options.getBrowserSession).toBe(getBuilderIdentitySession);
     } finally {
       vi.unstubAllEnvs();
       vi.resetModules();
