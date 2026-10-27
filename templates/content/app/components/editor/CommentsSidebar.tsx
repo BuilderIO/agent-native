@@ -2657,7 +2657,7 @@ export function CommentsSidebar({
     const rest = members.filter((member) => member.threadId !== threadId);
     const next =
       index >= 0 && rest.length >= 2
-        ? rest[Math.min(index, rest.length - 1)].threadId
+        ? (rest[Math.min(index, rest.length - 1)]?.threadId ?? null)
         : null;
     setReplyingThreadId(null);
     onSelectedThreadChange?.(next);
