@@ -132,14 +132,14 @@ function* queryReferences(text: string): Iterable<EmbedReference> {
   if (query < 0 || query >= end) return;
   const parameters = text.slice(query, end);
   if (!parameters.includes("/")) return;
-  const fields = [...parameters.matchAll(/[?&]([^?&#=]*)=/g)];
+  const fields = [...parameters.matchAll(/[?&][^?&#=]*=/g)];
   const values = fields.map((field, index) => {
     const start = field.index + field[0].length;
     const value = parameters.slice(
       start,
       fields[index + 1]?.index ?? parameters.length,
     );
-    const name = field[1];
+    const name = field[0].slice(1, -1);
     const ticketKey =
       name === "ticket" ||
       (name.includes("%") && new URLSearchParams(`${name}=x`).has("ticket"));
@@ -151,8 +151,7 @@ function* queryReferences(text: string): Iterable<EmbedReference> {
     };
   });
   let ampTicket = false;
-  for (let index = values.length - 1; index >= 0; index -= 1) {
-    const field = values[index];
+  for (const field of values.slice().reverse()) {
     if (!field.question && field.ticket) ampTicket = true;
     field.ampTicketFromHere = ampTicket;
   }
