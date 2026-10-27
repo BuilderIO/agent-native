@@ -290,7 +290,9 @@ next sweep. Otherwise:
   for anything already in the thread.
 
 GitHub issues fixed by the merged PR get a one-line thank-you comment linking
-the PR, and then get closed.
+the PR, and then get closed. Post it even when someone else opened the issue,
+or the PR already closed it: Steve wants reporters told, and this comment is
+allowed under his "only message Steve" account rule.
 
 Before ending, re-read each thread you touched and check:
 
