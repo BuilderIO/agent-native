@@ -62,6 +62,7 @@ export interface ThemeFamilyPreference {
 }
 
 const familySnapshots = new Map<string, ThemeFamily>();
+const urlPinnedFamilySnapshots = new Map<string, ThemeFamily>();
 
 function resolvedAppId(appId?: string | null): string | undefined {
   if (appId !== undefined) return appId ?? undefined;
@@ -176,6 +177,7 @@ function subscribe(
     );
     if (urlFamily) {
       familySnapshots.set(key, urlFamily);
+      urlPinnedFamilySnapshots.set(key, urlFamily);
       window.document.documentElement.setAttribute(
         THEME_FAMILY_ATTRIBUTE,
         urlFamily,
@@ -189,8 +191,14 @@ function subscribe(
 
     const stored = readStoredThemeFamily(appId);
     const currentFamily = familySnapshots.get(key);
+    const urlPinnedFamily = urlPinnedFamilySnapshots.get(key);
+    urlPinnedFamilySnapshots.delete(key);
+    const currentFamilyWasUrlPinned =
+      urlPinnedFamily !== undefined && currentFamily === urlPinnedFamily;
     const canPreserveCurrentFamily =
-      currentFamily !== undefined && families.includes(currentFamily);
+      currentFamily !== undefined &&
+      families.includes(currentFamily) &&
+      !currentFamilyWasUrlPinned;
     const storageWasUnreadable =
       window.document.documentElement.getAttribute(
         THEME_FAMILY_STATUS_ATTRIBUTE,
@@ -243,6 +251,13 @@ function subscribe(
         THEME_FAMILY_STATUS_ATTRIBUTE,
       );
     } else if (stored.status === "unreadable") {
+      if (currentFamilyWasUrlPinned) {
+        familySnapshots.set(key, defaultFamily);
+        window.document.documentElement.setAttribute(
+          THEME_FAMILY_ATTRIBUTE,
+          defaultFamily,
+        );
+      }
       window.document.documentElement.setAttribute(
         THEME_FAMILY_STATUS_ATTRIBUTE,
         "unreadable",
@@ -324,6 +339,7 @@ export function applyThemeFamily(
 
   const storageAppId = resolvedAppId(appId);
   const key = themeFamilyStorageKey(storageAppId);
+  urlPinnedFamilySnapshots.delete(key);
   familySnapshots.set(key, family);
   if (typeof window === "undefined") {
     return { family, storageStatus: "unavailable" };

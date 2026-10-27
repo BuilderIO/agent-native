@@ -70,6 +70,7 @@ describe("useThemeFamily", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    deps.appId = "sample-app";
     window.history.replaceState(null, "", "/");
     window.localStorage.clear();
     document.documentElement.removeAttribute(THEME_FAMILY_ATTRIBUTE);
@@ -343,6 +344,82 @@ describe("useThemeFamily", () => {
     expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
       "original",
     );
+  });
+
+  it.each([
+    { storageValue: null, storageStatus: "missing" },
+    { storageValue: "not-a-theme-family", storageStatus: "invalid" },
+  ])(
+    "clears a removed URL pin when storage is $storageStatus before the preference loads",
+    async ({ storageValue }) => {
+      deps.appId = "url-pin-unresolved-app";
+      deps.query.data = undefined as never;
+      if (storageValue !== null) {
+        window.localStorage.setItem(
+          "theme-family:url-pin-unresolved-app",
+          storageValue,
+        );
+      }
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      await act(async () => root?.render(<Probe />));
+
+      act(() =>
+        window.history.pushState(null, "", "/?theme-family=agent-native"),
+      );
+      expect(current?.family).toBe("agent-native");
+
+      act(() => window.history.replaceState(null, "", "/"));
+
+      expect(current?.isForcedByUrl).toBe(false);
+      expect(current?.family).toBe("original");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("original");
+    },
+  );
+
+  it("restores the default after removing a URL pin when storage is unreadable", async () => {
+    deps.appId = "url-pin-unreadable-app";
+    deps.query.data = undefined as never;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    act(() =>
+      window.history.pushState(null, "", "/?theme-family=agent-native"),
+    );
+    expect(current?.family).toBe("agent-native");
+
+    const storageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("Storage access is blocked");
+      },
+    });
+
+    try {
+      act(() => window.history.replaceState(null, "", "/"));
+
+      expect(current?.isForcedByUrl).toBe(false);
+      expect(current?.family).toBe("original");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("original");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_STATUS_ATTRIBUTE),
+      ).toBe("unreadable");
+    } finally {
+      if (storageDescriptor) {
+        Object.defineProperty(window, "localStorage", storageDescriptor);
+      }
+    }
   });
 
   it("keeps a saved family when a temporary URL pin is removed before refresh", async () => {
