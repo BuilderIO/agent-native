@@ -821,7 +821,7 @@ function builderSourceFieldLabel(source: ContentDatabaseSource) {
         ?.label?.trim() ||
       source.fields
         .find((field) => field.sourceFieldKey === sourceFieldKey)
-        ?.sourceFieldLabel?.trim() ||
+        ?.sourceFieldLabel.trim() ||
       name
     );
   };
@@ -909,7 +909,7 @@ async function reconcileBuilderCmsWrite(args: {
             .limit(1)
         : [];
 
-    const [row] = existingRow;
+    const [row = null] = existingRow;
     const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
     const sourceValuesJson = builderCmsReconciledSourceValuesJson({
       existingSourceValuesJson: row?.sourceValuesJson,

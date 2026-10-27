@@ -2090,23 +2090,21 @@ async function processBuilderBodyHydrationJob(
   let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues(bodyEntry),
   );
-  const sourceRow =
+  const [sourceRow = undefined] =
     preloaded?.sourceRow != null
-      ? (preloaded.sourceRow ?? undefined)
-      : (
-          await db
-            .select()
-            .from(schema.contentDatabaseSourceRows)
-            .where(
-              and(
-                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-                eq(
-                  schema.contentDatabaseSourceRows.databaseItemId,
-                  row.databaseItemId,
-                ),
+      ? [preloaded.sourceRow]
+      : await db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
               ),
-            )
-        )[0];
+            ),
+          );
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
@@ -2310,7 +2308,7 @@ async function processBuilderBodyHydrationJob(
         activeSourceEntryJson,
       );
       const markPendingIfReplaced = async () => {
-        const [replacedByNewerJob] = await tx
+        const [replacedByNewerJob = null] = await tx
           .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
           .from(schema.contentDatabaseBodyHydrationQueue)
           .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
@@ -2326,7 +2324,7 @@ async function processBuilderBodyHydrationJob(
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
       };
       if (emptyBodyRead?.state === "empty_body") {
-        const [stillOwnsQueueRow] = await tx
+        const [stillOwnsQueueRow = null] = await tx
           .update(schema.contentDatabaseBodyHydrationQueue)
           .set({ updatedAt: now })
           .where(queueRowCas)
@@ -2338,13 +2336,13 @@ async function processBuilderBodyHydrationJob(
         // The next refresh compares the version with the row as written.
         const writtenEntry = {
           ...emptyBodyRead.entry,
-          updatedAt: emptyBodyRead.entry.updatedAt ?? now,
+          updatedAt: emptyBodyRead.entry.updatedAt,
           sourceValues: builderBodyReadSourceValues(
             sourceValues,
             emptyBodyRead.entry,
           ),
         };
-        const [updatedSourceRow] = await tx
+        const [updatedSourceRow = null] = await tx
           .update(schema.contentDatabaseSourceRows)
           .set({
             sourceValuesJson: JSON.stringify(writtenEntry.sourceValues),
@@ -2363,7 +2361,7 @@ async function processBuilderBodyHydrationJob(
           });
           return;
         }
-        const [deleted] = await tx
+        const [deleted = null] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -2398,7 +2396,7 @@ async function processBuilderBodyHydrationJob(
         return;
       }
       if (builderBodyHydrationAttemptIsTerminal(attempts)) {
-        const [deleted] = await tx
+        const [deleted = null] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -2418,9 +2416,7 @@ async function processBuilderBodyHydrationJob(
             bodyHydrationError:
               reason === "not_found"
                 ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
-                : reason === "conversion_failed"
-                  ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
-                  : null,
+                : "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body.",
             bodyHydrationVersion: builderBodyUnavailableVersion(entryWithBody),
             bodyHydrationReason: reason,
             bodyHydrationProviderStatus: emptyBodyRead
@@ -2433,7 +2429,7 @@ async function processBuilderBodyHydrationJob(
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
         return;
       }
-      const [stillOwnsQueueRow] = await tx
+      const [stillOwnsQueueRow = null] = await tx
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
           lastAttemptedAt: null,
@@ -2557,7 +2553,7 @@ async function processBuilderBodyHydrationJob(
     // The next refresh compares the version with the row as written.
     const writtenEntry = {
       ...entryWithBody,
-      updatedAt: entryWithBody.updatedAt ?? now,
+      updatedAt: entryWithBody.updatedAt,
       sourceValues: nextValues,
     };
     const [updatedSourceRow] = await tx
@@ -2676,7 +2672,7 @@ function builderBodyHydrationSourceRowFilter(
 
 /** Keeps a job queued, with the reason this attempt skipped its write. */
 async function leaveBuilderBodyHydrationPending(
-  tx: any,
+  tx: Pick<ReturnType<typeof getDb>, "update">,
   args: {
     row: ContentDatabaseBodyHydrationQueueRowDb;
     queueRowCas: ReturnType<typeof builderBodyHydrationQueueOwnershipFilter>;
@@ -2684,7 +2680,7 @@ async function leaveBuilderBodyHydrationPending(
     error: string;
   },
 ) {
-  const [stillQueued] = await tx
+  const [stillQueued = null] = await tx
     .update(schema.contentDatabaseBodyHydrationQueue)
     .set({ lastError: args.error, updatedAt: args.now })
     .where(args.queueRowCas)
@@ -6135,7 +6131,7 @@ export async function replaceMockSourceRows(args: {
     ]);
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
-    const [source] = await tx
+    const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -6196,7 +6192,7 @@ export function sourceValuesForSeededSourceRow(args: {
 function builderSourceValuesWithPreservedBodyBaseline(args: {
   incoming: Record<string, DocumentPropertyValue>;
   existing?: Record<string, DocumentPropertyValue> | null;
-  existingLastSourceUpdatedAt?: string | null;
+  existingLastSourceUpdatedAt?: string | null | undefined;
 }) {
   const existing = args.existing;
   if (!existing) return args.incoming;
@@ -7888,7 +7884,7 @@ export async function storeSecondarySourceRows(args: {
     await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-    const [source] = await tx
+    const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -7913,8 +7909,8 @@ export async function storeSecondarySourceRows(args: {
           entry.id || index + 1
         }`,
         sourceDisplayKey:
-          entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
-        sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
+          entry.title.trim() || `${args.sourceTable}-${index + 1}`,
+        sourceValuesJson: JSON.stringify(entry.sourceValues),
         provenance:
           args.sourceType === "notion-database"
             ? "Notion database read adapter"
@@ -8042,11 +8038,11 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   message: string | null;
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
-  activeReadSourceRowIds?: string[];
+  activeReadSourceRowIds?: string[] | undefined;
   syncState?: ContentDatabaseSourceSyncState;
-  builderModelFields?: BuilderCmsModelFieldSummary[];
+  builderModelFields?: BuilderCmsModelFieldSummary[] | undefined;
   suspiciousEmpty?: boolean;
-  refreshClaimId?: string;
+  refreshClaimId?: string | undefined;
 }) {
   const db = getDb();
   for (let attempt = 0; attempt < 5; attempt += 1) {
