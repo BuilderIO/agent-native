@@ -224,6 +224,7 @@ async function fetchLibrary({
     ),
     isNull(schema.recordings.archivedAt),
     isNull(schema.recordings.trashedAt),
+    not(uploadFromTrashedPage()),
   ];
   if (shared) {
     conditions.push(
@@ -236,11 +237,8 @@ async function fetchLibrary({
     if (organizationId) {
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
-    // A folder someone moved an upload into lists it while its page isn't in
-    // Trash.
     if (fromContent) conditions.push(activeUploadFromContent());
     else if (!folderId) conditions.push(not(uploadedFromContent()));
-    else conditions.push(not(uploadFromTrashedPage()));
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb

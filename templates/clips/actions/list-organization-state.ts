@@ -13,6 +13,7 @@ import {
   eq,
   isNotNull,
   isNull,
+  not,
   notExists,
   or,
   sql,
@@ -24,6 +25,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { uploadFromTrashedPage } from "../server/lib/content-uploads.js";
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
@@ -176,6 +178,7 @@ export default defineAction({
             isNotNull(schema.recordings.folderId),
             isNull(schema.recordings.archivedAt),
             isNull(schema.recordings.trashedAt),
+            not(uploadFromTrashedPage()),
             notExists(
               db
                 .select({ one: sql`1` })
