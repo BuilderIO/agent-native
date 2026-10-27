@@ -1,3 +1,9 @@
+import { randomUUID } from "node:crypto";
+
+import {
+  signShortLivedToken,
+  verifyShortLivedToken,
+} from "@agent-native/core/server/short-lived-token";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -134,11 +140,12 @@ vi.mock("../../../../actions/lib/loom-import-job.js", () => ({
   runLoomImportJob: (...args: unknown[]) => mockRunLoomImportJob(...args),
 }));
 
-vi.mock("../../../lib/post-finalize-dispatch.js", () => ({
+vi.mock("../../../lib/post-finalize-dispatch.js", async (original) => ({
+  ...(await original<
+    typeof import("../../../lib/post-finalize-dispatch.js")
+  >()),
   dispatchPostFinalizeJob: (...args: unknown[]) =>
     mockDispatchPostFinalizeJob(...args),
-  POST_FINALIZE_JOB_TOKEN_KIND: "post-finalize-job",
-  postFinalizeJobResourceId: vi.fn(() => "rec-1:media-ready"),
 }));
 
 vi.mock("../../../../actions/export-to-brain.js", () => ({
@@ -178,6 +185,7 @@ describe("post-finalize worker", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.useRealTimers();
   });
 
@@ -241,6 +249,73 @@ describe("post-finalize worker", () => {
       regenerate: undefined,
       requireAccepted: true,
     });
+  });
+
+  it.each([
+    undefined,
+    "owner@example.test",
+    "other-editor@example.test",
+    "editor@example.test",
+  ])(
+    "verifies the real caller-bound signature (body caller=%s)",
+    async (requestedByEmail) => {
+      vi.stubEnv("OAUTH_STATE_SECRET", randomUUID());
+      const token = signShortLivedToken({
+        resourceId:
+          "clips-post-finalize-job:rec-1:transcript:caller:editor%40example.test",
+      });
+      mockVerifyShortLivedToken.mockImplementation(verifyShortLivedToken);
+      mockReadBody.mockResolvedValue({
+        recordingId: "rec-1",
+        kind: "transcript",
+        token,
+        ...(requestedByEmail ? { requestedByEmail } : {}),
+      });
+      const selectImplementation = mockDb.select.getMockImplementation();
+      if (requestedByEmail === "editor@example.test")
+        mockRecordingWithStatus("ready");
+      let result: unknown;
+      try {
+        result = await handler({} as never);
+      } finally {
+        mockDb.select.mockReset();
+        if (selectImplementation)
+          mockDb.select.mockImplementation(selectImplementation);
+      }
+      if (requestedByEmail === "editor@example.test") {
+        expect(result).toMatchObject({ ok: true, kind: "transcript" });
+        expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+          { userEmail: "editor@example.test", orgId: "org-1" },
+          expect.any(Function),
+        );
+      } else {
+        expect(result).toMatchObject({ ok: false });
+        expect(mockSetResponseStatus).toHaveBeenCalledWith(
+          expect.anything(),
+          401,
+        );
+        expect(mockRunWithRequestContext).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("preserves the signed initiating caller for transcript execution", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "transcript",
+      token: "caller-bound-token",
+      requestedByEmail: "editor@example.test",
+    });
+    mockRecordingWithStatus("ready");
+    await handler({} as never);
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      "caller-bound-token",
+      "clips-post-finalize-job:rec-1:transcript:caller:editor%40example.test",
+    );
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "editor@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
   });
 
   it("hands a regenerate the import it was accepted against", async () => {

@@ -217,6 +217,23 @@ export default defineAction({
         task: "summary",
         contextPack,
       });
+      if (linkedRecording) {
+        const currentRecordings = await db
+          .select({
+            ownerEmail: schema.recordings.ownerEmail,
+            expiresAt: schema.recordings.expiresAt,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, linkedRecording.id))
+          .limit(1);
+        const currentRecording = currentRecordings.values().next().value;
+        if (
+          !currentRecording ||
+          isRecordingExpiredForEmail(currentRecording, getRequestUserEmail())
+        ) {
+          throw new ForbiddenError();
+        }
+      }
     } catch (err) {
       await db
         .update(schema.meetings)

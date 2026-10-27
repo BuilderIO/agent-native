@@ -463,6 +463,28 @@ export default defineAction({
       ? withBurnMarker(existing.editsJson, staleUrls, burnResult)
       : withUnreclaimed(staleUrls);
     const heldEditsJson = burning ? writtenEditsJson : null;
+    const discardUploads = async () => {
+      for (const url of newUrls) {
+        try {
+          await deleteStoredMediaUrl(url);
+        } catch (err) {
+          // Costs storage, not correctness; the throw below is what the
+          // caller needs to see.
+          console.warn(
+            `[save-screenshot-edits] could not delete an orphaned upload for ${args.recordingId}:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+    };
+    try {
+      assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
+      );
+    } catch (error) {
+      await discardUploads();
+      throw error;
+    }
     const updated = await db
       .update(schema.recordings)
       .set({
@@ -483,18 +505,7 @@ export default defineAction({
     if (!updated.length) {
       // Someone else saved first. Nothing here was published, so the new
       // files are only orphans.
-      for (const url of newUrls) {
-        try {
-          await deleteStoredMediaUrl(url);
-        } catch (err) {
-          // Costs storage, not correctness; the throw below is what the
-          // caller needs to see.
-          console.warn(
-            `[save-screenshot-edits] could not delete an orphaned upload for ${args.recordingId}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-        }
-      }
+      await discardUploads();
       throw new Error(CHANGED_ELSEWHERE);
     }
 

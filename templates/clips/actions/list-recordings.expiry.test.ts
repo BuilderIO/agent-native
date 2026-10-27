@@ -346,6 +346,65 @@ describe("list recordings expiry with PostgreSQL", () => {
     },
   );
   it.each([false, true])(
+    "rechecks linked expiry after meeting cleanup (owner=%s)",
+    async (owner) => {
+      identity.email = owner ? "owner@example.test" : "viewer@example.test";
+      await db.insert(schema.recordings).values({
+        id: "linked",
+        ownerEmail: "owner@example.test",
+        title: "Fake Clip",
+        expiresAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.meetings).values({
+        id: "fake-meeting",
+        ownerEmail: identity.email,
+        title: "Fake meeting",
+        recordingId: "linked",
+        transcriptStatus: "ready",
+        userNotesMd: "",
+        updatedAt: now,
+      });
+      identity.cleanup.mockImplementationOnce(async () => {
+        await db
+          .update(schema.recordings)
+          .set({ expiresAt: "2000-01-01T00:00:00Z" });
+        return {
+          summaryMd: "Fake generated notes",
+          bullets: [],
+          actionItems: [],
+          provider: "fixture",
+        };
+      });
+      const pending = finalizeMeeting.run({
+        meetingId: "fake-meeting",
+        force: true,
+        overrideTranscript: "Fake independent transcript",
+      });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({
+          summaryMd: "Fake generated notes",
+        });
+      else await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+      expect(identity.cleanup).toHaveBeenCalledOnce();
+      expect(
+        await db
+          .select({
+            summaryMd: schema.meetings.summaryMd,
+            transcriptStatus: schema.meetings.transcriptStatus,
+          })
+          .from(schema.meetings),
+      ).toEqual([
+        {
+          summaryMd: owner ? "Fake generated notes" : null,
+          transcriptStatus: owner ? "ready" : "failed",
+        },
+      ]);
+    },
+  );
+
+  it.each([false, true])(
     "handles a permanently deleted recording link (override=%s)",
     async (override) => {
       identity.email = "viewer@example.test";

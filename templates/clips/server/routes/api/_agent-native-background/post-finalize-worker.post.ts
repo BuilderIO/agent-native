@@ -45,6 +45,7 @@ const bodySchema = z.object({
     "meeting-finalize",
   ]),
   token: z.string().min(1),
+  requestedByEmail: z.email().max(320).optional(),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
   uploadAttemptId: z.string().min(1).max(128).nullable().optional(),
@@ -111,13 +112,14 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadGenerationId,
     regenerate,
     replaceImportId,
+    requestedByEmail,
   } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyShortLivedToken(
     token,
     scopedAgentAccessResourceId(
       POST_FINALIZE_JOB_TOKEN_KIND,
-      postFinalizeJobResourceId(recordingId, kind),
+      postFinalizeJobResourceId(recordingId, kind, requestedByEmail),
     ),
   );
   if (!verified.ok) {
@@ -216,7 +218,10 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return runWithRequestContext(
     {
-      userEmail: recording.ownerEmail,
+      userEmail:
+        kind === "transcript"
+          ? (requestedByEmail ?? recording.ownerEmail)
+          : recording.ownerEmail,
       orgId: recording.orgId ?? undefined,
     },
     async () => {
@@ -234,6 +239,7 @@ export default defineEventHandler(async (event: H3Event) => {
             : {}),
           regenerate,
           replaceImportId,
+          ...(requestedByEmail ? { requestedByEmail } : {}),
           requireAccepted:
             kind === "media-ready" ||
             kind === "thumbnail" ||

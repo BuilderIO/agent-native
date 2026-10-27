@@ -81,6 +81,10 @@ export default defineAction({
         };
       }
 
+      assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
+      );
+
       await db
         .update(schema.recordings)
         .set({ description, updatedAt: new Date().toISOString() })

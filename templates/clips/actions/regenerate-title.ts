@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -254,6 +254,9 @@ export default defineAction({
           (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
             fresh.title === rec.title)
         ) {
+          assertRecordingNotExpired(
+            await assertAccess("recording", args.recordingId, "editor"),
+          );
           await db
             .update(schema.recordings)
             .set({
@@ -299,6 +302,7 @@ export default defineAction({
         );
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
@@ -330,6 +334,9 @@ export default defineAction({
         (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
           fresh.title === rec.title)
       ) {
+        assertRecordingNotExpired(
+          await assertAccess("recording", args.recordingId, "editor"),
+        );
         await db
           .update(schema.recordings)
           .set({

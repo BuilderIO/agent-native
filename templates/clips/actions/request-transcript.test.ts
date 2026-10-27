@@ -115,7 +115,8 @@ vi.mock("@agent-native/core/transcription/builder", () => ({
     mockTranscribeWithBuilder(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
@@ -123,7 +124,8 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: (...args: unknown[]) => mockTrack(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
   isNull: vi.fn((column: unknown) => ({ isNull: column })),
@@ -514,7 +516,7 @@ describe("requestTranscript regeneration", () => {
     mockResolveHasBuilderGatewayCredential.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({
       role: "editor",
-      resource: { expiresAt: null },
+      resource: { expiresAt: null, ownerEmail: "owner@example.com" },
     });
     mockPrepareRecordingTranscriptionAudio.mockResolvedValue({
       mimeType: "audio/mp4",
@@ -1094,6 +1096,87 @@ describe("requestTranscript regeneration", () => {
       vi.useRealTimers();
     }
   });
+
+  it.each([false, true])(
+    "rechecks expiry after provider work (owner=%s)",
+    async (owner) => {
+      mockAssertAccess.mockResolvedValue({
+        role: owner ? "owner" : "editor",
+        resource: {
+          expiresAt: null,
+          ownerEmail: owner ? "owner@example.com" : "other-owner@example.test",
+        },
+      });
+      mockSelectRows.queue = [
+        [
+          {
+            status: "ready",
+            fullText: "Fake prior transcript",
+            segmentsJson: "[]",
+            updatedAt: "2026-07-09T00:00:00.000Z",
+            language: "en",
+            importId: null,
+          },
+        ],
+        [
+          {
+            mediaUpdatedAt: "media-1",
+            videoUrl: "https://example.test/fake.webm",
+            videoFormat: "webm",
+            hasAudio: true,
+            durationMs: 1200,
+            title: "Fake Clip",
+          },
+        ],
+        [
+          {
+            status: "ready",
+            fullText: "Fake prior transcript",
+            segmentsJson: "[]",
+            importId: null,
+          },
+        ],
+      ];
+      mockTranscribeWithBuilder.mockImplementationOnce(async () => {
+        mockSelectRows.lockedRows = [
+          [
+            {
+              id: "rec_native",
+              ownerEmail: owner
+                ? "owner@example.com"
+                : "other-owner@example.test",
+              expiresAt: "2000-01-01T00:00:00Z",
+            },
+          ],
+        ];
+        return {
+          text: "Fake delayed transcript",
+          language: "en",
+          segments: [
+            { startMs: 0, endMs: 1200, text: "Fake delayed transcript" },
+          ],
+        };
+      });
+      const pending = requestTranscript.run({
+        recordingId: "rec_native",
+        regenerate: true,
+      });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({ status: "ready" });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(
+          mockUpdateSet.mock.calls.some(
+            ([row]) =>
+              (row as { fullText?: string }).fullText ===
+              "Fake delayed transcript",
+          ),
+        ).toBe(false);
+        expect(mockSaveTranscriptVersion).not.toHaveBeenCalled();
+      }
+      expect(mockTranscribeWithBuilder).toHaveBeenCalledOnce();
+    },
+  );
 
   describe("with an imported transcript", () => {
     const pendingRow = {

@@ -4,6 +4,7 @@ const recording = vi.hoisted(() => ({
   id: "rec_1",
   title: "Test recording",
   kind: "video" as string,
+  expiresAt: null as string | null,
   ownerEmail: "owner@example.com",
   storageMode: null as "own" | "hosted" | null,
   videoUrl: "https://cdn.example.com/media/clips/rec_1.webm",
@@ -53,6 +54,8 @@ const state = vi.hoisted(() => ({
   canStart: true,
   filmstripCalls: [] as Array<Record<string, unknown>>,
   duringEncode: null as null | (() => void),
+  duringUpload: null as null | (() => void),
+  accessRole: "editor",
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -102,16 +105,19 @@ vi.mock("../server/lib/upload-recording-media.js", () => ({
   uploadRecordingMedia: vi.fn(async (input: Record<string, unknown>) => {
     state.uploadCalls.push(input);
     if (state.uploadError) throw state.uploadError;
+    state.duringUpload?.();
     return state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null;
   }),
 }));
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: vi.fn(async () => ({
-    role: "editor",
-    resource: { expiresAt: null },
+    role: state.accessRole,
+    resource: { expiresAt: recording.expiresAt },
   })),
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: (...args: unknown[]) => args,
   eq: (column: unknown, value: unknown) => ({ column, value }),
 }));
@@ -227,9 +233,39 @@ describe("burning redactions into a recording", () => {
     state.uploadError = null;
     state.canStart = true;
     state.duringEncode = null;
+    state.duringUpload = null;
+    state.accessRole = "editor";
+    recording.expiresAt = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
     recording.storageMode = null;
+  });
+
+  it.each(["encode", "upload"])(
+    "refuses expiry during %s before replacing media",
+    async (phase) => {
+      const expire = () => {
+        recording.expiresAt = "2000-01-01T00:00:00Z";
+      };
+      if (phase === "encode") state.duringEncode = expire;
+      else state.duringUpload = expire;
+      await expect(run()).rejects.toMatchObject({ statusCode: 403 });
+      expect(state.updated).toHaveLength(0);
+      expect(state.deleted).not.toContain(
+        "https://cdn.example.com/media/clips/rec_1.webm",
+      );
+      expect(state.deleted).toEqual(
+        phase === "upload" ? [state.uploadUrl] : [],
+      );
+    },
+  );
+  it("retains owner completion when expiry changes during encoding", async () => {
+    state.accessRole = "owner";
+    state.duringEncode = () => {
+      recording.expiresAt = "2000-01-01T00:00:00Z";
+    };
+    await expect(run()).resolves.toMatchObject({ id: "rec_1" });
+    expect(state.updated).toHaveLength(2);
   });
 
   it("returns a typed setup error when storage is not connected", async () => {

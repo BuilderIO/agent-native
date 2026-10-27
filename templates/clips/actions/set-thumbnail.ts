@@ -195,6 +195,14 @@ export default defineAction({
         updatedAt: new Date().toISOString(),
       };
 
+      try {
+        assertRecordingNotExpired(
+          await assertAccess("recording", args.recordingId, "editor"),
+        );
+      } catch (error) {
+        await discardUpload();
+        throw error;
+      }
       const result = await db
         .update(schema.recordings)
         .set(patch)

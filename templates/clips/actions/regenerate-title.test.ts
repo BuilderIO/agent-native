@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
+}));
+
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
@@ -41,14 +46,16 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
   assertAccess: vi.fn(async () => ({
-    role: "editor",
-    resource: { expiresAt: null },
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
   })),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
@@ -123,11 +130,51 @@ describe("fallbackTitleFromTranscript", () => {
 
 describe("regenerate-title fallback refinement", () => {
   beforeEach(() => {
+    expiryAccess.role = "editor";
+    expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
     mockReadAppState.mockResolvedValue(null);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
   });
+
+  it.each([false, true])(
+    "rechecks title expiry after cleanup without falling back (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mockSelectRows.queue = [
+        [
+          {
+            id: "rec_1",
+            title: "Untitled recording",
+            titleSource: "default",
+            description: "Saved",
+          },
+        ],
+        [
+          {
+            status: "ready",
+            fullText: "Fake transcript for a title",
+            segmentsJson: "[]",
+            ownerEmail: "owner@example.com",
+          },
+        ],
+        [{ title: "Untitled recording", titleSource: "default" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { title: "Fake delayed title", provider: "builder" };
+      });
+      const pending = regenerateTitle.run({ recordingId: "rec_1" });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({ updated: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+        expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
     const transcript = `
