@@ -2166,9 +2166,11 @@ function ModelSelector({
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
-  // Only a list with no connected provider at all means setup; a selected
-  // model on an unconnected provider still has others to fall back to.
-  const connectionRequired = onlyConnectPathAvailable && !modelListLoading;
+  // Only a loaded list that names providers, none of them connected, means
+  // setup. A selected model on an unconnected provider still has others, and
+  // an empty list is a catalog that failed to load, not proof of anything.
+  const connectionRequired =
+    onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
   useEffect(() => {
     onConnectionRequiredChange?.(connectionRequired);
   }, [connectionRequired, onConnectionRequiredChange]);

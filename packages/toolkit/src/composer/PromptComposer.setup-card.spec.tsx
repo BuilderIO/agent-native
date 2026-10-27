@@ -34,11 +34,13 @@ async function render({
   readiness,
   configured,
   otherProviderConfigured = false,
+  catalogFailed = false,
   onModelConnectionRequiredChange,
 }: {
   readiness: ComposerAgentEngineState;
   configured: boolean;
   otherProviderConfigured?: boolean;
+  catalogFailed?: boolean;
   onModelConnectionRequiredChange?: (required: boolean) => void;
 }) {
   await act(async () => {
@@ -59,27 +61,33 @@ async function render({
           onSubmit={vi.fn()}
           requireAgentEngine
           modelStatusChecksEnabled={false}
-          availableModels={[
-            {
-              engine: "anthropic",
-              label: "Anthropic",
-              models: ["example-model"],
-              configured,
-            },
-            ...(otherProviderConfigured
-              ? [
+          availableModels={
+            catalogFailed
+              ? []
+              : [
                   {
-                    engine: "openai",
-                    label: "OpenAI",
-                    models: ["other-model"],
-                    configured: true,
+                    engine: "anthropic",
+                    label: "Anthropic",
+                    models: ["example-model"],
+                    configured,
                   },
+                  ...(otherProviderConfigured
+                    ? [
+                        {
+                          engine: "openai",
+                          label: "OpenAI",
+                          models: ["other-model"],
+                          configured: true,
+                        },
+                      ]
+                    : []),
                 ]
-              : []),
-          ]}
+          }
           selectedModel="example-model"
           selectedEngine="anthropic"
           onModelChange={vi.fn()}
+          onConnectProvider={vi.fn()}
+          modelListLoading={catalogFailed ? false : undefined}
           onModelConnectionRequiredChange={onModelConnectionRequiredChange}
           includeDefaultMentionSearch={false}
           includeDefaultSlashSkills={false}
@@ -131,6 +139,20 @@ describe("PromptComposer with no AI connected", () => {
       readiness: "unknown",
       configured: false,
       otherProviderConfigured: true,
+      onModelConnectionRequiredChange: onRequired,
+    });
+
+    expect(card()).toBeNull();
+    expect(editor()?.getAttribute("contenteditable")).toBe("true");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+  });
+
+  it("keeps the prompt open when the model catalog failed to load", async () => {
+    const onRequired = vi.fn();
+    await render({
+      readiness: "unavailable",
+      configured: false,
+      catalogFailed: true,
       onModelConnectionRequiredChange: onRequired,
     });
 
