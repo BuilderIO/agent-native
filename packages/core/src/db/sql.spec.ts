@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getSqlFragmentParameterOffsets,
@@ -29,18 +29,27 @@ describe("sql", () => {
     expect(Object.isFrozen(query.args)).toBe(true);
   });
 
-  it("composes fragments from a second package instance", () => {
-    const foreignFragment = Object.freeze({
-      sql: "WHERE id = ?",
+  it("composes fragments from a separately loaded package copy", async () => {
+    vi.resetModules();
+    const foreignSql = await import("./sql.js");
+    const foreignPredicate = foreignSql.sql`WHERE id = ${foreignSql.sql.value("thread-1")}`;
+    const query = sql`SELECT ${foreignSql.sql.ident("id")} FROM tasks ${foreignPredicate}`;
+
+    expect(query.sql).toBe('SELECT "id" FROM tasks WHERE id = ?');
+    expect(query.args).toEqual(["thread-1"]);
+  });
+
+  it("rejects malformed fragment marker metadata", () => {
+    const malformed = Object.freeze({
+      sql: "SELECT 1",
       args: Object.freeze(["thread-1"]),
       [Symbol.for("@agent-native/core/sql-fragment")]: true,
-      [Symbol.for("@agent-native/core/sql-fragment-parameter-offsets")]: [11],
+      [Symbol.for("@agent-native/core/sql-fragment-parameter-offsets")]: [0],
     }) as unknown as SqlFragment;
 
-    const query = sql`SELECT * FROM tasks ${foreignFragment}`;
-
-    expect(query.sql).toBe("SELECT * FROM tasks WHERE id = ?");
-    expect(query.args).toEqual(["thread-1"]);
+    expect(() => sql`SELECT * FROM tasks ${malformed}`).toThrow(
+      "SQL interpolation must be a fragment, identifier, or bound value",
+    );
   });
 
   it("tracks generated bind markers separately from PostgreSQL question operators", () => {

@@ -37,20 +37,65 @@ function isSqlPropertyName(name: ts.PropertyName): boolean {
   );
 }
 
-function isExecuteCall(expression: ts.Expression): boolean {
-  if (ts.isIdentifier(expression)) return expression.text === "execute";
-  if (ts.isPropertyAccessExpression(expression)) {
-    return expression.name.text === "execute";
+function isExecuteCall(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  aliases: ReadonlySet<ts.Symbol>,
+): boolean {
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol !== undefined && aliases.has(symbol);
   }
-  if (ts.isElementAccessExpression(expression)) {
-    const argument = expression.argumentExpression;
-    return (
-      argument !== undefined &&
-      ts.isStringLiteral(argument) &&
-      argument.text === "execute"
-    );
+  return isExecuteReference(expression, checker, sourceFile);
+}
+
+function staticStringPropertyName(
+  expression: ts.Expression | undefined,
+): string | undefined {
+  let current = expression;
+  while (
+    current &&
+    (ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isTypeAssertionExpression(current))
+  ) {
+    current = current.expression;
   }
-  return false;
+  return current &&
+    (ts.isStringLiteral(current) || ts.isNoSubstitutionTemplateLiteral(current))
+    ? current.text
+    : undefined;
+}
+
+function sqlPropertyReceiver(
+  expression: ts.Expression,
+): ts.Identifier | undefined {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "sql" &&
+    ts.isIdentifier(expression.expression)
+  ) {
+    return expression.expression;
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    staticStringPropertyName(expression.argumentExpression) === "sql"
+  ) {
+    return expression.expression;
+  }
+  return undefined;
+}
+
+function isSqlPropertyAccess(expression: ts.Expression): boolean {
+  return (
+    (ts.isPropertyAccessExpression(expression) &&
+      expression.name.text === "sql") ||
+    (ts.isElementAccessExpression(expression) &&
+      staticStringPropertyName(expression.argumentExpression) === "sql")
+  );
 }
 
 function lineNumberAt(sourceFile: ts.SourceFile, position: number): number {
@@ -81,6 +126,13 @@ interface TaintedAssignment {
   node: ts.Node;
   expression: ts.Expression;
   compound: boolean;
+  uncertain: boolean;
+  iteration: "in" | "of" | undefined;
+}
+
+interface ReachingAssignments {
+  assignments: TaintedAssignment[];
+  hasDominatingAssignment: boolean;
 }
 
 interface SqlAnalysis {
@@ -88,6 +140,8 @@ interface SqlAnalysis {
   checker: ts.TypeChecker;
   assignments: Map<ts.Symbol, TaintedAssignment[]>;
   functions: Map<ts.Symbol, ts.FunctionLikeDeclaration[]>;
+  executeAliases: ReadonlySet<ts.Symbol>;
+  activeAssignments: Set<ts.Node>;
 }
 
 function isCoreDbModule(moduleName: string, file: string): boolean {
@@ -104,6 +158,29 @@ function isCoreDbModule(moduleName: string, file: string): boolean {
   return (
     resolved === path.resolve(rootDir, "packages/core/src/db/sql") ||
     resolved === path.resolve(rootDir, "packages/core/src/db/index")
+  );
+}
+
+function isCoreDbExecModule(moduleName: string, file: string): boolean {
+  if (moduleName === "@agent-native/core/db") return true;
+  if (!moduleName.startsWith(".")) return false;
+  const resolved = path
+    .resolve(path.dirname(file), moduleName)
+    .replace(/\.(?:[cm]?[jt]s|tsx?)$/i, "");
+  return (
+    resolved === path.resolve(rootDir, "packages/core/src/db/index") ||
+    resolved === path.resolve(rootDir, "packages/core/src/db/client")
+  );
+}
+
+function isCoreStateMachineModule(moduleName: string, file: string): boolean {
+  if (moduleName === "@agent-native/core/state-machine") return true;
+  if (!moduleName.startsWith(".")) return false;
+  const resolved = path
+    .resolve(path.dirname(file), moduleName)
+    .replace(/\.(?:[cm]?[jt]s|tsx?)$/i, "");
+  return (
+    resolved === path.resolve(rootDir, "packages/core/src/state-machine/index")
   );
 }
 
@@ -133,17 +210,249 @@ function isImportedSqlIdentifier(
   );
 }
 
+function isImportedSqlNamespace(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isNamespaceImport(declaration)) return false;
+      const importClause = declaration.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreDbModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isImportedSqlNamespaceAccess(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "sql" &&
+    ts.isIdentifier(expression.expression)
+  ) {
+    return isImportedSqlNamespace(expression.expression, checker, sourceFile);
+  }
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    staticStringPropertyName(expression.argumentExpression) === "sql"
+  ) {
+    return isImportedSqlNamespace(expression.expression, checker, sourceFile);
+  }
+  return false;
+}
+
+function isImportedDbExecFactory(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const importedName = declaration.propertyName ?? declaration.name;
+      if (importedName.text !== "getDbExec") return false;
+      const importClause = declaration.parent.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreDbExecModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isImportedDbExecType(
+  type: ts.TypeNode,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
+    return false;
+  }
+  const symbol = checker.getSymbolAtLocation(type.typeName);
+  if (!symbol || seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (ts.isTypeAliasDeclaration(declaration)) {
+        return isImportedDbExecType(
+          declaration.type,
+          checker,
+          sourceFile,
+          nextSeen,
+        );
+      }
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const importedName = declaration.propertyName ?? declaration.name;
+      if (importedName.text !== "DbExec") return false;
+      const importClause = declaration.parent.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreDbExecModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isDbExecExpression(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isTypeAssertionExpression(current)
+  ) {
+    current = current.expression;
+  }
+  if (
+    ts.isCallExpression(current) &&
+    ts.isIdentifier(current.expression) &&
+    isImportedDbExecFactory(current.expression, checker, sourceFile)
+  ) {
+    return true;
+  }
+  if (!ts.isIdentifier(current)) return false;
+  const symbol = checker.getSymbolAtLocation(current);
+  if (!symbol || seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer &&
+        isDbExecExpression(
+          declaration.initializer,
+          checker,
+          sourceFile,
+          nextSeen,
+        )
+      ) {
+        return true;
+      }
+      return (
+        (ts.isVariableDeclaration(declaration) ||
+          ts.isParameter(declaration) ||
+          ts.isPropertyDeclaration(declaration) ||
+          ts.isPropertySignature(declaration)) &&
+        declaration.type !== undefined &&
+        isImportedDbExecType(declaration.type, checker, sourceFile)
+      );
+    }) ?? false
+  );
+}
+
+function isImportedSqlFragmentType(
+  type: ts.TypeNode,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
+    return false;
+  }
+  const symbol = checker.getSymbolAtLocation(type.typeName);
+  if (!symbol || seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (ts.isTypeAliasDeclaration(declaration)) {
+        return isImportedSqlFragmentType(
+          declaration.type,
+          checker,
+          sourceFile,
+          nextSeen,
+        );
+      }
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const importedName = declaration.propertyName ?? declaration.name;
+      if (importedName.text !== "SqlFragment") return false;
+      const importClause = declaration.parent.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreDbModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isSqlFragmentDeclaration(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (
+        !ts.isVariableDeclaration(declaration) &&
+        !ts.isParameter(declaration) &&
+        !ts.isPropertyDeclaration(declaration) &&
+        !ts.isPropertySignature(declaration)
+      ) {
+        return false;
+      }
+      return (
+        declaration.type !== undefined &&
+        isImportedSqlFragmentType(declaration.type, checker, sourceFile)
+      );
+    }) ?? false
+  );
+}
+
 function isSafeSqlTag(
   tag: ts.Expression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
 ): boolean {
   return (
-    ts.isIdentifier(tag) && isImportedSqlIdentifier(tag, checker, sourceFile)
+    (ts.isIdentifier(tag) &&
+      isImportedSqlIdentifier(tag, checker, sourceFile)) ||
+    isImportedSqlNamespaceAccess(tag, checker, sourceFile)
   );
 }
 
-function isSafeSqlFragmentCall(
+function isSafeSqlHelperCall(
   call: ts.CallExpression,
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
@@ -151,10 +460,116 @@ function isSafeSqlFragmentCall(
   const callee = call.expression;
   return (
     ts.isPropertyAccessExpression(callee) &&
-    (callee.name.text === "in" || callee.name.text === "join") &&
-    ts.isIdentifier(callee.expression) &&
-    isImportedSqlIdentifier(callee.expression, checker, sourceFile)
+    ["ident", "in", "join", "value"].includes(callee.name.text) &&
+    ((ts.isIdentifier(callee.expression) &&
+      isImportedSqlIdentifier(callee.expression, checker, sourceFile)) ||
+      isImportedSqlNamespaceAccess(callee.expression, checker, sourceFile))
   );
+}
+
+function isExecuteReference(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  if (ts.isPropertyAccessExpression(expression)) {
+    return (
+      expression.name.text === "execute" &&
+      isDbExecExpression(expression.expression, checker, sourceFile)
+    );
+  }
+  return (
+    ts.isElementAccessExpression(expression) &&
+    staticStringPropertyName(expression.argumentExpression) === "execute" &&
+    isDbExecExpression(expression.expression, checker, sourceFile)
+  );
+}
+
+function isImportedMachineFactory(
+  identifier: ts.Identifier,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const symbol = checker.getSymbolAtLocation(identifier);
+  return (
+    symbol?.declarations?.some((declaration) => {
+      if (!ts.isImportSpecifier(declaration)) return false;
+      const importedName = declaration.propertyName ?? declaration.name;
+      if (importedName.text !== "defineMachine") return false;
+      const importClause = declaration.parent.parent;
+      if (!ts.isImportClause(importClause)) return false;
+      const importDeclaration = importClause.parent;
+      return (
+        ts.isImportDeclaration(importDeclaration) &&
+        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+        isCoreStateMachineModule(
+          importDeclaration.moduleSpecifier.text,
+          sourceFile.fileName,
+        )
+      );
+    }) ?? false
+  );
+}
+
+function isMachineSymbol(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+  seen: ReadonlySet<ts.Symbol> = new Set(),
+): boolean {
+  if (seen.has(symbol)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(symbol);
+  return (
+    symbol.declarations?.some((declaration) => {
+      if (!ts.isVariableDeclaration(declaration) || !declaration.initializer) {
+        return false;
+      }
+      const declarationList = declaration.parent;
+      if (
+        !ts.isVariableDeclarationList(declarationList) ||
+        (declarationList.flags & ts.NodeFlags.Const) === 0
+      ) {
+        return false;
+      }
+      const initializer = declaration.initializer;
+      if (
+        ts.isCallExpression(initializer) &&
+        ts.isIdentifier(initializer.expression)
+      ) {
+        return isImportedMachineFactory(
+          initializer.expression,
+          checker,
+          sourceFile,
+        );
+      }
+      if (ts.isIdentifier(initializer)) {
+        const source = checker.getSymbolAtLocation(initializer);
+        return (
+          source !== undefined &&
+          isMachineSymbol(source, checker, sourceFile, nextSeen)
+        );
+      }
+      return false;
+    }) ?? false
+  );
+}
+
+function isSafeSqlMachineCall(
+  call: ts.CallExpression,
+  checker: ts.TypeChecker,
+  sourceFile: ts.SourceFile,
+): boolean {
+  const callee = call.expression;
+  if (
+    !ts.isPropertyAccessExpression(callee) ||
+    callee.name.text !== "sqlIn" ||
+    !ts.isIdentifier(callee.expression)
+  ) {
+    return false;
+  }
+  const symbol = checker.getSymbolAtLocation(callee.expression);
+  return symbol !== undefined && isMachineSymbol(symbol, checker, sourceFile);
 }
 
 function appendToMapList<K, V>(map: Map<K, V[]>, key: K, value: V): void {
@@ -171,12 +586,75 @@ function functionExpression(
     : undefined;
 }
 
+function assignmentTargets(node: ts.Node): ts.Identifier[] {
+  if (ts.isIdentifier(node)) return [node];
+  if (ts.isBindingElement(node)) return assignmentTargets(node.name);
+  if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) {
+    return node.elements.flatMap(assignmentTargets);
+  }
+  if (ts.isPropertyAssignment(node)) return assignmentTargets(node.initializer);
+  if (ts.isShorthandPropertyAssignment(node)) return [node.name];
+  if (ts.isSpreadAssignment(node) || ts.isSpreadElement(node)) {
+    return assignmentTargets(node.expression);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.flatMap(assignmentTargets);
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.flatMap(assignmentTargets);
+  }
+  if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node)
+  ) {
+    return assignmentTargets(node.expression);
+  }
+  return [];
+}
+
 function buildSqlAnalysis(
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
 ): SqlAnalysis {
   const assignments = new Map<ts.Symbol, TaintedAssignment[]>();
   const functions = new Map<ts.Symbol, ts.FunctionLikeDeclaration[]>();
+  const aliases = new Map<ts.Symbol, Set<ts.Symbol>>();
+  const executeAliases = new Set<ts.Symbol>();
+  const sqlPropertyWrites = new Map<ts.Symbol, TaintedAssignment[]>();
+  const addAlias = (
+    left: ts.Symbol | undefined,
+    right: ts.Symbol | undefined,
+  ) => {
+    if (!left || !right || left === right) return;
+    const leftAliases = aliases.get(left) ?? new Set<ts.Symbol>();
+    leftAliases.add(right);
+    aliases.set(left, leftAliases);
+    const rightAliases = aliases.get(right) ?? new Set<ts.Symbol>();
+    rightAliases.add(left);
+    aliases.set(right, rightAliases);
+  };
+  const addAssignment = (
+    identifier: ts.Identifier,
+    node: ts.Node,
+    expression: ts.Expression,
+    compound = false,
+    uncertain = false,
+    iteration: "in" | "of" | undefined = undefined,
+  ) => {
+    const symbol = ts.isShorthandPropertyAssignment(identifier.parent)
+      ? checker.getShorthandAssignmentValueSymbol(identifier.parent)
+      : checker.getSymbolAtLocation(identifier);
+    if (symbol) {
+      appendToMapList(assignments, symbol, {
+        node,
+        expression,
+        compound,
+        uncertain,
+        iteration,
+      });
+    }
+  };
   const addFunction = (
     symbol: ts.Symbol | undefined,
     declaration: ts.FunctionLikeDeclaration | undefined,
@@ -184,35 +662,94 @@ function buildSqlAnalysis(
     if (symbol && declaration) appendToMapList(functions, symbol, declaration);
   };
   const collect = (node: ts.Node) => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer
-    ) {
-      const symbol = checker.getSymbolAtLocation(node.name);
-      if (symbol) {
-        appendToMapList(assignments, symbol, {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      for (const target of assignmentTargets(node.name)) {
+        addAssignment(
+          target,
           node,
-          expression: node.initializer,
-          compound: false,
-        });
+          node.initializer,
+          false,
+          !ts.isIdentifier(node.name),
+        );
+      }
+      if (ts.isIdentifier(node.name)) {
+        const symbol = checker.getSymbolAtLocation(node.name);
         addFunction(symbol, functionExpression(node.initializer));
+        if (
+          symbol &&
+          isExecuteReference(node.initializer, checker, sourceFile)
+        ) {
+          executeAliases.add(symbol);
+        }
+        if (ts.isIdentifier(node.initializer)) {
+          const source = checker.getSymbolAtLocation(node.initializer);
+          addAlias(symbol, source);
+          if (symbol && source && executeAliases.has(source)) {
+            executeAliases.add(symbol);
+          }
+        }
       }
     }
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
-      ts.isIdentifier(node.left)
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
-      const symbol = checker.getSymbolAtLocation(node.left);
-      if (symbol) {
-        appendToMapList(assignments, symbol, {
+      const compound = node.operatorToken.kind !== ts.SyntaxKind.EqualsToken;
+      if (ts.isIdentifier(node.left)) {
+        addAssignment(node.left, node, node.right, compound);
+        addFunction(
+          checker.getSymbolAtLocation(node.left),
+          functionExpression(node.right),
+        );
+        const symbol = checker.getSymbolAtLocation(node.left);
+        if (
+          !compound &&
+          symbol &&
+          isExecuteReference(node.right, checker, sourceFile)
+        ) {
+          executeAliases.add(symbol);
+        }
+        if (!compound && ts.isIdentifier(node.right)) {
+          const source = checker.getSymbolAtLocation(node.right);
+          addAlias(symbol, source);
+          if (symbol && source && executeAliases.has(source)) {
+            executeAliases.add(symbol);
+          }
+        }
+      } else {
+        const receiver = sqlPropertyReceiver(node.left);
+        const symbol = receiver && checker.getSymbolAtLocation(receiver);
+        if (symbol) {
+          appendToMapList(sqlPropertyWrites, symbol, {
+            node,
+            expression: node.right,
+            compound,
+            uncertain: false,
+            iteration: undefined,
+          });
+        } else if (!compound) {
+          for (const target of assignmentTargets(node.left)) {
+            addAssignment(target, node, node.right, false, true);
+          }
+        }
+      }
+    }
+    if (ts.isForOfStatement(node) || ts.isForInStatement(node)) {
+      const targets = ts.isVariableDeclarationList(node.initializer)
+        ? node.initializer.declarations.flatMap((declaration) =>
+            assignmentTargets(declaration.name),
+          )
+        : assignmentTargets(node.initializer);
+      for (const target of targets) {
+        addAssignment(
+          target,
           node,
-          expression: node.right,
-          compound: node.operatorToken.kind !== ts.SyntaxKind.EqualsToken,
-        });
-        addFunction(symbol, functionExpression(node.right));
+          node.expression,
+          false,
+          true,
+          ts.isForInStatement(node) ? "in" : "of",
+        );
       }
     }
     if (ts.isFunctionDeclaration(node) && node.name) {
@@ -230,7 +767,42 @@ function buildSqlAnalysis(
     ts.forEachChild(node, collect);
   };
   collect(sourceFile);
-  return { sourceFile, checker, assignments, functions };
+  const pendingExecuteAliases = [...executeAliases];
+  while (pendingExecuteAliases.length > 0) {
+    const current = pendingExecuteAliases.pop();
+    if (!current) continue;
+    for (const alias of aliases.get(current) ?? []) {
+      if (executeAliases.has(alias)) continue;
+      executeAliases.add(alias);
+      pendingExecuteAliases.push(alias);
+    }
+  }
+  for (const [receiver, writes] of sqlPropertyWrites) {
+    const relatedSymbols = new Set<ts.Symbol>([receiver]);
+    const pending = [receiver];
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current) continue;
+      for (const alias of aliases.get(current) ?? []) {
+        if (relatedSymbols.has(alias)) continue;
+        relatedSymbols.add(alias);
+        pending.push(alias);
+      }
+    }
+    for (const symbol of relatedSymbols) {
+      for (const write of writes) {
+        appendToMapList(assignments, symbol, write);
+      }
+    }
+  }
+  return {
+    sourceFile,
+    checker,
+    assignments,
+    functions,
+    executeAliases,
+    activeAssignments: new Set(),
+  };
 }
 
 function statementBlock(node: ts.Node): ts.Block | ts.SourceFile | undefined {
@@ -283,23 +855,64 @@ function assignmentBlock(
     : undefined;
 }
 
+function enclosingFunction(
+  node: ts.Node,
+): ts.FunctionLikeDeclaration | undefined {
+  let current = node;
+  while (current.parent) {
+    current = current.parent;
+    if (ts.isFunctionLike(current)) return current;
+  }
+  return undefined;
+}
+
+function isLoopBody(block: ts.Block | ts.SourceFile): boolean {
+  let current: ts.Node = block;
+  while (current.parent) {
+    const parent = current.parent;
+    if (ts.isFunctionLike(parent) || ts.isClassLike(parent)) return false;
+    if (
+      ts.isIterationStatement(parent, false) &&
+      parent.statement === current
+    ) {
+      return true;
+    }
+    current = parent;
+  }
+  return false;
+}
+
 function reachingAssignments(
   symbol: ts.Symbol,
   reference: ts.Identifier,
   analysis: SqlAnalysis,
-): TaintedAssignment[] {
+): ReachingAssignments {
   const position = reference.getStart(analysis.sourceFile);
   const block = statementBlock(reference);
+  const repeatedBlock = block !== undefined && isLoopBody(block);
   const candidates = (analysis.assignments.get(symbol) ?? []).filter(
-    (assignment) =>
-      !block ||
-      assignmentBlock(assignment) !== block ||
-      assignment.node.end <= position,
+    (assignment) => {
+      const assignedBlock = assignmentBlock(assignment);
+      return (
+        !analysis.activeAssignments.has(assignment.node) &&
+        (!block ||
+          assignedBlock !== block ||
+          assignment.node.end <= position ||
+          repeatedBlock)
+      );
+    },
   );
-  if (!block) return candidates;
+  if (!block) {
+    return { assignments: candidates, hasDominatingAssignment: false };
+  }
   let latestDominating: TaintedAssignment | undefined;
   for (const assignment of candidates) {
-    if (assignmentBlock(assignment) !== block) continue;
+    if (
+      assignmentBlock(assignment) !== block ||
+      assignment.node.end > position
+    ) {
+      continue;
+    }
     if (
       !latestDominating ||
       assignment.node.getStart(analysis.sourceFile) >
@@ -308,10 +921,29 @@ function reachingAssignments(
       latestDominating = assignment;
     }
   }
-  return candidates.filter(
-    (assignment) =>
-      assignmentBlock(assignment) !== block || assignment === latestDominating,
-  );
+  const referenceFunction = enclosingFunction(reference);
+  return {
+    assignments: candidates.filter((assignment) => {
+      const assignedBlock = assignmentBlock(assignment);
+      const overwrittenInScope =
+        latestDominating !== undefined &&
+        assignment.node.getStart(analysis.sourceFile) <
+          latestDominating.node.getStart(analysis.sourceFile) &&
+        enclosingFunction(assignment.node) === referenceFunction;
+      const followsReferenceInScope =
+        !repeatedBlock &&
+        assignment.node.getStart(analysis.sourceFile) > position &&
+        enclosingFunction(assignment.node) === referenceFunction;
+      return (
+        !overwrittenInScope &&
+        !followsReferenceInScope &&
+        (assignedBlock !== block ||
+          assignment.node.end > position ||
+          assignment === latestDominating)
+      );
+    }),
+    hasDominatingAssignment: latestDominating !== undefined,
+  };
 }
 
 function isStringLikeType(
@@ -373,6 +1005,34 @@ function isStaticStringExpression(expression: ts.Expression): boolean {
     return (
       isStaticStringExpression(expression.whenTrue) &&
       isStaticStringExpression(expression.whenFalse)
+    );
+  }
+  return false;
+}
+
+function isStaticSqlValue(expression: ts.Expression): boolean {
+  if (isStaticStringExpression(expression)) return true;
+  if (
+    ts.isNumericLiteral(expression) ||
+    ts.isBigIntLiteral(expression) ||
+    expression.kind === ts.SyntaxKind.TrueKeyword ||
+    expression.kind === ts.SyntaxKind.FalseKeyword ||
+    expression.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return true;
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.every(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        isStaticSqlValue(property.initializer),
+    );
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.every(
+      (element) =>
+        !ts.isSpreadElement(element) &&
+        (ts.isOmittedExpression(element) || isStaticSqlValue(element)),
     );
   }
   return false;
@@ -440,25 +1100,78 @@ function findUnsafeSqlSources(
   if (ts.isIdentifier(current)) {
     const symbol = analysis.checker.getSymbolAtLocation(current);
     if (!symbol || seenSymbols.has(symbol)) return new Set();
+    if (
+      isSqlFragmentDeclaration(symbol, analysis.checker, analysis.sourceFile) &&
+      (analysis.assignments.get(symbol) ?? []).length === 0
+    ) {
+      return new Set();
+    }
 
-    const assignments = reachingAssignments(symbol, current, analysis);
-    if (assignments.length > 0) {
+    const reaching = reachingAssignments(symbol, current, analysis);
+    if (reaching.assignments.length > 0) {
       const nextSymbols = new Set(seenSymbols);
       nextSymbols.add(symbol);
-      return unionSources(
-        ...assignments.map((assignment) => {
-          const sourceExpression =
-            assignment.compound && ts.isBinaryExpression(assignment.node)
-              ? assignment.node
-              : assignment.expression;
-          return findUnsafeSqlSources(
-            sourceExpression,
-            analysis,
-            assignment.compound ? seenSymbols : nextSymbols,
-            seenFunctions,
-          );
-        }),
-      );
+      const assignmentSources = reaching.assignments.map((assignment) => {
+        if (analysis.activeAssignments.has(assignment.node)) {
+          return new Set<ts.Node>();
+        }
+        analysis.activeAssignments.add(assignment.node);
+        let sources = new Set<ts.Node>();
+        try {
+          if (assignment.iteration === "in") {
+            sources.add(assignment.node);
+          } else if (assignment.iteration === "of") {
+            const iterableType = analysis.checker.getTypeAtLocation(
+              assignment.expression,
+            );
+            const elementType = analysis.checker.getIndexTypeOfType(
+              iterableType,
+              ts.IndexKind.Number,
+            );
+            if (
+              isPotentialStringType(current, analysis.checker) &&
+              (!elementType || mayBeStringType(elementType)) &&
+              !isStaticSqlValue(assignment.expression)
+            ) {
+              sources.add(assignment.node);
+            }
+          } else {
+            const sourceExpression =
+              assignment.compound && ts.isBinaryExpression(assignment.node)
+                ? assignment.node
+                : assignment.expression;
+            sources = findUnsafeSqlSources(
+              sourceExpression,
+              analysis,
+              assignment.compound ? seenSymbols : nextSymbols,
+              seenFunctions,
+            );
+            if (
+              assignment.uncertain &&
+              sources.size === 0 &&
+              !isStaticSqlValue(assignment.expression) &&
+              isPotentialStringType(current, analysis.checker)
+            ) {
+              sources.add(assignment.node);
+            }
+            if (sources.size > 0) sources.add(assignment.node);
+          }
+        } finally {
+          analysis.activeAssignments.delete(assignment.node);
+        }
+        return sources;
+      });
+      const sources = unionSources(...assignmentSources);
+      const declaration = symbol.valueDeclaration;
+      if (
+        declaration &&
+        ts.isParameter(declaration) &&
+        !reaching.hasDominatingAssignment &&
+        isPotentialStringType(current, analysis.checker)
+      ) {
+        sources.add(declaration);
+      }
+      return sources;
     }
     return isPotentialStringType(current, analysis.checker)
       ? new Set([symbol.valueDeclaration ?? current])
@@ -466,9 +1179,8 @@ function findUnsafeSqlSources(
   }
   if (ts.isCallExpression(current)) {
     if (
-      isSafeSqlFragmentCall(current, analysis.checker, analysis.sourceFile) ||
-      (ts.isPropertyAccessExpression(current.expression) &&
-        current.expression.name.text === "sqlIn")
+      isSafeSqlHelperCall(current, analysis.checker, analysis.sourceFile) ||
+      isSafeSqlMachineCall(current, analysis.checker, analysis.sourceFile)
     ) {
       return new Set();
     }
@@ -544,6 +1256,59 @@ function findUnsafeSqlSources(
       ),
     );
   }
+  if (ts.isObjectLiteralExpression(current)) {
+    if (isStaticSqlValue(current)) return new Set();
+    return unionSources(
+      ...current.properties.flatMap((property) => {
+        if (ts.isPropertyAssignment(property)) {
+          return [
+            findUnsafeSqlSources(
+              property.initializer,
+              analysis,
+              seenSymbols,
+              seenFunctions,
+            ),
+          ];
+        }
+        if (ts.isShorthandPropertyAssignment(property)) {
+          return [
+            findUnsafeSqlSources(
+              property.name,
+              analysis,
+              seenSymbols,
+              seenFunctions,
+            ),
+          ];
+        }
+        if (ts.isSpreadAssignment(property)) {
+          return [
+            findUnsafeSqlSources(
+              property.expression,
+              analysis,
+              seenSymbols,
+              seenFunctions,
+            ),
+          ];
+        }
+        return [];
+      }),
+    );
+  }
+  if (ts.isArrayLiteralExpression(current)) {
+    if (isStaticSqlValue(current)) return new Set();
+    return unionSources(
+      ...current.elements.map((element) =>
+        ts.isSpreadElement(element)
+          ? findUnsafeSqlSources(
+              element.expression,
+              analysis,
+              seenSymbols,
+              seenFunctions,
+            )
+          : findUnsafeSqlSources(element, analysis, seenSymbols, seenFunctions),
+      ),
+    );
+  }
   if (
     ts.isPropertyAccessExpression(current) ||
     ts.isElementAccessExpression(current)
@@ -563,8 +1328,18 @@ function hasPragma(
   startLine: number,
   endLine: number,
 ): boolean {
+  const previousLine = lines[startLine - 2] ?? "";
+  const trimmedPreviousLine = previousLine.trim();
+  const previousLineIsComment =
+    trimmedPreviousLine.startsWith("//") ||
+    trimmedPreviousLine.startsWith("--") ||
+    (trimmedPreviousLine.startsWith("/*") &&
+      trimmedPreviousLine.endsWith("*/")) ||
+    (trimmedPreviousLine.startsWith("*") &&
+      (!trimmedPreviousLine.includes("*/") ||
+        trimmedPreviousLine.endsWith("*/")));
   return (
-    pragma.test(lines[startLine - 2] ?? "") ||
+    (previousLineIsComment && pragma.test(previousLine)) ||
     lines.slice(startLine - 1, endLine).some((line) => pragma.test(line))
   );
 }
@@ -657,9 +1432,25 @@ export function findRawSqlInterpolationViolations(
     if (ts.isShorthandPropertyAssignment(node) && node.name.text === "sql") {
       reportUnsafeSqlValue(node, node.name);
     }
-    if (ts.isCallExpression(node) && isExecuteCall(node.expression)) {
+    if (
+      ts.isCallExpression(node) &&
+      isExecuteCall(
+        node.expression,
+        checker,
+        sourceFile,
+        analysis.executeAliases,
+      )
+    ) {
       const argument = node.arguments[0];
       if (argument) reportUnsafeSqlValue(node, argument);
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      isSqlPropertyAccess(node.left)
+    ) {
+      reportUnsafeSqlValue(node, node.right);
     }
     ts.forEachChild(node, visit);
   };

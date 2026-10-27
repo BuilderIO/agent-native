@@ -39,7 +39,10 @@ nonempty list (it includes parentheses), and `sql.join(fragments, separator)`
 or nested fragments for composition. The tag rejects plain string interpolation
 at compile time; do not build `{ sql: `...${value}...` }` or pass interpolated
 templates directly to `execute()`. The `guard:no-raw-sql-interpolation` guard
-catches both forms; reviewed exceptions require `// raw-sql-ok: <reason>`.
+catches both forms; reviewed exceptions require `// raw-sql-ok: <reason>`. The
+diff guard analyzes one file at a time, so an imported helper that returns a
+`SqlFragment` may need that pragma with a reason naming its typed return
+contract.
 
 ### Schema and migration ownership
 

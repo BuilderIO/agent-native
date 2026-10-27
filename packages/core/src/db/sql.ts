@@ -56,10 +56,30 @@ function parameterOffsets(value: object): readonly number[] | undefined {
   const metadata = (value as Record<symbol, unknown>)[
     parameterOffsetsRuntimeBrand
   ];
-  return Array.isArray(metadata) &&
-    metadata.every((offset) => typeof offset === "number")
-    ? metadata
-    : undefined;
+  if (!Array.isArray(metadata)) return undefined;
+  const sqlText = (value as { sql?: unknown }).sql;
+  const args = (value as { args?: unknown }).args;
+  if (typeof sqlText !== "string" || !Array.isArray(args)) return undefined;
+  const offsets = metadata.filter(
+    (offset: unknown): offset is number =>
+      typeof offset === "number" && Number.isInteger(offset),
+  );
+  if (offsets.length !== metadata.length || offsets.length !== args.length) {
+    return undefined;
+  }
+  let previousOffset = -1;
+  for (const offset of offsets) {
+    if (
+      offset <= previousOffset ||
+      offset < 0 ||
+      offset >= sqlText.length ||
+      sqlText[offset] !== "?"
+    ) {
+      return undefined;
+    }
+    previousOffset = offset;
+  }
+  return offsets;
 }
 
 function makeFragment(

@@ -5,7 +5,14 @@ import { findRawSqlInterpolationViolations } from "./guard-no-raw-sql-interpolat
 const FILE = "packages/core/src/example.ts";
 
 function source(lines: string[]): string {
-  return lines.join("\n");
+  const hasDatabaseBinding = lines.some((line) =>
+    /\b(?:const|let|var)\s+database\b/.test(line),
+  );
+  return [
+    ...lines,
+    'import { getDbExec } from "./db/client.js";',
+    ...(hasDatabaseBinding ? [] : ["const database = getDbExec();"]),
+  ].join("\n");
 }
 
 describe("raw SQL interpolation guard", () => {
@@ -45,12 +52,13 @@ describe("raw SQL interpolation guard", () => {
     const text = source([
       "const database = getDbExec();",
       "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      "const execute = database.execute;",
       "execute(`DELETE FROM records WHERE id = ${recordId}`);",
       'database["execute"](`UPDATE records SET active = ${active}`);',
     ]);
 
     expect(
-      findRawSqlInterpolationViolations(FILE, text, new Set([2, 3, 4])),
+      findRawSqlInterpolationViolations(FILE, text, new Set([2, 4, 5])),
     ).toEqual([
       {
         file: FILE,
@@ -60,16 +68,59 @@ describe("raw SQL interpolation guard", () => {
       },
       {
         file: FILE,
-        line: 3,
+        line: 4,
         snippet: "execute(`DELETE FROM records WHERE id = ${recordId}`);",
       },
       {
         file: FILE,
-        line: 4,
+        line: 5,
         snippet:
           'database["execute"](`UPDATE records SET active = ${active}`);',
       },
     ]);
+  });
+
+  it("finds interpolated templates passed through an execute alias", () => {
+    const text = source([
+      "const database = getDbExec();",
+      "const runQuery = database.execute;",
+      "const alias = runQuery;",
+      "alias(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([4]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 4,
+          snippet: "alias(`SELECT * FROM records WHERE id = ${recordId}`);",
+        },
+      ],
+    );
+  });
+
+  it("does not treat a non-DbExec execute method as a SQL sink", () => {
+    const text = source([
+      'import { sql } from "drizzle-orm";',
+      "declare const transaction: { execute(query: unknown): Promise<unknown> };",
+      "transaction.execute(sql`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([3]))).toEqual(
+      [],
+    );
+  });
+
+  it("recognizes DbExec-typed parameters as SQL sinks", () => {
+    const text = source([
+      'import type { DbExec } from "./db/client.js";',
+      "declare const transaction: DbExec;",
+      "transaction.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
   });
 
   it("finds interpolated templates assigned to a variable before execute", () => {
@@ -87,6 +138,11 @@ describe("raw SQL interpolation guard", () => {
         line: 1,
         snippet:
           "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
+      },
+      {
+        file: FILE,
+        line: 2,
+        snippet: "const alias = statement;",
       },
     ]);
   });
@@ -152,7 +208,220 @@ describe("raw SQL interpolation guard", () => {
     ]);
 
     expect(
-      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4])),
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("attributes a new compound assignment even when its sink is unchanged", () => {
+    const text = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records WHERE id = ";',
+      "statement += userId;",
+      "database.execute(statement);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([3]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 3,
+          snippet: "statement += userId;",
+        },
+      ],
+    );
+  });
+
+  it("attributes a plain assignment from an existing string source", () => {
+    const text = source([
+      "declare const input: string;",
+      'let statement = "SELECT 1";',
+      "statement = input;",
+      "database.execute(statement);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([3]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 3,
+          snippet: "statement = input;",
+        },
+      ],
+    );
+  });
+
+  it("clears branch taint after a later unconditional static overwrite", () => {
+    const text = source([
+      "declare const enabled: boolean;",
+      "declare const userId: string;",
+      "let statement = `SELECT * FROM records WHERE id = ${userId}`;",
+      "if (enabled) {",
+      "  statement = `SELECT * FROM records WHERE id = ${userId}`;",
+      "}",
+      'statement = "SELECT 1";',
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7, 8]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("handles expression-bodied compound assignments without recursion", () => {
+    const text = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "const appendUserId = () => (statement += userId);",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("includes writes carried around a loop back edge", () => {
+    const text = source([
+      "declare const again: boolean;",
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "while (again) {",
+      "  database.execute(statement);",
+      "  statement += userId;",
+      "}",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([6]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 6,
+          snippet: "statement += userId;",
+        },
+      ],
+    );
+  });
+
+  it("tracks values assigned through for-of and for-in loops", () => {
+    const forOf = source([
+      "declare const queries: string[];",
+      'let statement = "SELECT * FROM records";',
+      "for (statement of queries) {}",
+      "database.execute(statement);",
+    ]);
+    const forIn = source([
+      "declare const records: Record<string, number>;",
+      'let statement = "SELECT * FROM records";',
+      "for (statement in records) {}",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, forOf, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, forIn, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("tracks object and array destructuring writes", () => {
+    const object = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "({ statement } = { statement: `SELECT * FROM records WHERE id = ${userId}` });",
+      "database.execute(statement);",
+    ]);
+    const array = source([
+      "declare const userId: string;",
+      'let statement = "SELECT * FROM records";',
+      "[statement] = [`SELECT * FROM records WHERE id = ${userId}`];",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, object, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, array, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("tracks mutations of the SQL field through object aliases", () => {
+    const direct = source([
+      "declare const userId: string;",
+      'const query: { sql: string; args: unknown[] } = { sql: "SELECT 1", args: [] };',
+      "query.sql = `SELECT * FROM records WHERE id = ${userId}`;",
+      "database.execute(query);",
+    ]);
+    const alias = source([
+      "declare const userId: string;",
+      'const query: { sql: string; args: unknown[] } = { sql: "SELECT 1", args: [] };',
+      "const alias = query;",
+      'alias["sql"] = `SELECT * FROM records WHERE id = ${userId}`;',
+      "database.execute(query);",
+    ]);
+    const compound = source([
+      "declare const userId: string;",
+      'const query: { sql: string; args: unknown[] } = { sql: "SELECT 1", args: [] };',
+      "query.sql += userId;",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, direct, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, alias, new Set([4])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, compound, new Set([3])),
+    ).toHaveLength(1);
+  });
+
+  it("flags new unsafe SQL-property writes on nested or destructured objects", () => {
+    const nested = source([
+      "declare const userId: string;",
+      'const holder = { query: { sql: "SELECT 1", args: [] as unknown[] } };',
+      "holder.query.sql = `SELECT * FROM records WHERE id = ${userId}`;",
+      "database.execute(holder.query);",
+    ]);
+    const destructured = source([
+      "declare const userId: string;",
+      'const query = { sql: "SELECT 1", args: [] as unknown[] };',
+      "const { query: alias } = { query };",
+      "alias.sql = `SELECT * FROM records WHERE id = ${userId}`;",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, nested, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, destructured, new Set([4])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes parenthesized and asserted static SQL property names", () => {
+    const parenthesized = source([
+      "declare const userId: string;",
+      'const query: { sql: string; args: unknown[] } = { sql: "SELECT 1", args: [] };',
+      'query[("sql")] = `SELECT * FROM records WHERE id = ${userId}`;',
+    ]);
+    const asserted = source([
+      "declare const userId: string;",
+      'const query: { sql: string; args: unknown[] } = { sql: "SELECT 1", args: [] };',
+      'query["sql" as const] = `SELECT * FROM records WHERE id = ${userId}`;',
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, parenthesized, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, asserted, new Set([3])),
     ).toHaveLength(1);
   });
 
@@ -315,11 +584,123 @@ describe("raw SQL interpolation guard", () => {
       "const statement = sql`SELECT * FROM records WHERE id = ${recordId}`;",
       "database.execute(statement);",
       "database.execute(sql.in([recordId]));",
+      'database.execute(sql.ident("id"));',
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4, 5])),
+    ).toEqual([]);
+  });
+
+  it("recognizes safe SQL tags and helpers from a core namespace import", () => {
+    const safe = source([
+      'import * as db from "./db/index.js";',
+      "const statement = db.sql`SELECT * FROM records WHERE id = ${db.sql.value(recordId)}`;",
+      "database.execute(statement);",
+    ]);
+    const unrelated = source([
+      'import * as db from "./other.js";',
+      "const statement = db.sql`SELECT * FROM records WHERE id = ${recordId}`;",
+      "database.execute(statement);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, safe, new Set([2, 3])),
+    ).toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, unrelated, new Set([2, 3])),
+    ).toHaveLength(1);
+  });
+
+  it("only trusts sqlIn calls on a locally defined state machine", () => {
+    const safe = source([
+      'import { defineMachine } from "./state-machine/index.js";',
+      "const machine = defineMachine({",
+      '  id: "run",',
+      '  states: ["queued", "done"],',
+      '  initial: "queued",',
+      '  terminal: ["done"],',
+      '  transitions: { finish: { from: ["queued"], to: "done" } },',
+      "});",
+      'database.execute(machine.sqlIn("finish"));',
+    ]);
+    const unsafe = source([
+      "declare const userId: string;",
+      "declare const helper: { sqlIn(value: string): string };",
+      "database.execute(helper.sqlIn(userId));",
+    ]);
+    const reassigned = source([
+      'import { defineMachine } from "./state-machine/index.js";',
+      "declare const userId: string;",
+      "declare const helper: { sqlIn(value: string): string };",
+      "let machine = defineMachine({",
+      '  id: "run",',
+      '  states: ["queued", "done"],',
+      '  initial: "queued",',
+      '  terminal: ["done"],',
+      '  transitions: { finish: { from: ["queued"], to: "done" } },',
+      "});",
+      "machine = helper;",
+      "database.execute(machine.sqlIn(userId));",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, safe, new Set([9]))).toEqual(
+      [],
+    );
+    expect(
+      findRawSqlInterpolationViolations(FILE, unsafe, new Set([3])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(FILE, reassigned, new Set([12])),
+    ).toHaveLength(1);
+  });
+
+  it("recognizes exact imported SqlFragment annotations", () => {
+    const text = source([
+      'import type { SqlFragment } from "./db/sql.js";',
+      "declare const query: SqlFragment;",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+    ).toEqual([]);
+  });
+
+  it("recognizes pure imported fragment aliases without trusting raw casts", () => {
+    const safeAlias = source([
+      'import type { SqlFragment } from "./db/sql.js";',
+      "type Fragment = SqlFragment;",
+      "declare const query: Fragment;",
+      "database.execute(query);",
+    ]);
+    const rawCast = source([
+      'import type { SqlFragment } from "./db/sql.js";',
+      "declare const userId: string;",
+      "const raw = `SELECT * FROM records WHERE id = ${userId}`;",
+      "const query: SqlFragment = raw as unknown as SqlFragment;",
+      "database.execute(query);",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, safeAlias, new Set([1, 2, 3, 4])),
+    ).toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, rawCast, new Set([4])),
+    ).toHaveLength(1);
+  });
+
+  it("retains a string parameter's incoming value after conditional writes", () => {
+    const text = source([
+      "function runQuery(query: string, enabled: boolean) {",
+      '  if (enabled) query = "SELECT 1";',
+      "  database.execute(query);",
+      "}",
     ]);
 
     expect(
       findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4])),
-    ).toEqual([]);
+    ).toHaveLength(1);
   });
 
   it("ignores unchanged SQL templates and added lines outside the property", () => {
@@ -355,6 +736,10 @@ describe("raw SQL interpolation guard", () => {
         "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",
       ]),
       source([
+        "/* raw-sql-ok: supports reviewed legacy filter clauses */",
+        "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",
+      ]),
+      source([
         "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` }; // raw-sql-ok: compatibility query",
       ]),
       source([
@@ -377,6 +762,28 @@ describe("raw SQL interpolation guard", () => {
   it("does not accept an empty pragma reason", () => {
     const text = source([
       "// raw-sql-ok:",
+      "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2])),
+    ).toHaveLength(1);
+  });
+
+  it("does not let a pragma on a preceding code line suppress the sink", () => {
+    const text = source([
+      "const note = 1; // raw-sql-ok: this only describes the previous line",
+      "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([2])),
+    ).toHaveLength(1);
+  });
+
+  it("does not let a block-comment pragma leak past executable code", () => {
+    const text = source([
+      "/* raw-sql-ok: an executable suffix is not a standalone pragma */ const note = 1;",
       "const query = { sql: `SELECT * FROM records WHERE id = ${recordId}` };",
     ]);
 

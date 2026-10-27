@@ -949,7 +949,7 @@ function sqlAndArgs(sql: DbExecStatement): {
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
-    : { rawSql: sql.sql, args: [...(sql.args ?? [])] };
+    : { rawSql: sql.sql, args: [...(sql.args ?? [])] }; // raw-sql-ok: preserve the legacy execute shape while unwrapping a typed fragment.
 }
 
 function postgresSqlForStatement(
