@@ -107,16 +107,22 @@ before merging, then:
 gh pr merge <number> --squash --admin --match-head-commit <head-oid-you-just-checked>
 ```
 
-If the head changed, restart the 10 minutes. Never enable auto-merge. If the
-user said to leave the PR open, stop at a green, review-clean, mergeable PR
-instead.
+Write the checked OID into the transcript as `ship_merge_head_oid` before
+running the merge. `/new-branch`'s post-merge rotation uses it. If the head
+changed, restart the 10 minutes. Never enable auto-merge.
+
+`/babysit-pr` calls this default `ship_mode=merge-authorized`. If the user said
+to leave the PR open, or you only have permission to push to someone else's
+PR, use `ship_mode=ready-only`: stop at a green, review-clean, mergeable PR,
+and don't rotate.
 
 ## 6. After merge
 
 - Confirm `origin/main` contains the merge commit.
 - Close GitHub issues the PR fixes with a short thank-you that links the PR.
 - If this shipment came from `/review-latest-feedback`, do its step 5 now: add
-  ✅ and post the one-line "fixed (PR linked), will be on beta shortly" reply on each
+  ✅ and post the one-line
+  "fixed (PR linked), will be on beta shortly" reply on each
   report this PR fixed.
 - In a task-owned worktree, rotate to a fresh branch from the new
   `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. Leave a
