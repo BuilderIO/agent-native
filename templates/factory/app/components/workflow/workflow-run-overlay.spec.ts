@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { NodeKind } from "@/lib/workflow-editor";
+
 import {
   openingTab,
   runOverlay,
@@ -166,6 +168,125 @@ describe("stepOverlayFromSteps", () => {
 
   it("is empty for a run with no steps", () => {
     expect(stepOverlayFromSteps([])).toEqual({});
+  });
+});
+
+describe("steps no item reached", () => {
+  const row = (
+    nodeId: string,
+    nodeKind: NodeKind,
+    received: number,
+    ports: Record<string, { count: number }> = {},
+    over: Partial<Parameters<typeof stepOverlayFromSteps>[0][number]> = {},
+  ) => ({
+    nodeId,
+    nodeKind,
+    status: "succeeded" as const,
+    startedAt: T0,
+    fields: { in: received },
+    ports,
+    ...over,
+  });
+  const marked = (steps: Parameters<typeof stepOverlayFromSteps>[0]) =>
+    Object.keys(stepOverlayFromSteps(steps)).sort();
+
+  it("marks only the Trigger and the Source in a run that took nothing", () => {
+    expect(
+      marked([
+        row("start", "trigger", 0, { out: { count: 0 } }),
+        row("messages", "source", 0, { out: { count: 0 } }),
+        row("filter", "switch", 0, {
+          match: { count: 0 },
+          otherwise: { count: 0 },
+        }),
+        row("reply", "action", 0, { out: { count: 0 } }),
+        row("done", "end", 0),
+      ]),
+    ).toEqual(["messages", "start"]);
+  });
+
+  it("marks every step the items passed", () => {
+    expect(
+      marked([
+        row("start", "trigger", 0, { out: { count: 0 } }),
+        row("messages", "source", 0, { out: { count: 2 } }),
+        row("filter", "switch", 2, {
+          match: { count: 1 },
+          otherwise: { count: 1 },
+        }),
+        row("reply", "action", 1, { out: { count: 1 } }),
+        row("done", "end", 1),
+        row("ignored", "end", 1),
+      ]),
+    ).toEqual(["done", "filter", "ignored", "messages", "reply", "start"]);
+  });
+
+  it("keeps the mark of a step that handed items on after it was woken with none", () => {
+    expect(marked([row("wait", "wait", 0, { replied: { count: 2 } })])).toEqual(
+      ["wait"],
+    );
+  });
+
+  it("keeps the error mark of a step that failed, and draws none after it for steps no item reached", () => {
+    const reply = {
+      code: "slack_post_rejected",
+      message: "Slack rejected the message.",
+    };
+    const overlay = stepOverlayFromSteps([
+      row("filter", "switch", 1, { match: { count: 1 } }),
+      row("reply", "action", 1, {}, { status: "failed", error: reply }),
+      row("done", "end", 0),
+      row("ignored", "end", 0),
+    ]);
+    expect(overlay.reply).toMatchObject({ status: "failed", error: reply });
+    expect(overlay.filter?.status).toBe("succeeded");
+    expect(overlay).not.toHaveProperty("done");
+    expect(overlay).not.toHaveProperty("ignored");
+  });
+
+  it("keeps a failed step even when nothing reached it", () => {
+    expect(
+      stepOverlayFromSteps([
+        row("reply", "action", 0, {}, { status: "failed" }),
+      ]).reply?.status,
+    ).toBe("failed");
+  });
+
+  it("leaves a step the engine skipped as it was recorded", () => {
+    expect(
+      stepOverlayFromSteps([row("done", "end", 0, {}, { status: "skipped" })])
+        .done?.status,
+    ).toBe("skipped");
+  });
+
+  it("shows a row as recorded when it cannot say what reached it or what it is", () => {
+    const status = (over: Parameters<typeof row>[4]) =>
+      stepOverlayFromSteps([row("a", "end", 0, {}, over)]).a?.status;
+    expect(status({ fields: null })).toBe("succeeded");
+    expect(status({ fields: {} })).toBe("succeeded");
+    expect(status({ nodeKind: null })).toBe("succeeded");
+    expect(
+      stepOverlayFromSteps([
+        {
+          nodeId: "a",
+          status: "succeeded",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          ports: {},
+          fields: { in: 0 },
+        },
+      ]).a?.status,
+    ).toBe("succeeded");
+  });
+
+  it("still lights the node the run is on, whatever it has taken in", () => {
+    const steps = [
+      row("start", "trigger", 0, { out: { count: 0 } }),
+      row("filter", "switch", 0, { match: { count: 0 } }),
+    ];
+    expect(runOverlay(steps, { running: true })).toMatchObject({
+      currentNodeId: "filter",
+      stepByNodeId: { start: { status: "succeeded" } },
+    });
   });
 });
 
