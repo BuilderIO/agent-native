@@ -19,6 +19,7 @@ import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { registerMcpAppCardsLab } from "./app-cards-lab.js";
 import {
   verifyAuth,
   McpIdentityVerificationUnavailableError,
@@ -532,6 +533,7 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
+  registerMcpAppCardsLab();
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

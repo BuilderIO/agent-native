@@ -36,6 +36,7 @@ import { useState } from "react";
 
 import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
+import { runPersistableHistoryCommand } from "../editor-transaction-meta";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 import { isSuggestingEdits } from "../suggestions/read-only-blocks";
@@ -498,7 +499,23 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isEditable) return;
 
-    if (e.key === "Enter") {
+    // The page never sees the summary's keys, and the browser's own undo
+    // loses track of a field the page rewrites, so undo and redo use the
+    // page's history, as they do in the body.
+    const key = e.key.toLowerCase();
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      !e.nativeEvent.isComposing &&
+      (key === "z" || (key === "y" && !e.shiftKey))
+    ) {
+      e.preventDefault();
+      runPersistableHistoryCommand(
+        editor,
+        key === "z" && !e.shiftKey ? "undo" : "redo",
+        { focusEditor: false },
+      );
+    } else if (e.key === "Enter") {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;

@@ -45,3 +45,18 @@ export function isPrivateBlobError(error: unknown): error is PrivateBlobError {
       typeof (error as { kind?: unknown }).kind === "string")
   );
 }
+
+/**
+ * A byte range the blob can't satisfy: malformed, or starting past the end.
+ * `size` is the blob's length when known, for a `Content-Range: bytes *\/size`
+ * reply.
+ */
+export class PrivateBlobRangeError extends RangeError {
+  readonly size?: number;
+
+  constructor(message: string, size?: number) {
+    super(message);
+    this.name = "PrivateBlobRangeError";
+    if (size !== undefined) this.size = size;
+  }
+}
