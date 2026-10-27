@@ -1,12 +1,12 @@
 template: v2
 slug: ai-dictation
 app: clips
-title: AI Dictation
-seo_title: AI dictation for coding agents, Slack and docs
-meta_description: Say long prompts into Claude Code, Slack or a doc instead of typing them. Agent-Native Clips is free, open-source AI dictation that saves every dictation.
+title: Dictate your prompts instead of typing them
+seo_title: AI dictation that types into any app
+meta_description: Use AI dictation to talk into Claude Code, Slack or a doc and get clean text at your cursor. Agent-Native Clips saves every dictation to search later.
 updated: 2026-10-26
 hero:
-  body: Say your whole prompt instead of typing it, and it lands at your cursor, from Claude Code to Slack. Agent-Native Clips saves every dictation, and its agent reworks one when you ask.
+  body: Your spoken prompts, tickets and replies land as clean text at your cursor, from Claude Code to Slack. Agent-Native Clips saves every dictation, and its agent reworks one when you ask.
   button:
     label: Start dictating
     url: https://clips.agent-native.com
@@ -79,14 +79,14 @@ integrations:
       more: true
       body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
 other_uses:
-  heading: Other things you can do with Clips
+  heading: Other things you can do with Agent-Native Clips
   cards:
-    - title: AI Meeting Notes
+    - title: Get meeting notes without a bot in the call
       url: https://www.agent-native.com/use-cases/ai-meeting-notes/
       body: Record your meetings from your own computer and get a summary, notes and action items.
-    - title: AI Bug Reporting Tool
+    - title: Record bugs with their console and network logs
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Record a bug with its browser console and network logs, ready for your coding agent.
+      body: Show the bug once in Chrome, and your coding agent gets the recording and what the page logged.
 faqs:
   heading: Questions? We have answers
   items:
