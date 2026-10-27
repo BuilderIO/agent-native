@@ -29,6 +29,18 @@ Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
+### Typed raw SQL fragments
+
+When Drizzle cannot express a PostgreSQL query, import `sql` from
+`@agent-native/core/db` and pass its fragment directly to
+`getDbExec().execute()`. Use `sql.value(value)` for bound values,
+`sql.ident(name)` for validated lowercase identifiers, `sql.in(values)` for a
+nonempty list (it includes parentheses), and `sql.join(fragments, separator)`
+or nested fragments for composition. The tag rejects plain string interpolation
+at compile time; do not build `{ sql: `...${value}...` }`. The
+`guard:no-raw-sql-interpolation` guard catches new legacy templates; reviewed
+exceptions require `// raw-sql-ok: <reason>`.
+
 ### Schema and migration ownership
 
 Define PostgreSQL tables with Drizzle's `drizzle-orm/pg-core` exports and use

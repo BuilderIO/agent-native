@@ -22,6 +22,7 @@ import {
   getRequestDbPool,
   replaceRequestDbPool,
 } from "./request-pool-context.js";
+import type { SqlFragment } from "./sql.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -46,7 +47,7 @@ export interface DbExecQuery {
   maxAttempts?: number;
 }
 
-export type DbExecStatement = string | DbExecQuery;
+export type DbExecStatement = string | DbExecQuery | SqlFragment;
 
 export interface DbExec {
   execute(sql: DbExecStatement): Promise<{
@@ -913,7 +914,7 @@ function sqlAndArgs(sql: DbExecStatement): {
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
-    : { rawSql: sql.sql, args: sql.args || [] };
+    : { rawSql: sql.sql, args: [...(sql.args ?? [])] };
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
@@ -921,7 +922,9 @@ const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
 export function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
-  if (typeof statement === "string") return false;
+  if (typeof statement === "string" || !("timeoutMs" in statement)) {
+    return false;
+  }
   const timeoutMs = Number(statement.timeoutMs);
   return Number.isFinite(timeoutMs) && timeoutMs > 0;
 }
@@ -945,8 +948,10 @@ export function dbExecQueryBudget(statement: DbExecStatement): {
   if (typeof statement === "string") {
     return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
   }
-  const timeoutMs = Number(statement.timeoutMs);
-  const maxAttempts = Number(statement.maxAttempts);
+  const timeoutMs =
+    "timeoutMs" in statement ? Number(statement.timeoutMs) : Number.NaN;
+  const maxAttempts =
+    "maxAttempts" in statement ? Number(statement.maxAttempts) : Number.NaN;
   return {
     timeoutMs:
       Number.isFinite(timeoutMs) && timeoutMs > 0
@@ -2369,17 +2374,15 @@ export function getDbExec(): DbExec {
   // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
   if (_proxy) return _proxy;
 
-  function sanitize(
-    sql: string | { sql: string; args?: unknown[] },
-  ): string | { sql: string; args?: unknown[] } {
-    if (typeof sql === "object" && sql.args) {
+  function sanitize(sql: DbExecStatement): DbExecStatement {
+    if (typeof sql === "object" && sql.args !== undefined) {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
   }
 
   async function execAnnotated(
-    s: string | { sql: string; args?: unknown[] },
+    s: DbExecStatement,
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {

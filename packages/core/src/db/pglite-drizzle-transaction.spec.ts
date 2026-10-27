@@ -74,4 +74,16 @@ describe("Drizzle-opened PGlite transactions register with the shared exec", () 
     );
     expect(rows[0]?.count).toBe(0);
   });
+
+  it("executes a typed SQL fragment with bound values", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+
+    const { getDbExec } = await import("./client.js");
+    const { sql } = await import("./sql.js");
+    const { rows } = await getDbExec().execute(
+      sql`SELECT ${sql.value("fragment-value")}::text AS value`,
+    );
+
+    expect(rows[0]?.value).toBe("fragment-value");
+  });
 });
