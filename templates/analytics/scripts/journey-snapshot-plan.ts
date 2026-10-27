@@ -109,6 +109,7 @@ export function snapshotPresetHash(input: {
   dateTo: string;
   experimentId?: string;
   splitDesignFirstTouch: boolean;
+  sourceOrigin?: string;
 }): string {
   const canonical = JSON.stringify({
     snapshotFormatVersion: 2,
@@ -138,13 +139,25 @@ function frameable(node: SnapshotNode): boolean {
 
 function priority(node: SnapshotNode): number {
   const value = `${node.key} ${node.label}`.toLowerCase();
-  if (/recording_ready|clip saved|generation completed|design output|first output/.test(value)) {
+  if (
+    /recording_ready|clip saved|generation completed|design output|first output/.test(
+      value,
+    )
+  ) {
     return 8;
   }
-  if (/custom.?keys|storage|builder connected|connection.*(failed|success)|connected/.test(value)) {
+  if (
+    /custom.?keys|storage|builder connected|connection.*(failed|success)|connected/.test(
+      value,
+    )
+  ) {
     return 7;
   }
-  if (/choice|role|signup|first.touch|onboarding completed|app entered/.test(value)) {
+  if (
+    /choice|role|signup|first.touch|onboarding completed|app entered/.test(
+      value,
+    )
+  ) {
     return 6;
   }
   if (/builder|api key|skip|setup/.test(value)) return 5;
@@ -186,9 +199,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
     while (current) {
       if (!frameableKeys.has(current.key)) return null;
       path.push(current);
-      current = current.parentKey
-        ? byKey.get(current.parentKey)
-        : undefined;
+      current = current.parentKey ? byKey.get(current.parentKey) : undefined;
       if (path.length > tree.nodes.length) return null;
     }
     return path.reverse();
@@ -253,9 +264,15 @@ export function selectCaptureTree<T extends SnapshotTree>(
           aspect <= SNAPSHOT_PRESET.maxAspect
         );
       });
-      const examples = examplesByNode.get(node.key)!;
-      if (available[exampleIndex]) {
-        examples.push(available[exampleIndex]!);
+      const examples = examplesByNode.get(node.key);
+      if (!examples) {
+        throw new Error(
+          `Selected journey node ${node.key} has no example list.`,
+        );
+      }
+      const example = available[exampleIndex];
+      if (example) {
+        examples.push(example);
         frameCount += 1;
         added = true;
         if (frameCount >= frameLimit) break;
@@ -316,15 +333,16 @@ export function mergeJourneyBands(
       nodes.push({
         ...node,
         key: `${band.key}::${node.key}`,
-        parentKey: node.parentKey
-          ? `${band.key}::${node.parentKey}`
-          : null,
+        parentKey: node.parentKey ? `${band.key}::${node.parentKey}` : null,
         pctOfRoot: Math.round((node.n / band.tree.rootN) * 1000) / 10,
       });
     }
   }
-  if (!nodes.length) throw new Error("No screenshot-backed cohort bands remain.");
-  const first = bands[0]!.tree;
+  if (!nodes.length)
+    throw new Error("No screenshot-backed cohort bands remain.");
+  const firstBand = bands[0];
+  if (!firstBand) throw new Error("No source journey band remains.");
+  const first = firstBand.tree;
   return {
     window: first.window,
     app: "all",
@@ -340,7 +358,10 @@ export function mergeJourneyBands(
   };
 }
 
-export function treeTopForks(tree: SnapshotTree, limit = 5): Array<{
+export function treeTopForks(
+  tree: SnapshotTree,
+  limit = 5,
+): Array<{
   step: string;
   branches: Array<{ label: string; n: number; pctOfParent: number }>;
   dropoffN: number;
@@ -354,7 +375,9 @@ export function treeTopForks(tree: SnapshotTree, limit = 5): Array<{
   }
   return tree.nodes
     .filter((node) => (children.get(node.key)?.length ?? 0) > 1)
-    .sort((a, b) => b.n - a.n || a.depth - b.depth || a.key.localeCompare(b.key))
+    .sort(
+      (a, b) => b.n - a.n || a.depth - b.depth || a.key.localeCompare(b.key),
+    )
     .slice(0, limit)
     .map((node) => ({
       step: node.label,
@@ -390,7 +413,8 @@ export function compareTrees(
   const currentByKey = new Map(current.nodes.map((node) => [node.key, node]));
   const excluded = new Set(excludedKeys);
   return current.nodes.flatMap((node) => {
-    const terminalKey = node.key.split(" > ").at(-1);
+    const pathSegments = node.key.split(" > ");
+    const terminalKey = pathSegments[pathSegments.length - 1];
     const excludedTerminal =
       terminalKey &&
       [...excluded].some(
@@ -405,21 +429,23 @@ export function compareTrees(
     const previousPct = before.pctOfParent;
     const deltaPoints = Math.round((currentPct - previousPct) * 10) / 10;
     return Math.abs(deltaPoints) > thresholdPoints
-      ? [{
-          key: node.key,
-          label: node.label,
-          currentPct,
-          previousPct,
-          currentN: node.n,
-          currentParentN: node.parentKey
-            ? (currentByKey.get(node.parentKey)?.n ?? current.rootN)
-            : current.rootN,
-          previousN: before.n,
-          previousParentN: before.parentKey
-            ? (previousByKey.get(before.parentKey)?.n ?? previous.rootN)
-            : previous.rootN,
-          deltaPoints,
-        }]
+      ? [
+          {
+            key: node.key,
+            label: node.label,
+            currentPct,
+            previousPct,
+            currentN: node.n,
+            currentParentN: node.parentKey
+              ? (currentByKey.get(node.parentKey)?.n ?? current.rootN)
+              : current.rootN,
+            previousN: before.n,
+            previousParentN: before.parentKey
+              ? (previousByKey.get(before.parentKey)?.n ?? previous.rootN)
+              : previous.rootN,
+            deltaPoints,
+          },
+        ]
       : [];
   });
 }

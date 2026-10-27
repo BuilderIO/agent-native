@@ -292,7 +292,7 @@ export interface RunContext {
   outDir: string;
   timeoutMs: number;
   upload: boolean;
-  uploadTarget: "private" | "cdn";
+  uploadTarget?: "private" | "cdn";
   captureMode: "offline" | "browser";
   extractPrompts: boolean;
   minAspect?: number;
@@ -313,7 +313,7 @@ async function uploadFrame(
   png: string,
 ): Promise<{ attachmentRef?: string; imageUrl?: string }> {
   if (!ctx.upload) return {};
-  if (ctx.uploadTarget === "private") {
+  if ((ctx.uploadTarget ?? "private") === "private") {
     const uploaded = await callAppAction(
       ctx.appUrl,
       ctx.token,
@@ -352,7 +352,7 @@ async function uploadFrame(
       validCdnUrl = false;
     }
   }
-  if (!validCdnUrl) {
+  if (typeof imageUrl !== "string" || !validCdnUrl) {
     try {
       await callAppAction(
         ctx.appUrl,
@@ -366,7 +366,9 @@ async function uploadFrame(
         `upload-image did not return cdn.builder.io and cleanup failed (${reasonFromError(error)})`,
       );
     }
-    throw new Error("upload-image did not return an https://cdn.builder.io URL");
+    throw new Error(
+      "upload-image did not return an https://cdn.builder.io URL",
+    );
   }
   const released = await callAppAction(
     ctx.appUrl,

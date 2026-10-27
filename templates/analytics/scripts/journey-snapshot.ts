@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -17,7 +17,6 @@ import {
   allocateFrameBudgets,
   compareTrees,
   defaultSnapshotWeek,
-  mergeJourneyBands,
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
@@ -80,8 +79,7 @@ interface CaptureFrame {
   width: number;
   height: number;
   capturedAt: string;
-  imageUrl?: string;
-  attachmentRef?: string;
+  attachmentRef: string;
 }
 
 interface CaptureManifest {
@@ -114,10 +112,7 @@ interface BoardResult {
 class SnapshotError extends Error {
   readonly exitCode: 1 | 2;
 
-  constructor(
-    message: string,
-    exitCode: 1 | 2,
-  ) {
+  constructor(message: string, exitCode: 1 | 2) {
     super(message);
     this.name = "SnapshotError";
     this.exitCode = exitCode;
@@ -152,7 +147,7 @@ The query begins one day before --week and ends six days after it. Trees, frames
 and manifests are stored under runs/<week>/<app>; action trees are cached by
 app, window, and preset hash. Each canvas is capped at ${SNAPSHOT_MAX_FRAMES} frames.
 Frames are captured sequentially from Agent-Native session recordings and uploaded
-through upload-image; the command accepts only https://cdn.builder.io URLs.
+as private replay attachments before they are copied into the Design canvas.
 `;
 
 const repoRoot = path.resolve(
@@ -169,12 +164,13 @@ function asString(value: unknown): string | null {
 }
 
 function parseTree(value: unknown, context: string): SnapshotTree {
-  if (!isRecord(value) || !isRecord(value.coverage) || !Array.isArray(value.nodes)) {
+  if (!isRecord(value) || !Array.isArray(value.nodes)) {
     throw checkFailure(`${context} did not return a JourneyTree.`);
   }
-  const coverage = value.coverage;
+  const coverage = isRecord(value.coverage) ? value.coverage : null;
   const windowValue = isRecord(value.window) ? value.window : null;
   if (
+    !coverage ||
     !windowValue ||
     !asString(windowValue.from) ||
     !asString(windowValue.to) ||
@@ -207,7 +203,8 @@ function parseTree(value: unknown, context: string): SnapshotTree {
         !Number.isSafeInteger(node.n) ||
         (node.n as number) < 0 ||
         [node.pctOfRoot, node.pctOfParent, node.dropoffN, node.dropoffPct].some(
-          (count) => typeof count !== "number" || !Number.isFinite(count) || count < 0,
+          (count) =>
+            typeof count !== "number" || !Number.isFinite(count) || count < 0,
         ) ||
         !Array.isArray(node.examples) ||
         node.examples.some((example) => {
@@ -268,13 +265,19 @@ function parseCohortResponse(
       coverage.sessionlessMcpOauthSignupEvents,
     ].some((count) => !Number.isSafeInteger(count) || count < 0)
   ) {
-    throw checkFailure(`${app} cohort response omitted its read-coverage state.`);
+    throw checkFailure(
+      `${app} cohort response omitted its read-coverage state.`,
+    );
   }
   if (expected.experimentId && !isRecord(value.experiment)) {
-    throw checkFailure(`${app} cohort response omitted the requested experiment arms.`);
+    throw checkFailure(
+      `${app} cohort response omitted the requested experiment arms.`,
+    );
   }
   if (expected.splitDesignFirstTouch && !isRecord(value.designFirstTouch)) {
-    throw checkFailure(`${app} cohort response omitted the requested first-touch cohorts.`);
+    throw checkFailure(
+      `${app} cohort response omitted the requested first-touch cohorts.`,
+    );
   }
   if (result.experiment) {
     if (
@@ -292,12 +295,16 @@ function parseCohortResponse(
         result.experiment.conflictingSessions,
       ].some((count) => count < 0)
     ) {
-      throw checkFailure(`${app} cohort response has an unsupported experiment id.`);
+      throw checkFailure(
+        `${app} cohort response has an unsupported experiment id.`,
+      );
     }
     parseTree(result.experiment.arms.control, `${app} control arm`);
     parseTree(result.experiment.arms.credits, `${app} credits arm`);
     if (expected.splitDesignFirstTouch && !result.experiment.designFirstTouch) {
-      throw checkFailure(`${app} experiment response omitted first-touch trees per arm.`);
+      throw checkFailure(
+        `${app} experiment response omitted first-touch trees per arm.`,
+      );
     }
     if (result.experiment.designFirstTouch) {
       if (
@@ -305,7 +312,9 @@ function parseCohortResponse(
         !isRecord(result.experiment.designFirstTouch.control) ||
         !isRecord(result.experiment.designFirstTouch.credits)
       ) {
-        throw checkFailure(`${app} experiment response has invalid first-touch cohorts.`);
+        throw checkFailure(
+          `${app} experiment response has invalid first-touch cohorts.`,
+        );
       }
       for (const [arm, split] of Object.entries(
         result.experiment.designFirstTouch,
@@ -316,11 +325,15 @@ function parseCohortResponse(
           !Number.isSafeInteger(split.conflictingSessions) ||
           split.conflictingSessions < 0
         ) {
-          throw checkFailure(`${app} ${arm} first-touch cohorts are malformed.`);
+          throw checkFailure(
+            `${app} ${arm} first-touch cohorts are malformed.`,
+          );
         }
         for (const cohort of ["web", "mcp-oauth", "unknown"] as const) {
           if (!(cohort in split.cohorts)) {
-            throw checkFailure(`${app} ${arm} is missing its ${cohort} first-touch tree.`);
+            throw checkFailure(
+              `${app} ${arm} is missing its ${cohort} first-touch tree.`,
+            );
           }
         }
         for (const [cohort, tree] of Object.entries(split.cohorts)) {
@@ -359,7 +372,9 @@ function assertCompleteTree(tree: SnapshotTree, context: string): void {
     throw checkFailure(`${context} is truncated; no canvas was published.`);
   }
   if (tree.coverage.paginationConsistency === "may_have_shifted") {
-    throw checkFailure(`${context} used shifting OFFSET pages; no canvas was published.`);
+    throw checkFailure(
+      `${context} used shifting OFFSET pages; no canvas was published.`,
+    );
   }
   if (tree.followUp?.status === "incomplete") {
     throw checkFailure(`${context} has incomplete follow-up coverage.`);
@@ -371,7 +386,9 @@ function assertCompleteTree(tree: SnapshotTree, context: string): void {
       ),
     )
   ) {
-    throw checkFailure(`${context} has incomplete coverage; see notes in its tree.json.`);
+    throw checkFailure(
+      `${context} has incomplete coverage; see notes in its tree.json.`,
+    );
   }
 }
 
@@ -384,17 +401,25 @@ function parseTreeResult(
     return parseCohortResponse(value, app, expected);
   }
   if (expected.experimentId || expected.splitDesignFirstTouch) {
-    throw checkFailure(`${app} Analytics action omitted the requested cohort trees.`);
+    throw checkFailure(
+      `${app} Analytics action omitted the requested cohort trees.`,
+    );
   }
   return parseTree(value, app);
+}
+
+function isCohortResponse(
+  result: SnapshotTree | CohortResponse,
+): result is CohortResponse {
+  return "format" in result && result.format === "cohorts";
 }
 
 function assertCompleteResult(
   result: SnapshotTree | CohortResponse,
   app: AppName,
 ): void {
-  if (!isRecord(result) || result.format !== "cohorts") {
-    assertCompleteTree(result as SnapshotTree, `${app} tree`);
+  if (!isCohortResponse(result)) {
+    assertCompleteTree(result, `${app} tree`);
     return;
   }
   const coverage = result.readCoverage;
@@ -440,7 +465,8 @@ function appActionToken(
       process.env[`AGENT_NATIVE_${app.toUpperCase()}_TOKEN`] ??
       process.env.AGENT_NATIVE_TOKEN;
     if (configured?.trim()) return stripBearer(configured);
-    const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+    const codexHome =
+      process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
     let config: string;
     try {
       config = await readFile(path.join(codexHome, "config.toml"), "utf8");
@@ -451,7 +477,9 @@ function appActionToken(
       throw error;
     }
     try {
-      return stripBearer(codexBearerForApp(appUrl, config));
+      const token = codexBearerForApp(appUrl, config);
+      if (!token) throw new Error("No matching bearer token was found.");
+      return stripBearer(token);
     } catch {
       throw couldNotRun(`No Codex app token found for ${appUrl}.`);
     }
@@ -548,6 +576,7 @@ async function getTreeResult(input: {
     dateTo: input.dateTo,
     ...(input.experimentId ? { experimentId: input.experimentId } : {}),
     splitDesignFirstTouch: input.app === "design",
+    sourceOrigin: new URL(input.analyticsUrl).origin,
   });
   const cachePath = path.join(
     input.outRoot,
@@ -558,8 +587,16 @@ async function getTreeResult(input: {
   let result: SnapshotTree | CohortResponse | null = null;
   let cacheHit = false;
   if (!input.refresh) {
-    const cached = await readJson<{ presetHash?: string; result?: unknown }>(cachePath);
-    if (cached?.presetHash === presetHash) {
+    const cached = await readJson<{
+      presetHash?: string;
+      sourceOrigin?: string;
+      result?: unknown;
+    }>(cachePath);
+    if (
+      cached &&
+      cached.presetHash === presetHash &&
+      cached.sourceOrigin === new URL(input.analyticsUrl).origin
+    ) {
       if (!("result" in cached)) {
         throw checkFailure(`${input.app} tree cache has no result.`);
       }
@@ -578,7 +615,12 @@ async function getTreeResult(input: {
   }
   assertCompleteResult(result, input.app);
   if (!cacheHit) {
-    await writeJson(cachePath, { presetHash, request, result });
+    await writeJson(cachePath, {
+      presetHash,
+      sourceOrigin: new URL(input.analyticsUrl).origin,
+      request,
+      result,
+    });
   }
   const runAppDir = path.join(input.outRoot, "runs", input.week, input.app);
   await writeJson(path.join(runAppDir, "tree.json"), result);
@@ -590,8 +632,8 @@ function captureTargets(
   result: SnapshotTree | CohortResponse,
   useExperiment: boolean,
 ): CaptureTarget[] {
-  if (!isRecord(result) || result.format !== "cohorts") {
-    return [{ key: app, label: app, sourceApp: app, tree: result as SnapshotTree }];
+  if (!isCohortResponse(result)) {
+    return [{ key: app, label: app, sourceApp: app, tree: result }];
   }
   const targets: CaptureTarget[] = [];
   if (useExperiment && result.experiment) {
@@ -646,10 +688,6 @@ function captureTargets(
   return targets;
 }
 
-function appRootForBand(band: CaptureTarget): string {
-  return band.key.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
-}
-
 function canonicalDesignUrl(appUrl: string, designId: string): string {
   const url = new URL(`/design/${encodeURIComponent(designId)}`, appUrl);
   url.searchParams.set("editorView", "overview");
@@ -675,7 +713,9 @@ function actionCanvasResult(value: unknown): {
     !Array.isArray(value.collabSyncPending) ||
     value.collabSyncPending.some((entry) => typeof entry !== "string")
   ) {
-    throw checkFailure("create-journey-canvas returned an invalid write receipt.");
+    throw checkFailure(
+      "create-journey-canvas returned an invalid write receipt.",
+    );
   }
   return {
     designId: value.designId,
@@ -704,6 +744,144 @@ function assertCanvasReceipt(
   }
 }
 
+async function publishCanvas(args: {
+  app: AppName;
+  week: string;
+  target: CaptureTarget;
+  capture: {
+    tree: SnapshotTree;
+    frames: CaptureFrame[];
+    failures: number;
+  };
+  previousTree?: SnapshotTree;
+  designUrl: string;
+  designToken: string;
+  bandDir: string;
+  refresh: boolean;
+}): Promise<BoardResult> {
+  const titleSuffix =
+    args.target.label === args.app ? "" : ` · ${args.target.label}`;
+  const title = `Onboarding snapshot · ${args.app}${titleSuffix} · ${args.week}`;
+  const canvasFrames = args.capture.frames.map((frame) => ({
+    nodeKey: frame.nodeKey,
+    exampleIndex: frame.exampleIndex,
+    width: frame.width,
+    height: frame.height,
+    capturedAt: frame.capturedAt,
+    attachmentRef: frame.attachmentRef,
+    sourceApp: args.target.sourceApp,
+  }));
+  if (canvasFrames.length > SNAPSHOT_MAX_FRAMES) {
+    throw checkFailure(
+      `${args.app}/${args.target.key} selected ${canvasFrames.length} frames, over the ${SNAPSHOT_MAX_FRAMES}-frame board limit.`,
+    );
+  }
+  const tree = args.capture.tree;
+  const canvasInput = {
+    title,
+    tree: {
+      window: tree.window,
+      app: tree.app,
+      rootN: tree.rootN,
+      coverage: {
+        sessionsWithEvents: tree.coverage.sessionsWithEvents,
+        sessionsWithReplay: tree.coverage.sessionsWithReplay,
+        truncated: false,
+      },
+      nodes: tree.nodes,
+    },
+    frames: canvasFrames,
+    layoutMode: "tree" as const,
+    maxExamplesPerNode: SNAPSHOT_PRESET.examplesPerNode,
+    includeScreenshotless: false,
+  };
+  const designOrigin = new URL(args.designUrl).origin;
+  const canvasCachePath = path.join(
+    args.bandDir,
+    `canvas-${pathHash(designOrigin)}.json`,
+  );
+  const savedCanvas = await readJson<{
+    designOrigin?: string;
+    inputHash?: string;
+    result?: ReturnType<typeof actionCanvasResult>;
+  }>(canvasCachePath);
+  const inputHash = pathHash(JSON.stringify({ designOrigin, canvasInput }));
+  const cacheMatchesOrigin = savedCanvas?.designOrigin === designOrigin;
+  let canvas =
+    cacheMatchesOrigin && savedCanvas?.inputHash === inputHash && !args.refresh
+      ? actionCanvasResult(savedCanvas.result)
+      : null;
+  if (canvas) {
+    assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
+    if ((canvas.collabSyncPending?.length ?? 0) > 0) canvas = null;
+  }
+  if (!canvas) {
+    let raw = await callAction(
+      args.designUrl,
+      args.designToken,
+      "create-journey-canvas",
+      {
+        ...canvasInput,
+        ...(cacheMatchesOrigin && savedCanvas?.result?.designId
+          ? { designId: savedCanvas.result.designId }
+          : {}),
+      },
+    );
+    canvas = actionCanvasResult(raw);
+    assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
+    for (
+      let attempt = 0;
+      (canvas.collabSyncPending?.length ?? 0) > 0 && attempt < 2;
+      attempt += 1
+    ) {
+      await writeJson(canvasCachePath, {
+        designOrigin,
+        inputHash,
+        result: canvas,
+      });
+      raw = await callAction(
+        args.designUrl,
+        args.designToken,
+        "create-journey-canvas",
+        {
+          ...canvasInput,
+          designId: canvas.designId,
+        },
+      );
+      canvas = actionCanvasResult(raw);
+      assertCanvasReceipt(canvas, tree.nodes.length, canvasFrames.length);
+    }
+    if ((canvas.collabSyncPending?.length ?? 0) > 0) {
+      throw checkFailure(
+        "Design saved the canvas but did not sync it to the live editor.",
+      );
+    }
+    await writeJson(canvasCachePath, {
+      designOrigin,
+      inputHash,
+      result: canvas,
+    });
+  }
+  const previousTree = args.previousTree;
+  return {
+    app: args.app,
+    title,
+    designId: canvas.designId,
+    url: canonicalDesignUrl(args.designUrl, canvas.designId),
+    tree,
+    bands: [
+      {
+        key: args.target.key,
+        label: args.target.label,
+        tree: args.target.tree,
+        ...(previousTree ? { previousTree } : {}),
+      },
+    ],
+    manifestFailures: args.capture.failures,
+    frames: canvasFrames.length,
+  };
+}
+
 async function runCapture(args: {
   app: AppName;
   band: CaptureTarget;
@@ -711,24 +889,32 @@ async function runCapture(args: {
   runAppDir: string;
   analyticsUrl: string;
   refresh: boolean;
-}): Promise<{ tree: SnapshotTree; frames: CaptureFrame[]; failures: number; selectedFrames: number }> {
+}): Promise<{
+  tree: SnapshotTree;
+  frames: CaptureFrame[];
+  failures: number;
+  selectedFrames: number;
+}> {
   const bandDir = path.join(args.runAppDir, "bands", args.band.key);
   const captureTreePath = path.join(bandDir, "capture-tree.json");
   const captureDir = path.join(bandDir, "frames");
   const manifestPath = path.join(captureDir, "manifest.json");
   const selectionHash = pathHash(
     JSON.stringify({
-      formatVersion: 2,
+      formatVersion: 3,
       captureMode: "offline",
-      uploadTarget: "cdn",
+      uploadTarget: "private",
       tree: args.selectedTree,
     }),
   );
   const selectionStatePath = path.join(bandDir, "selection.json");
-  const selectionState = await readJson<{ selectionHash?: string }>(selectionStatePath);
-  let manifest = !args.refresh && selectionState?.selectionHash === selectionHash
-    ? await readJson<CaptureManifest>(manifestPath)
-    : null;
+  const selectionState = await readJson<{ selectionHash?: string }>(
+    selectionStatePath,
+  );
+  let manifest =
+    !args.refresh && selectionState?.selectionHash === selectionHash
+      ? await readJson<CaptureManifest>(manifestPath)
+      : null;
   if (!manifest) {
     await writeJson(captureTreePath, args.selectedTree);
     await mkdir(captureDir, { recursive: true, mode: 0o700 });
@@ -752,7 +938,7 @@ async function runCapture(args: {
       "offline",
       "--upload",
       "--upload-target",
-      "cdn",
+      "private",
       "--app-url",
       args.analyticsUrl,
     ];
@@ -785,7 +971,8 @@ async function runCapture(args: {
         typeof frame.width !== "number" ||
         typeof frame.height !== "number" ||
         typeof frame.capturedAt !== "string" ||
-        (frame.imageUrl !== undefined && typeof frame.imageUrl !== "string"),
+        typeof frame.attachmentRef !== "string" ||
+        frame.attachmentRef.length === 0,
     ) ||
     manifest.failures.some(
       (failure) => !isRecord(failure) || typeof failure.nodeKey !== "string",
@@ -794,13 +981,14 @@ async function runCapture(args: {
       (skipped) => !isRecord(skipped) || typeof skipped.nodeKey !== "string",
     )
   ) {
-    throw checkFailure(`Capture produced an invalid manifest at ${manifestPath}.`);
+    throw checkFailure(
+      `Capture produced an invalid manifest at ${manifestPath}.`,
+    );
   }
 
   const frames = manifest.frames.filter(
     (frame) =>
-      frame.imageUrl &&
-      isCdnUrl(frame.imageUrl) &&
+      frame.attachmentRef.length > 0 &&
       typeof frame.width === "number" &&
       typeof frame.height === "number",
   );
@@ -822,15 +1010,6 @@ async function runCapture(args: {
       0,
     ),
   };
-}
-
-function isCdnUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "cdn.builder.io";
-  } catch {
-    return false;
-  }
 }
 
 function pathHash(value: string): string {
@@ -890,20 +1069,29 @@ function summaryTreeMarkdown(
 ): string[] {
   const lines = [`### ${label}: ${tree.rootN} sessions`];
   const forks = treeTopForks(tree, 4);
-  if (!forks.length) lines.push("- No observed fork with two or more branches.");
+  if (!forks.length)
+    lines.push("- No observed fork with two or more branches.");
   for (const fork of forks) {
-    lines.push(`- At **${fork.step}** (n=${tree.nodes.find((node) => node.label === fork.step)?.n ?? 0}):`);
+    lines.push(
+      `- At **${fork.step}** (n=${tree.nodes.find((node) => node.label === fork.step)?.n ?? 0}):`,
+    );
     for (const branch of fork.branches) {
-      lines.push(`  - ${branch.label}: ${branch.n} (${branch.pctOfParent}% of parent)`);
+      lines.push(
+        `  - ${branch.label}: ${branch.n} (${branch.pctOfParent}% of parent)`,
+      );
     }
     if (fork.dropoffN > 0) {
-      lines.push(`  - No later step observed: ${fork.dropoffN} (${fork.dropoffPct}%)`);
+      lines.push(
+        `  - No later step observed: ${fork.dropoffN} (${fork.dropoffPct}%)`,
+      );
     }
   }
   const firstOutput = tree.nodes.find((node) =>
-    ["output:recording_ready", "output:generation_completed", "output:design_output_created"].includes(
-      node.key.split(" > ").at(-1) ?? "",
-    ),
+    [
+      "output:recording_ready",
+      "output:generation_completed",
+      "output:design_output_created",
+    ].includes(node.key.split(" > ").pop() ?? ""),
   );
   if (firstOutput) {
     lines.push(
@@ -917,10 +1105,15 @@ function summaryTreeMarkdown(
       5,
       tree.app === "clips" ? ["attempt:recording_started"] : [],
     );
-    if (!deltas.length) lines.push("- Week-over-week: no matching step conversion moved by more than 5 percentage points.");
+    if (!deltas.length)
+      lines.push(
+        "- Week-over-week: no matching step conversion moved by more than 5 percentage points.",
+      );
     for (const delta of deltas) {
       const sign = delta.deltaPoints > 0 ? "+" : "";
-      lines.push(`- Week-over-week step conversion **${delta.label}**: ${delta.previousPct}% (${delta.previousN}/${delta.previousParentN}) → ${delta.currentPct}% (${delta.currentN}/${delta.currentParentN}) (${sign}${delta.deltaPoints} pp).`);
+      lines.push(
+        `- Week-over-week step conversion **${delta.label}**: ${delta.previousPct}% (${delta.previousN}/${delta.previousParentN}) → ${delta.currentPct}% (${delta.currentN}/${delta.currentParentN}) (${sign}${delta.deltaPoints} pp).`,
+      );
     }
   } else {
     lines.push("- Week-over-week: no previous tree with the same cohort key.");
@@ -947,23 +1140,39 @@ function renderSummary(input: {
     "",
   ];
   for (const board of input.boards) {
-    lines.push(`- **${board.app}**: [open in Design](${board.url}) · ${board.frames} screenshot frames · ${board.manifestFailures} capture failures`);
+    lines.push(
+      `- **${board.title}**: [open in Design](${board.url}) · ${board.frames} screenshot frames · ${board.manifestFailures} capture failures`,
+    );
   }
   lines.push("", "## Journeys", "");
   for (const board of input.boards) {
-    lines.push(`## ${board.app}`);
+    lines.push(`### ${board.title}`);
     for (const band of board.bands) {
       lines.push(
-        ...summaryTreeMarkdown(band.label, band.tree, band.previousTree ?? null),
+        ...summaryTreeMarkdown(
+          band.label,
+          band.tree,
+          band.previousTree ?? null,
+        ),
       );
     }
     lines.push("");
   }
   if (input.cohortNotes.length) {
-    lines.push("## Cohort notes", "", ...input.cohortNotes.map((note) => `- ${note}`), "");
+    lines.push(
+      "## Cohort notes",
+      "",
+      ...input.cohortNotes.map((note) => `- ${note}`),
+      "",
+    );
   }
   if (input.frameNotes.length) {
-    lines.push("## Capture notes", "", ...input.frameNotes.map((note) => `- ${note}`), "");
+    lines.push(
+      "## Capture notes",
+      "",
+      ...input.frameNotes.map((note) => `- ${note}`),
+      "",
+    );
   }
   lines.push(
     "## Method",
@@ -996,7 +1205,9 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (values.experiment && values.experiment !== "first_run_builder_credits") {
-    console.error("--experiment currently accepts only first_run_builder_credits.");
+    console.error(
+      "--experiment currently accepts only first_run_builder_credits.",
+    );
     return 2;
   }
   let window: ReturnType<typeof weekWindow>;
@@ -1010,45 +1221,64 @@ async function main(argv: string[]): Promise<number> {
     .split(",")
     .map((app) => app.trim())
     .filter(Boolean);
-  if (!apps.length || apps.some((app) => !(APPS as readonly string[]).includes(app))) {
-    console.error("--apps must be a comma-separated subset of clips,design,slides.");
+  if (
+    !apps.length ||
+    apps.some((app) => !(APPS as readonly string[]).includes(app))
+  ) {
+    console.error(
+      "--apps must be a comma-separated subset of clips,design,slides.",
+    );
     return 2;
   }
   const selectedApps = [...new Set(apps)] as AppName[];
-  const analyticsUrl = normalizeAppUrl(values["analytics-url"] ?? ANALYTICS_URL);
+  const analyticsUrl = normalizeAppUrl(
+    values["analytics-url"] ?? ANALYTICS_URL,
+  );
   const designUrl = normalizeAppUrl(values["design-url"] ?? DESIGN_URL);
-  const outRoot = path.resolve(repoRoot, values.out ?? ".tmp/onboarding-journey-snapshots");
+  const outRoot = path.resolve(
+    repoRoot,
+    values.out ?? ".tmp/onboarding-journey-snapshots",
+  );
   const comparisonWeek = previousWeek(window.week);
   const comparisonWindow = weekWindow(comparisonWeek);
   const requestPreview = selectedApps.map((app) => ({
-    app,
     ...actionRequest({
       app,
       dateFrom: window.dateFrom,
       dateTo: window.dateTo,
-      experimentId: values.experiment,
+      ...(values.experiment ? { experimentId: values.experiment } : {}),
     }),
+    analyticsOrigin: new URL(analyticsUrl).origin,
     presetHash: snapshotPresetHash({
       app,
       dateFrom: window.dateFrom,
       dateTo: window.dateTo,
       ...(values.experiment ? { experimentId: values.experiment } : {}),
       splitDesignFirstTouch: app === "design",
+      sourceOrigin: new URL(analyticsUrl).origin,
     }),
   }));
   if (values["dry-run"]) {
-    console.log(JSON.stringify({
-      week: window.week,
-      compareWeek: comparisonWeek,
-      compareDateFrom: comparisonWindow.dateFrom,
-      compareDateTo: comparisonWindow.dateTo,
-      dateFrom: window.dateFrom,
-      dateTo: window.dateTo,
-      apps: requestPreview,
-      outRoot,
-      framesPerBoardMax: SNAPSHOT_MAX_FRAMES,
-      writes: selectedApps.map((app) => path.join(outRoot, "runs", window.week, app)),
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          week: window.week,
+          compareWeek: comparisonWeek,
+          compareDateFrom: comparisonWindow.dateFrom,
+          compareDateTo: comparisonWindow.dateTo,
+          dateFrom: window.dateFrom,
+          dateTo: window.dateTo,
+          apps: requestPreview,
+          outRoot,
+          framesPerBoardMax: SNAPSHOT_MAX_FRAMES,
+          writes: selectedApps.map((app) =>
+            path.join(outRoot, "runs", window.week, app),
+          ),
+        },
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
@@ -1100,7 +1330,9 @@ async function main(argv: string[]): Promise<number> {
       const budget = budgets.get(target.key) ?? SNAPSHOT_MAX_FRAMES;
       const selection = selectCaptureTree(target.tree, budget);
       if (!selection.tree.nodes.length) {
-        frameNotes.push(`${app}/${target.key}: no replayable desktop examples met the pinned viewport filter.`);
+        frameNotes.push(
+          `${app}/${target.key}: no replayable desktop examples met the pinned viewport filter.`,
+        );
         continue;
       }
       const capture = await runCapture({
@@ -1112,118 +1344,38 @@ async function main(argv: string[]): Promise<number> {
         refresh: values.refresh === true,
       });
       if (capture.failures > 0) {
-        frameNotes.push(`${app}/${target.key}: ${capture.failures} frame capture or upload failures; ${capture.frames.length} screenshot-backed frames remain.`);
+        frameNotes.push(
+          `${app}/${target.key}: ${capture.failures} frame capture or upload failures; ${capture.frames.length} screenshot-backed frames remain.`,
+        );
       }
       captures.push({ target, ...capture });
     }
-    const nonempty = captures.filter((capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0);
-    if (!nonempty.length) {
-      throw checkFailure(`${app} has no successfully captured screenshot-backed nodes; no canvas was published.`);
-    }
-    const canvasFrames = nonempty.flatMap((capture) =>
-      capture.frames.map((frame) => ({
-        nodeKey: `${appRootForBand(capture.target)}::${frame.nodeKey}`,
-        exampleIndex: frame.exampleIndex,
-        width: frame.width,
-        height: frame.height,
-        capturedAt: frame.capturedAt,
-        imageUrl: frame.imageUrl,
-        sourceApp: capture.target.sourceApp,
-      })),
+    const nonempty = captures.filter(
+      (capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0,
     );
-    const totalFrames = canvasFrames.length;
-    if (totalFrames > SNAPSHOT_MAX_FRAMES) {
-      throw checkFailure(`${app} selected ${totalFrames} frames, over the ${SNAPSHOT_MAX_FRAMES}-frame board limit.`);
+    if (!nonempty.length) {
+      throw checkFailure(
+        `${app} has no successfully captured screenshot-backed nodes; no canvas was published.`,
+      );
     }
-    let canvasTree: SnapshotTree & { appRootN?: Record<string, number> };
-    let layoutMode: "tree" | "appBands";
-    if (nonempty.length === 1) {
-      canvasTree = nonempty[0]!.tree;
-      layoutMode = "tree";
-    } else {
-      const bands: SnapshotBand[] = nonempty.map((capture) => ({
-        key: appRootForBand(capture.target),
-        tree: capture.tree,
-      }));
-      canvasTree = mergeJourneyBands(bands);
-      layoutMode = "appBands";
+    for (const capture of nonempty) {
+      const previousTree = previousBands.get(capture.target.key);
+      boards.push(
+        await publishCanvas({
+          app,
+          week: window.week,
+          target: capture.target,
+          capture,
+          ...(previousTree ? { previousTree } : {}),
+          designUrl,
+          designToken,
+          bandDir: path.join(runRoot, app, "bands", capture.target.key),
+          refresh: values.refresh === true,
+        }),
+      );
     }
-    const title = `Onboarding snapshot · ${app} · ${window.week}`;
-    const canvasInput = {
-      title,
-      tree: {
-        window: canvasTree.window,
-        app: canvasTree.app,
-        rootN: canvasTree.rootN,
-        ...(layoutMode === "appBands" && canvasTree.appRootN
-          ? { appRootN: canvasTree.appRootN }
-          : {}),
-        coverage: {
-          sessionsWithEvents: canvasTree.coverage.sessionsWithEvents,
-          sessionsWithReplay: canvasTree.coverage.sessionsWithReplay,
-          truncated: false,
-        },
-        nodes: canvasTree.nodes,
-      },
-      frames: canvasFrames,
-      layoutMode,
-      maxExamplesPerNode: SNAPSHOT_PRESET.examplesPerNode,
-      includeScreenshotless: false,
-    };
-    const boardDir = path.join(runRoot, app);
-    const savedCanvas = await readJson<{
-      inputHash?: string;
-      result?: ReturnType<typeof actionCanvasResult>;
-    }>(path.join(boardDir, "canvas.json"));
-    const inputHash = pathHash(JSON.stringify(canvasInput));
-    let canvas =
-      savedCanvas?.inputHash === inputHash && !values.refresh
-        ? actionCanvasResult(savedCanvas.result)
-        : null;
-    if (canvas) {
-      assertCanvasReceipt(canvas, canvasTree.nodes.length, totalFrames);
-      if ((canvas.collabSyncPending?.length ?? 0) > 0) canvas = null;
-    }
-    if (!canvas) {
-      let raw = await callAction(designUrl, designToken, "create-journey-canvas", {
-        ...canvasInput,
-        ...(savedCanvas?.result?.designId ? { designId: savedCanvas.result.designId } : {}),
-      });
-      canvas = actionCanvasResult(raw);
-      assertCanvasReceipt(canvas, canvasTree.nodes.length, totalFrames);
-      for (let attempt = 0; (canvas.collabSyncPending?.length ?? 0) > 0 && attempt < 2; attempt += 1) {
-        await writeJson(path.join(boardDir, "canvas.json"), { inputHash, result: canvas });
-        raw = await callAction(designUrl, designToken, "create-journey-canvas", {
-          ...canvasInput,
-          designId: canvas.designId,
-        });
-        canvas = actionCanvasResult(raw);
-        assertCanvasReceipt(canvas, canvasTree.nodes.length, totalFrames);
-      }
-      if ((canvas.collabSyncPending?.length ?? 0) > 0) {
-        throw checkFailure("Design saved the canvas but did not sync it to the live editor.");
-      }
-      await writeJson(path.join(boardDir, "canvas.json"), { inputHash, result: canvas });
-    }
-    const url = canonicalDesignUrl(designUrl, canvas.designId);
-    const boardBands = targetBands.map((target) => ({
-      key: target.key,
-      label: target.label,
-      tree: target.tree,
-      previousTree: previousBands.get(target.key),
-    }));
-    boards.push({
-      app,
-      title,
-      designId: canvas.designId,
-      url,
-      tree: nonempty.length === 1 ? nonempty[0]!.tree : canvasTree,
-      bands: boardBands,
-      manifestFailures: captures.reduce((count, capture) => count + capture.failures, 0),
-      frames: totalFrames,
-    });
 
-    if (isRecord(result) && result.format === "cohorts") {
+    if (isCohortResponse(result)) {
       if (result.readCoverage.sessionlessMcpOauthSignupEvents > 0) {
         cohortNotes.push(
           `Design MCP OAuth signup tree: ${result.readCoverage.sessionlessMcpOauthSignupEvents} signup events without a first-party web session. This event-grain tree is in design/tree.json; it is not included in session conversions and has no replay screenshot.`,
@@ -1235,7 +1387,9 @@ async function main(argv: string[]): Promise<number> {
           `${app} ${e.id}: ${e.assignedSessions} sessions assigned (${e.exposureSessions} with an exposure event); ${e.unassignedSessions} unassigned and ${e.conflictingSessions} conflicting.`,
         );
         if (e.assignedSessions === 0) {
-          cohortNotes.push(`${app}: no sessions were assigned by an exposure event; no experiment arm was substituted with the unsplit tree.`);
+          cohortNotes.push(
+            `${app}: no sessions were assigned by an exposure event; no experiment arm was substituted with the unsplit tree.`,
+          );
         }
       }
       if (result.designFirstTouch?.conflictingSessions) {
@@ -1261,7 +1415,10 @@ async function main(argv: string[]): Promise<number> {
   return frameNotes.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code;

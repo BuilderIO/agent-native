@@ -1711,14 +1711,15 @@ function buildJourneyCohortTree(
       sessionIds.has(row.sessionId),
   );
   const { sessions } = groupSessions(rows);
+  const replayUrlFor = replayUrlBuilder();
   const built = buildJourneyTree(sessions, recordingsBySession, {
     maxDepth: args.maxDepth,
     minNodeSessions: args.minNodeSessions,
     examplesPerNode: args.examplesPerNode,
     settleMs: args.settleMs,
     recency: args.recency,
-    viewport: args.viewport,
-    replayUrlFor: replayUrlBuilder(),
+    ...(args.viewport ? { viewport: args.viewport } : {}),
+    ...(replayUrlFor ? { replayUrlFor } : {}),
   });
   const capped = capNodes(built.nodes, args.maxNodes);
   const depthTruncated = sessions.some(
@@ -1762,10 +1763,13 @@ function buildJourneyCohortTree(
 type JourneyExperimentArm = "control" | "credits";
 type JourneyFirstTouchCohort = "web" | "mcp-oauth" | "unknown";
 
-interface JourneyFirstTouchPartition {
+interface JourneyFirstTouchCohortPartition {
   cohorts: Record<JourneyFirstTouchCohort, Set<string>>;
-  conflictingSessionIds: Set<string>;
   conflictingSessions: number;
+}
+
+interface JourneyFirstTouchPartition extends JourneyFirstTouchCohortPartition {
+  conflictingSessionIds: Set<string>;
 }
 
 interface OnboardingJourneyCohortPartition {
@@ -1777,7 +1781,10 @@ interface OnboardingJourneyCohortPartition {
     exposureSessions: number;
     unassignedSessions: number;
     conflictingSessions: number;
-    designFirstTouch?: Record<JourneyExperimentArm, JourneyFirstTouchPartition>;
+    designFirstTouch?: Record<
+      JourneyExperimentArm,
+      JourneyFirstTouchCohortPartition
+    >;
   };
   designFirstTouch?: JourneyFirstTouchPartition;
   sessionlessMcpOauthSignupEvents: number;
@@ -1878,24 +1885,25 @@ export function partitionOnboardingJourneyCohorts(
     };
   }
 
-  if (experiment && designFirstTouch) {
+  const firstTouchPartition = designFirstTouch;
+  if (experiment && firstTouchPartition) {
     experiment.designFirstTouch = {
       control: {
         cohorts: intersectJourneyCohorts(
           experiment.arms.control,
-          designFirstTouch.cohorts,
+          firstTouchPartition.cohorts,
         ),
         conflictingSessions: [...experiment.arms.control].filter((sessionId) =>
-          designFirstTouch!.conflictingSessionIds.has(sessionId),
+          firstTouchPartition.conflictingSessionIds.has(sessionId),
         ).length,
       },
       credits: {
         cohorts: intersectJourneyCohorts(
           experiment.arms.credits,
-          designFirstTouch.cohorts,
+          firstTouchPartition.cohorts,
         ),
         conflictingSessions: [...experiment.arms.credits].filter((sessionId) =>
-          designFirstTouch!.conflictingSessionIds.has(sessionId),
+          firstTouchPartition.conflictingSessionIds.has(sessionId),
         ).length,
       },
     };
@@ -1945,20 +1953,22 @@ function sessionlessMcpOauthSignupTree(
       paginationConsistency: read.paginationConsistency,
     },
     nodes: eventCount
-      ? [{
-          key: "signup:mcp-oauth:sessionless",
-          label: "MCP OAuth signup without a web session",
-          parentKey: null,
-          depth: 1,
-          kind: "step",
-          n: eventCount,
-          pctOfRoot: 100,
-          pctOfParent: 100,
-          dropoffN: 0,
-          dropoffPct: 0,
-          deeperN: 0,
-          examples: [],
-        }]
+      ? [
+          {
+            key: "signup:mcp-oauth:sessionless",
+            label: "MCP OAuth signup without a web session",
+            parentKey: null,
+            depth: 1,
+            kind: "step",
+            n: eventCount,
+            pctOfRoot: 100,
+            pctOfParent: 100,
+            dropoffN: 0,
+            dropoffPct: 0,
+            deeperN: 0,
+            examples: [],
+          },
+        ]
       : [],
     ...(eventCount
       ? {
@@ -1998,7 +2008,11 @@ async function buildOnboardingJourneyCohorts(
         startedAt: row.sessionReplayStartedAt,
       };
       replayLinksByKey.set(
-        JSON.stringify([link.sessionId, link.clientRecordingId, link.startedAt]),
+        JSON.stringify([
+          link.sessionId,
+          link.clientRecordingId,
+          link.startedAt,
+        ]),
         link,
       );
     }
@@ -2017,12 +2031,7 @@ async function buildOnboardingJourneyCohorts(
   }
 
   const makeTree = (sessionIds: ReadonlySet<string>) =>
-    buildJourneyCohortTree(
-      args,
-      read,
-      sessionIds,
-      recordingsBySession,
-    );
+    buildJourneyCohortTree(args, read, sessionIds, recordingsBySession);
   const makeFirstTouchTrees = (
     cohorts: JourneyFirstTouchPartition["cohorts"],
   ) => ({

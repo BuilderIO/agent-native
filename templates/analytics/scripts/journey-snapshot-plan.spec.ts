@@ -8,6 +8,7 @@ import {
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
+  snapshotPresetHash,
   treeTopForks,
   weekWindow,
   type SnapshotExample,
@@ -49,11 +50,7 @@ function node(
   };
 }
 
-function tree(
-  nodes: SnapshotNode[],
-  rootN = 10,
-  app = "clips",
-): SnapshotTree {
+function tree(nodes: SnapshotNode[], rootN = 10, app = "clips"): SnapshotTree {
   return {
     window: { from: "2026-10-19", to: "2026-10-25" },
     app,
@@ -92,6 +89,23 @@ describe("weekly snapshot preset", () => {
       maxAspect: 1.85,
     });
   });
+
+  it("keeps tree caches isolated by Analytics origin", () => {
+    const base = {
+      app: "design",
+      dateFrom: "2026-10-18",
+      dateTo: "2026-10-25",
+      splitDesignFirstTouch: true,
+    };
+    expect(
+      snapshotPresetHash({
+        ...base,
+        sourceOrigin: "https://analytics.example",
+      }),
+    ).not.toBe(
+      snapshotPresetHash({ ...base, sourceOrigin: "https://analytics.test" }),
+    );
+  });
 });
 
 describe("snapshot tree planning", () => {
@@ -99,19 +113,26 @@ describe("snapshot tree planning", () => {
     const source = tree([
       node("signup", "Signup", null, 1, 10),
       node("signup > choice", "Setup choice", "signup", 2, 8),
-      node("signup > choice > output:recording_ready", "Clip saved", "signup > choice", 3, 6, {
-        examples: [
-          example({
-            sessionId: "wide",
-            recordingId: "wide-recording",
-            viewport: { width: 2560, height: 1080 },
-          }),
-          example({
-            sessionId: "desktop",
-            recordingId: "desktop-recording",
-          }),
-        ],
-      }),
+      node(
+        "signup > choice > output:recording_ready",
+        "Clip saved",
+        "signup > choice",
+        3,
+        6,
+        {
+          examples: [
+            example({
+              sessionId: "wide",
+              recordingId: "wide-recording",
+              viewport: { width: 2560, height: 1080 },
+            }),
+            example({
+              sessionId: "desktop",
+              recordingId: "desktop-recording",
+            }),
+          ],
+        },
+      ),
     ]);
 
     const selected = selectCaptureTree(source, 3);
@@ -129,9 +150,10 @@ describe("snapshot tree planning", () => {
 
   it("allocates only the board-wide frame budget across replayable bands", () => {
     const replayable = tree([node("signup", "Signup", null, 1, 10)]);
-    const empty = tree([
-      node("signup", "Signup", null, 1, 0, { examples: [] }),
-    ], 0);
+    const empty = tree(
+      [node("signup", "Signup", null, 1, 0, { examples: [] })],
+      0,
+    );
 
     const budgets = allocateFrameBudgets(
       [
@@ -193,14 +215,28 @@ describe("snapshot tree planning", () => {
           pctOfRoot: 20,
           pctOfParent: 20,
         }),
-        node("signup > choice > output:recording_ready", "Clip saved", "signup > choice", 3, 15, {
-          pctOfRoot: 15,
-          pctOfParent: 75,
-        }),
-        node("signup > choice > attempt:recording_started:2", "Recording attempt started", "signup > choice", 3, 12, {
-          pctOfRoot: 12,
-          pctOfParent: 60,
-        }),
+        node(
+          "signup > choice > output:recording_ready",
+          "Clip saved",
+          "signup > choice",
+          3,
+          15,
+          {
+            pctOfRoot: 15,
+            pctOfParent: 75,
+          },
+        ),
+        node(
+          "signup > choice > attempt:recording_started:2",
+          "Recording attempt started",
+          "signup > choice",
+          3,
+          12,
+          {
+            pctOfRoot: 12,
+            pctOfParent: 60,
+          },
+        ),
       ],
       100,
     );
@@ -211,14 +247,28 @@ describe("snapshot tree planning", () => {
           pctOfRoot: 50,
           pctOfParent: 50,
         }),
-        node("signup > choice > output:recording_ready", "Clip saved", "signup > choice", 3, 60, {
-          pctOfRoot: 30,
-          pctOfParent: 60,
-        }),
-        node("signup > choice > attempt:recording_started:2", "Recording attempt started", "signup > choice", 3, 2, {
-          pctOfRoot: 1,
-          pctOfParent: 2,
-        }),
+        node(
+          "signup > choice > output:recording_ready",
+          "Clip saved",
+          "signup > choice",
+          3,
+          60,
+          {
+            pctOfRoot: 30,
+            pctOfParent: 60,
+          },
+        ),
+        node(
+          "signup > choice > attempt:recording_started:2",
+          "Recording attempt started",
+          "signup > choice",
+          3,
+          2,
+          {
+            pctOfRoot: 1,
+            pctOfParent: 2,
+          },
+        ),
       ],
       200,
     );

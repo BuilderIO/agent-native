@@ -39,6 +39,7 @@ import {
   onboardingJourneyEventDateRange,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog";
+import type { JourneyEventRow } from "./journey-steps";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
@@ -53,7 +54,6 @@ import {
   type JourneyTree,
   type OnboardingJourneyArgs,
 } from "./onboarding-journey";
-import type { JourneyEventRow } from "./journey-steps";
 
 const scope = { userEmail: "owner@example.test", orgId: null };
 const T0 = Date.parse("2026-10-01T12:00:00.000Z");
@@ -306,10 +306,15 @@ describe("partitionOnboardingJourneyCohorts", () => {
       cohortEvent("conflicting-path-control", "signup", 1, {
         first_touch_path: "/signup",
       }),
-      cohortEvent("conflicting-path-control", "onboarding_experiment_exposed", 2, {
-        experiment_id: "first_run_builder_credits",
-        experiment_variant: "control",
-      }),
+      cohortEvent(
+        "conflicting-path-control",
+        "onboarding_experiment_exposed",
+        2,
+        {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "control",
+        },
+      ),
       cohortEvent("conflicting-arm", "signup", 0, {
         first_touch_path: "/signup",
       }),
@@ -347,7 +352,7 @@ describe("partitionOnboardingJourneyCohorts", () => {
 
     expect(partition.experiment).toMatchObject({
       assignedSessions: 3,
-      exposureSessions: 4,
+      exposureSessions: 5,
       unassignedSessions: 2,
       conflictingSessions: 1,
     });
