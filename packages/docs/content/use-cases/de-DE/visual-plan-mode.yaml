@@ -1,12 +1,12 @@
 template: v2
 slug: visual-plan-mode
 app: plans
-title: Den Plan Ihres Coding-Agenten vor dem Coden prüfen
+title: Den Plan Ihres Agenten vor dem Coden prüfen
 seo_title: Visueller Planmodus für Claude Code, Codex, Cursor
 meta_description: Agent-Native Plan macht aus dem Plan Ihres Coding-Agenten eine prüfbare Seite mit Diagrammen, Dateibäumen und kommentiertem Code, bevor Code entsteht.
 updated: 2026-10-27
 hero:
-  body: Agent-Native Plan zeigt den Plan Ihres Agenten als Seite mit Diagrammen, Dateibäumen und kommentiertem Code. Sie kommentieren jede Stelle, der Agent überarbeitet ihn und ändert bis zur Freigabe keinen Code.
+  body: Agent-Native Plan zeigt den Plan Ihres Agenten mit Diagrammen, Dateibäumen und kommentiertem Code. Sie kommentieren, der Agent überarbeitet ihn und codet erst nach Ihrer Freigabe.
   button:
     label: Ihren Build planen
     url: https://plan.agent-native.com
@@ -82,7 +82,7 @@ integrations:
 other_uses:
   heading: Was Sie sonst noch mit Agent-Native Plan tun können
   cards:
-    - title: Änderungen Ihres Coding-Agenten visuell nachvollziehen
+    - title: Agenten-Änderungen visuell nachvollziehen
       url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
       body: Machen Sie aus einem Pull Request, Commit oder Diff einen visuellen Rundgang durch die Änderungen.
     - title: Neue Screens mit Ihrem Coding-Agenten planen

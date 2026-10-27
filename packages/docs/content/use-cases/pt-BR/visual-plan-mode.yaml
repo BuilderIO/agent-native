@@ -1,7 +1,7 @@
 template: v2
 slug: visual-plan-mode
 app: plans
-title: Revise o plano do agente de código antes de ele programar
+title: Revise o plano do agente antes de ele programar
 seo_title: Plan mode visual para Claude Code, Codex e Cursor
 meta_description: O Agent-Native Plan mostra o plano do seu agente de código em uma página com diagramas, árvores de arquivos e código anotado para revisar antes de ele programar.
 updated: 2026-10-27
@@ -71,7 +71,7 @@ integrations:
         - name: GitHub Copilot
           src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
           mono: true
-      body: Um comando de instalação configura o Plan no Cursor, no OpenCode ou no GitHub Copilot no VS Code, e qualquer outro agente MCP pode adicioná-lo pela URL.
+      body: Um comando instala o Plan no Cursor, no OpenCode ou no GitHub Copilot no VS Code, e outros agentes MCP o adicionam pela URL.
     - title: Conecte qualquer coisa via MCP
       logos:
         - name: Linear
