@@ -29,6 +29,15 @@ Slack reactions on a report's root message mean exactly this:
 | ✅   | "Fixed"                                   | After the fix is merged to `main` (main deploys to beta automatically)                           |
 | 🎫   | "Needs a person"                          | A product call, access or credentials, info from the reporter, or a fix you couldn't land        |
 
+Steve (`U0GCV21HC`) steers the sweep with his own reactions on a root:
+
+| Steve adds   | Meaning                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `:mag:`      | Don't work on this; someone else will. Wins over everything below                             |
+| `:yes-party:`| Definitely do this, even if it looks ambiguous or like a UX change. Build the smallest version that does what was asked |
+| `:upvote:`   | Same as `:yes-party:` for a feature request                                                    |
+| 👀 by hand   | He's working on it himself; leave it (see "Open items first" for how to tell his 👀 from ours) |
+
 Reactions can't be removed through the Slack connector, so never add one you
 might need to take back. Every 👀 you add ends the run with ✅ or 🎫 and a
 reply. A 👀 with no follow-up is the most common complaint about this workflow.
@@ -61,8 +70,7 @@ that adds nothing new.
   (`C0AJ5QV0J03`), or the narrower set the invocation names. Never react or
   reply anywhere else.
 - **Leave a report alone** when:
-  - Steve (`U0GCV21HC`) put `:mag:` on it, or put 👀 on it himself (see
-    "Open items first" for how to tell);
+  - Steve put `:mag:` or his own 👀 on it (table above);
   - someone in the thread asked a specific person to look, a teammate says
     they're handling it, or Steve asked for a human on it;
   - another person's 👀 sits on it and they've been active in the last 3
@@ -72,8 +80,6 @@ that adds nothing new.
 - **PRs:** push to, comment on, or merge only PRs authored by the active
   GitHub login (`gh api user --jq .login`). Never touch anyone else's PR unless
   the invocation names that exact PR and action.
-- **Steve's `:upvote:` or `:yes-party:`** puts a feature request or UX change
-  in scope: build the smallest version that does what was asked.
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
 
@@ -90,7 +96,8 @@ the invocation gives), plus 14 days for open items.
 - **Read the channels.** Use `slack_read_channel` with
   `response_format: detailed` (paginate) back 14 days. Its output shows
   reaction counts but not who added them, so call `slack_get_reactions` on any
-  root showing `eyes`, `white_check_mark`, `ticket`, or `mag`. Don't rely on
+  root showing `eyes`, `white_check_mark`, `ticket`, `mag`, `yes-party`, or
+  `upvote`. Don't rely on
   `hasmy:` searches, which have returned nothing for roots that do carry
   Steve's marks.
 - **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
