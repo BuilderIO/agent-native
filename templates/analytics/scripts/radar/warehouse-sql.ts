@@ -274,31 +274,6 @@ event_stats AS (
 SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 }
 
-export function buildBigQueryAppEventCoverageSql(
-  eventsTableRange: string,
-): string {
-  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
-    columns: {
-      id: false,
-      eventDate: true,
-      sessionId: false,
-      url: false,
-      personKey: false,
-      identityEmail: false,
-      referralSource: false,
-      properties: false,
-    },
-  })},
-app_day_coverage AS (
-  SELECT event_date, app, count(*) AS events
-  FROM base_events
-  GROUP BY event_date, app
-)
-SELECT event_date, app, events
-FROM app_day_coverage
-ORDER BY event_date, app`;
-}
-
 export function buildBigQueryFunnelDailySql(eventsTableRange: string): string {
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
     columns: {

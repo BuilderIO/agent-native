@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   backtestHourOf,
   formatRadarBacktest,
-  hasBacktestAppCoverage,
+  noReplayRejectionObservation,
   parseRadarBacktestArgs,
 } from "./backtest.ts";
 
@@ -25,23 +25,6 @@ describe("backtestHourOf", () => {
     expect(() => parseRadarBacktestArgs(["--max-total-gb"])).toThrow(
       "--max-total-gb must be positive.",
     );
-  });
-
-  it("uses all-event app-day coverage for replay checks", () => {
-    const activityCoverageRows = [
-      {
-        event_date: "2026-10-12",
-        app: "slides",
-        event_name: "newsletter_opened",
-      },
-    ];
-
-    expect(
-      hasBacktestAppCoverage("2026-10-12", "slides", [], activityCoverageRows),
-    ).toBe(true);
-    expect(
-      hasBacktestAppCoverage("2026-10-12", "design", [], activityCoverageRows),
-    ).toBe(false);
   });
 
   it("shows insufficient evidence instead of zero fires on an empty source", () => {
@@ -68,5 +51,19 @@ describe("backtestHourOf", () => {
       "| builder-connect-success | clean | clips | 0 | 0 | 0 | 1 |",
     );
     expect(report).toContain("BigQuery dry-run estimate: 1.00 GB / 100 GB.");
+  });
+});
+
+describe("noReplayRejectionObservation", () => {
+  it("keeps periods without rejection rows insufficient without recorder coverage", () => {
+    expect(
+      noReplayRejectionObservation("2026-10-12", "slides", "incident"),
+    ).toMatchObject({
+      check: "replay-upload-rejection",
+      app: "slides",
+      period: "incident:2026-10-12",
+      status: "insufficient",
+      denominator: null,
+    });
   });
 });

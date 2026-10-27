@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
-  buildBigQueryAppEventCoverageSql,
   buildBigQueryEventStatsSql,
   buildBigQueryCampaignFollowupSql,
   buildBigQueryFunnelDailySql,
@@ -69,14 +68,6 @@ describe("first-party BigQuery radar SQL", () => {
     expect(sql).toContain("'design_ready_viewed'");
     expect(sql).toContain("'recording_ready'");
     expect(sql).not.toContain("identity_email, email_hash");
-  });
-
-  it("reads app-day coverage without limiting event names", () => {
-    const sql = buildBigQueryAppEventCoverageSql(range);
-    expect(sql).toContain("e.event_date >= @start_date");
-    expect(sql).toContain("e.event_date <= @end_date");
-    expect(sql).toContain("GROUP BY event_date, app");
-    expect(sql).not.toContain("event_name IN (");
   });
 
   it("bounds first-party reads to the partitioned table function and org", () => {

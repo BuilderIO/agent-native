@@ -8,7 +8,6 @@ import {
   setRadarBigQueryScanBudget,
 } from "./query.ts";
 import {
-  buildBigQueryAppEventCoverageSql,
   buildBigQueryEventStatsSql,
   buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
@@ -99,6 +98,23 @@ export function backtestHourOf(value: unknown): string {
   if (value instanceof Date) return value.toISOString().slice(0, 13);
   const text = String(value ?? "").replace(" ", "T");
   return text.slice(0, 13);
+}
+
+export function noReplayRejectionObservation(
+  date: string,
+  app: string,
+  label: "clean" | "incident",
+): Observation {
+  return {
+    check: "replay-upload-rejection",
+    app,
+    period: `${label}:${date}`,
+    status: "insufficient",
+    numerator: 0,
+    denominator: null,
+    value: null,
+    detail: `No replay upload rejection events establish recorder coverage for ${app} on ${date}.`,
+  };
 }
 
 export function parseRadarBacktestArgs(args: readonly string[]): {
@@ -197,21 +213,6 @@ function observation(
   };
 }
 
-export function hasBacktestAppCoverage(
-  date: string,
-  app: string,
-  rejectionRows: readonly Record<string, unknown>[],
-  activityCoverageRows: readonly Record<string, unknown>[],
-): boolean {
-  return (
-    rejectionRows.some((row) => String(row.app ?? "unknown") === app) ||
-    activityCoverageRows.some(
-      (row) =>
-        dateOf(row.event_date) === date && String(row.app ?? "unknown") === app,
-    )
-  );
-}
-
 export async function runRadarBacktest(
   options: RadarBacktestOptions = {},
 ): Promise<RadarBacktestResult> {
@@ -242,13 +243,8 @@ export async function runRadarBacktest(
         params,
       },
     );
-    const activityCoverage = await runBigQuery(
-      buildBigQueryAppEventCoverageSql(table),
-      { maxGb: 100, fresh: true, cache: false, params },
-    );
     const hourlyRows = hourly.rows;
     const dailyRows = aggregateDailyRows(hourlyRows);
-    const activityCoverageRows = activityCoverage.rows;
     const observations: Observation[] = [];
 
     for (const [label, window] of [
@@ -352,24 +348,7 @@ export async function runRadarBacktest(
         for (const app of ["design", "slides", "clips"]) {
           if (checkedApps.has(app)) continue;
           const label = date >= INCIDENT.start ? "incident" : "clean";
-          const hasAppCoverage = hasBacktestAppCoverage(
-            date,
-            app,
-            rowsForDate,
-            activityCoverageRows,
-          );
-          observations.push({
-            check: "replay-upload-rejection",
-            app,
-            period: `${label}:${date}`,
-            status: hasAppCoverage ? "clear" : "insufficient",
-            numerator: 0,
-            denominator: null,
-            value: null,
-            detail: hasAppCoverage
-              ? `No replay upload rejection events for ${app} on ${date}; other event data was available.`
-              : `No event data was available to establish replay rejection coverage for ${app} on ${date}.`,
-          });
+          observations.push(noReplayRejectionObservation(date, app, label));
         }
       }
     }
