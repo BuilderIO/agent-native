@@ -110,22 +110,22 @@ do not weaken step fencing or move an effect ahead of durable dispatch.
 
 | Config                                                                    | Result                          | Distinct states | Time   |
 | ------------------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
-| `ExecutionLease.cfg` (policy `never`, prune on)                           | pass                            | 79,347          | 2.1 s  |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen)                 | pass                            | 4,313,845       | 66.1 s |
+| `ExecutionLease.cfg` (policy `never`, prune on)                           | pass                            | 79,347          | 2.0 s  |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen)                 | pass                            | 4,313,845       | 75.9 s |
 | `sufficiency/fence-alone.cfg` dispatch keeps only the fence               | P8 and P1 hold                  | 79,347          | 1.9 s  |
 | `sufficiency/clause-alone.cfg` dispatch keeps only the clause             | P8 holds                        | 126,387         | 2.6 s  |
 | `mutations/a` dispatch without the fence                                  | P1 violated                     | 159             | 0.7 s  |
-| `mutations/b` begin replays a dispatched never step                       | P8 violated                     | 28,458          | 1.1 s  |
-| `mutations/c` action starts before dispatch commits                       | P8 violated                     | 2,430           | 0.8 s  |
+| `mutations/b` begin replays a dispatched never step                       | P8 violated                     | 26,764          | 1.1 s  |
+| `mutations/c` action starts before dispatch commits                       | P8 violated                     | 2,450           | 0.8 s  |
 | `mutations/d` claim takes a live lease from a running owner               | ClaimRespectsLiveOwner violated | 16              | 0.7 s  |
-| `mutations/e` fence check commits before the write                        | P1 violated                     | 155             | 0.7 s  |
-| `mutations/g` reset fallback lacks successor fence                        | P1 violated                     | 361             | 0.7 s  |
-| `mutations/h` prune a live dispatched step before late effect             | P8 violated                     | 67,217          | 1.7 s  |
+| `mutations/e` fence check commits before the write                        | P1 violated                     | 159             | 0.8 s  |
+| `mutations/g` reset fallback lacks successor fence                        | P1 violated                     | 351             | 0.7 s  |
+| `mutations/h` prune a live dispatched step before late effect             | P8 violated                     | 66,965          | 1.7 s  |
 | `mutations/i-ignore-recovery-cutoff.cfg` prune a recent receipt           | P8 violated                     | 65,384          | 1.7 s  |
-| `checks/F2-prune-under-live-lease.cfg` live-turn prune race               | pass                            | 72,909          | 1.9 s  |
-| `checks/F2-late-effect-after-cutoff.cfg` prune expired receipt, no replay | pass                            | 79,347          | 1.9 s  |
-| `checks/F3-policy-flip-forgets-dispatch.cfg` retry-safe policy flip       | pass                            | 4,313,845       | 72.2 s |
-| `findings/F7-post-retention-same-turn-replay.cfg`                         | P8Strict violated (finding)     | 668,844         | 8.8 s  |
+| `checks/F2-prune-under-live-lease.cfg` live-turn prune race               | pass                            | 72,909          | 2.2 s  |
+| `checks/F2-late-effect-after-cutoff.cfg` prune expired receipt, no replay | pass                            | 79,347          | 2.1 s  |
+| `checks/F3-policy-flip-forgets-dispatch.cfg` retry-safe policy flip       | pass                            | 4,313,845       | 67.8 s |
+| `findings/F7-post-retention-same-turn-replay.cfg`                         | P8Strict violated (finding)     | 668,807         | 9.1 s  |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass
