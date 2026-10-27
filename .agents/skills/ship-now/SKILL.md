@@ -87,8 +87,9 @@ gh run list --commit <mergeCommit.oid> --limit 50 --json name,status,conclusion,
 ```
 
 A failed query, or no runs listed yet, means unknown, not green. Keep checking until they finish.
-If the merge commit has no runs after 10 minutes, it triggered none (path
-filters). Say so and stop watching. Fix any failure on the fresh branch and send
+Stop watching once the PR checks have all finished and the merge commit's
+runs have finished, or none have appeared after 10 minutes (path filters
+skipped them; say so). Fix any failure on the fresh branch and send
 it through `/ship`. If the PR body has a `Reports` section, run
 `/review-latest-feedback` step 5 for those threads. Merging publishes beta
 automatically. Beyond the merge commit's own workflows, beta, docs, and

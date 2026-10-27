@@ -37,27 +37,28 @@ legacy and timestamp-named branches.
 
 ## Create
 
+Look at what would come along first:
+
 ```bash
 git status --short --untracked-files=all
-merged=$(gh pr list --head "$(git branch --show-current)" --state merged --json number --jq '.[0].number // empty')
-if [ "$(git rev-list --count origin/main..HEAD)" -gt 0 ] && [ -z "$merged" ]; then
-  git switch -c "$branch"            # HEAD has unmerged commits of its own: keep them
-else
-  git switch -c "$branch" origin/main
-fi
+git log --oneline origin/main..HEAD
 ```
 
-If HEAD's commits belong to a PR that has already merged
-(`gh pr list --head <branch> --state merged`), they're on `main` as a squash
-commit: branch from `origin/main` instead. If HEAD also has commits after that
-PR's merged head, keep the current branch and report them. Never branch from a local `main`,
-which can be stale. Dirty files and HEAD's
-own commits come along, so check both first (`git status` and
-`git log origin/main..HEAD`). If any belong to another task, leave the
-checkout where it is and name those paths or commits. If the branch is for an
+Then pick the base:
+
+- **Nothing in the log, or every commit is from a PR that already merged**
+  (squash merges leave the source commits off `main`'s history; check with
+  `gh pr view <number> --json state`): `git switch -c "$branch" origin/main`.
+- **Commits that aren't merged anywhere yet, all from this task:**
+  `git switch -c "$branch"` to keep them at HEAD.
+- **A mix of merged and newer commits, or commits or dirty paths from another
+  task:** don't switch. Leave the checkout where it is and report what you
+  found.
+
+Never branch from a local `main`, which can be stale. If the branch is for an
 existing PR update, base it on that PR's freshly fetched live head instead of
-`origin/main` (see `babysit-pr` for the push target). Don't push the new
-branch until it has changes to ship.
+`origin/main` (see `babysit-pr` for the push target). Don't push the new branch
+until it has changes to ship.
 
 ## After a merge
 
