@@ -160,9 +160,9 @@ export const CONTENT_CLIP_UPLOAD_REFUSED = {
   alreadyFinished: "upload_already_finished",
   /**
    * A start repeated for one picked file while the first start is still
-   * making its Clip. Repeat it in a few seconds; once that start failed
-   * before making its Clip, or has gone about ten minutes without one, a
-   * repeat takes it over with the same Clip.
+   * making its Clip, or while Clips takes its final chunk. Repeat it in a few
+   * seconds; once that start failed before making its Clip, or has gone about
+   * ten minutes without one, a repeat takes it over with the same Clip.
    */
   uploadStarting: "upload_starting",
   /**
