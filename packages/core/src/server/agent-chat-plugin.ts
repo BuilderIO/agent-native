@@ -533,6 +533,7 @@ import {
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   executeApprovedA2AToolCall,
   filterAgentTools,
+  filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
   filterDirectA2AActions,
@@ -2709,7 +2710,12 @@ export function createAgentChatPlugin(
         },
         executeApproval: (approval, { signal, threadId, turnId }) =>
           executeApprovedA2AToolCall(approval, {
-            actions: externalFullActions ?? externalActions,
+            actions: filterDelegatedRegistry(
+              preferMcpAppActions(
+                externalFullActions ?? externalActions,
+                templateScripts,
+              ),
+            ),
             appId: options?.appId,
             signal,
             threadId,
@@ -2915,19 +2921,9 @@ export function createAgentChatPlugin(
 
           // Build the same system prompt the interactive agent uses
           const owner = userEmail;
-          const resources = await loadResourcesForPrompt(
-            owner,
-            lazyContext,
-            options?.appId,
-            undefined,
-            {
-              disabledFrameworkGroups,
-              skillReadTool,
-            },
-          );
           const schemaBlock = lazyContext
             ? ""
-            : await buildSchemaBlock(owner, databaseToolsMode);
+            : await buildSchemaBlock(owner, "off");
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
@@ -2991,24 +2987,6 @@ export function createAgentChatPlugin(
             receiverOwnsObjective && options?.appId
               ? buildSelectedA2AReceiverContext(options.appId)
               : "";
-          // Delegated turns use native template actions in every environment,
-          // so they must also receive the native-tool prompt. The interactive
-          // dev prompt teaches `pnpm action` and would send this receiver back
-          // into the shell loop the native action surface exists to prevent.
-          const systemPrompt =
-            basePrompt +
-            SYSTEM_PROMPT_CACHE_SPLIT +
-            resources +
-            schemaBlock +
-            extra +
-            modelOverlay +
-            selectedReceiverContext +
-            runtimeContext;
-          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
-
-          // Build tools — same as interactive handler. Cross-app delegation is
-          // enabled by default; call-agent carries a bounded visited-app path
-          // and rejects cycles/excessive hops before dispatch.
           // Delegated turns keep template actions as NATIVE tools even in dev,
           // unlike the interactive surface (see the allScripts comment). Dev
           // routes template actions through bash there to dodge the degenerate
@@ -3020,65 +2998,101 @@ export function createAgentChatPlugin(
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
           const a2aOrgId = getRequestOrgId();
-          const a2aRegisteredActions = devActive
-            ? {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                ...automationTools,
-                ...fetchTool,
-                ...webSearchTool,
-                ...workspaceFilesTool,
-                ...workspaceFileActions,
-                ...toolActions,
-                ...browserSessionTools,
-                ...remoteBrowserTools,
-                ...coreEmailTools,
-                ...coreAttachmentTools,
-                ...browserTools,
-                ...devScriptsForA2A,
-                ...devRunCodeTool,
-              }
-            : {
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...dbScripts,
-                ...refreshScreenTool,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...urlTools,
-                ...chatScripts,
-                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                ...automationTools,
-                ...fetchTool,
-                ...webSearchTool,
-                ...workspaceFilesTool,
-                ...workspaceFileActions,
-                ...toolActions,
-                ...browserSessionTools,
-                ...remoteBrowserTools,
-                ...coreEmailTools,
-                ...coreAttachmentTools,
-                ...browserTools,
-                ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                ...prodCodingTools,
-              };
+          const a2aRegisteredActions = preferMcpAppActions(
+            devActive
+              ? {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...automationTools,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...browserSessionTools,
+                  ...remoteBrowserTools,
+                  ...coreEmailTools,
+                  ...coreAttachmentTools,
+                  ...browserTools,
+                  ...devScriptsForA2A,
+                  ...devRunCodeTool,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...automationTools,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...browserSessionTools,
+                  ...remoteBrowserTools,
+                  ...coreEmailTools,
+                  ...coreAttachmentTools,
+                  ...browserTools,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
+                },
+            templateScripts,
+          );
           const a2aActions = attachToolSearch({
-            ...a2aRegisteredActions,
-            ...(await getRequestScopedActions(
-              {
-                surface: "a2a",
-                event: context.event,
-                ownerEmail: userEmail,
-                orgId: a2aOrgId,
-              },
-              a2aRegisteredActions,
-            )),
+            ...skillReadScripts,
+            ...filterDelegatedRegistry({
+              ...a2aRegisteredActions,
+              ...(await getRequestScopedActions(
+                {
+                  surface: "a2a",
+                  event: context.event,
+                  ownerEmail: userEmail,
+                  orgId: a2aOrgId,
+                },
+                a2aRegisteredActions,
+              )),
+            }),
           });
+
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+            undefined,
+            {
+              disabledFrameworkGroups: disabledGroupsForA2APrompt(
+                disabledFrameworkGroups,
+                false,
+              ),
+              skillReadTool:
+                a2aActions["docs-search"] === docsSearchEntry
+                  ? skillReadTool
+                  : null,
+              runtimeToolHints: false,
+            },
+          );
+          // Delegated turns use native template actions in every environment,
+          // so they must also receive the native-tool prompt. The interactive
+          // dev prompt teaches `pnpm action` and would send this receiver back
+          // into the shell loop the native action surface exists to prevent.
+          const systemPrompt =
+            delegatedBasePrompt +
+            SYSTEM_PROMPT_CACHE_SPLIT +
+            resources +
+            schemaBlock +
+            extra +
+            modelOverlay +
+            selectedReceiverContext +
+            runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
@@ -3194,6 +3208,7 @@ export function createAgentChatPlugin(
               appId: runtimeAppId,
               executionMode: "act",
               runId: context.taskId,
+              actionCaller: "tool",
               networkProtocol: "a2a",
               networkId: context.taskId,
               networkPeer: correlation.callerApp,
@@ -3574,6 +3589,15 @@ export function createAgentChatPlugin(
       const devNative = options?.nativeActionsInDev === true || leanPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
+      const delegatedBasePrompt =
+        (options?.systemPrompt ??
+          buildFrameworkPrompts(options?.promptExamples, { delegated: true })
+            .PROD_FRAMEWORK_PROMPT) +
+        generateActionsPrompt(
+          filterDelegatedRegistry(templateScripts),
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        );
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
         Object.fromEntries(
           Object.entries(prodActions).filter(
@@ -3695,55 +3719,55 @@ export function createAgentChatPlugin(
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpOrgId = getRequestOrgId();
-            const mcpRegisteredActions = devActiveMcp
-              ? {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...devScriptsForA2A,
-                  ...devRunCodeTool,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                  ...prodCodingTools,
-                };
+            const mcpRegisteredActions = preferMcpAppActions(
+              devActiveMcp
+                ? {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...workspaceFileActions,
+                    ...toolActions,
+                    ...devScriptsForA2A,
+                    ...devRunCodeTool,
+                  }
+                : {
+                    ...templateScripts,
+                    ...resourceScripts,
+                    ...docsScripts,
+                    ...dbScripts,
+                    ...refreshScreenTool,
+                    ...(lazyContext ? frameworkContextTool : {}),
+                    ...urlTools,
+                    ...chatScripts,
+                    ...fetchTool,
+                    ...webSearchTool,
+                    ...workspaceFilesTool,
+                    ...workspaceFileActions,
+                    ...toolActions,
+                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                    ...prodCodingTools,
+                  },
+              templateScripts,
+            );
             const mcpActions = attachToolSearch({
-              ...mcpRegisteredActions,
-              ...(await getRequestScopedActions(
-                { surface: "mcp", ownerEmail, orgId: mcpOrgId },
-                mcpRegisteredActions,
-              )),
+              ...skillReadScripts,
+              ...filterDelegatedRegistry({
+                ...mcpRegisteredActions,
+                ...(await getRequestScopedActions(
+                  { surface: "mcp", ownerEmail, orgId: mcpOrgId },
+                  mcpRegisteredActions,
+                )),
+              }),
             });
 
-            // Same compact initial-tool surface as interactive chat and A2A:
-            // template actions + the small framework default set stay visible
-            // on the first request; everything else (provider, MCP, extension
-            // schemas) is reachable through the attached `tool-search` entry
-            // via `runAgentLoop`'s mid-run tool expansion. Without this, every
-            // external host calling `ask_app` (MCP) paid for a near-full
-            // catalog on its very first request, undermining the compact MCP
-            // catalog this surface is supposed to keep external callers on.
+            // Tool search closes over the filtered registry so deferred tools
+            // cannot reintroduce framework runtime capabilities mid-run.
             const mcpToolSurface = createA2AEngineToolSurface(
               actionsToEngineTools(mcpActions),
               effectiveInitialToolNames,
@@ -3759,12 +3783,16 @@ export function createAgentChatPlugin(
                   disabledFrameworkGroups,
                   false,
                 ),
-                skillReadTool,
+                skillReadTool:
+                  mcpActions["docs-search"] === docsSearchEntry
+                    ? skillReadTool
+                    : null,
+                runtimeToolHints: false,
               },
             );
             const schemaBlock = lazyContext
               ? ""
-              : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
+              : await buildSchemaBlock(SHARED_OWNER, "off");
             // Stable-first ordering: runtime-context (which changes daily)
             // goes last so the cached prompt prefix survives as long as
             // possible — same pattern as the other prompt-assembly sites in
@@ -3772,7 +3800,7 @@ export function createAgentChatPlugin(
             // ask_app receives native template actions even in dev, so the
             // native-tool prompt is required here for the same reason as A2A.
             const systemPrompt =
-              basePrompt +
+              delegatedBasePrompt +
               SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
@@ -3809,6 +3837,7 @@ export function createAgentChatPlugin(
                 appId: options?.appId,
                 executionMode: "act",
                 runId: mcpRunId,
+                actionCaller: "tool",
                 networkProtocol: "mcp",
                 networkId: mcpRunId,
                 threadId: mcpRunId,
