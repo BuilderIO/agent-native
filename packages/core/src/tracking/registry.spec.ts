@@ -5,6 +5,10 @@ import {
   setAppConfigLayer,
 } from "../app-config/store.js";
 import {
+  createTrackingEventScope,
+  flushTrackingEvents,
+} from "../observability/tracing.js";
+import {
   loadFirstRunBuilderCreditsV2Assignment,
   recordFirstRunBuilderCreditsV2Exposure,
 } from "../onboarding/first-run-builder-credits-experiment.js";
@@ -27,9 +31,11 @@ const mockExperimentAssignments = vi.hoisted(() => ({
 }));
 const mockQuestionIntakeAssignment = vi.hoisted(() => vi.fn());
 
-vi.mock("../observability/tracing.js", () => ({
-  queueTrackingEvent: mockQueueTrackingEvent,
-}));
+vi.mock("../observability/tracing.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../observability/tracing.js")>();
+  return { ...actual, queueTrackingEvent: mockQueueTrackingEvent };
+});
 
 vi.mock("../observability/store.js", () => mockExperimentAssignments);
 vi.mock("../observability/question-intake-experiment.js", () => ({
@@ -327,6 +333,76 @@ describe("tracking registry", () => {
       expect.objectContaining({ experimentId: "design_no_questions" }),
       "better-auth-user-3",
     );
+  });
+
+  it("registers deferred experiment attribution before response-scope flush", async () => {
+    const events = captureEvents();
+    let resolveAssignment!: (assignment: {
+      authUserId: string;
+      experimentId: string;
+      variantId: "no_questions";
+    }) => void;
+    const scope = createTrackingEventScope();
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAssignment = resolve;
+        }),
+    );
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        trackingScope: scope,
+      },
+      () => {
+        track(
+          "design_prompt_submitted",
+          {},
+          {
+            userId: "carol@example.com",
+            authUserId: "better-auth-user-3",
+            telemetryOrigin: "client",
+          },
+        );
+        expect(scope.pending.size).toBe(1);
+      },
+    );
+
+    let flushed = false;
+    const responseFlush = flushTrackingEvents(scope).then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+    expect(events).toHaveLength(0);
+
+    resolveAssignment({
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions",
+    });
+    await responseFlush;
+
+    expect(flushed).toBe(true);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(scope.pending.size).toBe(0);
   });
 
   it("does not trust client-supplied experiment metadata when no signup assignment exists", async () => {

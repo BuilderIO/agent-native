@@ -8,6 +8,7 @@ import {
 } from "../observability/question-intake-experiment.js";
 import {
   queueTrackingEvent,
+  registerTrackingWork,
   type TrackingEventOrigin,
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
@@ -218,6 +219,7 @@ export function track(
       .catch(() => {
         console.error("[tracking] asynchronous event delivery failed");
       });
+    registerTrackingWork(pending, getRequestContext()?.trackingScope);
     const waitUntil = getRequestRunContext()?.waitUntil;
     if (waitUntil) {
       try {
