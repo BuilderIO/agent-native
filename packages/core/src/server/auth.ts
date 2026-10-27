@@ -184,6 +184,7 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
@@ -276,6 +277,10 @@ import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
 } from "./magic-link-attribution.js";
+import {
+  hasMcpSignupAttributionCookie,
+  readMcpSignupContextFromCookieHeader,
+} from "./mcp-signup-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getDeploySettingsRequiredHtml,
@@ -5333,9 +5338,17 @@ async function mountBetterAuthRoutes(
         const signupAttribution = signupAttributionFromCookieHeader(
           getHeader(event, "cookie") ?? null,
         );
-        const signupAnonymousId = readAnalyticsAnonymousId(
-          getHeader(event, "cookie") ?? null,
-        );
+        const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const signupAnonymousId = readAnalyticsAnonymousId(signupCookieHeader);
+        const signupSessionId = readAnalyticsSessionId(signupCookieHeader);
+        const mcpSignupAttribution = hasMcpSignupAttributionCookie(
+          signupCookieHeader,
+        )
+          ? readMcpSignupContextFromCookieHeader(
+              signupCookieHeader,
+              getAuthSecret(),
+            )
+          : undefined;
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -5348,6 +5361,8 @@ async function mountBetterAuthRoutes(
           desktopBrowserBindingHash,
           signupAttribution,
           signupAnonymousId,
+          signupSessionId,
+          mcpSignupAttribution: mcpSignupAttribution ?? undefined,
         });
         const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
         logGoogleOAuthDebug(event, "auth-url", {
@@ -5430,6 +5445,8 @@ async function mountBetterAuthRoutes(
             desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
+            signupSessionId,
+            mcpSignupAttribution,
           } = state;
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
@@ -5583,6 +5600,8 @@ async function mountBetterAuthRoutes(
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
               signupAnonymousId,
+              signupSessionId,
+              mcpSignupAttribution: mcpSignupAttribution ?? undefined,
               isNewUser: isNewGoogleUser,
             },
           });
@@ -6876,12 +6895,27 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const signupContext = signupAttributionContextFromCookieHeader(
-          getHeader(event, "cookie") ?? null,
-        );
-        const attributionToken = signupContext
-          ? encodeMagicLinkSignupAttribution(signupContext, getAuthSecret())
+        const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const signupContext =
+          signupAttributionContextFromCookieHeader(signupCookieHeader);
+        const mcpSignupAttribution = hasMcpSignupAttributionCookie(
+          signupCookieHeader,
+        )
+          ? readMcpSignupContextFromCookieHeader(
+              signupCookieHeader,
+              getAuthSecret(),
+            )
           : undefined;
+        const attributionToken =
+          signupContext || mcpSignupAttribution
+            ? encodeMagicLinkSignupAttribution(
+                {
+                  ...(signupContext ?? {}),
+                  ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
+                },
+                getAuthSecret(),
+              )
+            : undefined;
         const newUserCallbackUrl = new URL(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),

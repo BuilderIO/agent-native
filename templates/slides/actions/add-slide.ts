@@ -586,9 +586,9 @@ export default defineAction({
           : undefined;
       const browserSessionId = getRequestContext()?.browserSessionId;
       if (
-        shouldRepairTitle &&
         generationAttemptId &&
-        generationContext?.generationMode !== "action"
+        generationContext?.generationMode !== "action" &&
+        isRealSlide(newSlide)
       ) {
         noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
           deckId,

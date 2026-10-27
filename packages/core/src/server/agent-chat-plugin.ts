@@ -77,6 +77,7 @@ import {
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
+import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -255,6 +256,7 @@ import {
   getMcpDirectoryWidgetResourceUri,
 } from "../mcp/build-server.js";
 import { preferMcpAppActions } from "../mcp/framework-tools.js";
+import { hydrateFirstRunBuilderCreditsV2ForTracking } from "../onboarding/first-run-builder-credits-experiment.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -278,6 +280,7 @@ import {
 import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -378,12 +381,23 @@ export function trackAgentChatRunLifecycle(
     event,
     {
       ...properties,
+      ...runLlmConnectionTrackingProperties(),
       ...(appId ? { app_name: appId, template_name: appId } : {}),
       thread_id: threadId,
       attempt_id: attemptId,
     },
     trackingSource ?? runLifecycleTrackingSource(userId),
   );
+}
+
+function runLlmConnectionTrackingProperties(): Record<string, unknown> {
+  const engine = getRequestRunContext()?.engine;
+  if (!engine || typeof engine.name !== "string") return {};
+  return llmConnectionTrackingProperties({
+    configured: true,
+    engine: engine.name,
+    source: getEngineLlmConnectionSource(engine) ?? "unknown",
+  });
 }
 
 /** `run_started` from every agent-chat entry point, keyed to its turn. */
@@ -5527,6 +5541,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          await hydrateFirstRunBuilderCreditsV2ForTracking();
           trackAgentChatRunStarted(
             threadId,
             runId,
@@ -5615,6 +5630,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
+                await hydrateFirstRunBuilderCreditsV2ForTracking();
                 trackAgentChatRunStarted(
                   threadId,
                   runId,
@@ -5869,6 +5885,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            await hydrateFirstRunBuilderCreditsV2ForTracking();
             trackAgentChatRunStarted(
               threadId,
               runId,

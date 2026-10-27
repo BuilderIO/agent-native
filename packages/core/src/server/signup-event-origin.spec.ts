@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import { registerErrorCaptureProvider } from "./capture-error.js";
 import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import { encodeMcpSignupAttribution } from "./mcp-signup-attribution.js";
 
 const tracked: Array<{
   name: string;
@@ -164,6 +165,96 @@ describe("emitSignupEventForCreatedUser", () => {
     });
 
     expect(tracked[0].properties).toMatchObject({ signup_origin: "sso_jit" });
+  });
+
+  it("attributes an email signup through MCP OAuth from signed context", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "openai",
+        anonymousId: "anon_mcp_1",
+        sessionId: "session_mcp_1",
+        firstTouchPathAllowed: true,
+      },
+      getAuthSecret(),
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(`an_mcp_signup=${mcpSignup}`),
+    });
+
+    expect(tracked[0]?.source).toMatchObject({
+      anonymousId: "anon_mcp_1",
+      sessionId: "session_mcp_1",
+    });
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+      first_touch_path: "/mcp/oauth/authorize",
+      $mcp_vendor_client: "openai",
+    });
+  });
+
+  it("preserves a populated first-touch path for an MCP OAuth signup", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "claude",
+        sessionId: "session_mcp_2",
+        firstTouchPathAllowed: false,
+      },
+      getAuthSecret(),
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(
+        `an_ft=${encodeURIComponent(JSON.stringify({ landing_path: "/docs" }))}; an_mcp_signup=${mcpSignup}`,
+      ),
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+      first_touch_path: "/docs",
+      $mcp_vendor_client: "claude",
+    });
+  });
+
+  it("keeps MCP signup origin and vendor without storing first touch after opt-out", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      {
+        vendor: "openai",
+        sessionId: "session_mcp_no_targeting",
+        firstTouchPathAllowed: true,
+      },
+      getAuthSecret(),
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(
+        `an_consent=1.p1.t0; an_mcp_signup=${mcpSignup}`,
+      ),
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "mcp_oauth",
+      $mcp_vendor_client: "openai",
+    });
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.source?.sessionId).toBe("session_mcp_no_targeting");
+  });
+
+  it("does not trust a forged MCP signup cookie", async () => {
+    const mcpSignup = encodeMcpSignupAttribution(
+      { vendor: "openai", sessionId: "session_mcp_3" },
+      getAuthSecret(),
+    )!;
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers: headersWithCookie(`an_mcp_signup=${mcpSignup}x`),
+    });
+
+    expect(tracked[0]?.properties).not.toHaveProperty("$mcp_vendor_client");
+    expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).toMatchObject({
+      signup_origin: "browser_signup",
+    });
   });
 
   it("recovers attribution from the signed magic-link token across browsers", async () => {

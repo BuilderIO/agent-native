@@ -311,7 +311,13 @@ describe("POST /builder/provision", () => {
   });
 
   it("reports an upstream failure as provision_failed without storing anything", async () => {
-    upstreamAnswers(500, { error: "boom" });
+    upstreamAnswers(500, {
+      code: "upstream_busy",
+      error: "Could not provision steve@example.com",
+      detail:
+        "Provider returned access_token: sensitive-token, client_secret='sensitive-secret', and private_key=private-value",
+      access_token: "sensitive-response-value",
+    });
 
     const response = await post({
       provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
@@ -323,6 +329,74 @@ describe("POST /builder/provision", () => {
       code: "provision_failed",
     });
     expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        reason: "provision_failed",
+        stage: "provision",
+        upstream_response_received: true,
+        upstream_status: 500,
+        upstream_body: JSON.stringify({
+          code: "upstream_busy",
+          error: "Could not provision [redacted-email]",
+          detail:
+            "Provider returned access_token: [redacted], client_secret=[redacted], and private_key=[redacted]",
+        }),
+      }),
+    ]);
+  });
+
+  it("records status and a sanitized field summary for an invalid success response", async () => {
+    upstreamAnswers(200, {
+      credentials: {
+        privateKey: "sensitive-private-key",
+      },
+    });
+
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "provision_failed",
+    });
+    expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        reason: "provision_failed",
+        upstream_response_received: true,
+        upstream_status: 200,
+        upstream_body: JSON.stringify({ fields: "credentials" }),
+      }),
+    ]);
+  });
+
+  it("records the diagnostic body read failure type", async () => {
+    const response = new Response(JSON.stringify({ credentials: {} }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    vi.spyOn(response, "clone").mockReturnValue({
+      text: async () => {
+        throw new TypeError("body stream unavailable");
+      },
+    } as Response);
+    upstream.mockResolvedValue(response);
+
+    const result = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+
+    expect(result.status).toBe(503);
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        upstream_response_received: true,
+        upstream_status: 200,
+        upstream_body: JSON.stringify({ fields: "credentials" }),
+        upstream_body_read_error_type: "TypeError",
+      }),
+    ]);
   });
 
   it("refuses an unverified email before calling Builder", async () => {

@@ -561,6 +561,11 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  hydrateFirstRunBuilderCreditsV2ForTracking,
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {

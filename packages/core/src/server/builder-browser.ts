@@ -111,11 +111,23 @@ export interface BuilderRelayRequestBody {
 
 export class BuilderAccountProvisioningError extends Error {
   readonly code: string | null;
+  readonly upstreamStatus: number | null;
+  readonly upstreamErrorBody: string | null;
+  readonly upstreamBodyReadErrorType: string | null;
 
-  constructor(message: string, code?: string) {
+  constructor(
+    message: string,
+    code?: string,
+    upstreamStatus: number | null = null,
+    upstreamErrorBody: string | null = null,
+    upstreamBodyReadErrorType: string | null = null,
+  ) {
     super(message);
     this.name = "BuilderAccountProvisioningError";
     this.code = code ?? null;
+    this.upstreamStatus = upstreamStatus;
+    this.upstreamErrorBody = upstreamErrorBody;
+    this.upstreamBodyReadErrorType = upstreamBodyReadErrorType;
   }
 }
 
@@ -2566,7 +2578,37 @@ export async function provisionBuilderAccount(input: {
     },
     "account provisioning",
   );
-  const parsed = await readBuilderApiObject(response, "account provisioning");
+  const bodyRead = await response
+    .clone()
+    .text()
+    .then(
+      (body) => ({ ok: true as const, body }),
+      (error: unknown) => ({
+        ok: false as const,
+        errorType:
+          error instanceof Error &&
+          /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)
+            ? error.name
+            : typeof error,
+      }),
+    );
+  const rawErrorBody = bodyRead.ok ? bodyRead.body : null;
+  const bodyReadErrorType = bodyRead.ok ? null : bodyRead.errorType;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = await readBuilderApiObject(response, "account provisioning");
+  } catch (error) {
+    if (response.ok) throw error;
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(null, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
   if (!response.ok) {
     throw new BuilderAccountProvisioningError(
       builderApiErrorMessage(
@@ -2574,9 +2616,24 @@ export async function provisionBuilderAccount(input: {
         `Builder account provisioning failed (${response.status})`,
       ),
       typeof parsed.code === "string" ? parsed.code : undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
     );
   }
-  return parseBuilderAccountProvisioningResponse(parsed);
+  try {
+    return parseBuilderAccountProvisioningResponse(parsed);
+  } catch (error) {
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
 }
 
 /**
@@ -2609,6 +2666,45 @@ function builderApiErrorMessage(
     return parsed.message.trim();
   }
   return fallback;
+}
+
+function redactBuilderDiagnosticText(value: string): string {
+  return value
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
+    .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
+    .replace(
+      /(["']?\b(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|session[_-]?cookie|token|secret|password|cookie|credential)\b["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,}&]+)/gi,
+      "$1[redacted]",
+    )
+    .slice(0, 512);
+}
+
+function builderProvisioningErrorBody(
+  parsed: Record<string, unknown> | null,
+  rawBody: string | null,
+): string | null {
+  if (parsed) {
+    const body: Record<string, string> = {};
+    for (const key of ["code", "error", "message", "detail", "type"]) {
+      const value = parsed[key];
+      if (typeof value === "string" && value.trim()) {
+        body[key] = redactBuilderDiagnosticText(value.trim());
+      }
+    }
+    if (Object.keys(body).length === 0) {
+      body.fields = Object.keys(parsed)
+        .filter(
+          (key) => !/(email|token|secret|password|key|auth|cookie)/i.test(key),
+        )
+        .slice(0, 12)
+        .join(",");
+    }
+    return JSON.stringify(body).slice(0, 2048);
+  }
+  if (rawBody === null) return null;
+  const excerpt = redactBuilderDiagnosticText(rawBody.trim());
+  return excerpt ? JSON.stringify({ text: excerpt }).slice(0, 2048) : null;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */

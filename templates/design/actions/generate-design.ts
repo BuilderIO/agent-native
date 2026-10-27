@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -284,7 +285,7 @@ async function resolveDesignCreativeContext(input: {
       input.contextPackId !== undefined &&
       input.contextPackId !== sessionContext.contextPackId
     ) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design must preserve the generation session's creative-context pack",
       );
     }
@@ -803,18 +804,9 @@ const generateDesignAction = defineAction({
           : {}),
       },
     });
-    await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
-    const creativeContextProvenance = await resolveDesignCreativeContext({
-      prompt,
-      generationSession,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels,
-    });
-
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -824,7 +816,7 @@ const generateDesignAction = defineAction({
         file.filename.includes("/") ||
         file.filename.includes("\\")
       ) {
-        throw new Error(
+        throw new NoWriteError(
           `Invalid filename "${file.filename}": path traversal not allowed`,
         );
       }
@@ -846,10 +838,38 @@ const generateDesignAction = defineAction({
       files.some(isRenderableDesignFile) ||
       existingFiles.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
       );
     }
+
+    const creativeContextProvenance = await resolveDesignCreativeContext({
+      prompt,
+      generationSession,
+      ...(contextPackId ? { contextPackId } : {}),
+      ...(contextModeOverride ? { contextModeOverride } : {}),
+      reuseLabels: reuseLabels.map(
+        ({
+          itemId,
+          itemVersionId,
+          kind,
+          label,
+          dataRole,
+          elementId,
+          influence,
+        }) => ({
+          ...(itemId ? { itemId } : {}),
+          ...(itemVersionId ? { itemVersionId } : {}),
+          kind,
+          label,
+          dataRole,
+          ...(elementId ? { elementId } : {}),
+          ...(influence ? { influence } : {}),
+        }),
+      ),
+    });
+
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     await mutateDesignData({
       designId,
@@ -1722,8 +1742,6 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
-    if (fileErrors.length > 0) attempt.markPartial();
-
     return {
       designId,
       urlPath: firstRenderableSavedFile

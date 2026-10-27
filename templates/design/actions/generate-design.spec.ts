@@ -111,6 +111,7 @@ const mocks = vi.hoisted(() => {
     },
     getDesignData: () => designData,
     mutateDesignData: vi.fn(),
+    snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
     assertAccess: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...conditions) => ({ conditions })),
     inArray: vi.fn((column, values) => ({ column, values })),
@@ -245,6 +246,10 @@ vi.mock("../server/db/index.js", () => {
 
 vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -466,36 +471,31 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       "data-agent-native-node-id",
     );
     expect(track).toHaveBeenCalledWith(
-      "generation_completed",
+      "generation_started",
       expect.objectContaining({
         app_name: "design",
         output_id: "design-1",
         generation_attempt_id: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
         output_type: "design",
-        file_count: 1,
-        outcome: "completed",
         source: "generate_design_action",
       }),
       undefined,
     );
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
     const started = track.mock.calls.find(
       ([event]) => event === "generation_started",
     )?.[1];
-    const completed = track.mock.calls.find(
-      ([event]) => event === "generation_completed",
-    )?.[1];
-    expect(started?.generation_attempt_id).toBe(
-      completed?.generation_attempt_id,
-    );
     expect(result.urlPath).toContain(
-      `generation_attempt_id=${completed?.generation_attempt_id}`,
+      `generation_attempt_id=${started?.generation_attempt_id}`,
     );
     const link = (action as any).link({ args: {}, result });
     expect(
       new URL(link.url, "https://agent-native.test").searchParams.get(
         "generation_attempt_id",
       ),
-    ).toBe(completed?.generation_attempt_id);
+    ).toBe(started?.generation_attempt_id);
   });
 
   it("reports generation when a stylesheet is saved for an existing design", async () => {
@@ -516,18 +516,9 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     expect(result.savedFiles).toMatchObject([
       { filename: "styles.css", fileType: "css" },
     ]);
-    expect(track).toHaveBeenCalledWith(
-      "generation_completed",
-      expect.objectContaining({
-        app_name: "design",
-        output_id: "design-1",
-        output_type: "design",
-        file_count: 1,
-        outcome: "completed",
-        source: "generate_design_action",
-      }),
-      undefined,
-    );
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
   });
 
   it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
@@ -669,10 +660,8 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       },
     ]);
     expect(
-      track.mock.calls
-        .filter(([name]) => name === "generation_completed")
-        .map(([, properties]) => properties),
-    ).toEqual([expect.objectContaining({ outcome: "partial", file_count: 1 })]);
+      track.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
     expect(
       track.mock.calls.some(([name]) => name === "generation_failed"),
     ).toBe(false);
@@ -2734,7 +2723,7 @@ describe("generate-design: generation attempt tracking", () => {
     resetDesignDataMutation();
   });
 
-  it("records one started and one completed event for a saved generation", async () => {
+  it("records generation start and uses ready-viewed as the completion event", async () => {
     const prompt = "A secret product launch page for Project Nightjar";
     const result = await action.run({
       designId: "design-1",
@@ -2743,12 +2732,8 @@ describe("generate-design: generation attempt tracking", () => {
       files: [{ filename: "index.html", fileType: "html", content: html }],
     });
 
-    expect(generationEvents()).toEqual([
-      "generation_started",
-      "generation_completed",
-    ]);
+    expect(generationEvents()).toEqual(["generation_started"]);
     const [started] = events("generation_started");
-    const [completed] = events("generation_completed");
     expect(started).toMatchObject({
       output_id: "design-1",
       output_type: "design",
@@ -2758,13 +2743,7 @@ describe("generate-design: generation attempt tracking", () => {
       has_reference_design_system: true,
       app_name: "design",
     });
-    expect(completed).toMatchObject({
-      output_id: "design-1",
-      generation_path: "generate_design",
-      outcome: "completed",
-      file_count: 1,
-      generation_attempt_id: started.generation_attempt_id,
-    });
+    expect(events("generation_completed")).toEqual([]);
     expect(JSON.stringify(track.mock.calls)).not.toContain("Nightjar");
     expect(events("design_edited")).toEqual([
       expect.objectContaining({
@@ -2862,14 +2841,8 @@ describe("generate-design: generation attempt tracking", () => {
       files: [{ filename: "home.html", fileType: "html", content: html }],
     });
 
-    expect(generationEvents()).toEqual([
-      "generation_started",
-      "generation_completed",
-    ]);
-    for (const properties of [
-      ...events("generation_started"),
-      ...events("generation_completed"),
-    ]) {
+    expect(generationEvents()).toEqual(["generation_started"]);
+    for (const properties of [...events("generation_started")]) {
       expect(properties).toMatchObject({
         generation_path: "screens",
         generation_session_id: "session-1",
@@ -2960,6 +2933,22 @@ describe("generate-design: generation attempt tracking", () => {
 });
 
 describe("generate-design: rejected input in the agent loop", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    track.mockReset();
+    mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([
+      { id: "design-1", title: "Untitled Design", data: null },
+    ]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.readAppState.mockResolvedValue(null);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
   function scriptedEngine(calls: Array<Record<string, unknown>>) {
     let turn = 0;
     return {
@@ -3050,5 +3039,101 @@ describe("generate-design: rejected input in the agent loop", () => {
       ),
     ).toBe(false);
     expect(mocks.seededCollabText.size).toBe(1);
+  });
+
+  it("lets a corrected call run after a filename path rejection", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const files = JSON.stringify([
+      {
+        filename: "../index.html",
+        fileType: "html",
+        content: "<main>Hi</main>",
+      },
+    ]);
+    const correctedFiles = JSON.stringify([
+      { filename: "index.html", fileType: "html", content: "<main>Hi</main>" },
+    ]);
+    const events: Array<Record<string, unknown>> = [];
+
+    await runAgentLoop({
+      engine: scriptedEngine([
+        { designId: "design-1", prompt: "Make a design", files },
+        {
+          designId: "design-1",
+          prompt: "Make a design",
+          files: correctedFiles,
+        },
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => events.push(event as unknown as Record<string, unknown>),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      result: expect.stringContaining("path traversal not allowed"),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveGenerationCreativeContext).toHaveBeenCalledOnce();
+  });
+
+  it("rejects generation without a renderable file before checkpointing", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Create a stylesheet",
+        files: [
+          { filename: "styles.css", fileType: "css", content: "body {}" },
+        ],
+      }),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched generation-session pack before checkpointing", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "done",
+      frames: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-current",
+        reuseLabels: [],
+      },
+    });
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Create a page",
+        contextPackId: "pack-stale",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<main>Hi</main>",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
   });
 });

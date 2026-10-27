@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
 
   const readLiveSourceFile = vi.fn();
   const writeInlineSourceFile = vi.fn();
+  const snapshotDesignBeforeAgentEdit = vi.fn().mockResolvedValue(null);
   const getGenerationCreativeContext = vi.fn().mockResolvedValue(null);
   const recordGenerationCreativeContext = vi.fn().mockResolvedValue(undefined);
   const validateGenerationCreativeContext = vi.fn().mockResolvedValue({
@@ -56,8 +57,11 @@ const mocks = vi.hoisted(() => {
   return {
     db,
     fileRow,
+    makeWhereResult,
+    fileSelectChain,
     readLiveSourceFile,
     writeInlineSourceFile,
+    snapshotDesignBeforeAgentEdit,
     getGenerationCreativeContext,
     recordGenerationCreativeContext,
     validateGenerationCreativeContext,
@@ -77,6 +81,14 @@ vi.mock("../server/db/index.js", () => ({
     designs: { id: "designs.id" },
     designShares: {},
   },
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
+}));
+
+vi.mock("../server/lib/design-tracking.js", () => ({
+  trackDesign: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -119,8 +131,12 @@ import action from "./edit-design.js";
 
 describe("edit-design conflict retry", () => {
   beforeEach(() => {
+    mocks.fileSelectChain.where.mockImplementation(() =>
+      mocks.makeWhereResult([mocks.fileRow]),
+    );
     mocks.readLiveSourceFile.mockReset();
     mocks.writeInlineSourceFile.mockReset();
+    mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
     mocks.getGenerationCreativeContext.mockReset().mockResolvedValue(null);
     mocks.recordGenerationCreativeContext
       .mockReset()
@@ -195,5 +211,83 @@ describe("edit-design conflict retry", () => {
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(1);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["missing text", "<main>Hello base</main>", "Not present"],
+    ["ambiguous text", "<p>Hello</p><p>Hello</p>", "Hello"],
+  ])("reports %s as a no-write rejection", async (_label, content, search) => {
+    mocks.readLiveSourceFile.mockResolvedValueOnce({
+      content,
+      versionHash: "h0",
+      language: "html",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search, replace: "Updated" }],
+      } as never),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing file as a no-write rejection", async () => {
+    mocks.fileSelectChain.where.mockImplementationOnce(() =>
+      mocks.makeWhereResult([]),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "missing.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "design_file_not_found",
+      statusCode: 404,
+    });
+
+    expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("lets a corrected call run after a search-replace no-match rejection", async () => {
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: "<main>Hello base</main>",
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-10-26T00:00:00.000Z",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Not present", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+    } as never);
+
+    expect(result).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
   });
 });

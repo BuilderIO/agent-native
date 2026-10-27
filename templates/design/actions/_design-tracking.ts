@@ -1,3 +1,4 @@
+import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
 import type { TrackingSource } from "@agent-native/core/tracking";
 
 import {
@@ -21,7 +22,7 @@ export function defaultCreationMethod(
  * that created it commits. Callers that reuse create-design must not emit it
  * themselves, or the row is counted twice.
  */
-export function trackDesignCreated(
+export async function trackDesignCreated(
   designId: string,
   properties: {
     creationMethod: DesignCreationMethod;
@@ -32,7 +33,8 @@ export function trackDesignCreated(
     variantCount?: number;
   },
   source?: TrackingSource,
-): void {
+): Promise<void> {
+  await hydrateFirstRunBuilderCreditsV2ForTracking();
   try {
     trackDesign(
       "design_created",

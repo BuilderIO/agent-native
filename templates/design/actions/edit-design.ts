@@ -1,4 +1,4 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, NoWriteError } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -283,8 +283,6 @@ export default defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
-
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
@@ -317,7 +315,7 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      fail(
+      throw new NoWriteError(
         requestedFileId
           ? `File id "${requestedFileId}" not found in design ${designId}`
           : `File "${targetFilename}" not found in design ${designId}`,
@@ -354,6 +352,7 @@ export default defineAction({
           }>;
         }
       | undefined;
+    let checkpointed = false;
 
     for (let attempt = 0; ; attempt += 1) {
       const currentContent =
@@ -379,10 +378,26 @@ export default defineAction({
       live = await readLiveSourceFile(workspaceFile);
       base = live.content;
 
-      ({ content: nextContent, applied } =
-        resolvedMode === "replace-file"
-          ? { content: replacementContent ?? "", applied: 0 }
-          : applySearchReplaceEdits(base, edits ?? []));
+      if (resolvedMode === "replace-file") {
+        ({ content: nextContent, applied } = {
+          content: replacementContent ?? "",
+          applied: 0,
+        });
+      } else {
+        try {
+          ({ content: nextContent, applied } = applySearchReplaceEdits(
+            base,
+            edits ?? [],
+          ));
+        } catch (error) {
+          if (attempt === 0) {
+            throw new NoWriteError(
+              error instanceof Error ? error.message : "Design edit failed",
+            );
+          }
+          throw error;
+        }
+      }
       changed = nextContent !== base;
       creativeContext = undefined;
 
@@ -406,7 +421,7 @@ export default defineAction({
           previous?.contextPackId &&
           contextPackId !== previous.contextPackId
         ) {
-          fail(
+          throw new NoWriteError(
             "The design edit must preserve the design's creative-context pack",
             { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
           );
@@ -457,6 +472,11 @@ export default defineAction({
         };
       }
       assertLockedLayersPreserved(base, nextContent);
+
+      if (!checkpointed) {
+        await snapshotDesignBeforeAgentEdit(designId, context);
+        checkpointed = true;
+      }
 
       agentEnterDocument(file.id);
       agentUpdateSelection(file.id, {

@@ -1,6 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { buildDeepLink } from "@agent-native/core/server";
+import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -19,6 +20,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
@@ -33,6 +35,7 @@ import {
   SLIDES_DECK_RESULT_RENDERER,
 } from "../shared/action-ui.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { isRealSlide } from "../shared/blank-slide.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
@@ -279,6 +282,13 @@ export default defineAction({
     let generationOutputId = deckId;
     const db = getDb();
     let browserOwnedDeck: typeof schema.decks.$inferSelect | undefined;
+    let browserGenerationContext:
+      | {
+          generationAttemptId?: string;
+          targetSlideCount?: number;
+          generationStartedAt?: number;
+        }
+      | undefined;
     if (browserGenerationAttemptId !== undefined) {
       if (!deckId) {
         throw new Error(
@@ -291,14 +301,15 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
         .limit(1);
-      browserOwnedDeck = existing[0];
-      const persistedAttemptId = browserOwnedDeck
+      browserOwnedDeck = existing.at(0);
+      browserGenerationContext = browserOwnedDeck
         ? (
             JSON.parse(browserOwnedDeck.data) as {
-              generationContext?: { generationAttemptId?: string };
+              generationContext?: typeof browserGenerationContext;
             }
-          ).generationContext?.generationAttemptId
+          ).generationContext
         : undefined;
+      const persistedAttemptId = browserGenerationContext?.generationAttemptId;
       if (persistedAttemptId !== browserGenerationAttemptId) {
         throw new Error(
           "generationAttemptId does not match the deck's persisted generationContext",
@@ -504,6 +515,33 @@ export default defineAction({
             );
           assertDeckWriteApplied(updateResult, deckId, "deck replacement");
         });
+        if (
+          browserGenerationAttemptId !== undefined &&
+          slides.some(isRealSlide)
+        ) {
+          const targetSlideCount =
+            typeof browserGenerationContext?.targetSlideCount === "number" &&
+            Number.isFinite(browserGenerationContext.targetSlideCount) &&
+            browserGenerationContext.targetSlideCount > 0
+              ? browserGenerationContext.targetSlideCount
+              : null;
+          const browserGenerationStartedAt =
+            typeof browserGenerationContext?.generationStartedAt === "number" &&
+            Number.isFinite(browserGenerationContext.generationStartedAt) &&
+            browserGenerationContext.generationStartedAt >= 0
+              ? browserGenerationContext.generationStartedAt
+              : undefined;
+          const browserSessionId = getRequestContext()?.browserSessionId;
+          noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
+            deckId,
+            generationAttemptId,
+            targetSlideCount,
+            ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+            ...(browserGenerationStartedAt !== undefined
+              ? { generationStartedAt: browserGenerationStartedAt }
+              : {}),
+          });
+        }
         let loadedDesignSystem: Awaited<
           ReturnType<typeof loadAgentDesignSystemContext>
         > = null;
@@ -732,6 +770,7 @@ export default defineAction({
           ctx,
         );
       }
+      await hydrateFirstRunBuilderCreditsV2ForTracking();
       trackSlides(
         "deck_created",
         {

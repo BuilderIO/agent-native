@@ -91,6 +91,44 @@ describe("magic-link attribution handoff", () => {
     });
   });
 
+  it("carries signed MCP OAuth provenance through the email verification URL", () => {
+    const token = encodeMagicLinkSignupAttribution(
+      {
+        attribution: { first_touch_path: "/mcp/oauth/authorize" },
+        anonymousId: "anon_mcp_1",
+        sessionId: "session_mcp_1",
+        mcpSignupAttribution: {
+          vendor: "openai",
+          anonymousId: "anon_mcp_1",
+          sessionId: "session_mcp_1",
+        },
+      },
+      SECRET,
+      NOW,
+    );
+    const verification = new URL(
+      "https://app.example.com/_agent-native/auth/ba/magic-link/verify?token=mail-token",
+    );
+    const callback = new URL(
+      "https://app.example.com/_agent-native/auth/magic-link/new-user?return=%2F",
+    );
+    callback.searchParams.set(MAGIC_LINK_ATTRIBUTION_PARAM, token!);
+    verification.searchParams.set("newUserCallbackURL", callback.toString());
+
+    expect(
+      readMagicLinkSignupAttribution(verification.toString(), SECRET, NOW),
+    ).toMatchObject({
+      attribution: { first_touch_path: "/mcp/oauth/authorize" },
+      anonymousId: "anon_mcp_1",
+      sessionId: "session_mcp_1",
+      mcpSignupAttribution: {
+        vendor: "openai",
+        anonymousId: "anon_mcp_1",
+        sessionId: "session_mcp_1",
+      },
+    });
+  });
+
   it("rejects a tampered or expired handoff", () => {
     const token = encodeMagicLinkSignupAttribution(
       { anonymousId: "anon_123" },

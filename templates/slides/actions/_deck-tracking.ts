@@ -1,3 +1,5 @@
+import { hydrateFirstRunBuilderCreditsV2ForTracking } from "@agent-native/core/onboarding/first-run-builder-credits-experiment";
+
 import {
   generationAttemptIdOf,
   promptLengthBucket,
@@ -160,7 +162,7 @@ export const trackSlideContentEdited = bestEffort(
   },
 );
 
-export const trackDeckCreated = bestEffort(function trackDeckCreated(
+export async function trackDeckCreated(
   deckId: string,
   properties: {
     creationMethod: DeckCreationMethod;
@@ -169,7 +171,8 @@ export const trackDeckCreated = bestEffort(function trackDeckCreated(
     generationContext?: unknown;
   },
   source: TrackingSource,
-): void {
+): Promise<void> {
+  await hydrateFirstRunBuilderCreditsV2ForTracking();
   const generationAttemptId = generationAttemptIdOf(
     properties.generationContext,
   );
@@ -187,7 +190,7 @@ export const trackDeckCreated = bestEffort(function trackDeckCreated(
     },
     source,
   );
-});
+}
 
 function attachmentType(file: Record<string, unknown>): string {
   for (const name of [file.originalName, file.path]) {

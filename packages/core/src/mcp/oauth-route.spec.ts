@@ -61,6 +61,9 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
 }));
+vi.mock("../server/better-auth-instance.js", () => ({
+  getAuthSecret: () => "mcp-oauth-test-secret",
+}));
 
 const getOrgDomainMock = vi.fn(async () => "builder.io");
 const getActiveOrgSettingMock = vi.fn(
@@ -1150,14 +1153,43 @@ describe("MCP OAuth route", () => {
         [
           "$mcp_oauth_authorize_opened",
           expect.objectContaining({ ...tags, $mcp_oauth_signed_in: false }),
-          { userId: undefined, sessionId: undefined },
+          expect.objectContaining({
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
         [
           "$mcp_oauth_login_wall_shown",
           expect.objectContaining(tags),
-          { userId: undefined, sessionId: undefined },
+          expect.objectContaining({
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
       ]);
+
+      const openSource = authorizeFunnelCalls()[0][2] as {
+        anonymousId: string;
+        sessionId: string;
+      };
+      const wallSource = authorizeFunnelCalls()[1][2];
+      expect(wallSource).toEqual(openSource);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).toContain("an_aid=");
+      expect(cookies).toContain("an_sid=");
+      expect(cookies).toContain("an_mcp_signup=");
+      expect(cookies).toContain("HttpOnly");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({
+        vendor: "openai",
+        anonymousId: openSource.anonymousId,
+        sessionId: openSource.sessionId,
+        firstTouchPathAllowed: true,
+      });
     });
 
     it("counts a signed-in open once, with the user, and not the consent POST", async () => {
@@ -1182,7 +1214,11 @@ describe("MCP OAuth route", () => {
             $mcp_oauth_route: "mcp",
             $mcp_oauth_signed_in: true,
           }),
-          { userId: "steve@example.com", sessionId: undefined },
+          expect.objectContaining({
+            userId: "steve@example.com",
+            anonymousId: expect.stringMatching(/^mcp_/),
+            sessionId: expect.stringMatching(/^mcp_/),
+          }),
         ],
       ]);
     });

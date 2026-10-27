@@ -2730,6 +2730,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "state-secret"),
         getBetterAuth: vi.fn(async () => ({
           handler: vi.fn(async () => new Response("{}")),
           api: {
@@ -2747,6 +2748,16 @@ describe("server/auth", () => {
       await autoMountAuth(app);
 
       const { decodeOAuthState } = await import("./google-oauth.js");
+      const { encodeMcpSignupAttribution } =
+        await import("./mcp-signup-attribution.js");
+      const mcpSignupCookie = encodeMcpSignupAttribution(
+        {
+          vendor: "openai",
+          anonymousId: "anon_mcp_auth_url",
+          sessionId: "session_mcp_auth_url",
+        },
+        "state-secret",
+      );
       const authUrlHandler = app.use.mock.calls.find(
         (call: any[]) => call[0] === "/_agent-native/google/auth-url",
       )?.[1];
@@ -2754,6 +2765,9 @@ describe("server/auth", () => {
         createMockEvent({
           path: "/_agent-native/google/auth-url",
           query: { mobile: "1" },
+          headers: {
+            cookie: `an_mcp_signup=${mcpSignupCookie}; an_consent=1.p1.t1; an_aid=anon_mcp_auth_url; an_sid=session_mcp_auth_url`,
+          },
         }),
       );
 
@@ -2770,6 +2784,15 @@ describe("server/auth", () => {
       );
       expect(state.mobile).toBe(true);
       expect(state.app).toBe("account-expert");
+      expect(state).toMatchObject({
+        signupAnonymousId: "anon_mcp_auth_url",
+        signupSessionId: "session_mcp_auth_url",
+        mcpSignupAttribution: {
+          vendor: "openai",
+          anonymousId: "anon_mcp_auth_url",
+          sessionId: "session_mcp_auth_url",
+        },
+      });
     });
 
     it("maps an invite-only Google callback rejection to the public auth error page", async () => {
@@ -10713,6 +10736,40 @@ describe("server/auth", () => {
       expect(decoded.app).toBe("mail");
     });
 
+    it("carries MCP signup attribution and browser ids only through signed state", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        signupAttribution: { utm_source: "example" },
+        signupAnonymousId: "anon_mcp_1",
+        signupSessionId: "session_mcp_1",
+        mcpSignupAttribution: {
+          vendor: "openai",
+          anonymousId: "anon_mcp_1",
+          sessionId: "session_mcp_1",
+        },
+      });
+
+      expect(decodeOAuthState(state, "http://x/cb")).toMatchObject({
+        signupAttribution: { utm_source: "example" },
+        signupAnonymousId: "anon_mcp_1",
+        signupSessionId: "session_mcp_1",
+        mcpSignupAttribution: {
+          vendor: "openai",
+          anonymousId: "anon_mcp_1",
+          sessionId: "session_mcp_1",
+        },
+      });
+      const [stateData, stateSignature] = state.split(".");
+      expect(
+        decodeOAuthState(
+          `${stateData.slice(0, -1)}X.${stateSignature}`,
+          "http://x/cb",
+        ).ok,
+      ).toBe(false);
+    });
+
     it("encodes and decodes native mobile intent through signed state", async () => {
       const { encodeOAuthState, decodeOAuthState } =
         await import("./google-oauth.js");
@@ -11227,12 +11284,18 @@ describe("server/auth", () => {
             first_touch_path: "/docs/actions",
           },
           signupAnonymousId: "anon_state_1",
+          signupSessionId: "session_state_1",
+          mcpSignupAttribution: {
+            vendor: "openai",
+            anonymousId: "anon_state_1",
+            sessionId: "session_state_1",
+          },
         },
       });
 
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
-        origin: "google_oauth",
+        origin: "mcp_oauth",
         signupMethod: "google",
         authUserId: "better-auth-user-id",
         email: "user@gmail.com",
@@ -11242,8 +11305,10 @@ describe("server/auth", () => {
           referrer_user: "owner_123",
           utm_source: "newsletter",
           first_touch_path: "/docs/actions",
+          $mcp_vendor_client: "openai",
         },
         anonymousId: "anon_state_1",
+        sessionId: "session_state_1",
       });
     });
 

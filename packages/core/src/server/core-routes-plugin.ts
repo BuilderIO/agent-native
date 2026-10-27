@@ -211,6 +211,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -2530,11 +2531,13 @@ export async function activateBuilderAccount(
     message: string,
     reason: string,
     code?: string,
+    diagnostics: Record<string, unknown> = {},
   ): Promise<BuilderAccountActivationResult> => {
     await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
       ...builderConnectTrackingProperties(input.tracking),
       reason,
       stage: "provision",
+      ...diagnostics,
     });
     return { ok: false, status, message, reason, ...(code ? { code } : {}) };
   };
@@ -2633,10 +2636,12 @@ export async function activateBuilderAccount(
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
-    console.error(
-      "[builder] Agent-Native account provisioning failed:",
-      error instanceof Error ? error.message : error,
-    );
+    const provisioningError =
+      error instanceof BuilderAccountProvisioningError ? error : null;
+    console.error("[builder] Agent-Native account provisioning failed:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      upstreamStatus: provisioningError?.upstreamStatus ?? null,
+    });
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
@@ -2649,6 +2654,15 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
+      undefined,
+      {
+        upstream_response_received: provisioningError?.upstreamStatus != null,
+        upstream_status: provisioningError?.upstreamStatus ?? null,
+        upstream_body: provisioningError?.upstreamErrorBody ?? null,
+        upstream_body_read_error_type:
+          provisioningError?.upstreamBodyReadErrorType ?? null,
+        upstream_error_type: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }
