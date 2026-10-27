@@ -97,17 +97,11 @@ section. Only Steve's own PRs get pushed, merged, or commented on.
 ## 5. Close the loop
 
 Run `review-latest-feedback` step 5 for every thread you put 👀 on. That
-step owns the replies and reactions. `/ship` has already run it for the
-`Reports` threads it merged; the step's no-duplicate check covers those, and
-any it skipped or couldn't merge still get their outcome here:
+step owns the replies, reactions, and skip rules. Its no-duplicate check
+covers the `Reports` threads `/ship` already closed out after the merge.
 
-- Fix not merged yet: reply that a fix (PR linked) is ready.
-
-- Needs a person: 🎫 and what's needed from whom, as a plain name.
-- Couldn't reproduce: 🎫 and one specific question.
-
-Re-read each thread you touched and confirm the reply landed under the right
-parent, with no 👀 left without a ✅ or 🎫. If a participant replies after you
+Then re-read each thread you touched and confirm the reply landed under the
+right parent. If a participant replies after you
 post, re-read the whole thread before deciding what to do next.
 
 If Steve says earlier replies were too technical, edit every reply from this
