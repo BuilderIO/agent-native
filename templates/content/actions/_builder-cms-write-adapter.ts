@@ -1084,7 +1084,12 @@ function gateComparablePayload(
   if (!isBuilderCmsUnpublishedSaveEffect(rest.effect) || !rest.request) {
     return rest;
   }
-  const { autoSaveOnly: _autoSaveOnly, ...query } = rest.request.query;
+  // A stored payload is JSON a past run wrote, so its query can be missing.
+  const storedQuery = rest.request.query as
+    | typeof rest.request.query
+    | null
+    | undefined;
+  const { autoSaveOnly: _autoSaveOnly, ...query } = storedQuery ?? {};
   return {
     ...rest,
     effect: "autosave",

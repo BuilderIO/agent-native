@@ -3788,6 +3788,128 @@ it("hydrates a queued full Builder body when the current body has multiline empt
   expect(after.queued).toBeNull();
 });
 
+it("records the hydration time when a queued Builder body has no update time", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_untimed_hydration";
+  const databaseDocId = "doc_db_untimed_hydration";
+  const documentId = "doc_untimed_hydration";
+  const itemId = "item_untimed_hydration";
+  const sourceId = "src_untimed_hydration";
+  const sourceRowId = "entry_untimed_hydration";
+  const fullBody = "A queued Builder body without an update time.";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB untimed hydration",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Untimed hydration",
+      content: "<empty-block/>\n<empty-block/>",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB untimed hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-untimed-hydration",
+    sourceTable: "collection-untimed-hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_untimed_hydration",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-untimed-hydration/${sourceRowId}`,
+    sourceDisplayKey: "Untimed hydration",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Untimed hydration",
+      "data.url": "/blog/untimed-hydration",
+    }),
+    provenance: "Builder CMS read adapter",
+    lastSourceUpdatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_untimed_hydration",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-untimed-hydration",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-untimed-hydration",
+      title: "Untimed hydration",
+      urlPath: "/blog/untimed-hydration",
+      updatedAt: null,
+      sourceValues: {
+        "data.title": "Untimed hydration",
+        "data.url": "/blog/untimed-hydration",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: fullBody,
+      },
+    }),
+    priority: 10,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
+
+  const [after = null] = await db
+    .select({
+      content: schema.documents.content,
+      lastSourceUpdatedAt: schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(schema.contentDatabaseSourceRows.documentId, schema.documents.id),
+    )
+    .where(eq(schema.documents.id, documentId));
+  expect(after?.content).toBe(fullBody);
+  expect((after?.lastSourceUpdatedAt ?? "") >= now).toBe(true);
+});
+
 it("fetches a live Builder body when an opened row only has stored body metadata", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];

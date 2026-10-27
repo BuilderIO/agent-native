@@ -1514,6 +1514,36 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("marks a stored autosave payload stale when its request has no query", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(false),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "autosave",
+    });
+    expect(plan.payload.effect).toBe("autosave");
+    const { query: _query, ...requestWithoutQuery } = plan.payload.request;
+
+    for (const request of [
+      requestWithoutQuery,
+      { ...requestWithoutQuery, query: null },
+    ]) {
+      expect(
+        validateBuilderCmsExecutionDryRun({
+          storedPayload: { ...plan.payload, request },
+          plan,
+          now: "2026-06-08T01:00:00.000Z",
+        }),
+      ).toMatchObject({
+        dryRun: {
+          status: "stale",
+          mismatches: [
+            "Stored Builder request no longer matches the approved change.",
+          ],
+        },
+      });
+    }
+  });
+
   it("preserves stale stored payloads instead of self-healing them", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(false),

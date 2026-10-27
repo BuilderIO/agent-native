@@ -2551,9 +2551,14 @@ async function processBuilderBodyHydrationJob(
       return;
     }
     // The next refresh compares the version with the row as written.
+    // A queued entry is JSON the queue stored, so its time can be missing.
+    const queuedUpdatedAt = entryWithBody.updatedAt as
+      | string
+      | null
+      | undefined;
     const writtenEntry = {
       ...entryWithBody,
-      updatedAt: entryWithBody.updatedAt,
+      updatedAt: queuedUpdatedAt ?? now,
       sourceValues: nextValues,
     };
     const [updatedSourceRow] = await tx
