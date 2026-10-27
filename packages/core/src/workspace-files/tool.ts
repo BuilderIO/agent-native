@@ -1,3 +1,4 @@
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 function stringifyValue(value: unknown): string {
   if (
     typeof value === "string" ||
@@ -35,7 +36,7 @@ function resolveScope(): WorkspaceFilesScope | null {
 }
 
 export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "workspace-files": {
       agentTool: false,
       readOnly: false,
@@ -278,5 +279,5 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
         }
       },
     },
-  };
+  });
 }

@@ -394,7 +394,8 @@ jobs:
             app: ""
             timeout: 30
             global_timeout: 25
-          # [slides-import], [forms], [design-systems], [dispatch-apps].
+          # [slides-import], [forms], [design-systems], [dispatch-apps],
+          # [content-review].
           - slot: journeys-flows
             cluster: journeys
             project: journeys-flows
