@@ -84,19 +84,19 @@ export default defineAction({
         documentId: args.documentId,
       })
     ).filter((target) => !args.sourceId || target.source.id === args.sourceId);
-    if (targets.length === 0) {
-      fail("This page has no Builder entry in this collection.", {
-        errorCode: "builder_entry_not_found",
-        statusCode: 404,
-      });
-    }
     if (targets.length > 1) {
       fail(
         "This page belongs to more than one Builder source; pass sourceId to pick one.",
         { errorCode: "builder_source_ambiguous", statusCode: 400 },
       );
     }
-    const [target] = targets;
+    const [target = null] = targets;
+    if (!target) {
+      fail("This page has no Builder entry in this collection.", {
+        errorCode: "builder_entry_not_found",
+        statusCode: 404,
+      });
+    }
     const locked = builderEntryStatusLockedReason(target);
     if (locked) {
       fail(LOCKED_MESSAGES[locked], {
