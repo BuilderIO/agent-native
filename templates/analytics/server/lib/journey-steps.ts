@@ -152,6 +152,11 @@ export const JOURNEY_INTEGRATION_EVENT_NAMES: readonly string[] = [
   "integration_method_outcome",
 ];
 
+/** Cohort metadata events are selected for partitioning but do not become steps. */
+export const JOURNEY_COHORT_PARTITION_EVENT_NAMES: readonly string[] = [
+  "onboarding_experiment_exposed",
+];
+
 /** Slides reports request and attempt outcomes separately from saved outputs. */
 export const SLIDES_GENERATION_ATTEMPT_EVENT_NAMES: readonly string[] = [
   "generation_started",
@@ -163,7 +168,7 @@ export const SLIDES_GENERATION_ATTEMPT_EVENT_NAMES: readonly string[] = [
   "generation_abandoned",
 ];
 
-/** Every event name that can become a step; the SQL selects exactly these. */
+/** Event names that can become visible journey steps. */
 export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "pageview",
   "signup",
@@ -182,7 +187,6 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_app_entered",
   "app_entered",
   "app.first_action",
-  "onboarding_experiment_exposed",
   ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
   "generation_completed",
   "design_output_created",

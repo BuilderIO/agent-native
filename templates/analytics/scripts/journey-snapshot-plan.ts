@@ -270,13 +270,12 @@ export function selectCaptureTree<T extends SnapshotTree>(
           `Selected journey node ${node.key} has no example list.`,
         );
       }
+      if (exampleIndex >= available.length) continue;
       const example = available[exampleIndex];
-      if (example) {
-        examples.push(example);
-        frameCount += 1;
-        added = true;
-        if (frameCount >= frameLimit) break;
-      }
+      examples.push(example);
+      frameCount += 1;
+      added = true;
+      if (frameCount >= frameLimit) break;
     }
     if (!added) break;
   }

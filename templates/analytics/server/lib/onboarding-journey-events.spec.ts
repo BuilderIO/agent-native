@@ -244,6 +244,7 @@ describe("onboarding journey events SQL", () => {
       { limit: 10, offset: 0 },
       window,
     );
+    expect(journeySql).toContain("'onboarding_experiment_exposed'");
     const followupSql = buildOnboardingJourneyFollowupSql(
       filters(),
       [

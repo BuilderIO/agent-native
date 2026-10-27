@@ -808,7 +808,7 @@ async function publishCanvas(args: {
   const inputHash = pathHash(JSON.stringify({ designUrl, canvasInput }));
   const cacheMatchesUrl = savedCanvas?.designUrl === designUrl;
   let canvas =
-    cacheMatchesUrl && savedCanvas?.inputHash === inputHash && !args.refresh
+    cacheMatchesUrl && savedCanvas.inputHash === inputHash && !args.refresh
       ? actionCanvasResult(savedCanvas.result)
       : null;
   if (canvas) {
@@ -822,7 +822,7 @@ async function publishCanvas(args: {
       "create-journey-canvas",
       {
         ...canvasInput,
-        ...(cacheMatchesUrl && savedCanvas?.result?.designId
+        ...(cacheMatchesUrl && savedCanvas.result?.designId
           ? { designId: savedCanvas.result.designId }
           : {}),
       },

@@ -2,6 +2,7 @@ import { testIdentityEmailSql } from "@agent-native/core/shared";
 
 import {
   JOURNEY_COHORT_EVENT_NAMES,
+  JOURNEY_COHORT_PARTITION_EVENT_NAMES,
   JOURNEY_INTEGRATION_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
@@ -1662,7 +1663,10 @@ function buildOnboardingJourneyEventCtes(
   WHERE (
     NULLIF(e.session_id, '') IS NOT NULL
     AND (${ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER})
-    AND e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+    AND e.event_name IN (${sqlNameList([
+      ...JOURNEY_STEP_EVENT_NAMES,
+      ...JOURNEY_COHORT_PARTITION_EVENT_NAMES,
+    ])})
   ) OR (
     NULLIF(e.session_id, '') IS NULL
     AND e.output_id IS NOT NULL
