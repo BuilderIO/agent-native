@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   queryString: "",
   locationHash: "",
   locationKey: "initial",
+  navigationType: "POP",
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -394,6 +395,7 @@ vi.mock("@agent-native/creative-context/client", () => ({
 vi.mock("react-router", () => ({
   useLocation: () => ({ hash: mocks.locationHash, key: mocks.locationKey }),
   useNavigate: () => mocks.navigate,
+  useNavigationType: () => mocks.navigationType,
   useSearchParams: () => [
     new URLSearchParams(mocks.queryString),
     mocks.setSearchParams,
@@ -537,6 +539,7 @@ beforeEach(async () => {
   mocks.queryString = "";
   mocks.locationHash = "";
   mocks.locationKey = "initial";
+  mocks.navigationType = "POP";
   mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
@@ -1690,12 +1693,48 @@ describe("home library", () => {
     expect(templates.getAttribute("aria-selected")).toBe("true");
 
     mocks.locationKey = "checklist-open-2";
+    mocks.navigationType = "PUSH";
     await act(async () => root.render(<Index />));
 
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
+  });
+
+  it("preserves the selected tab during a checklist query replacement", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.locationHash = "#design-home-library";
+    mocks.locationKey = "checklist-open";
+    mocks.ownCount = 1;
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    const templates = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "navigation.templates");
+    if (!templates) throw new Error("Missing Templates tab");
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    expect(templates.getAttribute("aria-selected")).toBe("true");
+
+    mocks.queryString = "gettingStarted=save-template&templateId=selected";
+    mocks.locationKey = "template-selection";
+    mocks.navigationType = "REPLACE";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {

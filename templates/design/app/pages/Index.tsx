@@ -56,7 +56,13 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useLocation, useNavigate, Link, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  Link,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -207,6 +213,7 @@ function isReadyHomeSuggestions(
 export default function Index() {
   const t = useT();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isSaveTemplateGettingStarted =
@@ -252,6 +259,8 @@ export default function Index() {
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   useEffect(() => {
+    if (navigationType === "REPLACE") return;
+
     if (isSaveTemplateGettingStarted) {
       homeLibraryTabWasSelectedRef.current = true;
       setHomeSection("recent");
@@ -263,7 +272,12 @@ export default function Index() {
       document.getElementById(targetId)?.scrollIntoView({ block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isSaveTemplateGettingStarted, location.hash, location.key]);
+  }, [
+    isSaveTemplateGettingStarted,
+    location.hash,
+    location.key,
+    navigationType,
+  ]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
