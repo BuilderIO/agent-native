@@ -1273,10 +1273,13 @@ describe.each(SURFACES)("$name surface", (surface) => {
   });
 
   it("hands A2A file parts to the app's upload hook and to its actions", async () => {
+    // Same shape Slides returns after saving a URL-only document: no data, the
+    // URL kept as a reference, and the app's own upload path stamped on.
     const prepareRequest = vi.fn(async ({ message, attachments }: any) => ({
       message: `${message}\n<app-uploads>report.pdf at upload://report</app-uploads>`,
       attachments: attachments.map((attachment: any) => ({
         ...attachment,
+        referenceOnly: true,
         appUploadPath: "upload://report",
       })),
     }));
@@ -1308,9 +1311,9 @@ describe.each(SURFACES)("$name surface", (surface) => {
         appUploadPath: "upload://report",
       }),
     ]);
-    expect(JSON.stringify(run.runOptions.messages[0].content)).toContain(
-      "report.pdf at upload://report",
-    );
+    const modelInput = JSON.stringify(run.runOptions.messages[0].content);
+    expect(modelInput).toContain("report.pdf at upload://report");
+    expect(modelInput).not.toContain("missing-payload");
   }, 240_000);
 
   it("takes the runtime inventory from the real factories", async () => {
