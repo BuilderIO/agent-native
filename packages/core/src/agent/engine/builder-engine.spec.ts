@@ -1117,9 +1117,12 @@ describe("createBuilderEngine", () => {
       .mockResolvedValueOnce(
         jsonlResponse([{ type: "stop", reason: "end_turn" }]),
       );
+    const onModelDispatchStarted = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const events = await collectEvents(
+      createBuilderEngine().stream({ ...BASE_OPTS, onModelDispatchStarted }),
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
@@ -1139,6 +1142,7 @@ describe("createBuilderEngine", () => {
     expect(events.find((event) => event.type === "stop")?.reason).toBe(
       "end_turn",
     );
+    expect(onModelDispatchStarted).toHaveBeenCalledTimes(2);
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
 
@@ -1191,6 +1195,52 @@ describe("createBuilderEngine", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(beforeModelDispatch).toHaveBeenCalledTimes(2);
     expect(onModelDispatchStarted).toHaveBeenCalledOnce();
+  });
+
+  it("propagates a dispatch guard failure that arrives during Builder OAuth refresh", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    oauthState.resolveAccessState
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "oauth-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: "available",
+        access: {
+          accessToken: "refreshed-access-token",
+          ownerEmail: "person@example.com",
+          scopes: ["builder:ai:invoke"],
+          scope: "user",
+          connectionId: "selected-builder-grant",
+        },
+      });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonErrorResponse(401, { code: "unauthorized", message: "Expired" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const dispatchError = new Error("run was interrupted");
+    const beforeModelDispatch = vi.fn(async <T>(dispatch: () => T) => {
+      if (beforeModelDispatch.mock.calls.length > 1) throw dispatchError;
+      return { started: true as const, value: dispatch() };
+    });
+
+    await expect(
+      collectEvents(
+        createBuilderEngine().stream({ ...BASE_OPTS, beforeModelDispatch }),
+      ),
+    ).rejects.toBe(dispatchError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(beforeModelDispatch).toHaveBeenCalledTimes(2);
   });
 
   it("classifies a failed forced OAuth refresh separately from gateway transport errors", async () => {

@@ -430,106 +430,109 @@ class BuilderEngine implements AgentEngine {
           return Promise.resolve({ status: "rejected" as const, error });
         }
       });
+    const gatewayTransportStop = (error: unknown) => {
+      const timedOut = gatewayAbort.didTimeout();
+      if (timedOut) {
+        console.warn(
+          `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
+        );
+      }
+      if (timedOut || isBuilderGatewayNetworkError(error)) {
+        captureBuilderGatewayTransportError(error, {
+          phase: "request",
+          model,
+          gatewayUrl,
+          timeoutMs: gatewayAbort.effectiveTimeoutMs(),
+          timedOut,
+          elapsedMs: Date.now() - tStart,
+        });
+      }
+      return createBuilderGatewayTimeoutStop(
+        error,
+        timedOut,
+        gatewayAbort.effectiveTimeoutMs(),
+        creditsLane,
+        requestShape,
+      );
+    };
     try {
       const dispatch = await startGatewayRequest(authHeader);
       if (!dispatch.started) return;
 
-      let response: Response;
-      try {
-        const result = await dispatch.value;
-        if (result.status === "rejected") throw result.error;
-        response = result.response;
-        if (response.status === 401 && oauthAccess && ownerEmail) {
-          let refreshedState: Awaited<
-            ReturnType<typeof resolveBuilderOAuthRequestAccessState>
-          >;
-          try {
-            refreshedState = await resolveBuilderOAuthRequestAccessState({
-              ownerEmail,
-              requiredScope: BUILDER_OAUTH_SCOPE,
-              orgId,
-              forceRefresh: true,
-              connectionId: oauthAccess.connectionId,
-            });
-          } catch (error) {
-            if (isTransientDatabaseError(error)) {
-              const unavailable = new CredentialStoreUnavailableError(error);
-              yield gatewayErrorStop(
-                {
-                  error: unavailable.message,
-                  errorCode: unavailable.errorCode,
-                },
-                creditsLane,
-                requestShape,
-              );
-              return;
-            }
-            captureError(error, {
-              route: "/_agent-native/agent-chat",
-              errorMessagePolicy: "omit",
-              tags: {
-                source: "builder-engine",
-                phase: "oauth-refresh",
-                model,
-                errorCode: "builder_oauth_refresh_failed",
-              },
-              contexts: {
-                builderOAuth: {
-                  phase: "force-refresh",
-                  scope: oauthAccess.scope,
-                },
-              },
-            });
+      const result = await dispatch.value;
+      if (result.status === "rejected") {
+        yield gatewayTransportStop(result.error);
+        return;
+      }
+      let response = result.response;
+      if (response.status === 401 && oauthAccess && ownerEmail) {
+        let refreshedState: Awaited<
+          ReturnType<typeof resolveBuilderOAuthRequestAccessState>
+        >;
+        try {
+          refreshedState = await resolveBuilderOAuthRequestAccessState({
+            ownerEmail,
+            requiredScope: BUILDER_OAUTH_SCOPE,
+            orgId,
+            forceRefresh: true,
+            connectionId: oauthAccess.connectionId,
+          });
+        } catch (error) {
+          if (isTransientDatabaseError(error)) {
+            const unavailable = new CredentialStoreUnavailableError(error);
             yield gatewayErrorStop(
               {
-                error: BUILDER_RECONNECT_MESSAGE,
-                errorCode: "builder_oauth_refresh_failed",
+                error: unavailable.message,
+                errorCode: unavailable.errorCode,
               },
-              false,
+              creditsLane,
               requestShape,
             );
             return;
           }
-          if (
-            refreshedState.kind === "available" &&
-            refreshedState.access.accessToken !== oauthAccess.accessToken
-          ) {
-            oauthAccess = refreshedState.access;
-            await response.body?.cancel();
-            const retryDispatch = await startGatewayRequest(
-              `Bearer ${oauthAccess.accessToken}`,
-            );
-            if (!retryDispatch.started) return;
-            const retryResult = await retryDispatch.value;
-            if (retryResult.status === "rejected") throw retryResult.error;
-            response = retryResult.response;
-          }
-        }
-      } catch (err) {
-        const timedOut = gatewayAbort.didTimeout();
-        if (gatewayAbort.didTimeout()) {
-          console.warn(
-            `[builder-engine] gateway timed out after ${Date.now() - tStart}ms`,
-          );
-        }
-        if (timedOut || isBuilderGatewayNetworkError(err)) {
-          captureBuilderGatewayTransportError(err, {
-            phase: "request",
-            model,
-            gatewayUrl,
-            timeoutMs: gatewayAbort.effectiveTimeoutMs(),
-            timedOut,
-            elapsedMs: Date.now() - tStart,
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            errorMessagePolicy: "omit",
+            tags: {
+              source: "builder-engine",
+              phase: "oauth-refresh",
+              model,
+              errorCode: "builder_oauth_refresh_failed",
+            },
+            contexts: {
+              builderOAuth: {
+                phase: "force-refresh",
+                scope: oauthAccess.scope,
+              },
+            },
           });
+          yield gatewayErrorStop(
+            {
+              error: BUILDER_RECONNECT_MESSAGE,
+              errorCode: "builder_oauth_refresh_failed",
+            },
+            false,
+            requestShape,
+          );
+          return;
         }
-        yield createBuilderGatewayTimeoutStop(
-          err,
-          timedOut,
-          gatewayAbort.effectiveTimeoutMs(),
-          creditsLane,
-          requestShape,
-        );
-        return;
+        if (
+          refreshedState.kind === "available" &&
+          refreshedState.access.accessToken !== oauthAccess.accessToken
+        ) {
+          oauthAccess = refreshedState.access;
+          await response.body?.cancel();
+          const retryDispatch = await startGatewayRequest(
+            `Bearer ${oauthAccess.accessToken}`,
+          );
+          if (!retryDispatch.started) return;
+          const retryResult = await retryDispatch.value;
+          if (retryResult.status === "rejected") {
+            yield gatewayTransportStop(retryResult.error);
+            return;
+          }
+          response = retryResult.response;
+        }
       }
 
       console.log(
