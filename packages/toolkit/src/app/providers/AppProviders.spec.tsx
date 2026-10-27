@@ -427,7 +427,9 @@ describe("AppProviders session gate", () => {
     const bootScript = markup.match(
       /<script data-agent-native-mcp-widget-boot="1">([\s\S]*?)<\/script>/,
     )?.[1];
-    expect(bootScript).toContain("resolveWorkspaceAppMountPath");
+    expect(bootScript).toContain(
+      'resolveMcpAppEmbedBasePath("workspace-path", w.location.pathname, workspaceOptions)',
+    );
     expect(bootScript).not.toContain("agent-native:embed-auth-token:/");
     expect(bootScript).not.toContain("agent-native:mcp-chat-bridge:/");
   });
