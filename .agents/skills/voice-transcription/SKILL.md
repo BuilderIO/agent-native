@@ -46,8 +46,10 @@ the shared agent sidebar.
   pill with a waveform driven by the analyser level (written from an animation
   frame, never through React state) and a stop button. Stop inserts the
   transcript; Escape cancels. Under reduced motion the bars stay still.
-- **Icons:** Tabler `IconMicrophone` (idle), `IconPlayerStopFilled` (stop),
-  `IconWaveSine` (voice chat). Never use a sparkle or robot icon.
+- **Icons:** Tabler `IconMicrophone` (idle), `IconPlayerStopFilled` (stop), and
+  the toolkit's five-bar `IconVoiceChat` (voice chat, from
+  `composer/voice-chat-icon`). `IconWaveSine` reads as a heartbeat; never use
+  it, a sparkle, or a robot icon for voice.
 - **Errors via inline alert or toast, never `window.alert`.**
 
 ## Realtime speech mode

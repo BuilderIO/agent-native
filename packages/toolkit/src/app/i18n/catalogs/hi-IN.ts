@@ -129,6 +129,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "अन्य",
   "onboarding.roleOtherInputLabel": "अपनी भूमिका बताएं",
   "onboarding.skipForNow": "अभी छोड़ें",
+  "onboarding.builderProvisionFailedDetail":
+    "आपका Builder.io खाता नहीं बनाया जा सका। फिर से कोशिश करें या किसी मौजूदा खाते से साइन इन करें।",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
   "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
@@ -411,6 +413,9 @@ const messages: ToolkitAgentChatTranslation = {
     "छोड़ी गई फ़ाइल जोड़ी नहीं जा सकी। कोई दूसरा फ़ॉर्मैट आज़माएँ।",
   "composer.openDesktop": "इस चैट का उपयोग करने के लिए Desktop खोलें।",
   "composer.removeAttachment": "{{name}} हटाएँ",
+  "composer.attachmentReadFailed": "यह फ़ाइल पढ़ी नहीं जा सकी",
+  "composer.attachmentTooLarge": "फ़ाइल 8 MB से बड़ी है",
+  "composer.attachmentNotUtf8": "फ़ाइल UTF-8 टेक्स्ट नहीं है",
   "composer.scrollToBottom": "सबसे नीचे जाएँ",
   "composer.suggestedPrompts": "सुझाए गए प्रॉम्प्ट",
   "composer.stopResponse": "जवाब रोकें",
@@ -536,6 +541,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" {{size}} MB का है - {{limit}} MB से बड़ी छवियाँ संलग्न नहीं की जा सकतीं। कृपया छोटी छवि उपयोग करें।',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" {{megapixels}} मेगापिक्सल का है - {{limit}} मेगापिक्सल से बड़ी छवियाँ संलग्न नहीं की जा सकतीं। कृपया छोटी छवि उपयोग करें।',
   "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
   "composer.sessionExpired":
     "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
@@ -741,6 +750,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "लिंक कॉपी करें",
   "history.linkCopied": "लिंक कॉपी हो गया",
   "history.copyLinkFailed": "लिंक कॉपी नहीं हो सका",
+  "history.onlyYou": "सिर्फ़ आप",
+  "history.hide": "मेरी सूची से छिपाएँ",
+  "history.hidden": "आपकी सूची से छिपाया गया",
+  "history.undo": "पूर्ववत करें",
+  "history.hideFailed": "चैट छिपाई नहीं जा सकी",
+  "history.unhideFailed": "चैट वापस नहीं लाई जा सकी",
   "integrations.availableSection": "उपलब्ध इंटीग्रेशन",
   "integrations.connectedSection": "कनेक्ट किए गए",
   "integrations.goToApiKeys": "API कुंजियों पर जाएं",
@@ -1886,6 +1901,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
   "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
   "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
+  "settings.audit.approvalMcpReview": "MCP कार्रवाई समीक्षा पेज पर स्वीकृत",
+  "settings.audit.approvalCliPrompt": "CLI प्रॉम्प्ट पर स्वीकृत (असत्यापित)",
+  "settings.audit.approvalCliFlag": "--approved के साथ फिर से चलाया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",
   "settings.audit.empty": "इस अवधि में कोई बदलाव नहीं।",
@@ -2154,6 +2172,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
+  "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "MCP Apps का समर्थन करने वाले चैट ऐप्स, जैसे Claude और ChatGPT, में टूल इंटरैक्टिव कार्ड दिखाते हैं, जैसे ईमेल ड्राफ़्ट जिसे आप संपादित करके भेज सकते हैं। इसे बदलने के बाद, अपने चैट ऐप में इस ऐप को फिर से कनेक्ट करें।",
   "settingsShell.appGroup.mcpFootnote":
     "एजेंट जिन टूल्स का खुद उपयोग करता है, उनके लिए {{integrations}} देखें।",
   "settingsShell.appGroup.newAutomation": "नया ऑटोमेशन",

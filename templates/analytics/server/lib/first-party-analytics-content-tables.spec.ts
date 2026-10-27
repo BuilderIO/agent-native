@@ -151,6 +151,7 @@ describe("Content view tables on the first-party source", () => {
     );
 
     expect(result.rows).toEqual([{ title: "Org A post", value: 12 }]);
+    expect(result.bytesProcessed).toBe(0);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 

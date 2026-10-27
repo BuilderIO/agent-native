@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajuster à la largeur",
   githubLinkTitle: "Lier un dossier GitHub",
   githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
   githubLinkDescription:
@@ -281,8 +282,38 @@ const database = {
     "Connectez une collection Builder ou une autre table pour la mapper sur ces lignes.",
   noBuilderWrites: "Aucune écriture Builder.",
   stageOnly: "Préparer seulement",
-  savesDraftsNeverPublishes:
-    "Enregistre des brouillons dans Builder — ne publie jamais.",
+  savesChangesNeverPublishes:
+    "Enregistre les modifications dans Builder — ne publie jamais.",
+  builderEffectNewTag: "Nouveau",
+  builderEffectNewSentence: "Crée une nouvelle entrée en brouillon",
+  builderEffectEditTag: "Modifier",
+  builderEffectEditSentence: "Met à jour l'entrée publiée",
+  builderEffectSaveTag: "Enregistrer",
+  builderEffectAutosaveSentence:
+    "Enregistré, pas en ligne tant que vous ne publiez pas dans Builder",
+  builderEffectSaveDraftSentence: "Enregistre le brouillon",
+  builderEffectPublishTag: "Publier",
+  builderEffectPublishSentence: "Publie cette entrée",
+  builderEffectUnpublishTag: "Dépublier",
+  builderEffectUnpublishSentence: "Dépublie l'entrée publiée",
+  builderIntentNewOne: "1 brouillon à créer",
+  builderIntentNew: "{{count}} brouillons à créer",
+  builderIntentEditOne: "1 mise à jour",
+  builderIntentEdit: "{{count}} mises à jour",
+  builderIntentSaveOne: "1 enregistrement",
+  builderIntentSave: "{{count}} enregistrements",
+  builderIntentPublish: "{{count}} à publier",
+  builderIntentUnpublish: "{{count}} à dépublier",
+  builderIntentNone: "Aucune modification",
+  builderPushVerbCheck: "Vérifier",
+  builderPushVerbPublish: "Publier",
+  builderPushVerbUnpublish: "Dépublier",
+  builderPushVerbCreateOne: "Créer le brouillon",
+  builderPushVerbCreate: "Créer {{count}} brouillons",
+  builderPushVerbSaveOne: "Enregistrer dans Builder",
+  builderPushVerbSave: "Enregistrer {{count}} dans Builder",
+  builderPushVerbPushOne: "Envoyer la mise à jour",
+  builderPushVerbPush: "Envoyer {{count}} mises à jour",
   publishUpdates: "Publier les mises à jour",
   writesUpdatesToLiveEntries:
     "Écrit les mises à jour dans les entrées en direct.",
@@ -350,6 +381,8 @@ const database = {
   failedToCreateRow: "Échec de la création de la ligne",
   pageCreatedCollectionRefreshFailed:
     "La page a été créée, mais cette collection n'a pas pu être actualisée. Rechargez pour la voir.",
+  builderPushResultNotLoaded:
+    "La mise à jour est arrivée dans Builder, mais cette révision n'a pas pu charger le résultat. Rechargez pour le voir.",
   failedToDeleteRow: "Échec de la suppression de la ligne",
   failedToDeleteSelectedRows:
     "Échec de la suppression des lignes sélectionnées",
@@ -693,6 +726,27 @@ const editor = {
     purple: "Violet",
     pink: "Rose",
     red: "Rouge",
+    defaultText: "Texte par défaut",
+    defaultBackground: "Arrière-plan par défaut",
+    textChoice: "Texte : {{color}}",
+    backgroundChoice: "Arrière-plan : {{color}}",
+  },
+  blockMenu: {
+    label: "Actions du bloc",
+    duplicate: "Dupliquer",
+    delete: "Supprimer",
+    insertBelow: "Insérer un bloc en dessous",
+    search: "Rechercher des actions...",
+    noResults: "Aucun résultat",
+    block: "Bloc",
+    keyCtrl: "Ctrl",
+    keyShift: "Maj",
+    keyDelete: "Suppr",
+    lockedSource:
+      "Les composants du fichier source ne peuvent pas être dupliqués ni supprimés ici.",
+    lockedSuggesting:
+      "Les suggestions ne peuvent pas ajouter ni retirer ce type de bloc.",
+    lockedPage: "Cette page n’autorise pas cette modification.",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
@@ -1037,7 +1091,7 @@ const editor = {
     todoListDescription: "Éléments de la liste de contrôle",
     toggle: "Basculer",
     toggleDescription: "Ligne à bascule de style notion",
-    turnInto: "Transformez-vous en",
+    turnInto: "Transformer en",
     video: "Vidéo",
     videoDescription: "Télécharger ou intégrer une vidéo",
   },
@@ -1389,6 +1443,14 @@ const exactEnglish = {
       "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
     proposalUnplaceable:
       "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
+    suggestionAcceptFailed: "Impossible d’accepter la suggestion",
+    suggestionRejectFailed: "Impossible de refuser la suggestion",
+    proposalAcceptFailed: "Impossible d’accepter les suggestions",
+    proposalRejectFailed: "Impossible de refuser les suggestions",
+    suggestionDecisionReverted:
+      "Elle est de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
+    proposalDecisionReverted:
+      "Elles sont de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",

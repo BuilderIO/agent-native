@@ -7,12 +7,14 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { WORKFLOW_JOB_APP_ID } from "../lib/factory-workflow-runner.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-factories",
   "create-factory",
   "describe-workflow-node-catalog",
+  "list-provider-options",
   "list-factory-workflows",
   "get-factory-workflow",
   "save-factory-workflow",
@@ -51,6 +53,8 @@ const INITIAL_TOOL_NAMES = [
 
 const options = {
   appId: "factory",
+  additionalJobAppIds: [WORKFLOW_JOB_APP_ID],
+  mcp: { appApprovalPage: true },
   backgroundMcpTools: "all",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   leanPrompt: true,

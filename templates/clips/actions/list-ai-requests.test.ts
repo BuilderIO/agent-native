@@ -13,6 +13,7 @@ type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 let client: PGliteClient;
 
 const mocks = vi.hoisted(() => ({
+  shared: false,
   appState: [] as Array<{ key: string; value: unknown }>,
 }));
 
@@ -32,7 +33,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: (table: { ownerEmail: unknown }) =>
-    sql`${table.ownerEmail} = 'me@example.com'`,
+    mocks.shared ? sql`true` : sql`${table.ownerEmail} = 'me@example.com'`,
 }));
 
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
@@ -53,13 +54,14 @@ beforeEach(async () => {
   await client.query(`CREATE TABLE recordings (
     id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, title TEXT NOT NULL,
     title_source TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
-    trashed_at TEXT
+    expires_at TEXT, trashed_at TEXT
   )`);
   await client.query(`CREATE TABLE recording_transcripts (
     recording_id TEXT PRIMARY KEY, status TEXT NOT NULL,
     full_text TEXT NOT NULL, segments_json TEXT NOT NULL
   )`);
   mocks.appState = [];
+  mocks.shared = false;
 });
 
 afterEach(async () => {
@@ -90,7 +92,7 @@ describe("list-ai-requests", () => {
       },
     ];
 
-    const result = await (listAiRequests as any).run({});
+    const result = await listAiRequests.run({});
 
     expect(result).toEqual({
       requests: [
@@ -181,6 +183,56 @@ describe("list-ai-requests", () => {
     expect(result.requests).toHaveLength(1);
     expect(result.activeSessions).toEqual([]);
   });
+
+  it("only lists queued workflow requests to their requester", async () => {
+    await insertRecording("rec_mine", "My workflow", "me@example.com");
+    await insertRecording("rec_other", "Other workflow", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_mine",
+        value: {
+          kind: "generate-workflow",
+          recordingId: "rec_mine",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-rec_other",
+        value: {
+          kind: "generate-workflow",
+          recordingId: "rec_other",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-workflow-rec_mine",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestedBy: "me@example.com",
+        },
+      },
+      {
+        key: "clips-workflow-rec_other",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestedBy: "someone@example.com",
+        },
+      },
+    ];
+
+    const result = await listAiRequests.run({});
+
+    expect(result.requests).toEqual([
+      expect.objectContaining({
+        kind: "generate-workflow",
+        recordingId: "rec_mine",
+      }),
+    ]);
+  });
+
   it("recovers working sessions for every queued request kind", async () => {
     await insertRecording("rec_chapters", "Chapters", "me@example.com");
     const requestedAt = "2026-09-28T12:00:00.000Z";
@@ -248,4 +300,33 @@ describe("list-ai-requests", () => {
       },
     ]);
   });
+});
+
+it("withholds queued content from expired nonowners while preserving owner work", async () => {
+  mocks.shared = true;
+  await insertRecording(
+    "expired-shared",
+    "Fake expired title",
+    "owner@example.test",
+  );
+  await insertRecording("expired-owned", "Fake owner title", "me@example.com");
+  await insertRecording("live-shared", "Fake live title", "owner@example.test");
+  await client.query(
+    "update recordings set expires_at = '2000-01-01T00:00:00Z' where id != 'live-shared'",
+  );
+  mocks.appState = ["expired-shared", "expired-owned", "live-shared"].map(
+    (recordingId) => ({
+      key: `clips-ai-request-${recordingId}`,
+      value: {
+        kind: "regenerate-chapters",
+        recordingId,
+        transcript: "Fake queued transcript",
+      },
+    }),
+  );
+  expect(
+    (await listAiRequests.run({})).requests.map(
+      (request) => request.recordingId,
+    ),
+  ).toEqual(["expired-owned", "live-shared"]);
 });

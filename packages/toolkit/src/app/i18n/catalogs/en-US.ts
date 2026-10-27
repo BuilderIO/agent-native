@@ -128,6 +128,8 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
+  "onboarding.builderProvisionFailedDetail":
+    "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
@@ -418,6 +420,9 @@ const messages = {
     "Could not add the dropped file. Try a different format.",
   "composer.openDesktop": "Open Desktop to use this chat.",
   "composer.removeAttachment": "Remove {{name}}",
+  "composer.attachmentReadFailed": "Couldn't read this file",
+  "composer.attachmentTooLarge": "File is over 8 MB",
+  "composer.attachmentNotUtf8": "File isn't UTF-8 text",
   "composer.scrollToBottom": "Scroll to bottom",
   "composer.suggestedPrompts": "Suggested prompts",
   "composer.stopResponse": "Stop response",
@@ -544,6 +549,10 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" is {{size}} MB - images over {{limit}} MB cannot be attached. Please use a smaller image.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" is {{megapixels}} megapixels - images over {{limit}} megapixels cannot be attached. Please use a smaller image.',
   "composer.fileTooLarge":
     "This file is larger than the {{size}} MB upload limit.",
   "composer.sessionExpired":
@@ -752,6 +761,12 @@ const messages = {
   "history.copyLink": "Copy link",
   "history.linkCopied": "Link copied",
   "history.copyLinkFailed": "Couldn't copy the link",
+  "history.onlyYou": "Only you",
+  "history.hide": "Hide from my list",
+  "history.hidden": "Hidden from your list",
+  "history.undo": "Undo",
+  "history.hideFailed": "Couldn't hide the chat",
+  "history.unhideFailed": "Couldn't bring the chat back",
   "integrations.availableSection": "Available integrations",
   "integrations.connectedSection": "Connected",
   "integrations.goToApiKeys": "Go to API keys",
@@ -1919,6 +1934,9 @@ const messages = {
   "settings.audit.approvalA2AReview":
     "Approved on the agent action review page",
   "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
+  "settings.audit.approvalMcpReview": "Approved on the MCP action review page",
+  "settings.audit.approvalCliPrompt": "Approved at the CLI prompt (unverified)",
+  "settings.audit.approvalCliFlag": "Rerun with --approved (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",
   "settings.audit.empty": "No changes in this period.",
@@ -2192,6 +2210,9 @@ const messages = {
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
+  "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Tools show interactive cards, such as an email draft you can edit and send, in chat apps that support MCP Apps, like Claude and ChatGPT. After you change this, reconnect this app in your chat app.",
   "settingsShell.appGroup.mcpFootnote":
     "For tools the agent itself uses, see {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "New automation",

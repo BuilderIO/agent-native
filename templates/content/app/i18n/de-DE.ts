@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "An Breite anpassen",
   githubLinkTitle: "GitHub-Ordner verknüpfen",
   githubNewCollectionTitle: "Neue Sammlung aus einem GitHub-Ordner",
   githubLinkDescription:
@@ -280,8 +281,38 @@ const database = {
     "Verbinde eine Builder-Sammlung oder eine andere Tabelle, um sie diesen Zeilen zuzuordnen.",
   noBuilderWrites: "Keine Builder-Schreibvorgänge.",
   stageOnly: "Nur bereitstellen",
-  savesDraftsNeverPublishes:
-    "Speichert Entwürfe in Builder — veröffentlicht nie.",
+  savesChangesNeverPublishes:
+    "Speichert Änderungen in Builder — veröffentlicht nie.",
+  builderEffectNewTag: "Neu",
+  builderEffectNewSentence: "Erstellt einen neuen Entwurfseintrag",
+  builderEffectEditTag: "Bearbeiten",
+  builderEffectEditSentence: "Aktualisiert den Live-Eintrag",
+  builderEffectSaveTag: "Speichern",
+  builderEffectAutosaveSentence:
+    "Gespeichert, aber erst live, wenn Sie in Builder veröffentlichen",
+  builderEffectSaveDraftSentence: "Speichert den Entwurf",
+  builderEffectPublishTag: "Veröffentlichen",
+  builderEffectPublishSentence: "Veröffentlicht diesen Eintrag",
+  builderEffectUnpublishTag: "Zurückziehen",
+  builderEffectUnpublishSentence: "Zieht den Live-Eintrag zurück",
+  builderIntentNewOne: "1 Entwurf zu erstellen",
+  builderIntentNew: "{{count}} Entwürfe zu erstellen",
+  builderIntentEditOne: "1 Aktualisierung",
+  builderIntentEdit: "{{count}} Aktualisierungen",
+  builderIntentSaveOne: "1 Speicherung",
+  builderIntentSave: "{{count}} Speicherungen",
+  builderIntentPublish: "{{count}} zu veröffentlichen",
+  builderIntentUnpublish: "{{count}} zurückzuziehen",
+  builderIntentNone: "Keine Änderungen",
+  builderPushVerbCheck: "Prüfen",
+  builderPushVerbPublish: "Veröffentlichen",
+  builderPushVerbUnpublish: "Zurückziehen",
+  builderPushVerbCreateOne: "Entwurf erstellen",
+  builderPushVerbCreate: "{{count}} Entwürfe erstellen",
+  builderPushVerbSaveOne: "In Builder speichern",
+  builderPushVerbSave: "{{count}} in Builder speichern",
+  builderPushVerbPushOne: "Aktualisierung übertragen",
+  builderPushVerbPush: "{{count}} Aktualisierungen übertragen",
   publishUpdates: "Updates veröffentlichen",
   writesUpdatesToLiveEntries: "Schreibt Updates in Live-Einträge.",
   sourcesFeedingThisColumn: "Quellen, die diese Spalte speisen",
@@ -349,6 +380,8 @@ const database = {
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
     "Die Seite wurde erstellt, aber diese Sammlung konnte nicht aktualisiert werden. Neu laden, um sie zu sehen.",
+  builderPushResultNotLoaded:
+    "Die Aktualisierung hat Builder erreicht, aber diese Prüfung konnte das Ergebnis nicht laden. Neu laden, um es zu sehen.",
   failedToDeleteRow: "Zeile konnte nicht gelöscht werden",
   failedToDeleteSelectedRows:
     "Ausgewählte Zeilen konnten nicht gelöscht werden",
@@ -690,6 +723,27 @@ const editor = {
     purple: "Violett",
     pink: "Rosa",
     red: "Rot",
+    defaultText: "Standardtext",
+    defaultBackground: "Standardhintergrund",
+    textChoice: "Text in {{color}}",
+    backgroundChoice: "Hintergrund in {{color}}",
+  },
+  blockMenu: {
+    label: "Blockaktionen",
+    duplicate: "Duplizieren",
+    delete: "Löschen",
+    insertBelow: "Block darunter einfügen",
+    search: "Aktionen suchen...",
+    noResults: "Keine Ergebnisse",
+    block: "Block",
+    keyCtrl: "Strg",
+    keyShift: "Umschalt",
+    keyDelete: "Entf",
+    lockedSource:
+      "Komponenten aus der Quelldatei können hier nicht dupliziert oder gelöscht werden.",
+    lockedSuggesting:
+      "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
+    lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -1036,7 +1090,7 @@ const editor = {
     todoListDescription: "Checklistenpunkte",
     toggle: "Umschalten",
     toggleDescription: "Umschaltzeile im Notion-Stil",
-    turnInto: "Verwandle dich in",
+    turnInto: "Umwandeln in",
     video: "Video [de-DE]",
     videoDescription: "Video hochladen oder einbetten",
   },
@@ -1386,6 +1440,14 @@ const exactEnglish = {
       "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
     proposalUnplaceable:
       "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
+    suggestionAcceptFailed: "Vorschlag konnte nicht angenommen werden",
+    suggestionRejectFailed: "Vorschlag konnte nicht abgelehnt werden",
+    proposalAcceptFailed: "Vorschläge konnten nicht angenommen werden",
+    proposalRejectFailed: "Vorschläge konnten nicht abgelehnt werden",
+    suggestionDecisionReverted:
+      "Er ist wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
+    proposalDecisionReverted:
+      "Sie sind wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",

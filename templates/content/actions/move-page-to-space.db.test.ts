@@ -820,6 +820,38 @@ describe("moving a page that takes body writes through its live copy", () => {
 });
 
 describe("duplicating a page", () => {
+  it("copies pages whose videos already share an id", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const paired = `Intro\n${video("Demo")}\n${video("Copy")}`;
+    const page = await as(OWNER, () => createDocument.run({ title: "Clips" }));
+    const child = await as(OWNER, () =>
+      createDocument.run({ title: "More clips", parentId: page.id }),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ content: paired })
+      .where(inArray(schema.documents.id, [page.id, child.id]));
+
+    const copy = await as(OWNER, () =>
+      duplicatePage.run({ documentId: page.id }),
+    );
+
+    expect(copy.copiedCount).toBe(2);
+    const copied = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, copy.id));
+    const copiedChild = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, copy.id));
+    expect([...copied, ...copiedChild]).toEqual([
+      { content: paired },
+      { content: paired },
+    ]);
+  });
+
   it("copies a switched page from its last save when its open editor couldn't save the title, and says so", async () => {
     const page = await as(OWNER, () =>
       createDocument.run({ title: "Guide", content: "Body" }),

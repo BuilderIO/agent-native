@@ -71,6 +71,10 @@
     {
       "name": "agent-harness-transcript-order-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-run-policy",
+      "checksum": "005df5375106ffa4"
     }
   ],
   "agent_runs": [
@@ -137,6 +141,10 @@
     {
       "name": "agent-run-admission-order",
       "checksum": "b4cd3c0f84735807"
+    },
+    {
+      "name": "execution-leases-and-steps",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -521,6 +529,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "ticket-audience",
+      "checksum": null
     }
   ],
   "extension_slots": [
@@ -609,6 +621,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "review-page-columns",
+      "checksum": "5219a7b9642c4847"
     }
   ],
   "mcp_connect": [

@@ -1,3 +1,4 @@
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type CommentRow = {
@@ -15,14 +16,9 @@ const mockGetUserEmail = vi.hoisted(() =>
   vi.fn<() => string | null>(() => "author@example.com"),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn());
-const { MockForbiddenError } = vi.hoisted(() => {
-  class MockForbiddenError extends Error {}
-  return { MockForbiddenError };
-});
-
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
-  ForbiddenError: MockForbiddenError,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -33,11 +29,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("../server/lib/recording-page-access.js", () => ({
-  isRecordingExpiredForViewer: () => false,
-}));
-
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({
     type: "eq",
@@ -145,19 +138,87 @@ beforeEach(() => {
 });
 
 describe("delete-comment", () => {
-  it("deletes a comment and every nested descendant", async () => {
+  it.each([
+    { role: "viewer", email: "author@example.com" },
+    { role: "editor", email: "editor@example.com" },
+  ])(
+    "refuses deletion from Trash for a nonowner: %j",
+    async ({ role, email }) => {
+      mockGetUserEmail.mockReturnValue(email);
+      mockAssertAccess.mockResolvedValue({
+        role,
+        resource: { enableComments: true, trashedAt: "2026-01-01T00:00:00Z" },
+      });
+      const originalRows = [...state.rows];
+      await expect(
+        action.run(action.schema.parse({ id: "comment-1" })),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(state.rows).toEqual(originalRows);
+      expect(mockWriteAppState).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "preserves owner cleanup in Trash with enableComments=%s",
+    async (enableComments) => {
+      mockGetUserEmail.mockReturnValue("owner@example.com");
+      mockAssertAccess.mockResolvedValue({
+        role: "owner",
+        resource: { enableComments, trashedAt: "2026-01-01T00:00:00Z" },
+      });
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
+      expect(result.deletedCommentIds).toEqual([
+        "comment-1",
+        "comment-1-reply",
+        "comment-1-reply-2",
+      ]);
+    },
+  );
+
+  it("lets an author delete whatever case their email was stored in", async () => {
+    state.rows = state.rows.map((row) =>
+      row.id === "comment-1"
+        ? { ...row, authorEmail: "Author@Example.com" }
+        : row,
+    );
+    mockAssertAccess.mockImplementation(async (_type, _id, role) => {
+      if (role === "editor") throw new ForbiddenError();
+      return { role: "viewer", resource: { trashedAt: null } };
+    });
+
     const result = await action.run(action.schema.parse({ id: "comment-1" }));
 
-    expect(result).toEqual({
-      id: "comment-1",
-      deletedCommentIds: ["comment-1", "comment-1-reply", "comment-1-reply-2"],
-    });
-    expect(state.rows.map((row) => row.id)).toEqual([
-      "comment-2",
-      "comment-1-cross-record-reply",
+    expect(result.deletedCommentIds).toEqual([
+      "comment-1",
+      "comment-1-reply",
+      "comment-1-reply-2",
     ]);
-    expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
-      ts: expect.any(Number),
-    });
   });
+
+  it.each([true, false])(
+    "deletes a comment and descendants with enableComments=%s",
+    async (enableComments) => {
+      mockAssertAccess.mockResolvedValue({
+        role: "viewer",
+        resource: { enableComments, trashedAt: null },
+      });
+      const result = await action.run(action.schema.parse({ id: "comment-1" }));
+
+      expect(result).toEqual({
+        id: "comment-1",
+        deletedCommentIds: [
+          "comment-1",
+          "comment-1-reply",
+          "comment-1-reply-2",
+        ],
+      });
+      expect(state.rows.map((row) => row.id)).toEqual([
+        "comment-2",
+        "comment-1-cross-record-reply",
+      ]);
+      expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
+        ts: expect.any(Number),
+      });
+    },
+  );
 });

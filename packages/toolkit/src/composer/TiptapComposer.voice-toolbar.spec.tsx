@@ -35,6 +35,9 @@ const realtime = vi.hoisted(() => ({
   dismissError: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setInputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
   setOutputMuted: (() => {}) as unknown as ReturnType<typeof vi.fn>,
+  currentToolName: null,
+  approvals: [],
+  resolveApproval: (() => {}) as unknown as ReturnType<typeof vi.fn>,
 }));
 
 vi.mock("./useVoiceDictation.js", async (importOriginal) => {
@@ -364,7 +367,7 @@ describe("TiptapComposer primary slot", () => {
     expect(send()?.dataset.composerPrimary).toBe("voice-chat");
     expect(send()?.getAttribute("aria-label")).toBe("Start voice chat");
     expect(send()?.disabled).toBe(false);
-    expect(send()?.querySelector("svg.tabler-icon-wave-sine")).not.toBeNull();
+    expect(send()?.querySelector("svg.tabler-icon-voice-chat")).not.toBeNull();
 
     act(() => send()?.click());
 

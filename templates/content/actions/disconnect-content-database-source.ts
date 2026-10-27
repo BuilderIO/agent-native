@@ -16,6 +16,7 @@ import {
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
 import { isBuilderExecutionClaimStale } from "./_builder-cms-execution-lease.js";
+import { clearBuilderStatusValues } from "./_builder-status-property.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSource,
@@ -138,9 +139,16 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
     await tx
       .delete(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
-    await tx
+    const deletedRows = await tx
       .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId))
+      .returning({ documentId: schema.contentDatabaseSourceRows.documentId });
+    await clearBuilderStatusValues(tx, {
+      databaseId,
+      documentIds: deletedRows
+        .map((row) => row.documentId)
+        .filter((documentId): documentId is string => !!documentId),
+    });
     await tx
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));

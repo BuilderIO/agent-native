@@ -70,10 +70,13 @@ export {
 export { RunId, RUN_ID_NODE_TYPES } from "./RunId.js";
 export { gfmToProseJSON, proseJSONToGfm } from "./gfmDoc.js";
 export {
+  deleteBlockTransaction,
   DragHandle,
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
+  duplicateBlockTransaction,
   type DragHandleDropContext,
   type DragHandleDropPlacement,
+  type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
 export {
@@ -83,6 +86,8 @@ export {
   RegistryBlockNodeView,
   useRegistryBlockData,
   type CreateRegistryBlockNodeOptions,
+  type PastedRegistryBlock,
+  type PastedRegistryBlockSource,
   type RegistryBlockDataChangeMeta,
   type RegistryBlockDataValue,
   type RegistryBlockEditSurfaceOptions,

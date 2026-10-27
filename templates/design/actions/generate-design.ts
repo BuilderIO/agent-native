@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -115,6 +116,27 @@ function isRenderableDesignScreenFile(file: {
   content?: string | null;
 }): boolean {
   return isOverviewScreenFile(file) && isRenderableDesignFile(file);
+}
+
+function noWriteValidationError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  const contractError =
+    typeof error === "object" && error !== null
+      ? (error as { errorCode?: unknown; statusCode?: unknown })
+      : undefined;
+  return new NoWriteError(
+    error instanceof Error
+      ? error.message
+      : "Design generation validation failed before saving.",
+    {
+      ...(typeof contractError?.errorCode === "string"
+        ? { errorCode: contractError.errorCode }
+        : {}),
+      ...(typeof contractError?.statusCode === "number"
+        ? { statusCode: contractError.statusCode }
+        : {}),
+    },
+  );
 }
 
 type GenerationViewport = "mobile" | "tablet" | "desktop";
@@ -284,7 +306,7 @@ async function resolveDesignCreativeContext(input: {
       input.contextPackId !== undefined &&
       input.contextPackId !== sessionContext.contextPackId
     ) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design must preserve the generation session's creative-context pack",
       );
     }
@@ -803,18 +825,9 @@ const generateDesignAction = defineAction({
           : {}),
       },
     });
-    await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
-    const creativeContextProvenance = await resolveDesignCreativeContext({
-      prompt,
-      generationSession,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels,
-    });
-
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -824,7 +837,7 @@ const generateDesignAction = defineAction({
         file.filename.includes("/") ||
         file.filename.includes("\\")
       ) {
-        throw new Error(
+        throw new NoWriteError(
           `Invalid filename "${file.filename}": path traversal not allowed`,
         );
       }
@@ -846,31 +859,80 @@ const generateDesignAction = defineAction({
       files.some(isRenderableDesignFile) ||
       existingFiles.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
       );
     }
 
-    await mutateDesignData({
-      designId,
-      mutate: (current) => current,
-      isApplied: () => true,
+    const creativeContextProvenance = await resolveDesignCreativeContext({
+      prompt,
+      generationSession,
+      ...(contextPackId ? { contextPackId } : {}),
+      ...(contextModeOverride ? { contextModeOverride } : {}),
+      reuseLabels: reuseLabels.map(
+        ({
+          itemId,
+          itemVersionId,
+          kind,
+          label,
+          dataRole,
+          elementId,
+          influence,
+        }) => ({
+          ...(itemId ? { itemId } : {}),
+          ...(itemVersionId ? { itemVersionId } : {}),
+          kind,
+          label,
+          dataRole,
+          ...(elementId ? { elementId } : {}),
+          ...(influence ? { influence } : {}),
+        }),
+      ),
     });
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
     for (const file of files) {
-      assertHubSpotEmailFrameContent({
-        content: file.content,
-        fileType: file.fileType ?? "html",
-        frameType: file.frameType,
-      });
+      try {
+        assertHubSpotEmailFrameContent({
+          content: file.content,
+          fileType: file.fileType,
+          ...(file.frameType ? { frameType: file.frameType } : {}),
+        });
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
     }
 
     const annotatedFiles = files.map((file) => ({
       ...file,
       content: annotateAgentScreenHtmlForPersist(file.content, file.fileType),
     }));
+
+    const liveFilesById = new Map<
+      string,
+      Awaited<ReturnType<typeof readLiveSourceFile>>
+    >();
+    for (const file of annotatedFiles) {
+      const existing = existingByName.get(file.filename);
+      if (!existing) continue;
+      const workspaceFile: SourceWorkspaceFile = {
+        id: existing.id,
+        designId: existing.designId,
+        filename: existing.filename,
+        fileType: existing.fileType,
+        content: existing.content,
+        createdAt: null,
+        updatedAt: null,
+      };
+      const live = await readLiveSourceFile(workspaceFile);
+      try {
+        assertLockedLayersPreserved(live.content, file.content);
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
+      liveFilesById.set(existing.id, live);
+    }
 
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
@@ -899,6 +961,14 @@ const generateDesignAction = defineAction({
       }
     }
 
+    await snapshotDesignBeforeAgentEdit(designId, context);
+
+    await mutateDesignData({
+      designId,
+      mutate: (current) => current,
+      isApplied: () => true,
+    });
+
     const fileErrors: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
@@ -920,9 +990,13 @@ const generateDesignAction = defineAction({
               createdAt: null,
               updatedAt: null,
             };
-            const live = await readLiveSourceFile(workspaceFile);
-
-            assertLockedLayersPreserved(live.content, file.content);
+            const live = liveFilesById.get(existing.id);
+            if (!live) {
+              // guard:allow-bare-error — invariant: every existing file is inserted during the preflight loop before this write phase.
+              throw new Error(
+                `Missing preflight source version for ${existing.filename}`,
+              );
+            }
 
             await writeInlineSourceFile({
               designId: existing.designId,
@@ -1722,8 +1796,6 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
-    if (fileErrors.length > 0) attempt.markPartial();
-
     return {
       designId,
       urlPath: firstRenderableSavedFile

@@ -16,9 +16,12 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
@@ -98,6 +101,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getBrowserCookieSession,
   isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
@@ -121,6 +125,8 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,
@@ -211,6 +217,8 @@ export {
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
 export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export { JEV_DECISIONS_MODEL } from "../decisions/decide.js";
+export { OPENAI_DECISIONS_MODEL } from "../decisions/providers/openai.js";
 export type {
   DecideOptions,
   DecideResult,
@@ -219,6 +227,7 @@ export type {
   DecisionInput,
   DecisionInputPart,
   DecisionProvider,
+  DecisionQuestionFailureReason,
   DecisionQuestion,
   DecisionResult,
   DecisionsStatus,
@@ -231,7 +240,10 @@ export {
   type CurrentTurnRunEvent,
 } from "../agent/run-store.js";
 export { callerHasThreadAccess } from "../agent/run-ownership.js";
-export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
+export {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -241,6 +253,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,
@@ -561,6 +574,10 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
@@ -947,6 +964,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {

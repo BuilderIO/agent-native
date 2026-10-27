@@ -303,6 +303,7 @@ import {
   personItems,
   personLabel,
   PersonPill,
+  propertyValueHasLinks,
   removePropertyOption,
   renamePropertyOption,
   updatePropertyOptionColor,
@@ -905,6 +906,24 @@ export function DatabaseItemPageIcon({
       className={cn("shrink-0 text-muted-foreground", fallbackClassName)}
     />
   );
+}
+
+/**
+ * Cards and list rows open their page from a click anywhere on them. Mouse
+ * convenience only: keyboard and assistive tech use the title button, and
+ * links and buttons inside, such as web addresses, keep their own behaviour.
+ * Clicks in menus portalled out of the card don't count.
+ */
+export function openDatabaseItemOnClick(onOpen: () => void) {
+  return (event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!event.currentTarget.contains(target)) return;
+    if (target.closest("a, button, input, textarea, [role='menuitem']")) {
+      return;
+    }
+    onOpen();
+  };
 }
 
 export function DatabaseView({
@@ -2693,30 +2712,24 @@ function DatabaseTable({
     ) {
       return;
     }
-    if (
-      !activeBuilderReview ||
-      !databaseBuilderReviewSelectedChangeSetIds(
-        activeBuilderReview,
-        reviewSource,
-        selection.changeSetIds,
-        !builderReviewResult
-          ? completeBuilderReviewPreview?.changeSetIds
-          : undefined,
-      )
-    ) {
+    const selectedChangeSetIds = activeBuilderReview
+      ? databaseBuilderReviewSelectedChangeSetIds(
+          activeBuilderReview,
+          reviewSource,
+          selection.changeSetIds,
+          databaseBuilderReviewAuthoritativeChangeSetIds({
+            prepared: builderReviewResult,
+            preparedChangeSetIdMap: builderReviewSelectionRemap,
+            completeChangeSetIds: completeBuilderReviewPreview?.changeSetIds,
+          }),
+        )
+      : null;
+    if (!activeBuilderReview || !selectedChangeSetIds) {
       toast.error(dbText("builderUpdateFailed"), {
         description: dbText("needsAFreshReview"),
       });
       return;
     }
-    const selectedChangeSetIds = databaseBuilderReviewSelectedChangeSetIds(
-      activeBuilderReview,
-      reviewSource,
-      selection.changeSetIds,
-      !builderReviewResult
-        ? completeBuilderReviewPreview?.changeSetIds
-        : undefined,
-    )!;
     const selectedChangeSetIdSet = new Set(selectedChangeSetIds);
     const selectionFingerprint = builderReviewSelectionFingerprint({
       changeSetIds: selectedChangeSetIds,
@@ -2839,16 +2852,12 @@ function DatabaseTable({
 
     setBuilderReviewCheckedAt(null);
     setBuilderReviewError(null);
-    let preparedReviewForError = activeBuilderReview;
+    const executions: DatabaseBuilderRowExecution[] = [];
     try {
-      let nextReview = preparedReview;
-      preparedReviewForError = nextReview;
-
       const executableRows = builderReviewExecutableRows(
-        nextReview,
+        preparedReview,
         selectedChangeSetIdSet,
       );
-      let executedResponse: ContentDatabaseResponsePayload | null = null;
       for (const row of executableRows) {
         if (!row.execution?.idempotencyKey) continue;
         if (
@@ -2859,15 +2868,13 @@ function DatabaseTable({
         ) {
           return;
         }
-        const transition = selection.transitions[row.changeSetId];
-        executedResponse = await executeBuilderExecution.mutateAsync({
+        const executedResponse = await executeBuilderExecution.mutateAsync({
           documentId: document.id,
           sourceId: session.sourceId,
           changeSetId: row.changeSetId,
           idempotencyKey: row.execution.idempotencyKey,
-          pushModeConfirmation: nextReview.pushMode,
-          publicationTransition: transition?.publicationTransition,
-          confirmUnpublish: transition?.confirmUnpublish,
+          pushModeConfirmation: preparedReview.pushMode,
+          ...selection.transitions[row.changeSetId],
         });
         if (
           !databaseBuilderReviewSessionIsCurrent(
@@ -2877,44 +2884,42 @@ function DatabaseTable({
         ) {
           return;
         }
-      }
-      const executedSource = executedResponse
-        ? databaseAttachedBuilderSource(
-            databaseAttachedSources(
-              executedResponse.sources,
-              executedResponse.source,
-            ),
+        const executedSource = databaseAttachedBuilderSource(
+          databaseAttachedSources(
+            executedResponse.sources,
             executedResponse.source,
-            { sourceId: session.sourceId },
-          )
-        : null;
-      if (executedSource) {
-        const reviewedIds = new Set(
-          nextReview.rows.map((row) => row.changeSetId),
+          ),
+          executedResponse.source,
+          { sourceId: session.sourceId },
         );
-        const reviewedChangeSets = executedSource.changeSets.filter(
-          (changeSet) => reviewedIds.has(changeSet.id),
-        );
-        if (reviewedChangeSets.length > 0) {
-          nextReview = buildClientBuilderReviewPayload(
-            executedSource,
-            reviewedChangeSets,
-          );
-        }
+        executions.push({
+          changeSetId: row.changeSetId,
+          source: executedSource ?? null,
+        });
       }
-
-      if (
-        !databaseBuilderReviewSessionIsCurrent(
-          builderReviewSessionRef.current,
-          session,
-        )
-      ) {
+      const nextReview = databaseBuilderReviewAfterExecution(
+        preparedReview,
+        executions,
+      );
+      setPreparedBuilderReviewConfirmation(null);
+      if (!nextReview) {
+        const message = dbText("builderPushResultNotLoaded");
+        const confirmedReview = databaseBuilderReviewAfterPartialExecution(
+          preparedReview,
+          executions,
+          message,
+        );
+        if (confirmedReview) {
+          setBuilderReviewResult(confirmedReview);
+          setBuilderReviewCheckedAt(new Date().toISOString());
+        }
+        setBuilderReviewError(message);
+        toast.error(message);
         return;
       }
       setBuilderReviewResult(nextReview);
       setBuilderReviewCheckedAt(new Date().toISOString());
       setBuilderReviewError(null);
-      setPreparedBuilderReviewConfirmation(null);
       if (nextReview.result.status === "running") {
         toast.info(dbText("working"), {
           description: dbText("builderPushAlreadyRunning"),
@@ -2941,17 +2946,18 @@ function DatabaseTable({
       const message =
         error instanceof Error ? error.message : dbText("tryAgain");
       setPreparedBuilderReviewConfirmation(null);
-      const ambiguousReview = databaseBuilderReviewAfterExecutionError(
-        preparedReviewForError,
+      const reviewAfterError = databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        executions,
         message,
       );
-      if (ambiguousReview) {
-        setBuilderReviewResult(ambiguousReview);
+      if (reviewAfterError) {
+        setBuilderReviewResult(reviewAfterError);
         setBuilderReviewCheckedAt(new Date().toISOString());
-        if (ambiguousReview.result.status === "running") {
+        if (reviewAfterError.result.status === "running") {
           setBuilderReviewError(null);
           toast.info(dbText("working"), {
-            description: ambiguousReview.result.message,
+            description: reviewAfterError.result.message,
           });
           return;
         }
@@ -4666,6 +4672,83 @@ export function databaseBuilderReviewAfterExecutionError(
   return null;
 }
 
+export type DatabaseBuilderRowExecution = {
+  changeSetId: string;
+  source: ContentDatabaseSource | null;
+};
+
+/**
+ * The review after a push that ended on an error: a thrown error, or a
+ * response that came back without its change set. Pushed rows show the
+ * result their own response carried; a row whose response lacked its change
+ * set keeps its prepared state. The review's result is the error, never a
+ * success. Null when no pushed row confirmed and the error leaves no state
+ * to show.
+ */
+export function databaseBuilderReviewAfterPartialExecution(
+  review: ContentDatabaseSourceReviewPayload,
+  executions: DatabaseBuilderRowExecution[],
+  message: string,
+) {
+  const confirmed = executions.filter(({ changeSetId, source }) =>
+    source?.changeSets.some((changeSet) => changeSet.id === changeSetId),
+  );
+  const pushed =
+    confirmed.length > 0
+      ? databaseBuilderReviewAfterExecution(review, confirmed)
+      : null;
+  return (
+    databaseBuilderReviewAfterExecutionError(pushed ?? review, message) ??
+    (pushed
+      ? { ...pushed, result: { status: "failed" as const, message } }
+      : null)
+  );
+}
+
+/**
+ * The review after a push, built from the Builder source each execution
+ * returned. Each execution answers for its own row; null when an executed
+ * row's change set did not come back. Rows the push skipped keep their
+ * prepared state.
+ */
+export function databaseBuilderReviewAfterExecution(
+  review: ContentDatabaseSourceReviewPayload,
+  executions: DatabaseBuilderRowExecution[],
+) {
+  const sources = executions.flatMap(({ source }) => (source ? [source] : []));
+  const latestSource = sources.length > 0 ? sources[sources.length - 1] : null;
+  if (!latestSource) return null;
+  const changeSetsById = new Map(
+    sources.flatMap((source) =>
+      source.changeSets.map((changeSet) => [changeSet.id, changeSet] as const),
+    ),
+  );
+  const changeSets = executions.flatMap(({ changeSetId }) => {
+    const changeSet = changeSetsById.get(changeSetId);
+    return changeSet ? [changeSet] : [];
+  });
+  if (changeSets.length !== executions.length) return null;
+  const rowsById = new Map(
+    sources.flatMap((source) =>
+      source.rows.map((row) => [row.id, row] as const),
+    ),
+  );
+  const pushed = buildClientBuilderReviewPayload(
+    { ...latestSource, rows: [...rowsById.values()] },
+    changeSets,
+  );
+  const pushedRows = new Map(
+    pushed.rows.map((row) => [row.changeSetId, row] as const),
+  );
+  return {
+    ...pushed,
+    summary: review.summary,
+    riskLevel: review.riskLevel,
+    riskReasons: review.riskReasons,
+    rows: review.rows.map((row) => pushedRows.get(row.changeSetId) ?? row),
+  };
+}
+
 export function databaseBuilderReviewBelongsToSource(
   review: ContentDatabaseSourceReviewPayload,
   source: ContentDatabaseSource,
@@ -4752,6 +4835,23 @@ export function databaseBuilderPreparedReviewSelection(
       ]),
     ),
   };
+}
+
+/**
+ * The change set ids a review must come from. A collection page carries only
+ * its own rows' change sets, so a review of a row past the first page can't be
+ * checked against the page: before prepare it's checked against the complete
+ * preview, and after prepare against the ids prepare returned.
+ */
+export function databaseBuilderReviewAuthoritativeChangeSetIds(args: {
+  prepared: ContentDatabaseSourceReviewPayload | null;
+  preparedChangeSetIdMap: Record<string, string> | null;
+  completeChangeSetIds: string[] | undefined;
+}) {
+  if (!args.prepared) return args.completeChangeSetIds;
+  return args.preparedChangeSetIdMap
+    ? Object.values(args.preparedChangeSetIdMap)
+    : undefined;
 }
 
 export function databaseBuilderReviewSelectedChangeSetIds(
@@ -8517,7 +8617,7 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
   {
     mode: "stage_only",
     labelKey: "stageOnly",
-    descriptionKey: "savesDraftsNeverPublishes",
+    descriptionKey: "savesChangesNeverPublishes",
   },
   {
     mode: "publish_updates",
@@ -12912,14 +13012,17 @@ function DatabaseCalendarCard({
   const visibleProperties = properties.slice(0, 2);
 
   return (
-    <div className="group/card rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60">
+    <div
+      className="group/card cursor-pointer rounded border border-border bg-background px-2 py-1.5 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      onClick={openDatabaseItemOnClick(onPreview)}
+    >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          className="grid min-w-0 flex-1 gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 font-medium">
+        <div className="grid min-w-0 flex-1 gap-1">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
             <DatabaseItemPageIcon
               document={item.document}
               className="size-3.5 text-xs"
@@ -12928,7 +13031,7 @@ function DatabaseCalendarCard({
             <span className="truncate">
               {item.document.title || "Untitled"}
             </span>
-          </span>
+          </button>
           {visibleProperties.length > 0 ? (
             <span className="grid gap-0.5">
               {visibleProperties.map((property) => {
@@ -12945,14 +13048,16 @@ function DatabaseCalendarCard({
                   >
                     <Icon className="size-3 shrink-0" />
                     <span className="truncate">
-                      {displayValue(itemProperty)}
+                      {displayValue(itemProperty, undefined, "compact", {
+                        interactiveUrls: true,
+                      })}
                     </span>
                   </span>
                 );
               })}
             </span>
           ) : null}
-        </button>
+        </div>
         {canEdit ? (
           <RowActionsCell
             item={item}
@@ -13608,7 +13713,7 @@ function DatabaseBoardCard({
   canEdit: boolean;
   draggable: boolean;
   isDragging: boolean;
-  onDragStart: (event: ReactDragEvent<HTMLButtonElement>) => void;
+  onDragStart: (event: ReactDragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
   onPreviewItem: (item: ContentDatabaseItem) => void;
   onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
@@ -13618,25 +13723,26 @@ function DatabaseBoardCard({
   const visibleProperties = properties.slice(0, 3);
 
   return (
+    // The whole card drags and opens, but only the title is the button, so
+    // links in its values stay links.
     <div
+      draggable={draggable}
       className={cn(
-        "group/card rounded-md border border-border bg-background p-2 shadow-sm transition-colors hover:bg-accent/60",
+        "group/card cursor-pointer rounded-md border border-border bg-background p-2 shadow-sm transition-colors hover:bg-accent/60",
+        draggable && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
       )}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          draggable={draggable}
-          className={cn(
-            "grid min-w-0 flex-1 gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            draggable && "cursor-grab active:cursor-grabbing",
-          )}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+        <div className="grid min-w-0 flex-1 gap-2">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-1.5 rounded text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
             <DatabaseItemPageIcon
               document={item.document}
               className="size-4 text-sm"
@@ -13645,7 +13751,10 @@ function DatabaseBoardCard({
             <span className="min-w-0 truncate">
               {item.document.title || "Untitled"}
             </span>
-          </span>
+            {!canEdit ? null : (
+              <span className="sr-only">{dbText("openPage")}</span>
+            )}
+          </button>
           {visibleProperties.length > 0 ? (
             <span className="grid gap-1">
               {visibleProperties.map((property) => {
@@ -13662,17 +13771,16 @@ function DatabaseBoardCard({
                   >
                     <Icon className="size-3.5 shrink-0" />
                     <span className="truncate">
-                      {displayValue(itemProperty)}
+                      {displayValue(itemProperty, undefined, "compact", {
+                        interactiveUrls: true,
+                      })}
                     </span>
                   </span>
                 );
               })}
             </span>
           ) : null}
-          {!canEdit ? null : (
-            <span className="sr-only">{dbText("openPage")}</span>
-          )}
-        </button>
+        </div>
         {canEdit ? (
           <RowActionsCell
             item={item}
@@ -14791,6 +14899,7 @@ function databaseTableCellDisplayValue(
 
   return displayValue(property, undefined, wrapCells ? "wrapped" : "compact", {
     interactiveRelations: true,
+    interactiveUrls: true,
   });
 }
 
@@ -19549,7 +19658,7 @@ function DatabaseTableRow({
               besideEditButton={
                 canEdit &&
                 itemProperty.editable &&
-                itemProperty.definition.type === "relation"
+                propertyValueHasLinks(itemProperty)
               }
             />
           </div>

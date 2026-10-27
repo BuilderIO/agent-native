@@ -1152,8 +1152,14 @@ describe("AgentChat lifecycle", () => {
       revision: 2,
     });
     await flush();
-    expect(tree.container.querySelector(".agentkit-activities")).toBeNull();
-    expect(tree.container.textContent).not.toContain("Worked for");
+    // The saved reply kept no reasoning, so only the turn's time is left, and
+    // with no model or usage recorded it has nothing to open to.
+    const settled = tree.container.querySelectorAll<HTMLElement>(
+      ".agentkit-activities",
+    );
+    expect(settled).toHaveLength(1);
+    expect(settled[0]?.dataset.expandable).toBe("false");
+    expect(settled[0]?.textContent).toBe("Worked for 4s");
     expect(
       tree.container
         .querySelector('[data-message-id="assistant-1"]')

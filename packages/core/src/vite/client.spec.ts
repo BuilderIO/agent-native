@@ -11,7 +11,6 @@ import { parseChangelog } from "../changelog/parse.js";
 import { DEV_SERVER_RECOVERY_EXIT_CODE } from "../cli/process.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import { getMissingCoreOptionalPeers } from "../shared/optional-peer-ssr.js";
-import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
 import { readAgentNativeBuildConfigMarker } from "./agent-native-config-loader.js";
 import {
   _debounceNitroFullReloadHotUpdate,
@@ -42,7 +41,7 @@ const mockWriteDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
 const mockHashDatabaseKey = vi.hoisted(() =>
   vi.fn((url: string) => `hash:${url}`),
 );
-const mockResolveEmbedSessionTokenForHost = vi.hoisted(() => vi.fn());
+const mockResolveEmbedSessionTokenForOrigin = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/dev-action-bridge.js", () => ({
   hashDatabaseKey: (...args: unknown[]) => mockHashDatabaseKey(...args),
@@ -56,8 +55,8 @@ vi.mock("../server/embed-session.js", async (importOriginal) => {
     await importOriginal<typeof import("../server/embed-session.js")>();
   return {
     ...actual,
-    resolveEmbedSessionTokenForHost: (...args: unknown[]) =>
-      mockResolveEmbedSessionTokenForHost(...args),
+    resolveEmbedSessionTokenForOrigin: (...args: unknown[]) =>
+      mockResolveEmbedSessionTokenForOrigin(...args),
   };
 });
 
@@ -831,7 +830,7 @@ describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
 
   beforeEach(() => {
-    mockResolveEmbedSessionTokenForHost.mockReset();
+    mockResolveEmbedSessionTokenForOrigin.mockReset();
   });
 
   afterEach(() => {
@@ -976,7 +975,7 @@ describe("dev server mounted path helpers", () => {
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1000,7 +999,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
@@ -1009,6 +1008,7 @@ describe("dev server mounted path helpers", () => {
         `/assets/@id/__x00__virtual:react-router/browser-manifest` +
         `?__an_embed_token=${token}&__an_mcp_chat_bridge=1`,
       headers: { host: "beta.calendar.agent-native.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = {
       headersSent: false,
@@ -1024,9 +1024,9 @@ describe("dev server mounted path helpers", () => {
     await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
 
     expect(next).not.toHaveBeenCalled();
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "beta.calendar.agent-native.com",
+      "http://beta.calendar.agent-native.com",
     );
     expect(server.transformRequest).toHaveBeenCalledWith(
       "\0virtual:react-router/browser-manifest",
@@ -1115,7 +1115,7 @@ describe("dev server mounted path helpers", () => {
 
   it("keeps Vite module queries for mounted static files", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue({});
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue({});
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1134,7 +1134,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const res = {
@@ -1152,6 +1152,7 @@ describe("dev server mounted path helpers", () => {
         method: "GET",
         url: `/assets/app/global.css?url&__an_embed_token=${token}`,
         headers: { host: "beta.calendar.agent-native.com" },
+        socket: { remoteAddress: "203.0.113.20" },
       },
       res,
       next,
@@ -1167,7 +1168,7 @@ describe("dev server mounted path helpers", () => {
   });
 
   it("does not serve a mounted module when its token audience does not match the host", async () => {
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue(null);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1183,13 +1184,14 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
       method: "GET",
       url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
       headers: { host: "other.example.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -1197,16 +1199,16 @@ describe("dev server mounted path helpers", () => {
     middleware!(req, res, next);
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
 
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "other.example.com",
+      "http://other.example.com",
     );
     expect(server.transformRequest).not.toHaveBeenCalled();
     expect(res.end).not.toHaveBeenCalled();
   });
 
   it("does not serve a mounted module for a revoked embed identity", async () => {
-    mockResolveEmbedSessionTokenForHost.mockResolvedValue(null);
+    mockResolveEmbedSessionTokenForOrigin.mockResolvedValue(null);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1222,7 +1224,7 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
@@ -1232,6 +1234,7 @@ describe("dev server mounted path helpers", () => {
         host: "beta.calendar.agent-native.com",
         cookie: `an_embed_session=${encodeURIComponent(token)}`,
       },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -1239,9 +1242,9 @@ describe("dev server mounted path helpers", () => {
     middleware!(req, res, next);
     await vi.waitFor(() => expect(next).toHaveBeenCalledOnce());
 
-    expect(mockResolveEmbedSessionTokenForHost).toHaveBeenCalledWith(
+    expect(mockResolveEmbedSessionTokenForOrigin).toHaveBeenCalledWith(
       token,
-      "beta.calendar.agent-native.com",
+      "http://beta.calendar.agent-native.com",
     );
     expect(server.transformRequest).not.toHaveBeenCalled();
     expect(res.end).not.toHaveBeenCalled();
@@ -1249,7 +1252,7 @@ describe("dev server mounted path helpers", () => {
 
   it("passes embed validation failures to Vite's error handling", async () => {
     const failure = new Error("revocation lookup failed");
-    mockResolveEmbedSessionTokenForHost.mockRejectedValue(failure);
+    mockResolveEmbedSessionTokenForOrigin.mockRejectedValue(failure);
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;
     const server = {
@@ -1265,13 +1268,14 @@ describe("dev server mounted path helpers", () => {
     const token = signEmbedSessionToken({
       ownerEmail: "owner@example.com",
       targetPath: "/picker?mediaType=image",
-      audienceHost: "beta.calendar.agent-native.com",
+      audienceHost: "http://beta.calendar.agent-native.com",
       ttlSeconds: 60,
     });
     const req = {
       method: "GET",
       url: `/assets/@id/__x00__virtual:react-router/browser-manifest?__an_embed_token=${token}`,
       headers: { host: "beta.calendar.agent-native.com" },
+      socket: { remoteAddress: "203.0.113.20" },
     };
     const res = { headersSent: false, setHeader: vi.fn(), end: vi.fn() };
     const next = vi.fn();
@@ -2232,9 +2236,13 @@ describe("agent-native app config", () => {
     }
   });
 
-  it("skips build diagnostics only for React Router typegen", async () => {
+  // oracle-change: the AGENT_NATIVE_TYPEGEN skip is gone because typecheck's
+  // typegen no longer loads this plugin; the production warning still fires.
+  it("warns about production configuration errors during a production build", async () => {
     const previousCwd = process.cwd();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-typegen-config-"));
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-production-config-"),
+    );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fs.writeFileSync(
       path.join(tmpDir, "agent-native.json"),
@@ -2248,11 +2256,6 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, "1");
-      await configPlugin.config({}, { command: "build", mode: "production" });
-      expect(warn).not.toHaveBeenCalled();
-
-      vi.stubEnv(AGENT_NATIVE_TYPEGEN_ENV, undefined);
       await configPlugin.config({}, { command: "build", mode: "production" });
       expect(warn).toHaveBeenCalledOnce();
       expect(warn.mock.calls[0][0]).toContain(
@@ -2260,7 +2263,6 @@ describe("agent-native app config", () => {
       );
     } finally {
       warn.mockRestore();
-      vi.unstubAllEnvs();
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

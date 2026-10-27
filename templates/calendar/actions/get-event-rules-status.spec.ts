@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getDecisionsStatus: vi.fn(),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
-  getJevContextCredentials: vi.fn(async () => ({})),
-  isJevEnabled: vi.fn(async () => true),
   hasRecurringSweepHandler: vi.fn(() => true),
   scheduledTriggerAvailability: vi.fn(() => ({
     available: true,
@@ -12,11 +11,12 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/decisions", () => ({
+  getDecisionsStatus: mocks.getDecisionsStatus,
+}));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
   hasRecurringSweepHandler: mocks.hasRecurringSweepHandler,
-  isJevEnabled: mocks.isJevEnabled,
   scheduledTriggerAvailability: mocks.scheduledTriggerAvailability,
 }));
 vi.mock("@agent-native/core/settings", () => ({
@@ -25,10 +25,22 @@ vi.mock("@agent-native/core/settings", () => ({
 
 import action from "./get-event-rules-status.js";
 
+const unavailable = {
+  providers: [
+    { provider: "jev", status: "not_configured" },
+    { provider: "openai", status: "not_configured" },
+  ],
+};
+
 describe("get-event-rules-status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isJevEnabled.mockResolvedValue(true);
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "ready" },
+        { provider: "openai", status: "not_configured" },
+      ],
+    });
   });
 
   it("returns per-account token refresh errors for settings", async () => {
@@ -42,6 +54,7 @@ describe("get-event-rules-status", () => {
     const result = await action.run({}, { caller: "frontend" } as never);
 
     expect(result).toMatchObject({
+      decisionProviderConfigured: true,
       jevConfigured: true,
       lastError: "Calendar event rules failed for 1 owner(s).",
       accountRefreshErrors: [
@@ -50,15 +63,46 @@ describe("get-event-rules-status", () => {
     });
   });
 
-  it("reports Jev availability for gating invitation-rule editing", async () => {
-    mocks.isJevEnabled.mockResolvedValue(false);
+  it("reports OpenAI availability for invitation-rule editing", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "ready" },
+      ],
+    });
     mocks.getUserSetting.mockResolvedValue(null);
 
     const result = await action.run({}, { caller: "frontend" } as never);
 
-    expect(mocks.getJevContextCredentials).toHaveBeenCalledWith(
-      "owner@example.com",
-    );
-    expect(result).toMatchObject({ jevConfigured: false });
+    expect(mocks.getDecisionsStatus).toHaveBeenCalledWith("owner@example.com");
+    expect(result).toMatchObject({
+      decisionProviderConfigured: true,
+      jevConfigured: true,
+    });
+  });
+
+  it("reports false when no provider is configured", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(unavailable);
+    mocks.getUserSetting.mockResolvedValue(null);
+
+    const result = await action.run({}, { caller: "frontend" } as never);
+
+    expect(result).toMatchObject({
+      decisionProviderConfigured: false,
+      jevConfigured: false,
+    });
+  });
+
+  it("does not turn an unknown provider status into unavailable", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "unknown" },
+        { provider: "openai", status: "not_configured" },
+      ],
+    });
+
+    await expect(
+      action.run({}, { caller: "frontend" } as never),
+    ).rejects.toThrow("Decision provider availability could not be checked.");
   });
 });

@@ -11,6 +11,13 @@ describe("Clips shared navigation", () => {
     expect(pathFromCommand({ view: "shared" })).toBe("/shared");
   });
 
+  it("describes and maps the From Content list", () => {
+    expect(stateFromLocation("/from-content", "")).toEqual({
+      view: "from-content",
+    });
+    expect(pathFromCommand({ view: "from-content" })).toBe("/from-content");
+  });
+
   it("describes the focused viewer panel and requested timestamp", () => {
     expect(
       stateFromLocation("/r/recording-1", "?panel=transcript&at=42000"),

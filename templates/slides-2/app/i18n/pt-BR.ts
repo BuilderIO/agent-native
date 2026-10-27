@@ -105,7 +105,7 @@ const messages = {
     retry: "Tentar novamente",
     reload: "Recarregar",
     mcpAbout:
-      "Conecte o Slides 2 ao Claude, ChatGPT, Cursor ou qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides 2 por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
+      "Conecte este espaço de trabalho ao Claude, ChatGPT, Cursor ou outro app compatível com MCP. Ele pode criar apresentações, adicionar slides e exportar para PowerPoint, com acesso limitado ao que você consegue ver.",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -310,7 +310,7 @@ const messages = {
     deleteError: "Falha ao excluir o sistema de design",
     emptyTitle: "Configure sua identidade de marca",
     emptyDescription:
-      "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada novo deck seguirá sua identidade visual.",
+      "Escolha suas cores, fontes e logo uma vez. Novas apresentações vão manter esse visual em todos os slides, para você focar na história.",
     tierLimitTitle: "Limite de sistemas de design atingido",
     tierLimitDescription:
       "Você atingiu o limite de sistemas de design do seu plano Builder. Faça upgrade do seu plano Builder para criar outro.",
@@ -813,7 +813,7 @@ const messages = {
   generateSlides: {
     title: "Generar diapositivas con AI",
     description:
-      "Describe el tema de tu presentación y AI generará diapositivas para ti.",
+      "Compartilhe um tema, e seu agente vai montar os slides com você.",
     topic: "Tema",
     topicPlaceholder:
       "p. ej. Introducción a React Hooks, informe de ventas Q4, roadmap de producto 2025...",
@@ -1469,7 +1469,7 @@ const messages = {
     newDeckPromptTitle: "Nova apresentação",
     newDeckPlaceholder: "Descreva a apresentação que você quer gerar...",
     skipPrompt: "Pular prompt",
-    firstDeckPromptTitle: "Vamos criar sua primeira apresentação",
+    firstDeckPromptTitle: "Vamos criar sua primeira apresentação juntos.",
     firstDeckSkip: "Pular",
     chooseReferences: "Escolher referências",
     addDesignSystem: "+ Sistema de design",
@@ -1532,7 +1532,8 @@ const messages = {
     signIn: "Entrar",
     emptyTitle: "Ainda não há decks",
     createFirstDeck: "Crie seu primeiro deck",
-    emptyDescription: "Crie belas apresentações com geração por IA.",
+    emptyDescription:
+      "Comece com uma ideia e monte sua apresentação com a ajuda do seu agente.",
   },
   agentChat: {
     setup: {

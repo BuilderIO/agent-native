@@ -2181,6 +2181,19 @@ export default {
       added: "Screen जोड़ी गई",
       addFailed: "Screen नहीं जोड़ी जा सकी",
     },
+    localhostConsent: {
+      approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
+      approvedDescription:
+        "फ़ाइल लिखने की अनुमति 8 घंटे के लिए है। जिस संपादन ने एक्सेस माँगा था, वह सहेजा नहीं गया।",
+      retryInChat: "चैट में फिर से चलाएँ",
+      retryPrompt:
+        "{{rootPath}} के लिए फ़ाइल लिखने की अनुमति स्वीकृत है। जिस संपादन को इसकी ज़रूरत थी, उसे फिर से चलाएँ।",
+      unavailableTitle: "यह लिखने का अनुरोध अब लंबित नहीं है",
+      unavailableDescription: "एक्सेस माँगने के लिए संपादन फिर से चलाएँ।",
+      close: "बंद करें",
+      prepareSignInError:
+        "साइन इन से पहले यह अनुरोध सहेजा नहीं जा सका। फिर से कोशिश करें।",
+    },
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",
       send: "भेजें",

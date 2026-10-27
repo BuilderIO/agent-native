@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajustar à largura",
   githubLinkTitle: "Vincular uma pasta do GitHub",
   githubNewCollectionTitle: "Nova coleção a partir de uma pasta do GitHub",
   githubLinkDescription:
@@ -278,7 +279,37 @@ const database = {
     "Conecte uma coleção do Builder ou outra tabela para mapeá-la nessas linhas.",
   noBuilderWrites: "Sem gravações no Builder.",
   stageOnly: "Apenas preparar",
-  savesDraftsNeverPublishes: "Salva rascunhos no Builder — nunca publica.",
+  savesChangesNeverPublishes: "Salva alterações no Builder — nunca publica.",
+  builderEffectNewTag: "Novo",
+  builderEffectNewSentence: "Cria uma nova entrada de rascunho",
+  builderEffectEditTag: "Editar",
+  builderEffectEditSentence: "Atualiza a entrada publicada",
+  builderEffectSaveTag: "Salvar",
+  builderEffectAutosaveSentence:
+    "Salvo, só fica no ar quando você publicar no Builder",
+  builderEffectSaveDraftSentence: "Salva o rascunho",
+  builderEffectPublishTag: "Publicar",
+  builderEffectPublishSentence: "Publica esta entrada",
+  builderEffectUnpublishTag: "Despublicar",
+  builderEffectUnpublishSentence: "Despublica a entrada publicada",
+  builderIntentNewOne: "1 rascunho a criar",
+  builderIntentNew: "{{count}} rascunhos a criar",
+  builderIntentEditOne: "1 atualização",
+  builderIntentEdit: "{{count}} atualizações",
+  builderIntentSaveOne: "1 salvamento",
+  builderIntentSave: "{{count}} salvamentos",
+  builderIntentPublish: "{{count}} a publicar",
+  builderIntentUnpublish: "{{count}} a despublicar",
+  builderIntentNone: "Nenhuma alteração",
+  builderPushVerbCheck: "Verificar",
+  builderPushVerbPublish: "Publicar",
+  builderPushVerbUnpublish: "Despublicar",
+  builderPushVerbCreateOne: "Criar rascunho",
+  builderPushVerbCreate: "Criar {{count}} rascunhos",
+  builderPushVerbSaveOne: "Salvar no Builder",
+  builderPushVerbSave: "Salvar {{count}} no Builder",
+  builderPushVerbPushOne: "Enviar atualização",
+  builderPushVerbPush: "Enviar {{count}} atualizações",
   publishUpdates: "Publicar atualizações",
   writesUpdatesToLiveEntries: "Grava atualizações nas entradas ao vivo.",
   sourcesFeedingThisColumn: "Fontes que alimentam esta coluna",
@@ -345,6 +376,8 @@ const database = {
   failedToCreateRow: "Falha ao criar linha",
   pageCreatedCollectionRefreshFailed:
     "A página foi criada, mas esta coleção não pôde ser atualizada. Recarregue para vê-la.",
+  builderPushResultNotLoaded:
+    "A atualização chegou ao Builder, mas esta revisão não conseguiu carregar o resultado. Recarregue para vê-lo.",
   failedToDeleteRow: "Falha ao excluir linha",
   failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
   failedToDuplicateEverySelectedRow:
@@ -686,6 +719,27 @@ const editor = {
     purple: "Roxo",
     pink: "Rosa",
     red: "Vermelho",
+    defaultText: "Texto padrão",
+    defaultBackground: "Fundo padrão",
+    textChoice: "Texto: {{color}}",
+    backgroundChoice: "Fundo: {{color}}",
+  },
+  blockMenu: {
+    label: "Ações do bloco",
+    duplicate: "Duplicar",
+    delete: "Excluir",
+    insertBelow: "Inserir bloco abaixo",
+    search: "Pesquisar ações...",
+    noResults: "Nenhum resultado",
+    block: "Bloco",
+    keyCtrl: "Ctrl",
+    keyShift: "Shift",
+    keyDelete: "Del",
+    lockedSource:
+      "Componentes do arquivo de origem não podem ser duplicados nem excluídos aqui.",
+    lockedSuggesting:
+      "Sugestões não podem adicionar nem remover este tipo de bloco.",
+    lockedPage: "Esta página não permite essa alteração.",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -1029,7 +1083,7 @@ const editor = {
     todoListDescription: "Itens da lista de verificação",
     toggle: "Alternar",
     toggleDescription: "Linha de alternância de estilo de noção",
-    turnInto: "Transforme-se em",
+    turnInto: "Transformar em",
     video: "Vídeo",
     videoDescription: "Carregar ou incorporar vídeo",
   },
@@ -1376,6 +1430,14 @@ const exactEnglish = {
       "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
     proposalUnplaceable:
       "Uma destas sugestões não pode ser aplicada porque o texto ao redor dela mudou, então nenhuma foi aplicada. Todas continuam pendentes: aceite ou rejeite uma de cada vez.",
+    suggestionAcceptFailed: "Não foi possível aceitar a sugestão",
+    suggestionRejectFailed: "Não foi possível rejeitar a sugestão",
+    proposalAcceptFailed: "Não foi possível aceitar as sugestões",
+    proposalRejectFailed: "Não foi possível rejeitar as sugestões",
+    suggestionDecisionReverted:
+      "Ela voltou a ficar pendente. Tudo o que você digitou depois foi mantido.",
+    proposalDecisionReverted:
+      "Elas voltaram a ficar pendentes. Tudo o que você digitou depois foi mantido.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",

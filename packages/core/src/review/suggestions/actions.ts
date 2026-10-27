@@ -42,6 +42,14 @@ import type {
 } from "./types.js";
 
 const base = { resourceType: z.string().min(1), resourceId: z.string().min(1) };
+// Sent by an editor that shows the resource live, so an accept lands where
+// the reviewer saw it while others keep typing. Agents leave it out.
+const suggestionPlacement = z
+  .record(z.string(), z.unknown())
+  .optional()
+  .describe(
+    "Set by the resource's editor to say where it showed the suggestion. Leave it out.",
+  );
 const operation = z.object({
   ordinal: z.number().int().nonnegative(),
   kind: z.string().min(1),
@@ -579,6 +587,7 @@ export const decideResourceSuggestion = defineAction({
     idempotencyKey: z.string().min(1),
     observedBase: z.string().min(1),
     observedRevision: z.number().int().positive().optional(),
+    placement: suggestionPlacement,
   }),
   mcpAnnotations: {
     readOnlyHint: false,
@@ -687,6 +696,7 @@ export const decideResourceSuggestion = defineAction({
             },
             transaction: tx,
             coordination,
+            placement: args.placement,
           });
         } catch (error) {
           // Failing inside the transaction also rolls back the claim and
@@ -1065,6 +1075,7 @@ export const decideResourceSuggestionProposal = defineAction({
           id: z.string().min(1),
           observedRevision: z.number().int().positive(),
           observedBase: z.string().min(1),
+          placement: suggestionPlacement,
         }),
       )
       .min(1),
@@ -1099,10 +1110,16 @@ export const decideResourceSuggestionProposal = defineAction({
       });
     }
     const reviewer = (ctx as any)?.userEmail ?? null;
+    // A retry from another editor shows the words elsewhere; it's the same
+    // decision.
     const request = stableJson({
       proposalId: args.proposalId,
       decision: args.decision,
-      members,
+      members: members.map(({ id, observedRevision, observedBase }) => ({
+        id,
+        observedRevision,
+        observedBase,
+      })),
     })!;
     const initial = await getSuggestion(members[0]!.id, db);
     if (!initial || initial.proposalId !== proposal.id) {
@@ -1195,7 +1212,7 @@ export const decideResourceSuggestionProposal = defineAction({
         }
         throw error;
       };
-      for (const suggestion of suggestions) {
+      for (const [index, suggestion] of suggestions.entries()) {
         const updated = await updateSuggestionStatus(
           tx,
           suggestion.id,
@@ -1222,6 +1239,7 @@ export const decideResourceSuggestionProposal = defineAction({
               },
               transaction: tx,
               coordination,
+              placement: members[index]?.placement,
             });
           } catch (error) {
             staleProposal(error);

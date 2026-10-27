@@ -644,8 +644,41 @@ describe("createAnthropicEngine", () => {
       abortSignal: new AbortController().signal,
     });
 
-    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.thinking).toEqual({
+      type: "adaptive",
+      display: "summarized",
+    });
     expect(requestParams).not.toHaveProperty("output_config");
+  });
+
+  it("asks for summarized thinking only where the default omits it", async () => {
+    const thinkingFor = async (model: string) =>
+      (
+        await captureRequestParams({
+          model,
+          systemPrompt: "You are helpful.",
+          messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+          reasoningEffort: "high",
+        })
+      ).thinking;
+
+    for (const model of [
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-opus-4-7",
+      "claude-fable-5-1",
+    ]) {
+      expect(await thinkingFor(model)).toEqual({
+        type: "adaptive",
+        display: "summarized",
+      });
+    }
+    // These already summarize and reject the field.
+    for (const model of ["claude-opus-4-6", "claude-sonnet-4-6"]) {
+      expect(await thinkingFor(model)).toEqual({ type: "adaptive" });
+    }
   });
 
   it("leaves a manual-thinking model's provider default alone when no effort is chosen", async () => {
@@ -689,7 +722,10 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "medium",
     });
 
-    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.thinking).toEqual({
+      type: "adaptive",
+      display: "summarized",
+    });
     expect(requestParams.output_config).toEqual({ effort: "medium" });
     expect(requestParams.temperature).toBeUndefined();
   });
@@ -716,7 +752,10 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "high",
     });
 
-    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.thinking).toEqual({
+      type: "adaptive",
+      display: "summarized",
+    });
     expect(requestParams.output_config).toEqual({ effort: "high" });
   });
 
@@ -1088,7 +1127,10 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
       temperature: 0,
     });
 
-    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.thinking).toEqual({
+      type: "adaptive",
+      display: "summarized",
+    });
     expect(requestParams.temperature).toBeUndefined();
     expect("temperature" in requestParams).toBe(false);
   });

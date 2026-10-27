@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "너비에 맞추기",
   githubLinkTitle: "GitHub 폴더 연결",
   githubNewCollectionTitle: "GitHub 폴더로 새 컬렉션 만들기",
   githubLinkDescription:
@@ -271,7 +272,38 @@ const database = {
     "Builder 컬렉션 또는 다른 테이블을 연결하여 이 행에 매핑하세요.",
   noBuilderWrites: "Builder 쓰기 없음.",
   stageOnly: "준비만",
-  savesDraftsNeverPublishes: "Builder에 초안을 저장합니다 — 게시하지 않습니다.",
+  savesChangesNeverPublishes:
+    "Builder에 변경 사항을 저장합니다 — 게시하지 않습니다.",
+  builderEffectNewTag: "새 항목",
+  builderEffectNewSentence: "새 초안 항목을 만듭니다",
+  builderEffectEditTag: "편집",
+  builderEffectEditSentence: "게시된 항목을 업데이트합니다",
+  builderEffectSaveTag: "저장",
+  builderEffectAutosaveSentence:
+    "저장됨. Builder에서 게시하기 전까지 공개되지 않습니다",
+  builderEffectSaveDraftSentence: "초안을 저장합니다",
+  builderEffectPublishTag: "게시",
+  builderEffectPublishSentence: "이 항목을 게시합니다",
+  builderEffectUnpublishTag: "게시 취소",
+  builderEffectUnpublishSentence: "게시된 항목의 게시를 취소합니다",
+  builderIntentNewOne: "만들 초안 1개",
+  builderIntentNew: "만들 초안 {{count}}개",
+  builderIntentEditOne: "업데이트 1개",
+  builderIntentEdit: "업데이트 {{count}}개",
+  builderIntentSaveOne: "저장 1개",
+  builderIntentSave: "저장 {{count}}개",
+  builderIntentPublish: "게시할 항목 {{count}}개",
+  builderIntentUnpublish: "게시 취소할 항목 {{count}}개",
+  builderIntentNone: "변경 사항 없음",
+  builderPushVerbCheck: "확인",
+  builderPushVerbPublish: "게시",
+  builderPushVerbUnpublish: "게시 취소",
+  builderPushVerbCreateOne: "초안 만들기",
+  builderPushVerbCreate: "초안 {{count}}개 만들기",
+  builderPushVerbSaveOne: "Builder에 저장",
+  builderPushVerbSave: "{{count}}개를 Builder에 저장",
+  builderPushVerbPushOne: "업데이트 푸시",
+  builderPushVerbPush: "업데이트 {{count}}개 푸시",
   publishUpdates: "업데이트 게시",
   writesUpdatesToLiveEntries: "라이브 항목에 업데이트를 씁니다.",
   sourcesFeedingThisColumn: "이 열에 공급하는 소스",
@@ -337,6 +369,8 @@ const database = {
   failedToCreateRow: "행을 생성하지 못했습니다",
   pageCreatedCollectionRefreshFailed:
     "페이지가 생성되었지만 이 컬렉션을 새로 고치지 못했습니다. 다시 로드하여 확인하세요.",
+  builderPushResultNotLoaded:
+    "업데이트가 Builder에 전달되었지만 이 검토에서 결과를 불러오지 못했습니다. 다시 로드하여 확인하세요.",
   failedToDeleteRow: "행을 삭제하지 못했습니다",
   failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
   failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
@@ -668,6 +702,27 @@ const editor = {
     purple: "보라색",
     pink: "분홍색",
     red: "빨간색",
+    defaultText: "기본 텍스트",
+    defaultBackground: "기본 배경",
+    textChoice: "{{color}} 텍스트",
+    backgroundChoice: "{{color}} 배경",
+  },
+  blockMenu: {
+    label: "블록 작업",
+    duplicate: "복제",
+    delete: "삭제",
+    insertBelow: "아래에 블록 삽입",
+    search: "작업 검색...",
+    noResults: "결과 없음",
+    block: "블록",
+    keyCtrl: "Ctrl",
+    keyShift: "Shift",
+    keyDelete: "Del",
+    lockedSource:
+      "소스 파일의 컴포넌트는 여기에서 복제하거나 삭제할 수 없습니다.",
+    lockedSuggesting:
+      "제안으로는 이 유형의 블록을 추가하거나 제거할 수 없습니다.",
+    lockedPage: "이 페이지에서는 해당 변경을 할 수 없습니다.",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
@@ -1007,7 +1062,7 @@ const editor = {
     todoListDescription: "체크리스트 항목",
     toggle: "토글",
     toggleDescription: "Notion 스타일 토글 라인",
-    turnInto: "변신하다",
+    turnInto: "전환",
     video: "비디오",
     videoDescription: "비디오 업로드 또는 삽입",
   },
@@ -1341,6 +1396,14 @@ const exactEnglish = {
       "이 제안 주변의 텍스트가 변경되어 적용할 수 없습니다. 제안은 계속 대기 중입니다. 거부하거나 수정 사항을 다시 제안하세요.",
     proposalUnplaceable:
       "이 제안 중 하나는 주변 텍스트가 변경되어 적용할 수 없으므로 아무것도 적용되지 않았습니다. 모든 제안은 계속 대기 중입니다. 하나씩 수락하거나 거부하세요.",
+    suggestionAcceptFailed: "제안을 수락하지 못했습니다",
+    suggestionRejectFailed: "제안을 거부하지 못했습니다",
+    proposalAcceptFailed: "이 제안들을 수락하지 못했습니다",
+    proposalRejectFailed: "이 제안들을 거부하지 못했습니다",
+    suggestionDecisionReverted:
+      "다시 대기 중입니다. 그 이후에 입력한 내용은 유지됩니다.",
+    proposalDecisionReverted:
+      "모두 다시 대기 중입니다. 그 이후에 입력한 내용은 유지됩니다.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",

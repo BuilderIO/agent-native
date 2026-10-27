@@ -92,6 +92,7 @@ export async function listParked(
         updatedAt: state.updatedAt,
         inboxId: inbox.id,
         title: inbox.title,
+        summary: inbox.summary,
         source: inbox.source,
         sourceUrl: inbox.sourceUrl,
         status: inbox.status,

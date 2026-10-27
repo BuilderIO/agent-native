@@ -118,6 +118,57 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return surface!;
   }
 
+  async function postScreenWheel(
+    iframe: HTMLIFrameElement,
+    data: Record<string, unknown>,
+  ) {
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "embedded-canvas-wheel",
+            deltaX: 0,
+            deltaMode: 0,
+            metaKey: false,
+            shiftKey: false,
+            ...data,
+          },
+          source: iframe.contentWindow,
+        }),
+      );
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    return readView(container);
+  }
+
+  function addScreenFrame(surface: HTMLElement, at: { x: number; y: number }) {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    surface.append(iframe);
+    Object.defineProperty(iframe, "clientWidth", { value: 400 });
+    Object.defineProperty(iframe, "clientHeight", { value: 300 });
+    const frameRect = vi.fn(() => ({
+      x: at.x,
+      y: at.y,
+      left: at.x,
+      top: at.y,
+      right: at.x + 400,
+      bottom: at.y + 300,
+      width: 400,
+      height: 300,
+      toJSON: () => ({}),
+    }));
+    iframe.getBoundingClientRect = frameRect;
+    return { iframe, frameRect };
+  }
+
+  function frameWindowOf(iframe: HTMLIFrameElement) {
+    if (!iframe.contentWindow) throw new Error("Expected the screen frame");
+    return iframe.contentWindow;
+  }
+
   async function applyTicks(surface: HTMLElement, ticks: WheelTick[]) {
     await act(async () => {
       for (const tick of ticks) surface.dispatchEvent(trustedWheel(tick));
@@ -429,6 +480,232 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
       expect(after.y).toBeCloseTo(before.y - 25, 10);
       expect(after.scale).toBe(before.scale);
     });
+  });
+
+  it("does not commit a pinch while a slow frame holds its next step", async () => {
+    const onZoomChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          onPick={() => {}}
+          camera={{ onZoomChange }}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    if (!surface) throw new Error("Expected the canvas surface");
+    await applyTicks(surface, [{ deltaY: -6, ctrlKey: true }]);
+
+    const heldFrames: FrameRequestCallback[] = [];
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => heldFrames.push(callback));
+    const cancelFrame = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation((id) => {
+        heldFrames[id - 1] = () => {};
+      });
+    try {
+      await act(async () => {
+        surface.dispatchEvent(trustedWheel({ deltaY: -6, ctrlKey: true }));
+        await new Promise<void>((resolve) => setTimeout(resolve, 160));
+      });
+      // The step's frame was requested first; the commit's came due after the
+      // delay and runs while the step is still queued.
+      const stepFrames = heldFrames.slice(0, 1);
+      const laterFrames = heldFrames.slice(1);
+      expect(stepFrames).toHaveLength(1);
+      await act(async () => {
+        laterFrames.forEach((callback) => callback(performance.now()));
+      });
+      expect(onZoomChange).not.toHaveBeenCalled();
+      const world = container.querySelector<HTMLElement>(
+        "[data-multi-screen-canvas-world]",
+      );
+      expect(world?.style.willChange).toBe("transform");
+
+      requestFrame.mockRestore();
+      await act(async () => {
+        stepFrames.forEach((callback) => callback(performance.now()));
+      });
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    });
+    expect(onZoomChange).toHaveBeenCalledOnce();
+    expect(onZoomChange).toHaveBeenCalledWith(readView(container).scale * 100);
+  });
+
+  it("keeps a pinch over a screen anchored while measuring the frame once", async () => {
+    const surface = await renderSurface();
+    const start = readView(container);
+    const { iframe, frameRect } = addScreenFrame(surface, {
+      x: start.x + 100,
+      y: start.y + 50,
+    });
+    const cursor = { x: start.x + 150, y: start.y + 90 };
+    const worldUnderCursor = (view: ReturnType<typeof readView>) => ({
+      x: (cursor.x - view.x) / view.scale,
+      y: (cursor.y - view.y) / view.scale,
+    });
+
+    const pinchStep = () =>
+      postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
+      });
+
+    const first = await pinchStep();
+    const second = await pinchStep();
+
+    expect(second.scale).toBeGreaterThan(first.scale);
+    expect(first.scale).toBeGreaterThan(start.scale);
+    expect(worldUnderCursor(second).x).toBeCloseTo(
+      worldUnderCursor(start).x,
+      6,
+    );
+    expect(worldUnderCursor(second).y).toBeCloseTo(
+      worldUnderCursor(start).y,
+      6,
+    );
+    expect(frameRect).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 140));
+    });
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledTimes(2);
+  });
+
+  it("measures a screen again after a render that may have moved it", async () => {
+    const surface = await renderSurface();
+    const { iframe, frameRect } = addScreenFrame(surface, { x: 100, y: 50 });
+    const pinchStep = () =>
+      postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
+      });
+
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledOnce();
+    // A nudge or a collaborator's edit re-renders the board mid-gesture.
+    await renderSurface();
+    await pinchStep();
+    expect(frameRect).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers a screen's wheel and keeps the full travel of folded steps", async () => {
+    const surface = await renderSurface();
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
+    const replies = vi.spyOn(frameWindowOf(iframe), "postMessage");
+    const before = readView(container);
+
+    await postScreenWheel(iframe, {
+      deltaY: 600,
+      clientX: 10,
+      clientY: 10,
+      ctrlKey: false,
+      steps: 3,
+      seq: 7,
+    });
+
+    expect(replies).toHaveBeenCalledWith(
+      { type: "embedded-canvas-wheel-read", seq: 7 },
+      "*",
+    );
+    expect(readView(container).y).toBeCloseTo(before.y - 600, 10);
+  });
+
+  it("caps a folded pinch per frame exactly as it caps the same wheels over blank canvas", async () => {
+    const pinch = Array.from({ length: 20 }, () => ({
+      deltaY: -6,
+      ctrlKey: true,
+    }));
+    const blank = await applyTicks(await renderSurface(), pinch);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    const surface = await renderSurface();
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
+    const folded = await postScreenWheel(iframe, {
+      deltaY: -120,
+      clientX: 300,
+      clientY: 250,
+      ctrlKey: true,
+      steps: 20,
+    });
+
+    // Twenty steps ask for about 2.46x. Over blank canvas the browser hands
+    // them to one frame as twenty wheels, and that frame moves at most 1.6x;
+    // a screen hands them over folded, and its frame moves the same.
+    expect(blank.scale).toBeCloseTo(MAX_ZOOM_FACTOR_PER_FRAME, 6);
+    expect(folded.scale).toBeCloseTo(blank.scale, 10);
+  });
+
+  it("ignores a screen's wheel whose numbers are not finite, and still answers it", async () => {
+    const surface = await renderSurface();
+    const { iframe } = addScreenFrame(surface, { x: 100, y: 50 });
+    const replies = vi.spyOn(frameWindowOf(iframe), "postMessage");
+    const before = readView(container);
+
+    for (const bad of [
+      { clientX: Infinity },
+      { clientY: Number.NaN },
+      { deltaY: -Infinity },
+      { deltaX: "far" },
+    ]) {
+      const after = await postScreenWheel(iframe, {
+        deltaY: -6,
+        clientX: 50,
+        clientY: 40,
+        ctrlKey: true,
+        ...bad,
+      });
+      expect(after, Object.keys(bad)[0]).toEqual(before);
+    }
+    expect(
+      replies.mock.calls.filter(
+        ([message]) =>
+          (message as { type?: string }).type === "embedded-canvas-wheel-read",
+      ),
+    ).toHaveLength(4);
+  });
+
+  it("keeps the zoom anchor on the screen a wheel came from", async () => {
+    const surface = await renderSurface();
+    const start = readView(container);
+    const { iframe } = addScreenFrame(surface, {
+      x: start.x + 100,
+      y: start.y + 50,
+    });
+    // The page is 400 by 300; a point posted far outside it anchors at the
+    // page's nearest corner.
+    const corner = { x: start.x + 100 + 400, y: start.y + 50 };
+    const worldUnderCorner = (view: ReturnType<typeof readView>) => ({
+      x: (corner.x - view.x) / view.scale,
+      y: (corner.y - view.y) / view.scale,
+    });
+
+    const after = await postScreenWheel(iframe, {
+      deltaY: -6,
+      clientX: 5000,
+      clientY: -900,
+      ctrlKey: true,
+    });
+
+    expect(after.scale).toBeGreaterThan(start.scale);
+    expect(worldUnderCorner(after).x).toBeCloseTo(worldUnderCorner(start).x, 6);
+    expect(worldUnderCorner(after).y).toBeCloseTo(worldUnderCorner(start).y, 6);
   });
 
   it("does not cancel a non-cancelable wheel", async () => {

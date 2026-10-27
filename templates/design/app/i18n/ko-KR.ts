@@ -2193,6 +2193,19 @@ export default {
       added: "화면이 추가되었습니다",
       addFailed: "화면을 추가할 수 없습니다",
     },
+    localhostConsent: {
+      approvedTitle: "승인됨 — 편집을 다시 실행하세요",
+      approvedDescription:
+        "파일 쓰기가 8시간 동안 허용됩니다. 액세스를 요청한 편집은 저장되지 않았습니다.",
+      retryInChat: "채팅에서 다시 실행",
+      retryPrompt:
+        "{{rootPath}}에 대한 파일 쓰기가 승인되었습니다. 이 권한이 필요했던 편집을 다시 실행하세요.",
+      unavailableTitle: "이 쓰기 요청은 더 이상 대기 중이 아닙니다",
+      unavailableDescription: "액세스를 요청하려면 편집을 다시 실행하세요.",
+      close: "닫기",
+      prepareSignInError:
+        "로그인하기 전에 이 요청을 저장하지 못했습니다. 다시 시도하세요.",
+    },
     nodeRewrite: {
       composerTitle: "선택 영역 질문 또는 변경",
       send: "보내기",

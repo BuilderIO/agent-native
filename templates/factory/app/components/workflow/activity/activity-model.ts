@@ -132,12 +132,16 @@ interface RunStatusView {
   tone: "attention" | "waiting" | "neutral";
 }
 
+/** `itemFailures` is what a succeeded run still lost (`succeededItemFailures`): it takes the attention tone, not the quiet one of a clean run. */
 export function runStatusView(
   status: RunStatus,
   s: ItemsStrings,
+  itemFailures = 0,
 ): RunStatusView {
   const label = s.activity.runStatus[status];
-  if (status === "failed") return { label, tone: "attention" };
+  if (status === "failed" || itemFailures > 0) {
+    return { label, tone: "attention" };
+  }
   if (status === "paused") return { label, tone: "waiting" };
   return { label, tone: "neutral" };
 }

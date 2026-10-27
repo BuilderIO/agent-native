@@ -2142,6 +2142,18 @@ export default {
       added: "已新增畫面",
       addFailed: "無法新增畫面",
     },
+    localhostConsent: {
+      approvedTitle: "已核准 — 請重新執行編輯",
+      approvedDescription:
+        "檔案寫入權限有效期為 8 小時。要求存取權的那次編輯未儲存。",
+      retryInChat: "在聊天中重新執行",
+      retryPrompt:
+        "已核准對 {{rootPath}} 的檔案寫入。請重新執行需要此權限的編輯。",
+      unavailableTitle: "此寫入要求已不再待處理",
+      unavailableDescription: "重新執行編輯以要求存取權。",
+      close: "關閉",
+      prepareSignInError: "無法在登入前儲存此要求。請再試一次。",
+    },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
       "deterministic-class-edit": "安全 class 編輯",

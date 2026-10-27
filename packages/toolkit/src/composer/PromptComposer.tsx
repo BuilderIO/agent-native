@@ -16,7 +16,7 @@ import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
-import { IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -51,12 +51,19 @@ import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import type { ComposerContextSnapshot } from "./context-items.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
+  escapePromptAttachmentAttribute,
+  getUnshrinkableImageError,
+  probeAgentPromptAttachment,
+  type AgentPromptAttachmentReadError,
+} from "./prompt-attachments.js";
+import {
+  type ComposerTranslate,
   type EngineModelGroup,
   type ComposerAgentEngineState,
   type AgentChatContextItem,
   type ReasoningEffort,
+  fallbackTranslate,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
 import {
@@ -197,6 +204,8 @@ export interface PromptComposerProps {
   voiceEnabled?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
+  /** Starts voice chat from the empty Send slot in place of the provider's default start. */
+  onVoiceChatStart?: () => void;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
   /** Opens host-owned storage setup when the user chooses an upload action. */
@@ -362,8 +371,19 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
   public override accept = IMAGE_ATTACHMENT_ACCEPT;
+  private readonly translate: ComposerTranslate;
+
+  constructor(translate: ComposerTranslate) {
+    super();
+    this.translate = translate;
+  }
 
   public override async add(state: { file: File }): Promise<PendingAttachment> {
+    const limitError = await getUnshrinkableImageError(
+      state.file,
+      this.translate,
+    );
+    if (limitError) throw new Error(limitError);
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 }
@@ -374,9 +394,11 @@ class ChatDocumentAttachmentAdapter extends BinaryDocumentAttachmentAdapter {
   public override accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 }
 
-export function createChatAttachmentAdapter(): AttachmentAdapter {
+export function createChatAttachmentAdapter(
+  translate: ComposerTranslate = fallbackTranslate,
+): AttachmentAdapter {
   return new CompositeAttachmentAdapter([
-    new RasterImageAttachmentAdapter(),
+    new RasterImageAttachmentAdapter(translate),
     new ChatDocumentAttachmentAdapter(),
     new TextAttachmentAdapter(),
   ]);
@@ -576,7 +598,28 @@ function ImagePreviewLightbox({
   );
 }
 
-function AttachmentChip({
+function useAttachmentReadError(
+  attachment: Attachment,
+): AgentPromptAttachmentReadError | null {
+  const file = "file" in attachment ? attachment.file : undefined;
+  const [readError, setReadError] =
+    useState<AgentPromptAttachmentReadError | null>(null);
+  useEffect(() => {
+    setReadError(null);
+    if (!file) return;
+    let active = true;
+    void probeAgentPromptAttachment(file).then((error) => {
+      if (active) setReadError(error);
+    });
+    return () => {
+      active = false;
+    };
+  }, [file]);
+  return readError;
+}
+
+/** @internal exported for unit tests only */
+export function AttachmentChip({
   attachment,
   onRemove,
 }: {
@@ -587,7 +630,47 @@ function AttachmentChip({
   const isImage =
     getAttachmentImageFile(attachment) !== null ||
     getAttachmentContentImageSrc(attachment) !== null;
+  const readError = useAttachmentReadError(attachment);
   const t = useComposerRuntimeAdapters().translate!;
+
+  if (readError) {
+    const message =
+      readError === "too-large"
+        ? t("agentChat.composer.attachmentTooLarge", {
+            defaultValue: "File is over 8 MB",
+          })
+        : readError === "not-utf8"
+          ? t("agentChat.composer.attachmentNotUtf8", {
+              defaultValue: "File isn't UTF-8 text",
+            })
+          : t("agentChat.composer.attachmentReadFailed", {
+              defaultValue: "Couldn't read this file",
+            });
+    return (
+      <div
+        role="status"
+        title={message}
+        className="agent-composer-attachment-chip group relative inline-flex max-w-[240px] items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs"
+      >
+        <IconAlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{attachment.name}</span>
+          <span className="truncate text-muted-foreground">{message}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          aria-label={t("agentChat.composer.removeAttachment", {
+            name: attachment.name,
+            defaultValue: `Remove ${attachment.name}`,
+          })}
+          className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
 
   if (isPastedTextAttachmentName(attachment.name)) {
     return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
@@ -724,6 +807,7 @@ function PromptComposerInner({
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   voiceChatEnabled = true,
+  onVoiceChatStart,
   attachmentsEnabled = true,
   onAttachmentRequest,
   contextButtonTooltipDisabled = false,
@@ -1138,6 +1222,7 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           voiceChatEnabled={voiceChatEnabled}
+          onVoiceChatStart={onVoiceChatStart}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
           mentionItemsError={mentionItemsError}
@@ -1188,17 +1273,17 @@ function PromptComposerInner({
  * without needing the outer chat to be mounted.
  */
 function PromptComposerRuntime(props: PromptComposerProps) {
-  const StaleIndexBoundary =
-    useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
+  const adapters = useComposerRuntimeAdapters();
+  const StaleIndexBoundary = adapters.agentChat.StaleIndexBoundary;
   const attachmentAdapter = useMemo(
     () =>
       props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
-        new RasterImageAttachmentAdapter(),
+        new RasterImageAttachmentAdapter(adapters.translate),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),
-    [props.attachmentAdapter],
+    [props.attachmentAdapter, adapters.translate],
   );
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },

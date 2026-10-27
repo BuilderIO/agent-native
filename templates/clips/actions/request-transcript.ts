@@ -2,7 +2,7 @@ import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveHasBuilderGatewayCredential } from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
 import { and, eq, isNull, or } from "drizzle-orm";
@@ -11,6 +11,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import {
+  assertRecordingNotExpired,
+  assertRecordingNotExpiredForEmail,
+} from "../server/lib/recording-read-access.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -651,7 +655,8 @@ export async function importLoomTranscriptForRecording({
         };
       }
     } catch (err) {
-      if (isRecordingMediaChanged(err)) throw err;
+      if (err instanceof ForbiddenError || isRecordingMediaChanged(err))
+        throw err;
       console.warn(
         `[clips] Loom transcript import failed for ${recordingId}:`,
         (err as Error)?.message ?? String(err),
@@ -1033,7 +1038,9 @@ const requestTranscriptAction = defineAction({
       ),
   }),
   run: async (args, context?: ActionRunContext) => {
-    const access = await assertAccess("recording", args.recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 
@@ -1087,7 +1094,7 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    const ownerEmail = getCurrentOwnerEmail();
+    const ownerEmail = access.resource.ownerEmail;
     const now = new Date().toISOString();
 
     let builderError: string | null = null;
@@ -1440,6 +1447,7 @@ const requestTranscriptAction = defineAction({
           };
         }
       } catch (err) {
+        if (err instanceof ForbiddenError) throw err;
         if (isRecordingMediaChanged(err)) {
           if (!regeneratingReadyTranscript) {
             const kept = await writeTranscriptOrKeepImport(db, {
@@ -1637,7 +1645,11 @@ async function upsertTranscriptRow(
 
   return db.transaction(async (tx) => {
     const [locked] = await tx
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        ownerEmail: schema.recordings.ownerEmail,
+        expiresAt: schema.recordings.expiresAt,
+      })
       .from(schema.recordings)
       .where(
         and(
@@ -1655,6 +1667,8 @@ async function upsertTranscriptRow(
         },
       );
     }
+
+    assertRecordingNotExpiredForEmail(locked, getCurrentOwnerEmail());
 
     const lockCurrent = () =>
       tx

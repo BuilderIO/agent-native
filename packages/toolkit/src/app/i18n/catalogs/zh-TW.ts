@@ -126,6 +126,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "其他",
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暫時略過",
+  "onboarding.builderProvisionFailedDetail":
+    "無法建立你的 Builder.io 帳戶。請重試，或使用現有帳戶登入。",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
   "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
@@ -399,6 +401,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.droppedFileError": "無法加入拖放的檔案。請嘗試其他格式。",
   "composer.openDesktop": "請開啟桌面版以使用這個聊天。",
   "composer.removeAttachment": "移除 {{name}}",
+  "composer.attachmentReadFailed": "無法讀取此檔案",
+  "composer.attachmentTooLarge": "檔案超過 8 MB",
+  "composer.attachmentNotUtf8": "檔案不是 UTF-8 文字",
   "composer.scrollToBottom": "捲動到底部",
   "composer.suggestedPrompts": "建議提示",
   "composer.stopResponse": "停止回應",
@@ -518,6 +523,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" 為 {{size}} MB，超過 {{limit}} MB 的圖片無法附加。請使用較小的圖片。',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" 為 {{megapixels}} 百萬像素，超過 {{limit}} 百萬像素的圖片無法附加。請使用較小的圖片。',
   "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
   "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
@@ -709,6 +718,12 @@ const messages: ToolkitAgentChatTranslation = {
   "history.copyLink": "複製連結",
   "history.linkCopied": "已複製連結",
   "history.copyLinkFailed": "無法複製連結",
+  "history.onlyYou": "僅限自己",
+  "history.hide": "從我的清單中隱藏",
+  "history.hidden": "已從你的清單中隱藏",
+  "history.undo": "復原",
+  "history.hideFailed": "無法隱藏聊天",
+  "history.unhideFailed": "無法還原聊天",
   "integrations.availableSection": "可用整合",
   "integrations.connectedSection": "已連線",
   "integrations.goToApiKeys": "前往 API 金鑰",
@@ -1780,6 +1795,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.approvalAgentChat": "已在代理聊天中核准",
   "settings.audit.approvalA2AReview": "已在代理操作審查頁面核准",
   "settings.audit.approvalMcpClient": "由 MCP 用戶端接受（未驗證）",
+  "settings.audit.approvalMcpReview": "在 MCP 動作審核頁面上核准",
+  "settings.audit.approvalCliPrompt": "在 CLI 提示中核准（未驗證）",
+  "settings.audit.approvalCliFlag": "使用 --approved 重新執行（未驗證）",
   "settings.audit.changedBy": "變更者",
   "settings.audit.close": "關閉",
   "settings.audit.empty": "此期間沒有變更。",
@@ -2030,6 +2048,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsSaveError": "無法變更 {{lab}}。請再試一次。",
   "settingsShell.appGroup.mcpAbout":
     "將 {{app}} 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 {{app}} 中工作。它只能看到你有權看到的內容。",
+  "settingsShell.appGroup.mcpAppCards": "聊天應用程式中的應用程式卡片",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "在支援 MCP Apps 的聊天應用程式（例如 Claude 和 ChatGPT）中，工具會顯示可互動的卡片，例如可以編輯並傳送的電子郵件草稿。變更此設定後，請在聊天應用程式中重新連接此應用程式。",
   "settingsShell.appGroup.mcpFootnote":
     "如需代理本身使用的工具，請參閱{{integrations}}。",
   "settingsShell.appGroup.newAutomation": "新增自動化",

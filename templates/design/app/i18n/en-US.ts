@@ -2131,6 +2131,19 @@ export default {
       added: "Screen added",
       addFailed: "Could not add screen",
     },
+    localhostConsent: {
+      approvedTitle: "Approved — run the edit again",
+      approvedDescription:
+        "File writes are allowed for 8 hours. The edit that asked for access wasn't saved.",
+      retryInChat: "Run again in chat",
+      retryPrompt:
+        "File writes are approved for {{rootPath}}. Run the edit that needed them again.",
+      unavailableTitle: "This write request is no longer pending",
+      unavailableDescription: "Run the edit again to ask for access.",
+      close: "Close",
+      prepareSignInError:
+        "Couldn't save this request before sign-in. Try again.",
+    },
     nodeRewrite: {
       composerTitle: "Ask or change selection",
       send: "Send",

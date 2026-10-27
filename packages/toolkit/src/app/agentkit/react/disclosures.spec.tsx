@@ -904,3 +904,127 @@ describe("work before a message sent into the running turn", () => {
     ).toBeTruthy();
   });
 });
+
+describe("a turn that only answered", () => {
+  const reply: AgentMessage = {
+    ...answer([{ type: "text", text: "Answer." }]),
+    metadata: { model: "claude-sonnet-5-5" },
+  };
+  // Production runs report this before the model answers; it is not work.
+  const startingAgent = {
+    type: "activity.started" as const,
+    occurredAt: at(100),
+    activity: {
+      id: `agentkit:internal:${RUN}:starting-agent`,
+      kind: "model",
+      label: "Starting agent",
+      status: "running" as const,
+    },
+  };
+
+  function answeredAt(
+    ms: number,
+    work: Array<Omit<AgentEvent, "id" | "threadId" | "runId" | "sequence">>,
+    finished = true,
+  ): AgentEvent[] {
+    return [
+      { type: "run.started", occurredAt: at(0) },
+      ...work,
+      { type: "message.completed", occurredAt: at(ms), message: reply },
+      ...(finished
+        ? [{ type: "run.completed", occurredAt: at(ms + 500) }]
+        : []),
+    ].map(
+      (event, index) =>
+        ({
+          ...event,
+          id: `event-${index}`,
+          threadId: THREAD,
+          runId: RUN,
+          sequence: index + 1,
+        }) as AgentEvent,
+    );
+  }
+
+  it("shows a Worked for row under its reply that opens to the run details", async () => {
+    for (const work of [[startingAgent], []]) {
+      const container = await renderThread(
+        [user, reply],
+        answeredAt(4_000, work),
+      );
+      const rows = container.querySelectorAll<HTMLElement>(
+        ".agentkit-activities",
+      );
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(
+        row.querySelector(".agentkit-activities-summary")?.textContent,
+      ).toBe("Worked for 4s");
+      expect(row.closest(".agentkit-message-actions")).not.toBeNull();
+      const trigger = row.querySelector<HTMLElement>(
+        ".agentkit-disclosure-summary",
+      );
+      expectSharedSummary(trigger);
+      await click(trigger);
+      expect(row.dataset.open).toBe("true");
+      expect(row.querySelector(".agentkit-run-details")?.textContent).toContain(
+        "claude-sonnet-5-5",
+      );
+      expect(row.querySelector(".agentkit-work-steps")).toBeNull();
+    }
+  });
+
+  it("shows text when the run has no details to open to", async () => {
+    const unnamed: AgentMessage = { ...reply, metadata: {} };
+    const container = await renderThread(
+      [user, unnamed],
+      answeredAt(4_000, [startingAgent]).map((event) =>
+        event.type === "message.completed"
+          ? { ...event, message: unnamed }
+          : event,
+      ),
+    );
+    const row = container.querySelector<HTMLElement>(".agentkit-activities");
+    expect(row?.dataset.expandable).toBe("false");
+    expect(
+      row?.querySelector(".agentkit-activities-summary")?.textContent,
+    ).toBe("Worked for 4s");
+    expect(row?.querySelector("button")).toBeNull();
+  });
+
+  it("shows no row under a second, untimed, or still running", async () => {
+    const instant = await renderThread(
+      [user, reply],
+      answeredAt(600, [startingAgent]),
+    );
+    expect(instant.querySelector(".agentkit-activities")).toBeNull();
+
+    const streaming = await renderThread(
+      [user, { ...reply, status: "streaming" }],
+      answeredAt(4_000, [startingAgent], false),
+    );
+    expect(streaming.querySelector(".agentkit-activities")).toBeNull();
+
+    // A reloaded thread has no run timing.
+    const reloaded = await renderThread([user, reply], []);
+    expect(reloaded.querySelector(".agentkit-activities")).toBeNull();
+  });
+
+  it("keeps one expandable row for a turn with activity", async () => {
+    const container = await renderThread(
+      [user, reply],
+      answeredAt(4_000, [startingAgent, ...activityEvents(1)]),
+    );
+    const rows = container.querySelectorAll<HTMLElement>(
+      ".agentkit-activities",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.dataset.expandable).toBe("true");
+    expectSharedSummary(
+      rows[0]!.querySelector<HTMLElement>(".agentkit-disclosure-summary"),
+    );
+    expect(
+      rows[0]!.querySelector(".agentkit-activities-summary")?.textContent,
+    ).toBe("Worked for 4s");
+  });
+});

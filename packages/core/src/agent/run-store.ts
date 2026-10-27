@@ -8,7 +8,11 @@ import {
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -487,6 +491,60 @@ export const agentRunsStore = defineStore({
            SET DEFAULT nextval('agent_run_admission_order_seq')`,
       ],
     },
+    {
+      name: "execution-leases-and-steps",
+      run: async (exec) => {
+        await ensureTableExists(
+          "agent_execution_leases",
+          `CREATE TABLE IF NOT EXISTS agent_execution_leases (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          owner_run_id TEXT NOT NULL,
+          lease_expires_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "worker_generation",
+          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS worker_generation BIGINT`,
+          { injectedClient: exec },
+        );
+        await ensureTableExists(
+          "agent_execution_steps",
+          `CREATE TABLE IF NOT EXISTS agent_execution_steps (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          step_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          input_json TEXT NOT NULL,
+          replay_policy TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          result_json TEXT,
+          receipt_json TEXT,
+          error_json TEXT,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id, step_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureIndexExists(
+          "agent_execution_steps_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_execution_steps_pending_idx
+          ON agent_execution_steps (thread_id, turn_id, status, created_at)`,
+          { injectedClient: exec },
+        );
+      },
+    },
   ],
 });
 
@@ -829,7 +887,8 @@ export async function beginAgentExecutionStep(
       });
       const selected = await tx.execute({
         sql: `SELECT operation_id, tool_name, input_json, replay_policy,
-                   status, run_id, generation, result_json, error_json
+                   status, run_id, generation, result_json, error_json,
+                   dispatched_at
             FROM agent_execution_steps
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
             FOR UPDATE`,
@@ -846,6 +905,7 @@ export async function beginAgentExecutionStep(
             generation?: number | string;
             result_json?: string | null;
             error_json?: string | null;
+            dispatched_at?: number | string | null;
           }
         | undefined;
       if (!row) throw new Error("Execution step intent was not persisted");
@@ -866,8 +926,9 @@ export async function beginAgentExecutionStep(
           errorJson: row.error_json ?? null,
         };
       }
-      const wasDispatched =
-        row.status === "dispatched" || row.status === "unknown";
+      const hadDispatch =
+        row.status === "dispatched" || row.dispatched_at != null;
+      const wasDispatched = hadDispatch || row.status === "unknown";
       if (row.status === "unknown") {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
@@ -875,7 +936,7 @@ export async function beginAgentExecutionStep(
             intent.replayPolicy === "retry-safe");
         if (!canReplay) return { status: "unknown" };
       }
-      if (row.status === "dispatched") {
+      if (hadDispatch) {
         const canReplay =
           row.replay_policy === intent.replayPolicy &&
           (intent.replayPolicy === "read-only" ||
@@ -940,6 +1001,7 @@ export async function markAgentExecutionStepDispatched(
 
 export async function resetAgentExecutionStepBeforeInvocation(
   intent: AgentExecutionStepIntent,
+  options: { preserveDispatchHistory?: boolean } = {},
 ): Promise<void> {
   await ensureRunTables();
   const expectedFence: ExecutionFence = {
@@ -952,12 +1014,15 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
       tx.execute({
         sql: `UPDATE agent_execution_steps
-              SET status = 'prepared', dispatched_at = NULL,
+              SET status = 'prepared',
+                  dispatched_at = CASE WHEN ? THEN
+                    COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                   updated_at = clock_timestamp()
               WHERE thread_id = ? AND turn_id = ? AND step_id = ?
                 AND run_id = ? AND generation = CAST(? AS BIGINT)
                 AND status IN ('prepared', 'dispatched')`,
         args: [
+          options.preserveDispatchHistory === true,
           intent.threadId,
           intent.turnId,
           intent.stepId,
@@ -1019,7 +1084,9 @@ export async function resetAgentExecutionStepBeforeInvocation(
     const reconciled = await tx.execute({
       sql: `UPDATE agent_execution_steps
             SET status = 'prepared', run_id = ?,
-                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                generation = CAST(? AS BIGINT),
+                dispatched_at = CASE WHEN ? THEN
+                  COALESCE(dispatched_at, clock_timestamp()) ELSE NULL END,
                 updated_at = clock_timestamp()
             WHERE thread_id = ? AND turn_id = ? AND step_id = ?
               AND run_id = ? AND generation = CAST(? AS BIGINT)
@@ -1027,6 +1094,7 @@ export async function resetAgentExecutionStepBeforeInvocation(
       args: [
         currentLease.ownerRunId,
         currentLease.generation,
+        options.preserveDispatchHistory === true,
         intent.threadId,
         intent.turnId,
         intent.stepId,
@@ -1456,6 +1524,7 @@ export async function insertRun(
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  const executionFence = currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -1497,7 +1566,7 @@ export async function insertRun(
     }
   };
   if (!client.transaction) {
-    if (currentExecutionFence()) {
+    if (executionFence) {
       throw new Error("Fenced run insertion requires transaction support");
     }
     if (options?.afterInsert)
@@ -1758,11 +1827,15 @@ export async function readRunDispatchPayload(
 
 export async function clearRunDispatchPayload(runId: string): Promise<void> {
   await ensureRunTables();
-  const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
-    args: [runId],
-  });
+  await withFencedExecutionWrite(
+    async (tx) => {
+      await tx.execute({
+        sql: `UPDATE agent_runs SET dispatch_payload = NULL WHERE id = ?`,
+        args: [runId],
+      });
+    },
+    { runId },
+  );
 }
 
 export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
@@ -2096,6 +2169,7 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  currentExecutionFence();
   if (options?.dispatchPayload) {
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
@@ -2126,6 +2200,7 @@ export async function tryClaimRunSlot(
       if (denied) return { refused: denied } as const;
     }
     await lockThreadRunSlot(tx, threadId);
+    await lockAndAssertCurrentExecutionFences(tx);
     await lockContinuationOrder(tx, threadId, turnId);
     const abortMarker = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
@@ -5584,8 +5659,8 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
-    // Keep execution receipts through the longest configured recovery window,
-    // even when the run rows they belong to have already been pruned.
+    // Same-turn recovery can outlive the run row, so keep recent receipts
+    // until the longest configured run-retention window has elapsed.
     await tx.execute({
       sql: `DELETE FROM agent_execution_steps AS s
             WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
@@ -5593,8 +5668,22 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = s.thread_id
                   AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_leases l
+                WHERE l.thread_id = s.thread_id
+                  AND l.turn_id = s.turn_id
+                  AND l.lease_expires_at > clock_timestamp()
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = s.thread_id
+                  AND active.turn_id = s.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_execution_leases AS l
@@ -5603,8 +5692,17 @@ async function pruneAndRollUpPrunedRunOutcomes(
                 SELECT 1 FROM agent_runs r
                 WHERE r.thread_id = l.thread_id
                   AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )
+              AND l.lease_expires_at <= clock_timestamp()
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_execution_steps active
+                WHERE active.thread_id = l.thread_id
+                  AND active.turn_id = l.turn_id
+                  AND active.status <> 'completed'
+                  AND (active.status <> 'prepared' OR active.dispatched_at IS NOT NULL)
+                  AND active.updated_at >= to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
               )`,
-      args: [erroredCutoff],
+      args: [erroredCutoff, erroredCutoff],
     });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i
