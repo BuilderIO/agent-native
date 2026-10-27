@@ -1830,10 +1830,18 @@ export function useDbSync(
       tool: string,
       completedSideEffect: boolean,
       failed: boolean,
+      tabId?: string,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
+      }
+      if (tool === "navigate" && completedSideEffect) {
+        events.push({
+          source: "app-state",
+          key: tabId ? `navigate:${tabId}` : "navigate",
+          version: 0,
+        });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -1893,6 +1901,7 @@ export function useDbSync(
         tool,
         completedSideEffect,
         detail.isError === true,
+        typeof detail.tabId === "string" ? detail.tabId : undefined,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -1934,7 +1943,7 @@ export function useDbSync(
       applyRunEvents(
         event,
         [...tools].flatMap(([tool, failed]) =>
-          eventsForTool(tool, true, failed),
+          eventsForTool(tool, true, failed, tabId),
         ),
         processedRunEndEvents,
       );

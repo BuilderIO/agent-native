@@ -4,9 +4,48 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "./embed-auth.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "./route-chunk-recovery-bootstrap.js";
 
 export const EMBED_TOKEN_STORAGE_KEY = "agent-native:embed-auth-token";
 export const MCP_CHAT_BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
+
+function normalizedStorageBasePath(basePath: string | undefined): string {
+  const trimmed = basePath?.trim();
+  if (!trimmed || trimmed === "/") return "";
+  return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function appScopedStorageKey(
+  key: string,
+  basePath: string | undefined,
+  workspaceRuntime: boolean,
+): string {
+  if (!workspaceRuntime) return key;
+  const normalizedBasePath = normalizedStorageBasePath(basePath);
+  return `${key}:${normalizedBasePath || "/"}`;
+}
+
+export function embedTokenStorageKey(
+  basePath: string | undefined,
+  workspaceRuntime: boolean,
+): string {
+  return appScopedStorageKey(
+    EMBED_TOKEN_STORAGE_KEY,
+    basePath,
+    workspaceRuntime,
+  );
+}
+
+export function mcpChatBridgeStorageKey(
+  basePath: string | undefined,
+  workspaceRuntime: boolean,
+): string {
+  return appScopedStorageKey(
+    MCP_CHAT_BRIDGE_STORAGE_KEY,
+    basePath,
+    workspaceRuntime,
+  );
+}
 
 /**
  * Set on `<html>` for the life of a document that is an app nested in an MCP
@@ -24,7 +63,12 @@ export const MCP_APP_WIDGET_EMBED_ATTRIBUTE = "data-agent-native-mcp-widget";
  * embed credential in the URL, stored, or `embedded=1`); `mcp-app-host.spec.ts`
  * runs both over one table so they cannot drift.
  */
-export function getMcpAppWidgetEmbedBootScriptBody(): string {
+export function getMcpAppWidgetEmbedBootScriptBody(
+  basePath = "",
+  workspaceRuntime = false,
+): string {
+  const tokenStorageKey = embedTokenStorageKey(basePath, workspaceRuntime);
+  const bridgeStorageKey = mcpChatBridgeStorageKey(basePath, workspaceRuntime);
   return `(function __anMcpWidgetBoot() {
   try {
     var w = window;
@@ -34,12 +78,14 @@ export function getMcpAppWidgetEmbedBootScriptBody(): string {
       // coercion-ok: denied storage reads as absent, exactly as isEmbedMcpChatBridgeActive does.
       try { return w.sessionStorage.getItem(key); } catch (e) { return null; }
     };
-    var token = params.get(${safeJsonForHtml(EMBED_TOKEN_QUERY_PARAM)}) || stored(${safeJsonForHtml(EMBED_TOKEN_STORAGE_KEY)});
+    var external = w[${safeJsonForHtml(EXTERNAL_EMBED_WINDOW_KEY)}];
+    var token = params.get(${safeJsonForHtml(EMBED_TOKEN_QUERY_PARAM)}) || stored(${safeJsonForHtml(tokenStorageKey)}) || (external && typeof external.token === "string" ? external.token : "");
     var mode = params.get(${safeJsonForHtml(EMBED_MODE_QUERY_PARAM)});
-    if (!token && mode !== "1" && mode !== "true") return;
     var flag = params.get(${safeJsonForHtml(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)});
-    var scope = stored(${safeJsonForHtml(MCP_CHAT_BRIDGE_STORAGE_KEY)});
-    if (flag === "1" || flag === "true" || (scope && (!token || scope === token))) {
+    var externalBridgeActive = external && external.chatBridgeActive === true;
+    if (!token && mode !== "1" && mode !== "true" && !externalBridgeActive) return;
+    var scope = stored(${safeJsonForHtml(bridgeStorageKey)});
+    if (flag === "1" || flag === "true" || externalBridgeActive || (scope && (!token || scope === token))) {
       document.documentElement.setAttribute(${safeJsonForHtml(MCP_APP_WIDGET_EMBED_ATTRIBUTE)}, "1");
     }
   // coercion-ok: the attribute is a first-paint hint; isMcpAppWidgetEmbed sets it again once the app runs.

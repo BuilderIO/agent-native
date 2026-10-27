@@ -2,6 +2,8 @@ import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cac
 import {
   agentNativePath,
   frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
   AgentNativeI18nProvider,
@@ -136,7 +138,12 @@ function McpAppWidgetBootScript() {
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
-      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          resolveAppBasePath(),
+          isWorkspaceRuntime(),
+        ),
+      }}
     />
   );
 }

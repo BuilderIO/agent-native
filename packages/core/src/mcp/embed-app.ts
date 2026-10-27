@@ -4,6 +4,10 @@ import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
 } from "../shared/mcp-app-display.js";
+import {
+  EMBED_TOKEN_STORAGE_KEY,
+  MCP_CHAT_BRIDGE_STORAGE_KEY,
+} from "../shared/mcp-app-widget-embed.js";
 import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
@@ -762,12 +766,36 @@ export function embedApp(
           window.history.replaceState(window.history.state, "", config.target);
         }
       } catch (_err) {}
+      function embedStorageKey(key) {
+        var appConfig = window.__AGENT_NATIVE_CONFIG__ || {};
+        if (appConfig.workspaceRuntime !== true) return key;
+        var targetPath = new URL(config.target || location.pathname, location.href).pathname;
+        var normalize = function(value) {
+          if (typeof value !== "string" || !value.trim()) return null;
+          var trimmed = value.trim();
+          if (trimmed === "/") return "";
+          return "/" + trimmed.replace(/^\\/+/, "").replace(/\\/+$/, "");
+        };
+        var mounts = [];
+        if (typeof appConfig.workspaceAppPath === "string") mounts.push(appConfig.workspaceAppPath);
+        if (Array.isArray(appConfig.workspaceAppMountPaths)) mounts.push.apply(mounts, appConfig.workspaceAppMountPaths);
+        var matching = mounts
+          .map(normalize)
+          .filter(function(mount) { return mount !== null && (mount === "" || targetPath === mount || targetPath.indexOf(mount + "/") === 0); })
+          .sort(function(left, right) { return right.length - left.length; });
+        if (matching.length) return key + ":" + (matching[0] || "/");
+        var explicitRoot = mounts.some(function(mount) { return normalize(mount) === ""; });
+        if (explicitRoot) return key + ":/";
+        var segment = targetPath.split("/").find(Boolean);
+        if (!segment || segment === "api" || segment === "_agent-native") return key + ":/";
+        return key + ":/" + segment;
+      }
       try {
         if (config.token) {
-          sessionStorage.setItem("agent-native:embed-auth-token", config.token);
+          sessionStorage.setItem(embedStorageKey(${JSON.stringify(EMBED_TOKEN_STORAGE_KEY)}), config.token);
         }
         if (config.chatBridgeActive && config.token) {
-          sessionStorage.setItem("agent-native:mcp-chat-bridge", config.token);
+          sessionStorage.setItem(embedStorageKey(${JSON.stringify(MCP_CHAT_BRIDGE_STORAGE_KEY)}), config.token);
         }
       } catch (_err) {}
       if (window.__agentNativeExternalEmbedRuntimeInstalled) return;

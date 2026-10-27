@@ -235,6 +235,55 @@ describe("useDbSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("invalidates the originating tab's navigation command on local navigate completion", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    const observedEvents: Array<{ source?: string; key?: string }> = [];
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        onEvent: (event) => observedEvents.push(event),
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "tab-a",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const keys = invalidatedQueryKeys(queryClient.calls);
+    expect(keys).toContainEqual(["navigate-command", "tab-a"]);
+    expect(keys).not.toContainEqual(["navigate-command"]);
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({ source: "app-state", key: "navigate:tab-a" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("invalidates only action-backed queries by default for action events", async () => {
     const result = await renderWithEvent({
       version: 1,

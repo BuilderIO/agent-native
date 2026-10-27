@@ -282,8 +282,7 @@ function externalEmbedTargetBasePath(): string {
   return "";
 }
 
-export function appBasePath(): string {
-  initializeAgentNativeClient();
+export function resolveAppBasePath(): string {
   const externalEmbed = externalEmbedTargetBasePath();
   if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();
@@ -295,6 +294,11 @@ export function appBasePath(): string {
   if (pathMatchesBasePath(pathname, configured)) return configured;
 
   return derived || workspacePathBasePath(configured);
+}
+
+export function appBasePath(): string {
+  initializeAgentNativeClient();
+  return resolveAppBasePath();
 }
 
 function workspaceAppMountPaths(): Set<string> | null {
