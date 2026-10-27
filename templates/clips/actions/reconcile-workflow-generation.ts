@@ -39,6 +39,7 @@ const WorkflowRequestSchema = z
   .object({
     requestedAt: z.string(),
     requestId: z.string().min(1).optional(),
+    requestedBy: z.string().optional(),
     deliveredAt: z.string().optional(),
     deliveredTabId: z.string().optional(),
   })
@@ -55,10 +56,13 @@ const TERMINAL_RUN_STATUSES = [
 const isWorkflowRequester = (
   requestedBy: string | undefined,
   userEmail: string | undefined,
-) =>
-  requestedBy === undefined ||
-  (userEmail !== undefined &&
-    requestedBy.trim().toLowerCase() === userEmail.trim().toLowerCase());
+) => {
+  const requesterEmail = requestedBy?.trim().toLowerCase();
+  const currentEmail = userEmail?.trim().toLowerCase();
+  return Boolean(
+    requesterEmail && currentEmail && requesterEmail === currentEmail,
+  );
+};
 
 export default defineAction({
   description:
@@ -176,6 +180,20 @@ export default defineAction({
                 reason: "not-requester" as const,
               };
         }
+      } else if (
+        !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+      ) {
+        return operation === "consume"
+          ? {
+              reconciled: false,
+              consumed: false,
+              reason: "not-requester" as const,
+            }
+          : {
+              reconciled: false,
+              delivered: false,
+              reason: "not-requester" as const,
+            };
       }
       if (operation === "mark-delivered") {
         if (parsedRequest.data.deliveredTabId === tabId) {

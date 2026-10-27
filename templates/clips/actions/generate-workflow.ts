@@ -108,15 +108,14 @@ export default defineAction({
       const existingRequest = await readAppState(requestKey);
       const requestedAt = new Date().toISOString();
       const requestId = randomUUID();
+      const requestedBy = ctx?.userEmail?.trim().toLowerCase();
       const workflowState = {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
         requestId,
-        ...(ctx?.userEmail
-          ? { requestedBy: ctx.userEmail.trim().toLowerCase() }
-          : {}),
+        ...(requestedBy ? { requestedBy } : {}),
       };
 
       const baseMessage =
@@ -135,6 +134,7 @@ export default defineAction({
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(requestedBy ? { requestedBy } : {}),
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",

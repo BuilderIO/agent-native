@@ -143,6 +143,7 @@ describe("generate-workflow action", () => {
     );
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
     expect(queuedRequest.requestId).toBe(workflowState.requestId);
+    expect(queuedRequest.requestedBy).toBe("owner@example.com");
     expect(queuedRequest.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
