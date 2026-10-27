@@ -720,7 +720,7 @@ const themes = [
     id: "fieldwork",
     name: "Fieldwork",
     description:
-      "Notion-style operating plan \u2014 warm off-white page, heavy Inter headlines, Newsreader italic quotes, wobbly ink illustrations, pastel tinted cards and coral hand-drawn annotations.",
+      "Warm off-white operating plan, heavy Inter headlines, Newsreader italic quotes, hand-drawn ink illustrations, pastel tinted cards, and coral annotations.",
     mode: "light",
     preview: {
       background: "#FFFEFC", // guard:allow-raw-color — authored slide theme palette or documentation, not app chrome.
@@ -920,7 +920,7 @@ const themes = [
       "",
       "### Eyebrow",
       "",
-      "Coral, sentence case, no tracking \u2014 it reads like a Notion page breadcrumb, not a label.",
+      "Coral, sentence case, no tracking \u2014 it reads like a breadcrumb, not a label.",
       "",
       "```tsx",
       "const Eyebrow = ({ children }: { children: ReactNode }) => (",
@@ -1150,7 +1150,7 @@ const themes = [
       "",
       "## Aesthetic",
       "",
-      "A company operating plan written in Notion and illustrated by hand: warm paper-white canvas, very heavy tight Inter headlines that read like page titles, calm warm-grey body copy, and generous empty space. Personality comes from the ink layer \u2014 wobbly black-outlined spot illustrations (vans, houses, phones, people, toolboxes) sitting on soft pastel circles, coral circles and arrows scribbled over the numbers that matter, a yellow marker swipe behind one phrase, and the occasional Newsreader italic quote. Every number is real and owned by someone. Avoid: gradients, drop shadows, card borders, dark backgrounds, photography, emoji, uppercase tracked labels, more than one coral mark competing on a page, and illustrations drawn with clean geometric (non-wobbly) strokes.",
+      "A company operating plan presented as a clean, structured document and illustrated by hand: warm paper-white canvas, very heavy tight Inter headlines that read like page titles, calm warm-grey body copy, and generous empty space. Personality comes from the ink layer \u2014 wobbly black-outlined spot illustrations (vans, houses, phones, people, toolboxes) sitting on soft pastel circles, coral circles and arrows scribbled over the numbers that matter, a yellow marker swipe behind one phrase, and the occasional Newsreader italic quote. Every number is real and owned by someone. Avoid: gradients, drop shadows, card borders, dark backgrounds, photography, emoji, uppercase tracked labels, more than one coral mark competing on a page, and illustrations drawn with clean geometric (non-wobbly) strokes.",
       "",
       "## Example usage",
       "",

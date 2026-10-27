@@ -201,6 +201,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -215,6 +217,7 @@
         "clsx",
         "cmdk",
         "culori",
+        "openai",
         "react",
         "react-dom",
         "react-markdown",
@@ -264,6 +267,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -277,6 +282,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -285,6 +291,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -295,8 +302,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -374,6 +380,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -387,6 +395,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -395,6 +404,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -405,8 +415,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -458,6 +467,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -471,6 +482,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -479,6 +491,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -489,8 +502,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -588,6 +600,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -601,6 +615,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -609,6 +624,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -619,8 +635,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -791,11 +806,13 @@
       "dependencies": [
         "@agent-native/core",
         "@tabler/icons-react",
+        "clsx",
         "react",
         "react-dom",
         "react-markdown",
         "remark-gfm",
-        "shiki"
+        "shiki",
+        "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -813,13 +830,44 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/context-xray"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@agent-native/core", "react"],
+      "dependencies": [
+        "@agent-native/core",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/context-xray/format",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/use-action",
         "@agent-native/core/shared/context-xray"
+      ]
+    },
+    {
+      "id": "toolkit/app-agent-select",
+      "label": "Toolkit app Agent Select",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-agent-select"],
+      "entrypoints": ["./app/agent-select"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/agent-select"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@agent-native/core",
+        "@tabler/icons-react",
+        "react",
+        "sonner"
+      ],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": [
+        "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/hooks",
+        "@agent-native/core/client/i18n"
       ]
     },
     {
@@ -874,6 +922,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -887,6 +937,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -895,6 +946,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -905,8 +957,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -988,6 +1039,8 @@
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -1001,6 +1054,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -1009,6 +1063,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -1019,8 +1074,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1081,9 +1135,11 @@
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "@tanstack/react-query",
+        "clsx",
         "linkedom",
         "react",
-        "react-router"
+        "react-router",
+        "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1120,6 +1176,8 @@
         "@radix-ui/react-progress",
         "@radix-ui/react-radio-group",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",
@@ -1133,6 +1191,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@webgpu/types",
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
@@ -1141,6 +1200,7 @@
         "cmdk",
         "culori",
         "linkedom",
+        "openai",
         "qrcode.react",
         "react",
         "react-dom",
@@ -1151,8 +1211,7 @@
         "shiki",
         "sonner",
         "tailwind-merge",
-        "vgpu",
-        "@webgpu/types"
+        "vgpu"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1168,12 +1227,14 @@
         "@agent-native/core/client/onboarding/use-onboarding",
         "@agent-native/core/client/onboarding/use-onboarding-checklist",
         "@agent-native/core/client/onboarding/use-preview-mode",
+        "@agent-native/core/client/use-action",
         "@agent-native/core/client/use-dev-mode",
         "@agent-native/core/client/use-session",
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/navigation",
         "@agent-native/core/onboarding/types",
         "@agent-native/core/onboarding/workspace-services",
+        "@agent-native/core/shared",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-run-onboarding",
         "@agent-native/core/shared/workspace-app-id"
@@ -1555,6 +1616,8 @@
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
         "@radix-ui/react-radio-group",
+        "@radix-ui/react-separator",
+        "@radix-ui/react-slider",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tooltip",
@@ -1568,6 +1631,7 @@
         "clsx",
         "cmdk",
         "culori",
+        "openai",
         "react",
         "react-dom",
         "sonner",
@@ -1618,9 +1682,12 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@radix-ui/react-popover",
+        "@radix-ui/react-slot",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
+        "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "recharts",
         "tailwind-merge"

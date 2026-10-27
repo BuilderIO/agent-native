@@ -278,8 +278,8 @@ const messages = {
       openWorkflow: "Open {{name}}",
       turnOn: "Turn on {{name}}",
       turnOff: "Turn off {{name}}",
-      dryRunRequired: "Run a test before turning this on.",
-      runTest: "Run a test",
+      dryRunRequired: "Do a dry run before turning this on.",
+      runTest: "Dry run",
       neverRun: "No runs yet",
       olderRun: "No recent run",
       runsFailed: "Runs did not load",
@@ -371,9 +371,9 @@ const messages = {
       connectionsNeeded: "{{count}} to connect",
       connectionsListName: "Connections needed",
       jumpToProblem: "Show on the canvas",
-      testRun: "Test run",
+      testRun: "Dry run",
       testing: "Starting",
-      saveAndTest: "Save and test",
+      saveAndTest: "Save and dry run",
       moreActions: "More actions",
       runNow: "Run now",
       runNowSaveFirst: "Save your changes before running for real.",
@@ -414,7 +414,7 @@ const messages = {
       confirmBody: "It is saved as a new version, so no version is lost.",
       confirmDiscards: "Your unsaved changes are discarded.",
       confirmSwitchesOff:
-        "The workflow is switched off until it is tested again.",
+        "The workflow is switched off until it has a clean dry run again.",
       restored: "Restored as version {{version}}.",
       restoreFailed: "Could not restore that version.",
       restoreInvalid_one:
@@ -426,7 +426,7 @@ const messages = {
       invalid_one: "Not saved: {{count}} problem to fix.",
       invalid_other: "Not saved: {{count}} problems to fix.",
       switchedOff:
-        "Saved. The workflow was switched off: test it and turn it on again.",
+        "Saved. The workflow was switched off: dry run it and turn it on again.",
       jobSyncFailed:
         "Saved, but its schedule could not be updated. Save again to retry.",
       notFound: "This workflow no longer exists.",
@@ -454,9 +454,9 @@ const messages = {
       cancel: "Cancel",
     },
     run: {
-      started: "Test run started.",
-      unavailable: "Test runs are not available yet.",
-      failed: "Could not start the test run. {{reason}}",
+      started: "Dry run started.",
+      unavailable: "Dry runs are not available yet.",
+      failed: "Could not start the dry run. {{reason}}",
       liveStarted: "Run started.",
       liveFailed: "Could not start the run. {{reason}}",
       enableFailed: "Could not change the workflow. {{reason}}",
@@ -495,8 +495,8 @@ const messages = {
       ofTotal: "{{shown}} of {{total}} items",
       noInputConnected: "No input connected",
       noInputData: "No input data",
-      testWorkflowHint: "Test the workflow to see items here",
-      testWorkflow: "Test workflow",
+      testWorkflowHint: "Dry run the workflow to see items here",
+      testWorkflow: "Dry run",
       noOutputData: "No output data",
       previewHint: "Run the workflow to see real values",
       noMatchingItems: "No matching items",
@@ -510,7 +510,7 @@ const messages = {
       copyPath: "Copy path",
       pathCopied: "Path copied",
       pathCopyFailed: "The path could not be copied",
-      dragHint: "Drag onto a field to map it",
+      dragHint: "Drag this handle onto a field to map it",
       mappedFirstField: "You just mapped a field.",
     },
     diagnostics: {
@@ -906,8 +906,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "Add a first step",
-      testWorkflow: "Test workflow",
-      saveAndTestWorkflow: "Save and test workflow",
+      testWorkflow: "Dry run",
+      saveAndTestWorkflow: "Save and dry run",
       describeFirstPrefill: "Create a workflow that ",
       describeTile: "Describe it to the agent",
       or: "or",
@@ -1336,6 +1336,37 @@ const messages = {
       deleteMany: "Delete {{count}} steps",
       selectAll: "Select all",
       clearSelection: "Clear selection",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "Choose a channel",
+      repositories: "Choose a repository",
+      organizations: "Choose an organization",
+      projects: "Choose a project",
+    },
+    search: "Search or type a value",
+    useTyped: "Use “{{value}}”",
+    noMatches: "No matches",
+    loadMore: "Load more",
+    retry: "Retry",
+    changeOrganization: "Change organization",
+    tag: {
+      private: "Private",
+      botNotMember: "Bot not in channel",
+      archived: "Archived",
+    },
+    error: {
+      notConnected:
+        "{{provider}} is not connected, so the list cannot load. You can still type a value.",
+      refused:
+        "{{provider}} refused the connected credential. You can still type a value.",
+      missingScope:
+        "The {{provider}} connection lacks the {{scope}} permission. You can still type a value.",
+      rateLimited:
+        "{{provider}} is limiting requests. Retry in a moment, or type a value.",
+      unreadable:
+        "The list from {{provider}} could not be read. Retry, or type a value.",
     },
   },
 };

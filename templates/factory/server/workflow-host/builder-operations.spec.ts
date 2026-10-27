@@ -622,6 +622,7 @@ describe("builder.check", () => {
       output: {
         state: "completed",
         reason: "pull_request_open",
+        message: null,
         agentState: "idle",
         branchState: "active",
         archived: false,
@@ -711,17 +712,52 @@ describe("builder.check", () => {
     });
   });
 
-  it("reads a branch Builder no longer has as failed, and says why", async () => {
+  it("reads a branch Builder has no active record of as not found, not failed, and says what that may mean", async () => {
     const builder = fakeBuilder();
     const result = await run("builder.check", task, builder.deps);
     expect(result).toMatchObject({
       ok: true,
       output: {
-        state: "failed",
+        state: "not_found",
         reason: "branch_not_found",
         branchState: "not_found",
         hasPullRequest: false,
+        prNumber: null,
       },
+    });
+    const message = (result as { output: { message: string } }).output.message;
+    expect(message).toMatch(/finished/);
+    expect(message).toMatch(/archived/);
+    expect(message).toMatch(/never created/);
+  });
+
+  it("declares exactly the fields a check returns, found or not, so a graph can be checked against them", async () => {
+    const declared = (op("builder.check").outputs ?? [])
+      .map((output) => output.name)
+      .sort();
+    const found = fakeBuilder();
+    found.branches.set(
+      "factory-group-7",
+      status({ prUrl: "https://github.com/acme/app/pull/42" }),
+    );
+    const absent = fakeBuilder();
+    for (const builder of [found, absent]) {
+      const result = await run("builder.check", task, builder.deps);
+      if (!result.ok) throw new Error("expected a result");
+      expect(Object.keys(result.output as object).sort()).toEqual(declared);
+    }
+  });
+
+  it("keeps failed for a branch Builder archived without merging", async () => {
+    const builder = fakeBuilder();
+    builder.branches.set(
+      "factory-group-7",
+      status({ state: "archived", archived: true }),
+    );
+    const result = await run("builder.check", task, builder.deps);
+    expect(result).toMatchObject({
+      ok: true,
+      output: { state: "failed", reason: "branch_archived" },
     });
   });
 

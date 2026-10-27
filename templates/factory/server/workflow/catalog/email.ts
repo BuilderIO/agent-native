@@ -27,6 +27,26 @@ export const emailOperations: OperationDefinitionInput[] = [
         replyTo: "replyTo",
       },
     },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "messageRef",
+        type: "string",
+        description:
+          "The idempotency key sent to the provider; the same value is externalRef.",
+      },
+      { name: "provider", type: "string" },
+      {
+        name: "recipients",
+        type: "list",
+        description: "Addresses the message was sent to.",
+      },
+      {
+        name: "suppressed",
+        type: "list",
+        description: "Addresses skipped as test identities.",
+      },
+    ],
     receipt: { externalRef: "messageRef" },
     credential: { provider: "email" },
   },

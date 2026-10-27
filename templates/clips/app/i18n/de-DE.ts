@@ -231,6 +231,7 @@ const messages = {
     spaces: "Bereiche",
     meetings: "Treffen",
     dictate: "Diktieren",
+    fromContent: "Aus Content",
     archive: "Archiv",
     trash: "Papierkorb",
     agent: "Agent",
@@ -287,6 +288,10 @@ const messages = {
     archive: {
       title: "Keine archivierten Aufnahmen",
       body: "Archivierte Clips bleiben hier, bis du sie zurückholen möchtest.",
+    },
+    fromContent: {
+      title: "Noch keine Uploads aus Content",
+      body: "Videos, die du auf eine Content-Seite hochlädst, werden hier als Clips gespeichert.",
     },
     trash: {
       title: "Der Papierkorb ist leer",
@@ -353,6 +358,8 @@ const messages = {
     fillerCompleted: "Füllwörter wurden entfernt",
     workflowReady: "Workflow bereit",
     workflowFailed: "Workflow konnte nicht erstellt werden",
+    workflowCancelled: "Workflow-Erstellung abgebrochen",
+    workflowTimedOut: "Zeitüberschreitung bei der Workflow-Erstellung",
     transcriptionCompleted: "Transkription abgeschlossen",
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
@@ -367,6 +374,8 @@ const messages = {
     fillerQueued: "Füllwörter werden entfernt…",
     silenceQueued: "Pausen werden entfernt…",
     workflowQueued: "Workflow wird erstellt…",
+    workflowStillGenerating: "Workflow wird weiterhin erstellt…",
+    workflowTakingLonger: "Das dauert länger als üblich…",
     pageTitle: "Clip-Aufnahme · Clips",
     loomMissingUrl: "Dieser Loom-Aufnahme fehlt die Quelle URL.",
     finalizeFailed: "Finalisierung fehlgeschlagen ({{status}})",
@@ -768,7 +777,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden. Wenn dein Tool keine Bilder zurückgeben oder diese Links nicht öffnen kann, sage, dass dein Tool diese Einschränkung hat; das ist kein Clips-Fehler.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
@@ -783,12 +792,16 @@ const messages = {
     chooseFile: "Datei auswählen",
     remove: "Entfernen",
     downloadMp4: "Laden Sie MP4 herunter",
-    embedsNeedPublic: "Für Einbettungen ist ein öffentlicher Clip erforderlich",
-    embedPublicDescription:
-      "Dieser Clip ist derzeit {{visibility}}. Eingebettete IFrames werden anonym geladen, daher muss der Clip öffentlich sein, damit Zuschauer ihn ansehen können.",
-    makingPublic: "Öffentlich machen…",
-    makePublic: "Öffentlich machen",
     askOwnerPublic: "Bitten Sie den Eigentümer, es öffentlich zu machen.",
+    advanced: "Erweitert",
+    passwordSet: "Passwort festgelegt",
+    noPassword: "Kein Passwort",
+    linkExpires: "Link läuft ab",
+    expiresOn: "Läuft am {{date}} ab",
+    neverExpires: "Läuft nie ab",
+    embedNeedsLinkAccess:
+      "Eingebettete Player laden ohne Anmeldung. Sie spielen daher nur ab, wenn alle mit dem Link ansehen können.",
+    changeGeneralAccess: "Allgemeinen Zugriff ändern",
     responsive: "Responsiv (16:9)",
     fixedSize: "Feste Größe",
     embedIframeTitle: "Clips-Video",
@@ -1371,12 +1384,13 @@ const messages = {
     actionItems: "Aufgaben",
     sharedContent: "Geteilte Inhalte",
     summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
-    includeTranscript: "Vollständiges Transkript einschließen",
-    includeTranscriptDescription:
-      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
-    agentLinkDescription:
-      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
+    transcriptOnShareLink: "Transkript im Teillink",
+    transcriptOnShareLinkDescription:
+      "Eingeladene Personen sehen das Transkript in Clips immer.",
+    linkShowsTranscript: "Link enthält das Transkript",
+    linkShowsNotesOnly: "Link zeigt nur Notizen",
+    copyAgentLink: "Agent-Link kopieren",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -2352,6 +2366,8 @@ const messages = {
     goHome: "Zur Startseite",
     testMic: "Mikrofon testen",
     archivePageTitle: "Archiv · Clips",
+    fromContentPageTitle: "Aus Content · Clips",
+    openContentPage: "Seite öffnen",
     insightsPageTitle: "Einblicke · Clips",
     folderPageTitle: "Ordner · Clips",
     spacePageTitle: "Bereich · Clips",

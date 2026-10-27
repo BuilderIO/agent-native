@@ -173,7 +173,7 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 </Endpoint>
 
-작업에서 `mcpApp`를 선언하면 서버는 공식 MCP 앱 확장(`io.modelcontextprotocol/ui`)도 광고하고 앱 리소스에 대해 `resources/list`, `resources/templates/list` 및 `resources/read`를 지원합니다. MCP 앱을 렌더링하는 호스트는 UI 인라인을 표시할 수 있습니다. 그렇지 않은 호스트는 여전히 도구를 호출하고 딥 링크 대체를 사용할 수 있습니다. 제품 UI는 `embedApp()`를 사용해야 인라인 표면이 실제 React 앱 경로이거나 별도의 일반 HTML 구현이 아닌 분석 차트와 같은 공유 React 구성 요소를 렌더링하는 집중 경로가 됩니다. 서버는 표준 MCP 앱 메타데이터와 ChatGPT 앱 SDK 호환성 메타데이터를 모두 내보내므로 앱 가능 호스트가 동일한 `ui://` 리소스를 찾을 수 있습니다. 현재 공식 확장 매트릭스에는 Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT 및 Cursor가 포함됩니다. 호스트 지원은 버전과 계획에 따라 다르므로 사용자 안내를 위해 [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility)를 사용하세요.
+작업에서 `mcpApp`를 선언하면 서버는 공식 MCP 앱 확장(`io.modelcontextprotocol/ui`)도 광고하고 앱 리소스에 대해 `resources/list`, `resources/templates/list` 및 `resources/read`를 지원합니다. MCP 앱을 렌더링하는 호스트는 UI 인라인을 표시할 수 있습니다. 그렇지 않은 호스트는 여전히 도구를 호출하고 딥 링크 대체를 사용할 수 있습니다. 제품 UI는 `embedApp()`를 사용해야 인라인 표면이 실제 React 앱 경로이거나 별도의 일반 HTML 구현이 아닌 분석 차트와 같은 공유 React 구성 요소를 렌더링하는 집중 경로가 됩니다. 서버는 표준 MCP 앱 메타데이터와 ChatGPT 앱 SDK 호환성 메타데이터를 모두 내보내므로 앱 가능 호스트가 동일한 `ui://` 리소스를 찾을 수 있습니다. 렌더링을 지원하는 호스트와 링크를 사용하는 클라이언트는 [MCP Apps](/docs/mcp-apps#client-support)를 참조하세요.
 
 ### MCP 앱 삽입 브리지 {#mcp-app-embed-bridge}
 

@@ -484,7 +484,7 @@ describe("onboarding plugin routes", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({
       error:
-        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+        "Could not read your saved connections. Try again, or reconnect the connection if the issue continues.",
     });
   });
 
@@ -553,7 +553,7 @@ describe("onboarding plugin routes", () => {
     expect(result.status).toBe(500);
     expect(result.body).toEqual({
       error:
-        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+        "Could not read your saved connections. Try again, or reconnect the connection if the issue continues.",
     });
   });
 

@@ -56,13 +56,26 @@ vi.mock("./framework-request-handler.js", () => ({
 const actionsToEngineTools = vi.hoisted(() => vi.fn());
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
+  toolCallCacheKey: (name: string, input: unknown) =>
+    `${name}:${JSON.stringify(input)}`,
 }));
+
+const approvalStore = vi.hoisted(() => ({
+  createAgentToolApproval: vi.fn(),
+  consumeAgentToolApproval: vi.fn(),
+  denyAgentToolApproval: vi.fn(),
+  isAgentToolAlwaysAllowed: vi.fn(),
+}));
+vi.mock("../agent/tool-approval-store.js", () => approvalStore);
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
+  composeRealtimeVoiceInstructions,
   mountRealtimeVoiceRoutes,
   REALTIME_VOICE_CAPABILITY_HEADER,
+  REALTIME_VOICE_INTELLIGENCE_HEADER,
+  REALTIME_VOICE_PRIORITY_TOOLS_HEADER,
   REALTIME_VOICE_MODEL_HEADER,
   REALTIME_VOICE_PROTOCOL_HEADER,
   REALTIME_VOICE_MAX_SDP_BYTES,
@@ -73,6 +86,7 @@ import {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   REALTIME_VOICE_TOOL_GRANT_TTL_MS,
+  realtimeVoiceApprovalHooks,
   realtimeVoiceSafetyIdentifier,
   resolveRealtimeVoiceLanguagePreference,
   resolveRealtimeVoicePreference,
@@ -196,9 +210,15 @@ function fakeEvent(options: {
 function mount(options?: {
   actions?: Record<string, ActionEntry>;
   getInstructions?: (context: any) => string | Promise<string>;
+  voiceInstructions?: string;
+  priorityToolNames?: readonly string[];
+  defaultIntelligence?: "instant" | "balanced" | "deep";
   model?: string;
   voice?: string;
   resolveOrgId?: (event: any) => string | Promise<string>;
+  resolveRequestActions?: (
+    context: any,
+  ) => Promise<Record<string, ActionEntry>>;
   executeTool?: (request: any) => unknown | Promise<unknown>;
 }) {
   const handlers = new Map<string, Handler>();
@@ -395,11 +415,169 @@ describe("realtime voice inline preferences", () => {
     expect(resolveRealtimeVoiceReasoningEffort("instant", "realtime")).toBe(
       "minimal",
     );
-    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("low");
-    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced")).toBe("medium");
+    expect(resolveRealtimeVoiceReasoningEffort("deep")).toBe("high");
+    expect(resolveRealtimeVoiceReasoningEffort("balanced", "realtime")).toBe(
+      "low",
+    );
+    expect(resolveRealtimeVoiceReasoningEffort("deep", "realtime")).toBe(
+      "medium",
+    );
     expect(resolveRealtimeVoiceReasoningEffort("__proto__")).toBe("low");
     expect(resolveRealtimeVoicePreference("cedar", "marin")).toBe("cedar");
     expect(resolveRealtimeVoicePreference("custom-id", "marin")).toBe("marin");
+  });
+});
+
+describe("composeRealtimeVoiceInstructions", () => {
+  it("gives the spoken model voice guidance and the tool model the app context", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "live",
+      voiceInstructions: "Say the new value out loud.",
+      appInstructions: "App guidance:\nUse edit-design.",
+    });
+
+    expect(composed.voice).toContain("Before each action, say a few words");
+    expect(composed.voice).toContain("Delegate every request");
+    expect(composed.voice).toContain("Say the new value out loud.");
+    expect(composed.voice).not.toContain("Use edit-design.");
+    expect(composed.tools).toContain("call `tool-search` before saying");
+    expect(composed.tools.indexOf("Say the new value out loud.")).toBeLessThan(
+      composed.tools.indexOf("Use edit-design."),
+    );
+    expect(composed.tools).not.toContain("Delegate every request");
+  });
+
+  it("keeps voice guidance when a long system prompt hits the length cap", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "live",
+      voiceInstructions: "Treat bigger as one step on the scale.",
+      appInstructions: `App guidance:\n${"x".repeat(40_000)}`,
+    });
+
+    expect(composed.tools).toContain("Treat bigger as one step on the scale.");
+    expect(composed.tools).toMatch(/\.\.\.\[truncated\]$/);
+  });
+
+  it("gives the single Realtime model every part", () => {
+    const composed = composeRealtimeVoiceInstructions({
+      protocol: "realtime",
+      voiceInstructions: "Offer more or less.",
+      appInstructions: "The current view is the calendar.",
+    });
+
+    expect(composed.voice).toBe(composed.tools);
+    expect(composed.voice).toContain(
+      "Use the function tools for every request",
+    );
+    expect(composed.voice).toContain("Offer more or less.");
+    expect(composed.voice).toContain("The current view is the calendar.");
+    expect(composed.voice).not.toContain("Delegate every request");
+  });
+});
+
+describe("realtime voice app configuration", () => {
+  function liveSessionFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session: { id: "live-session-app" },
+          transport: { type: "webrtc", sdp: "v=0\r\ns=live\r\n" },
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function liveSessionBody(fetchMock: ReturnType<typeof vi.fn>) {
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    return JSON.parse(String(init.body)).session;
+  }
+
+  it("loads the app's edit tools right after the framework tools", async () => {
+    actionsToEngineTools.mockReturnValue([
+      ...Array.from({ length: REALTIME_VOICE_MAX_TOOLS + 8 }, (_, index) => ({
+        name: `template_tool_${index}`,
+        description: `Template tool ${index}`,
+        inputSchema: { type: "object", properties: {} },
+      })),
+      ...["update-slide", "tool-search", "web-search"].map((name) => ({
+        name,
+        description: name,
+        inputSchema: { type: "object", properties: {} },
+      })),
+    ]);
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({
+      priorityToolNames: ["update-slide", "missing-tool"],
+    });
+    const event = sessionEvent();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    const tools = liveSessionBody(fetchMock).delegation.responses.tools;
+    expect(
+      tools.slice(0, 3).map((tool: { name: string }) => tool.name),
+    ).toEqual(["tool-search", "web-search", "update-slide"]);
+    expect(tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
+    expect(event.responseHeaders[REALTIME_VOICE_PRIORITY_TOOLS_HEADER]).toBe(
+      "update-slide",
+    );
+    // A strict schema would make the delegated model fill every optional field.
+    expect(
+      new Set(tools.map((tool: { strict?: unknown }) => tool.strict)),
+    ).toEqual(new Set([false]));
+  });
+
+  it("uses the app's default intelligence until the user picks one", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({ defaultIntelligence: "balanced" });
+    const event = sessionEvent();
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    expect(liveSessionBody(fetchMock).delegation.responses.reasoning).toEqual({
+      effort: "medium",
+    });
+    expect(event.responseHeaders[REALTIME_VOICE_INTELLIGENCE_HEADER]).toBe(
+      "balanced",
+    );
+  });
+
+  it("lets the user's pick win over the app's default", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({ defaultIntelligence: "balanced" });
+    const event = sessionEvent(undefined, {
+      [REALTIME_VOICE_INTELLIGENCE_HEADER]: "instant",
+    });
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event);
+
+    expect(liveSessionBody(fetchMock).delegation.responses.reasoning).toEqual({
+      effort: "low",
+    });
+    expect(event.responseHeaders[REALTIME_VOICE_INTELLIGENCE_HEADER]).toBe(
+      "instant",
+    );
+  });
+
+  it("sends voice guidance to both Live models and app context only to the tool model", async () => {
+    const fetchMock = liveSessionFetch();
+    const { handlers } = mount({
+      voiceInstructions: "Say the new value out loud.",
+      getInstructions: () => "App guidance:\nUse update-slide.",
+    });
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    const session = liveSessionBody(fetchMock);
+    expect(session.instructions).toContain("Say the new value out loud.");
+    expect(session.instructions).not.toContain("Use update-slide.");
+    expect(session.instructions).toMatch(/Speak in en unless/);
+    expect(session.delegation.responses.instructions).toContain(
+      "Say the new value out loud.",
+    );
+    expect(session.delegation.responses.instructions).toContain(
+      "Use update-slide.",
+    );
   });
 });
 
@@ -537,6 +715,47 @@ describe("realtime voice session route", () => {
     expect(
       Buffer.byteLength(JSON.stringify(request.session), "utf8"),
     ).toBeLessThanOrEqual(REALTIME_VOICE_MAX_SESSION_BYTES);
+  });
+
+  it("builds the tools once, on the first voice request, from the actions as mounted", async () => {
+    resolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer builder-private-example",
+      spaceId: "builder-public-example",
+      userId: null,
+    });
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        new Response("v=0\r\ns=builder\r\n", {
+          status: 201,
+          headers: { "content-type": "application/sdp" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const actions: Record<string, ActionEntry> = { ...ACTIONS };
+
+    const { handlers } = mount({ actions, model: "gpt-realtime-2.1" });
+    expect(actionsToEngineTools).not.toHaveBeenCalled();
+    actions.added = ACTIONS.navigate;
+    await Promise.all([
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent()),
+      handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent()),
+    ]);
+    await handlers.get(REALTIME_VOICE_SESSION_PATH)!(sessionEvent());
+
+    expect(actionsToEngineTools).toHaveBeenCalledTimes(1);
+    expect(Object.keys(actionsToEngineTools.mock.calls[0]![0])).toEqual(
+      Object.keys(ACTIONS),
+    );
+    const sent = fetchMock.mock.calls.map(
+      ([, init]) =>
+        JSON.parse(String((init as RequestInit).body)).session.tools,
+    );
+    expect(sent).toHaveLength(3);
+    expect(sent[1]).toEqual(sent[0]);
+    expect(sent[2]).toEqual(sent[0]);
+    expect(sent[0].map((tool: { name: string }) => tool.name)).toEqual([
+      "navigate",
+    ]);
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
@@ -1124,6 +1343,7 @@ describe("realtime voice tool route", () => {
     expect(searchResult).toEqual({
       callId: "call_search",
       status: "completed",
+      readOnly: true,
       output: JSON.stringify({
         query: "rare capability",
         results: [{ name: "rare-action" }, { name: "invented-action" }],
@@ -1582,6 +1802,356 @@ describe("realtime voice tool route", () => {
       status: "completed",
       output: '{"ok":true,"apiKey":[REDACTED]}',
     });
+  });
+
+  it("classifies a call from its own arguments' plan-mode effect", async () => {
+    const executeTool = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", output: "{}" });
+    const { handlers } = mount({
+      executeTool,
+      actions: {
+        ...ACTIONS,
+        "manage-items": {
+          tool: {
+            name: "manage-items",
+            description: "List or delete items",
+            parameters: {
+              type: "object",
+              properties: { mode: { type: "string" } },
+            },
+          },
+          planMode: {
+            effect: (args: { mode?: string }) =>
+              args.mode === "list" ? "read" : "write",
+          },
+          run: vi.fn(),
+        },
+        "unclassified-action": {
+          tool: {
+            name: "unclassified-action",
+            description: "Declares no read-only flag",
+            parameters: { type: "object", properties: {} },
+          },
+          run: vi.fn(),
+        },
+      },
+    });
+    const capability = await issueToolCapability(handlers);
+    const call = (mode: string, callId: string) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          { name: "manage-items", args: { mode }, callId },
+          withToolCapability(capability),
+        ),
+      );
+
+    expect(await call("list", "call_list")).toMatchObject({ readOnly: true });
+    expect(await call("delete", "call_delete")).toMatchObject({
+      readOnly: false,
+    });
+    const unclassified = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        { name: "unclassified-action", args: {}, callId: "call_unknown" },
+        withToolCapability(capability),
+      ),
+    );
+    expect(unclassified).not.toHaveProperty("readOnly");
+  });
+
+  it("offers the caller's own MCP tools and runs them with the caller's actions", async () => {
+    const mcpTools: Record<string, ActionEntry> = Object.fromEntries(
+      Array.from({ length: REALTIME_VOICE_MAX_TOOLS }, (_, index) => [
+        `mcp__docs__tool_${index}`,
+        {
+          tool: {
+            name: `mcp__docs__tool_${index}`,
+            description: `Docs tool ${index}`,
+            parameters: { type: "object", properties: {} },
+          },
+          run: vi.fn(),
+        },
+      ]),
+    );
+    const impostor: ActionEntry = {
+      tool: { description: "Not the app's navigate", parameters: {} },
+      run: vi.fn(),
+    };
+    const lastTool = `mcp__docs__tool_${REALTIME_VOICE_MAX_TOOLS - 1}`;
+    const executeTool = vi.fn(async (request: { name: string }) =>
+      request.name === "tool-search"
+        ? {
+            status: "completed",
+            output: JSON.stringify({ results: [{ name: lastTool }] }),
+          }
+        : { status: "completed", output: "{}" },
+    );
+    const resolveRequestActions = vi.fn(
+      async ({ userEmail }: { userEmail: string }) =>
+        userEmail === "person@example.com"
+          ? { ...mcpTools, navigate: impostor }
+          : {},
+    );
+    const actions = { ...ACTIONS, ...discoveryActions(0) };
+    const { handlers } = mount({
+      actions,
+      executeTool,
+      resolveRequestActions,
+    });
+    let capability = await issueToolCapability(handlers);
+    const call = (
+      name: string,
+      args: Record<string, unknown>,
+      callId: string,
+    ) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent({ name, args, callId }, withToolCapability(capability)),
+      );
+
+    // The session was full, so the last tool waits for tool-search.
+    expect(await call(lastTool, {}, "call_early")).toMatchObject({
+      error: "Unknown realtime voice tool",
+    });
+    const search = await call(
+      "tool-search",
+      { query: "docs tool" },
+      "call_search",
+    );
+    expect(
+      (search as { expandedTools?: Array<{ name: string }> }).expandedTools,
+    ).toContainEqual(expect.objectContaining({ name: lastTool }));
+    capability = adoptCapability(capability, search);
+
+    await call(lastTool, {}, "call_docs");
+    const request = executeTool.mock.calls.at(-1)![0] as unknown as {
+      name: string;
+      actions: Record<string, ActionEntry>;
+    };
+    expect(request.name).toBe(lastTool);
+    expect(request.actions[lastTool]).toBe(mcpTools[lastTool]);
+    // A mounted action keeps its name, and tool-search sees the caller's tools.
+    expect(request.actions.navigate).toBe(actions.navigate);
+    expect(request.actions["tool-search"]).not.toBe(actions["tool-search"]);
+    expect(resolveRequestActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "person@example.com",
+        orgId: "org-session",
+      }),
+    );
+  });
+
+  it("passes the approval the user approved to the tool, and rejects a malformed one", async () => {
+    const executeTool = vi
+      .fn()
+      .mockResolvedValue({ status: "completed", output: "{}" });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+    const call = (approvalId: unknown) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          {
+            name: "navigate",
+            args: {},
+            callId: "call_approved",
+            sessionId: "voice-session-1",
+            approvalId,
+          },
+          withToolCapability(capability),
+        ),
+      );
+
+    await call("agent-tool-approval-1");
+    expect(executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalId: "agent-tool-approval-1" }),
+    );
+    for (const malformed of [42, "has spaces", "x".repeat(200)]) {
+      expect(await call(malformed)).toEqual({
+        error: "Invalid realtime tool request",
+      });
+    }
+    expect(executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the approval id of a call whose arguments make its key too long to return", async () => {
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "approval_required",
+      output: "Awaiting approval",
+      approvalKey: `navigate:${"x".repeat(2_000)}`,
+      approvalId: "agent-tool-approval-3",
+    });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        { name: "navigate", args: {}, callId: "call_large" },
+        withToolCapability(capability),
+      ),
+    );
+    expect(result).toMatchObject({
+      status: "approval_required",
+      approvalId: "agent-tool-approval-3",
+    });
+    expect(result).not.toHaveProperty("approvalKey");
+  });
+
+  it("scopes a voice approval to its session, so an approved retry consumes it", async () => {
+    approvalStore.createAgentToolApproval.mockResolvedValue("approval-1");
+    approvalStore.consumeAgentToolApproval.mockResolvedValue(true);
+    approvalStore.isAgentToolAlwaysAllowed.mockResolvedValue(false);
+    const binding = (callId: string) => ({
+      toolName: "delete-slide",
+      toolRevision: "r1",
+      input: { slideId: "s1" },
+      argumentsHash: "args-hash",
+      callId,
+      approvalKey: "delete-slide:key",
+    });
+    const call = { name: "delete-slide", args: { slideId: "s1" } };
+    const asked = realtimeVoiceApprovalHooks({
+      ...call,
+      userEmail: "person@example.com",
+      orgId: "org-session",
+      sessionId: "voice-session-1",
+      callId: "call_asked",
+    });
+    const retry = realtimeVoiceApprovalHooks({
+      ...call,
+      userEmail: "person@example.com",
+      orgId: "org-session",
+      sessionId: "voice-session-1",
+      callId: "call_asked_approved",
+      approvalId: "approval-1",
+    });
+
+    expect(asked).not.toHaveProperty("approvedToolCalls");
+    // The key is rebuilt from the call itself, and the exact record is named.
+    expect(retry.approvedToolCalls).toEqual(['delete-slide:{"slideId":"s1"}']);
+    expect(retry.approvedToolCallAskId).toBe("approval-1");
+    await asked.onApprovalRequired(binding("call_asked"));
+    await retry.consumeApproval(binding("call_asked_approved"));
+    const scope = {
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      threadId: "realtime:voice-session-1",
+      turnId: "realtime:voice-session-1",
+      toolName: "delete-slide",
+      toolRevision: "r1",
+      approvalKey: "delete-slide:key",
+      argumentsHash: "args-hash",
+    };
+    expect(approvalStore.createAgentToolApproval).toHaveBeenCalledWith({
+      ...scope,
+      callId: "call_asked",
+    });
+    expect(approvalStore.consumeAgentToolApproval).toHaveBeenCalledWith({
+      ...scope,
+      callId: "call_asked_approved",
+    });
+
+    expect(asked.recordedApprovalId()).toBe("approval-1");
+
+    await asked.isToolAlwaysAllowed(binding("call_asked"));
+    expect(approvalStore.isAgentToolAlwaysAllowed).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      toolName: "delete-slide",
+      toolRevision: "r1",
+    });
+  });
+
+  it("refuses to start a session without the caller's tools when they cannot load", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount({
+      resolveRequestActions: async () => {
+        throw new Error("MCP manager is reconfiguring");
+      },
+    });
+    const event = sessionEvent();
+
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event)).toEqual({
+      error:
+        "Could not load your connected tools for voice chat: MCP manager is reconfiguring",
+      code: "realtime_voice_tools_unavailable",
+    });
+    expect(event.statusCode).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("declines the approval record without running the call", async () => {
+    approvalStore.denyAgentToolApproval.mockResolvedValue("denied");
+    const executeTool = vi.fn();
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    const result = await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+      toolEvent(
+        {
+          name: "navigate",
+          args: {},
+          callId: "call_declined",
+          sessionId: "voice-session-1",
+          declinedApprovalId: "agent-tool-approval-1",
+        },
+        withToolCapability(capability),
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "completed" });
+    expect(executeTool).not.toHaveBeenCalled();
+    expect(approvalStore.denyAgentToolApproval).toHaveBeenCalledWith({
+      approvalId: "agent-tool-approval-1",
+      ownerEmail: "person@example.com",
+      orgId: "org-session",
+      threadId: "realtime:voice-session-1",
+    });
+  });
+
+  it("returns the approval record a call asked for", async () => {
+    const executeTool = vi.fn().mockResolvedValue({
+      status: "approval_required",
+      output: "Awaiting approval",
+      approvalKey: "navigate:key",
+      approvalId: "agent-tool-approval-2",
+    });
+    const { handlers } = mount({ executeTool });
+    const capability = await issueToolCapability(handlers);
+
+    expect(
+      await handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent(
+          { name: "navigate", args: {}, callId: "call_asks" },
+          withToolCapability(capability),
+        ),
+      ),
+    ).toMatchObject({
+      status: "approval_required",
+      approvalKey: "navigate:key",
+      approvalId: "agent-tool-approval-2",
+    });
+  });
+
+  it("never offers one person's MCP tools to another", async () => {
+    const resolveRequestActions = vi.fn(
+      async ({ userEmail }: { userEmail: string }) =>
+        userEmail === "owner@example.com"
+          ? {
+              mcp__docs__search: {
+                tool: {
+                  description: "Search the owner's docs",
+                  parameters: { type: "object", properties: {} },
+                },
+                run: vi.fn(),
+              } as ActionEntry,
+            }
+          : {},
+    );
+    const { handlers } = mount({ resolveRequestActions });
+    await issueToolCapability(handlers);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(String(init.body)).not.toContain("mcp__docs__search");
   });
 
   it("routes navigation execution through the active browser tab", async () => {

@@ -2516,7 +2516,10 @@ export async function verifyLocalPlanBridge(input: {
       headers: { accept: "application/json" },
     });
     const payload = (await response.json().catch(() => null)) as
-      | (LocalPlanBridgePayload & { mdx?: LocalPlanBridgeMdxFolder })
+      | (LocalPlanBridgePayload & {
+          mdx?: LocalPlanBridgeMdxFolder;
+          error?: string;
+        })
       | null;
     const mdxFiles = payload?.mdx
       ? Object.keys(payload.mdx).filter((file) => file !== "assets/")

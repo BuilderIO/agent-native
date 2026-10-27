@@ -14,13 +14,17 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -149,12 +153,15 @@ export default defineAction({
         row.database.systemRole === "files"
           ? lockedRow.document.parentId
           : row.database.documentId;
-      const values = await tx
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(
-          eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
-        );
+      const values = await withoutBuilderStatusValues(
+        tx,
+        await tx
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(
+            eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
+          ),
+      );
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -319,11 +326,14 @@ export default defineAction({
           documentIds: [nextDocumentId],
         })
       ).items.find((item) => item.id === nextItemId);
-    return {
-      ...response,
-      duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
-      duplicatedItemId: nextItemId,
-      duplicatedDocumentId: nextDocumentId,
-    };
+    return contentDatabaseResponseForCaller(
+      {
+        ...response,
+        duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
+        duplicatedItemId: nextItemId,
+        duplicatedDocumentId: nextDocumentId,
+      },
+      ctx,
+    );
   },
 });

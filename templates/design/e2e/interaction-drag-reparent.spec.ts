@@ -1064,7 +1064,7 @@ test.describe("drag reparent interaction", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await expect
       .poll(async () => {
         const reloadedIndexHtml = await fileContent(page, id, "index.html");
@@ -1150,7 +1150,7 @@ test.describe("drag reparent interaction", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await expect.poll(widgetIsOnTheBoardOnly, { timeout: 10_000 }).toBe(true);
   });
 
@@ -1377,9 +1377,7 @@ test.describe("drag reparent interaction", () => {
     ).toBeLessThanOrEqual(worldTolerance);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.locator("[data-design-editor]")).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(page.locator("[data-design-editor]")).toBeVisible();
     let reloadedBoardHtml = "";
     await expect
       .poll(async () => {
@@ -1539,7 +1537,7 @@ test.describe("drag reparent interaction", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await expect
       .poll(
         async () => {
@@ -1804,7 +1802,7 @@ test.describe("drag reparent interaction", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await expect
       .poll(async () => {
         const html = await fileContent(page, id, "index.html");

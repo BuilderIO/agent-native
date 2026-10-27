@@ -4,6 +4,7 @@ import {
 } from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isOutsideAutomationOrigin } from "../automations/outside-origin.js";
 import {
   defineAutomation,
   deleteAutomation,
@@ -19,6 +20,8 @@ import {
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   getIntegrationRequestContext,
   getRequestOrgId,
@@ -241,6 +244,7 @@ async function handleDefine(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
   appId?: string,
+  context?: ActionRunContext,
 ): Promise<string> {
   if (args.mode === "deterministic") {
     throw new Error(
@@ -248,8 +252,21 @@ async function handleDefine(
     );
   }
   const integration = getIntegrationRequestContext();
+  const userEmail = getCurrentUser();
+  const orgId = getRequestOrgId();
   const definition = await defineAutomation(
-    { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
+    {
+      userEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(appId === undefined ? {} : { appId }),
+      ...(context?.caller ? { caller: context.caller } : {}),
+      ...(context?.networkProtocol === undefined
+        ? {}
+        : { networkProtocol: context.networkProtocol }),
+      ...(context?.automation === undefined
+        ? {}
+        : { automation: context.automation }),
+    },
     {
       name: typeof args.name === "string" ? args.name : "",
       scope: automationScope(args.scope),
@@ -339,9 +356,23 @@ async function handleUpdate(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
   appId?: string,
+  context?: ActionRunContext,
 ): Promise<string> {
+  const userEmail = getCurrentUser();
+  const orgId = getRequestOrgId();
   const definition = await updateAutomation(
-    { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
+    {
+      userEmail,
+      ...(orgId === undefined ? {} : { orgId }),
+      ...(appId === undefined ? {} : { appId }),
+      ...(context?.caller ? { caller: context.caller } : {}),
+      ...(context?.networkProtocol === undefined
+        ? {}
+        : { networkProtocol: context.networkProtocol }),
+      ...(context?.automation === undefined
+        ? {}
+        : { automation: context.automation }),
+    },
     {
       resourceId:
         typeof args.resource_id === "string" ? args.resource_id : undefined,
@@ -484,7 +515,12 @@ async function handleDelete(
 async function handleFireTest(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  context?: ActionRunContext,
 ): Promise<string> {
+  if (context?.caller === "automation" || context?.automation) {
+    const messages = await automationOutcomeMessagesForUser(getCurrentUser());
+    throw new Error(messages.chainingUnsupported);
+  }
   const { emit } = await import("../event-bus/index.js");
 
   let data: Record<string, unknown> = {};
@@ -511,8 +547,9 @@ async function handleRunNow(
   appId?: string,
   context?: ActionRunContext,
 ): Promise<string> {
-  if (context?.caller === "automation") {
-    throw new Error("An automation cannot run another automation.");
+  if (context?.caller === "automation" || context?.automation) {
+    const messages = await automationOutcomeMessagesForUser(getCurrentUser());
+    throw new Error(messages.chainingUnsupported);
   }
   const resourceId =
     typeof args.resource_id === "string" ? args.resource_id : undefined;
@@ -548,8 +585,13 @@ export function createAutomationToolEntries(
   getCurrentUser: () => string,
   appId?: string,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-automations": {
+      needsApproval: (args, context) =>
+        isOutsideAutomationOrigin(context) &&
+        args.action !== "list" &&
+        args.action !== "list-events" &&
+        args.action !== "list-hosts",
       chatUI: {
         renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
         when: (args, result) => {
@@ -792,13 +834,13 @@ export function createAutomationToolEntries(
           case "list":
             return handleList(args, getCurrentUser, appId);
           case "define":
-            return handleDefine(args, getCurrentUser, appId);
+            return handleDefine(args, getCurrentUser, appId, context);
           case "update":
-            return handleUpdate(args, getCurrentUser, appId);
+            return handleUpdate(args, getCurrentUser, appId, context);
           case "delete":
             return handleDelete(args, getCurrentUser, appId);
           case "fire-test":
-            return handleFireTest(args, getCurrentUser);
+            return handleFireTest(args, getCurrentUser, context);
           case "run-now":
             return handleRunNow(args, getCurrentUser, appId, context);
           default:
@@ -808,5 +850,5 @@ export function createAutomationToolEntries(
         }
       },
     },
-  };
+  });
 }

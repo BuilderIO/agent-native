@@ -62,6 +62,8 @@ export interface AssistantChatSendOptions {
   approvedToolCalls?: string[];
   /** Send as a protocol continuation that stays out of visible history. */
   hideUserMessage?: boolean;
+  /** The app surface this send came from, reported with the turn's analytics. */
+  surface?: string;
 }
 
 export type AssistantChatSubmitResult =
@@ -180,7 +182,6 @@ export interface AssistantChatAdapterContext {
   effortRef: { current: ReasoningEffort | undefined };
   harnessRef?: { current: string | undefined };
   hostedHarnessRef?: { current: boolean };
-  execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
   surface: AgentChatSurfaceKind;
@@ -337,14 +338,8 @@ export interface AssistantChatProps {
   isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
-  /** Current execution mode (build/plan) */
-  execMode?: "build" | "plan";
-  /** Callback to change execution mode */
-  onExecModeChange?: (mode: "build" | "plan") => void;
-  /** Disable Plan mode while leaving Act mode available. */
+  /** Hide `/plan`, so every message from this chat acts. */
   planModeDisabled?: boolean;
-  /** Explanation shown next to the disabled Plan option. */
-  planModeDisabledReason?: string;
   /** Selected model override for this conversation (undefined = use server default) */
   selectedModel?: string;
   /** Default model from server config (shown in picker when no override is set) */

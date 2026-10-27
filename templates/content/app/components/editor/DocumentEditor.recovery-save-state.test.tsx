@@ -115,6 +115,12 @@ vi.mock("../../../actions/_document-save-row.js", async (original) => ({
   >()),
   createDocumentFlushCapture: () => barrierStore.capture,
 }));
+vi.mock("../../../server/lib/live-body-writer.js", async (original) => ({
+  ...(await original<
+    typeof import("../../../server/lib/live-body-writer.js")
+  >()),
+  isLiveBodyWriterPage: async () => false,
+}));
 
 vi.mock("./DocumentBlockFields", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./DocumentBlockFields")>();
@@ -246,7 +252,7 @@ vi.mock("./comment-ai", () => ({
 }));
 vi.mock("./CommentsSidebar", () => ({
   CommentsSidebar: () => null,
-  preserveCommentReplyEscape: () => {},
+  preserveCommentComposerEscape: () => {},
   useCommentReplyDrafts: () => ({
     setOpenReply: vi.fn(),
     focus: { current: null },

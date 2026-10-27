@@ -151,7 +151,7 @@ export type BlockFieldOpenCounts = ReadonlyMap<string | null, number>;
  * Open review per tab, as the margin shows it: unresolved threads, and on the
  * body also pending suggestions with their text on the page (a proposal of
  * several edits counts once) and unsaved draft suggestions. Property threads
- * belong to no tab.
+ * and comments on the whole page belong to no tab.
  */
 export function openReviewCountsByField({
   threads,
@@ -168,7 +168,12 @@ export function openReviewCountsByField({
   const add = (fieldId: string | null, count = 1) =>
     counts.set(fieldId, (counts.get(fieldId) ?? 0) + count);
   for (const thread of threads ?? []) {
-    if (thread.resolved || thread.property) continue;
+    if (
+      thread.resolved ||
+      thread.property ||
+      !(thread.block || thread.quotedText?.trim())
+    )
+      continue;
     add(commentThreadFieldId(thread));
   }
   const embedded = new Set(

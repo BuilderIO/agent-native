@@ -51,6 +51,9 @@ let terminalAction: typeof import("./manage-content-database-migration.js").defa
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
+let putPageOnLiveCopy: typeof import("../server/test-support/live-copy-page.js").putPageOnLiveCopy;
+let liveCopyVersionOf: typeof import("../server/test-support/live-copy-page.js").liveCopyVersionOf;
+let turnLiveCopyFlagsOff: typeof import("../server/test-support/live-copy-page.js").turnLiveCopyFlagsOff;
 let maxMigrationFlushConcurrency: number;
 const now = () => new Date().toISOString();
 
@@ -70,6 +73,8 @@ beforeAll(async () => {
     .default;
   ({ lockContentDatabaseMutation, touchContentDatabase } =
     await import("./_content-database-mutation-lock.js"));
+  ({ putPageOnLiveCopy, liveCopyVersionOf, turnLiveCopyFlagsOff } =
+    await import("../server/test-support/live-copy-page.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
@@ -1250,6 +1255,23 @@ describe("migrate-content-database-rows", () => {
 
   it("performs guarded rollback/finalize and refuses drift", async () => {
     const db = getDb();
+    // Tombstones on these rows whose property no longer exists.
+    const orphanedTombstones = (seed: {
+      rows: Array<{ documentId: string }>;
+    }) =>
+      db
+        .select()
+        .from(schema.documentPropertyValueTombstones)
+        .where(
+          and(
+            inArray(
+              schema.documentPropertyValueTombstones.documentId,
+              seed.rows.map((row) => row.documentId),
+            ),
+            sql`NOT EXISTS (SELECT 1 FROM document_property_definitions
+              WHERE id = ${schema.documentPropertyValueTombstones.propertyId})`,
+          ),
+        );
     const rollbackSeed = await fixture();
     const rollbackPlan: any = structuredClone(plan(rollbackSeed));
     const beforeRollback = await readFixtureState(rollbackSeed);
@@ -1279,6 +1301,7 @@ describe("migrate-content-database-rows", () => {
     expect(withoutDocumentBodyRevisions(afterRollback)).toEqual(
       withoutDocumentBodyRevisions(beforeRollback),
     );
+    expect(await orphanedTombstones(rollbackSeed)).toEqual([]);
     const rollbackStateBeforeReplay =
       await readDurableMigrationState(rollbackSeed);
     const rollbackReplay: any = await runWithRequestContext(
@@ -1428,6 +1451,7 @@ describe("migrate-content-database-rows", () => {
           ),
         ),
     ).toHaveLength(0);
+    expect(await orphanedTombstones(finalizeSeed)).toEqual([]);
     const driftSeed = await fixture();
     const driftPlan: any = structuredClone(plan(driftSeed));
     const drifted: any = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -1496,5 +1520,114 @@ describe("migrate-content-database-rows", () => {
         eq(schema.contentDatabaseMigrationReceipts.databaseId, seed.databaseId),
       );
     expect(["rolled_back", "finalized"]).toContain(receipt.state);
+  });
+
+  it("refuses an apply that would write the body of a row on its live copy, migrating no row", async () => {
+    const seed = await fixture(3);
+    const liveRowId = seed.rows[1].documentId;
+    await putPageOnLiveCopy(liveRowId);
+    const before = await readDurableMigrationState(seed);
+    const liveCopyVersion = await liveCopyVersionOf(liveRowId);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: plan(seed) }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: liveRowId,
+        operation: "migrate-content-database-rows",
+      },
+    });
+    expect(await readDurableMigrationState(seed)).toEqual(before);
+    expect(before.versions).toHaveLength(0);
+    expect(before.receipts).toHaveLength(0);
+    expect(await liveCopyVersionOf(liveRowId)).toBe(liveCopyVersion);
+  });
+
+  it("refuses a plan that copies a video with its id, migrating no row", async () => {
+    const seed = await fixture(2);
+    const video = (caption: string) =>
+      `<video src="https://synthetic.example.test/a.mp4" id="video-original">${caption}</video>`;
+    const [row] = seed.rows;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: video("Demo") })
+      .where(eq(schema.documents.id, row.documentId));
+    row.content = `${video("Demo")}\n${video("Copy")}`;
+    const before = await readDurableMigrationState(seed);
+
+    for (const phase of ["validate", "apply"] as const)
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase, plan: plan(seed) }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+        details: { blockId: "video-original" },
+      });
+    expect(await readDurableMigrationState(seed)).toEqual(before);
+  });
+
+  it("refuses a rollback that would restore the body of a row now on its live copy, leaving rows as migrated", async () => {
+    const seed = await fixture(3);
+    const input = plan(seed);
+    await turnLiveCopyFlagsOff();
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const liveRowId = seed.rows[1].documentId;
+    await putPageOnLiveCopy(liveRowId);
+    const migrated = await readDurableMigrationState(seed);
+    const liveCopyVersion = await liveCopyVersionOf(liveRowId);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        terminalAction.run({
+          phase: "rollback",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: liveRowId,
+        operation: "migrate-content-database-rows",
+      },
+    });
+    expect(await readDurableMigrationState(seed)).toEqual(migrated);
+    expect(
+      migrated.documents.find((document: any) => document.id === liveRowId)
+        ?.content,
+    ).toBe(input.rows[1].content);
+    expect(migrated.receipts).toEqual([
+      expect.objectContaining({ state: "applied" }),
+    ]);
+    expect(await liveCopyVersionOf(liveRowId)).toBe(liveCopyVersion);
+  });
+
+  it("lets an apply migrate a switched row while its flags are off (SF-11)", async () => {
+    const seed = await fixture(3);
+    const input = plan(seed);
+    const liveRowId = seed.rows[1].documentId;
+    await putPageOnLiveCopy(liveRowId);
+    await turnLiveCopyFlagsOff();
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).resolves.toMatchObject({ state: "applied", written: 3 });
+    const [liveRow] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, liveRowId));
+    expect(liveRow.content).toBe(input.rows[1].content);
   });
 });

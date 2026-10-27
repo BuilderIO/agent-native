@@ -31,9 +31,8 @@ import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/Keyb
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import {
   isDesignHotkeyBlockedByOpenLayer,
+  isNativePlainPasteHotkey,
   isOptedInDesignHistoryHotkey,
-  isPlatformPrimaryModifier,
-  normalizeDesignHotkeyKey,
   isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
 } from "@/hooks/useDesignHotkeys";
@@ -81,6 +80,7 @@ import {
 import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
+import { nextBoldFontWeight, nextItalicFontStyle } from "../text-style-toggle";
 import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -225,7 +225,6 @@ export function useEditorSourceAndSync({
     generating,
     pendingQuestions,
     pendingGenerationActive,
-    design,
     canEditDesign,
     canEditLiveScreens,
     canCommentDesign,
@@ -234,8 +233,6 @@ export function useEditorSourceAndSync({
   } = editorGenerationAndAccess;
   const {
     navigate,
-    setTitleEditing,
-    setTitleDraft,
     selectedPromptDesignSystemId,
     files,
     handleToggleLayoutGrids,
@@ -243,9 +240,7 @@ export function useEditorSourceAndSync({
     remoteVisualEditPending,
   } = editorFilesAndSaving;
   const {
-    setLocalhostWriteConsentOpen,
-    setLocalhostWriteConsentPayload,
-    setLocalhostConsentConnectionId,
+    localhostWriteConsent,
     activeFile,
     activeOverviewScreen,
     activeScreenBridgeUrl,
@@ -257,6 +252,7 @@ export function useEditorSourceAndSync({
     handleZoomOut,
     handleCycleFile,
   } = editorActiveScreenAndGeometry;
+  const { openLocalConsent } = localhostWriteConsent;
   const {
     localhostConnectionRootPathByIdRef,
     setHoveredElementScreenId,
@@ -324,8 +320,10 @@ export function useEditorSourceAndSync({
     handleDistributeSelection,
     handleTidyUp,
     handleAddAutoLayout,
+    handleDisableAutoLayout,
     handleToggleUi,
     handleToggleComments,
+    toggleViewSetting,
   } = editorLayoutAndStructure;
   const {
     handleDeleteOverviewSelection,
@@ -541,6 +539,14 @@ export function useEditorSourceAndSync({
     [canEditDesign, handleStylesChange, selectedElement, t],
   );
 
+  const handleZoomToSelection = useCallback(() => {
+    if (viewMode === "overview") {
+      handleZoomToSelectionFit();
+      return;
+    }
+    if (selectedElement) setZoom(150);
+  }, [handleZoomToSelectionFit, selectedElement, setZoom, viewMode]);
+
   const handleEyedropper = useCallback(() => {
     if (!canEditDesign || !selectedElement) return;
     if (!hasEyeDropperSupport()) {
@@ -567,15 +573,7 @@ export function useEditorSourceAndSync({
     ) {
       return false;
     }
-    const key = normalizeDesignHotkeyKey(event);
-    const primary = isPlatformPrimaryModifier(event);
-    const plainPasteHotkey =
-      primary && key === "v" && !event.altKey && !event.shiftKey;
-    if (!plainPasteHotkey) return true;
-    return (
-      (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
-        .__agentNativeIframeHotkey === true
-    );
+    return !isNativePlainPasteHotkey(event);
   }, []);
 
   const opacitySelectionKey =
@@ -663,16 +661,15 @@ export function useEditorSourceAndSync({
             handleDeleteOverviewSelection(overviewSelectedScreenIds);
           }
         : undefined,
+    // Rename acts on the selection only; with nothing selected it does
+    // nothing, and the design's title stays renamable from the title bar.
+    // Several selected layers rename the first one inline: there is no batch
+    // rename dialog.
     onRename: () => {
       if (!canEditDesign && !canEditSingleSelectedLiveLayer) return;
-      const layerId = getSingleSelectedRenamableLayerId();
-      if (layerId) {
-        layersPanelRef.current?.beginRename(layerId);
-        return;
-      }
-      if (!canEditDesign) return;
-      setTitleDraft(design?.title ?? "");
-      setTitleEditing(true);
+      const layerId =
+        getSingleSelectedRenamableLayerId() ?? selectedLayerIds[0];
+      if (layerId) layersPanelRef.current?.beginRename(layerId);
     },
     onFind: initialGenerationChromeLimited ? undefined : handleFindLayers,
     onShowLayersPanel: initialGenerationChromeLimited
@@ -727,13 +724,7 @@ export function useEditorSourceAndSync({
     onZoomOut: handleZoomOut,
     onZoomReset: () => setZoom(100),
     onZoomToFit: handleZoomToFit,
-    onZoomToSelection: () => {
-      if (viewMode === "overview") {
-        handleZoomToSelectionFit();
-        return;
-      }
-      if (selectedElement) setZoom(150);
-    },
+    onZoomToSelection: handleZoomToSelection,
     onCreateComponent: canEditDesign ? handleCreateComponentHotkey : undefined,
     onDetachInstance:
       canEditDesign && selectedInstanceActionNodeId
@@ -765,6 +756,22 @@ export function useEditorSourceAndSync({
       canEditDesign && selectedElement
         ? handleToggleStrikethroughHotkey
         : undefined,
+    onToggleBold:
+      canEditDesign && selectedElement && isTextElement(selectedElement)
+        ? () =>
+            handleStyleChange(
+              "fontWeight",
+              nextBoldFontWeight(selectedElement.computedStyles.fontWeight),
+            )
+        : undefined,
+    onToggleItalic:
+      canEditDesign && selectedElement && isTextElement(selectedElement)
+        ? () =>
+            handleStyleChange(
+              "fontStyle",
+              nextItalicFontStyle(selectedElement.computedStyles.fontStyle),
+            )
+        : undefined,
     onFlipHorizontal: canEditDesign ? handleFlipHorizontal : undefined,
     onFlipVertical: canEditDesign ? handleFlipVertical : undefined,
     onSwapFillStroke: canEditDesign ? handleSwapFillStroke : undefined,
@@ -777,10 +784,15 @@ export function useEditorSourceAndSync({
       : undefined,
     onTidyUp: canEditDesign ? handleTidyUp : undefined,
     onAddAutoLayout: canEditDesign ? handleAddAutoLayout : undefined,
+    onRemoveAutoLayout: canEditDesign
+      ? () => handleDisableAutoLayout()
+      : undefined,
     onToggleUi: handleToggleUi,
     onToggleMinimalUi: handleToggleMinimalUi,
     onToggleComments: handleToggleComments,
     onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
+    onToggleRulers:
+      viewMode === "overview" ? () => toggleViewSetting("rulers") : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
@@ -1775,15 +1787,14 @@ export function useEditorSourceAndSync({
           : undefined) ??
         connectionId;
 
-      setLocalhostConsentConnectionId(connectionId);
-      setLocalhostWriteConsentPayload({
+      openLocalConsent({
+        connectionId,
         rootPath,
         files: opts.files,
         onGranted: opts.onGranted,
-        onCancel: opts.onCancel ?? (() => {}),
+        onCancel: opts.onCancel,
         onError: opts.onError,
       });
-      setLocalhostWriteConsentOpen(true);
       return "opened";
     },
     [
@@ -1793,6 +1804,7 @@ export function useEditorSourceAndSync({
       canEditDesign,
       id,
       localhostConnectionRootPathByIdRef,
+      openLocalConsent,
     ],
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
@@ -1834,8 +1846,8 @@ export function useEditorSourceAndSync({
   const handleWorkbenchLocalWriteConsent = useCallback(
     (connectionId: string, retry: () => void, filePath?: string) => {
       if (!id || !canEditDesign) return;
-      setLocalhostConsentConnectionId(connectionId);
-      setLocalhostWriteConsentPayload({
+      openLocalConsent({
+        connectionId,
         rootPath:
           workbenchLocalhostConnections.find(
             (connection) => connection.connectionId === connectionId,
@@ -1846,11 +1858,9 @@ export function useEditorSourceAndSync({
           connectionId,
         files: filePath ? [filePath] : [],
         onGranted: () => retry(),
-        onCancel: () => {},
       });
-      setLocalhostWriteConsentOpen(true);
     },
-    [canEditDesign, id, workbenchLocalhostConnections],
+    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
   );
 
   return {
@@ -1881,6 +1891,7 @@ export function useEditorSourceAndSync({
     requestLocalhostWrite,
     workbenchLocalhostConnections,
     handleWorkbenchLocalWriteConsent,
+    handleZoomToSelection,
   };
 }
 

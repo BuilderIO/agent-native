@@ -894,11 +894,11 @@ function serializeCanvas(content: PlanContent, visualUrl?: string): string {
     .map((section) => {
       const artboardIds = section.artboardIds ?? canvas.frames.map((f) => f.id);
       const artboards = artboardIds
-        .map((id) => frameById.get(id))
-        .filter(Boolean)
-        .map((frame) => {
+        .flatMap((id) => {
+          const frame = frameById.get(id);
+          if (!frame) return [];
           emitted.add(frame.id);
-          return serializeArtboard(frame, "    ");
+          return [serializeArtboard(frame, "    ")];
         })
         .join("\n\n");
       return `  <Section${prop("id", section.id)}${prop("title", section.title)}${prop("subtitle", section.subtitle)}>\n${artboards}\n  </Section>`;

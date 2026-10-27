@@ -157,7 +157,7 @@ describe("orderMessageContent", () => {
 
     expect(result).toEqual([
       {
-        key: "assistant-4-0",
+        key: "assistant-4-text-0",
         type: "part",
         part: message.parts[0],
       },
@@ -186,5 +186,75 @@ describe("orderMessageContent", () => {
       );
       expect(result.map((item) => item.type)).toEqual(["part", "widget"]);
     }
+  });
+
+  it("keeps the leading text key when a widget arrives mid-stream", () => {
+    const streaming: AgentMessage = {
+      id: "assistant-6",
+      role: "assistant",
+      status: "streaming",
+      parts: [
+        { type: "text", text: "Intro before chart. ", format: "markdown" },
+      ],
+    };
+    const beforeWidget = orderMessageContent(
+      streaming,
+      streaming.parts,
+      [],
+      [
+        event(1, {
+          type: "message.created",
+          message: { ...streaming, parts: [] },
+        }),
+        event(2, {
+          type: "message.delta",
+          messageId: streaming.id,
+          text: "Intro before chart. ",
+          format: "markdown",
+        }),
+      ],
+    );
+    const grown: AgentMessage = {
+      ...streaming,
+      parts: [
+        {
+          type: "text",
+          text: "Intro before chart. More after.",
+          format: "markdown",
+        },
+      ],
+    };
+    const afterWidget = orderMessageContent(
+      grown,
+      grown.parts,
+      [widget],
+      [
+        event(1, {
+          type: "message.created",
+          message: { ...streaming, parts: [] },
+        }),
+        event(2, {
+          type: "message.delta",
+          messageId: streaming.id,
+          text: "Intro before chart. ",
+          format: "markdown",
+        }),
+        event(3, { type: "widget.created", messageId: streaming.id, widget }),
+        event(4, {
+          type: "message.delta",
+          messageId: streaming.id,
+          text: "More after.",
+          format: "markdown",
+        }),
+      ],
+    );
+
+    expect(afterWidget.map((item) => item.type)).toEqual([
+      "part",
+      "widget",
+      "part",
+    ]);
+    expect(afterWidget[0]?.key).toBe(beforeWidget[0]?.key);
+    expect(afterWidget[2]?.key).not.toBe(afterWidget[0]?.key);
   });
 });

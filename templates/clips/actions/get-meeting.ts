@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 
 interface Bullet {
   text: string;
@@ -102,22 +104,10 @@ export default defineAction({
       ? actionItemRows
       : actionItemsParsed;
 
-    let recording = null;
-    let transcript = null;
-    if (row.recordingId) {
-      const [rec] = await db
-        .select()
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, row.recordingId))
-        .limit(1);
-      recording = rec ?? null;
-      const [tr] = await db
-        .select()
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-        .limit(1);
-      transcript = tr ?? null;
-    }
+    const { recording, transcript } = await loadMeetingRecordingContent(
+      row,
+      getRequestUserEmail(),
+    );
 
     return {
       meeting,

@@ -993,6 +993,37 @@ export function fitItems(
   };
 }
 
+/**
+ * The body that stands for "no rows" when a provider answers an empty range
+ * with a 404 the operation declares (`emptyRange`), or undefined for any other
+ * response. Only a 404 whose body is a list of error texts, every one of them
+ * containing the declared words, qualifies: a 404 for any other cause, an
+ * unreadable body, or a mixed list stays the failure it is.
+ */
+export function emptyRangeBody(
+  def: OperationDefinition,
+  response: { status: number; json: unknown },
+): unknown {
+  const { emptyRange, itemMapping } = def;
+  if (!emptyRange || !itemMapping || response.status !== 404) return undefined;
+  const { json } = response;
+  if (!isRecord(json) || !Array.isArray(json.errors)) return undefined;
+  const words = emptyRange.errorIncludes.toLowerCase();
+  const saysEmpty =
+    json.errors.length > 0 &&
+    json.errors.every(
+      (text) => typeof text === "string" && text.toLowerCase().includes(words),
+    );
+  if (!saysEmpty) return undefined;
+  const path = itemMapping.itemsPath
+    ? validateResponsePath(itemMapping.itemsPath)
+    : undefined;
+  if (path && !path.ok) return undefined;
+  return [...(path?.path.segments ?? [])]
+    .reverse()
+    .reduce<unknown>((inner, segment) => ({ [segment]: inner }), []);
+}
+
 export interface ParsedOperationResponse {
   output: unknown;
   truncated: boolean;

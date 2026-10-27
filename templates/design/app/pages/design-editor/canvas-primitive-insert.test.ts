@@ -21,6 +21,7 @@ import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/typ
 import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
+  canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
   updateCanvasPolygonSvgGeometry,
 } from "./canvas-primitive-insert";
@@ -230,6 +231,29 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       "400px",
       "80px",
     ]);
+  });
+
+  it("keeps adopted layers on whole pixels inside the drawn frame", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:80.6px;top:80.4px;width:40px;height:20px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "frame",
+          nodeId: "wrap",
+          geometry: { x: 60, y: 60, width: 380, height: 120 },
+        },
+        { liveLayerSizes: new Map([["inside", { width: 40, height: 20 }]]) },
+      ) ?? "";
+    const inside = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="inside"]')!;
+    expect(
+      inside.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("wrap");
+    expect([inside.style.left, inside.style.top]).toEqual(["21px", "20px"]);
   });
 
   it("resolves a nested frame against document coordinates", () => {
@@ -2068,5 +2092,151 @@ describe("cssStyleAliases border and outline shorthands", () => {
   it("keeps an outline with style none unpainted", () => {
     const aliased = cssStyleAliases({ outline: "#ff6666 none 9px" });
     expect(aliased.outlineStyle).toBe("none");
+  });
+});
+
+describe("drawing on an authored container nests into it", () => {
+  const authored = `<!doctype html><html><body data-agent-native-node-id="body">
+<main data-agent-native-node-id="main" style="padding:40px">
+  <div data-agent-native-node-id="card" style="width:400px;height:260px;padding:24px;background:#1E1E2A;border-radius:12px">
+    <h2 data-agent-native-node-id="title" style="color:#fff">Card title</h2>
+  </div>
+  <div data-agent-native-node-id="row" style="display:flex;gap:12px;padding:16px;width:600px;height:140px">
+    <div data-agent-native-node-id="red" style="width:80px;height:80px">A</div>
+    <div data-agent-native-node-id="green" style="width:80px;height:80px">B</div>
+  </div>
+  <div data-agent-native-node-id="locked" data-agent-native-locked="true" style="width:300px;height:100px"><span data-agent-native-node-id="locked-child">x</span></div>
+</main>
+</body></html>`;
+  const boxes: Record<string, [number, number, number, number]> = {
+    main: [0, 0, 1200, 640],
+    card: [40, 40, 400, 260],
+    title: [64, 64, 352, 30],
+    row: [40, 300, 600, 140],
+    red: [56, 316, 80, 80],
+    green: [148, 316, 80, 80],
+    locked: [40, 440, 300, 100],
+    "locked-child": [40, 440, 10, 20],
+  };
+  // The rendered screen: the same markup, measured where the browser laid it out.
+  const liveDocumentFor = (content: string) => {
+    const live = new DOMParser().parseFromString(content, "text/html");
+    for (const [id, [x, y, width, height]] of Object.entries(boxes)) {
+      const element = live.querySelector(`[data-agent-native-node-id="${id}"]`);
+      if (!element) continue;
+      Object.defineProperty(element, "getBoundingClientRect", {
+        value: () => ({
+          x,
+          y,
+          left: x,
+          top: y,
+          width,
+          height,
+          right: x + width,
+          bottom: y + height,
+        }),
+      });
+    }
+    return live;
+  };
+  const draw = (
+    primitive: CanvasPrimitiveInsert,
+    positioning: "absolute" | "flow" = "absolute",
+  ) => {
+    const html =
+      appendCanvasPrimitiveToHtml(authored, primitive, {
+        positioning,
+        liveDocument: liveDocumentFor(authored),
+      }) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const created = doc.querySelector<HTMLElement>(
+      `[data-agent-native-node-id="${primitive.nodeId}"]`,
+    );
+    if (!created) throw new Error("the drawn layer was not inserted");
+    return { html, doc, created };
+  };
+
+  it("nests a rectangle drawn on an authored card, at the drawn spot in whole pixels", () => {
+    const { created } = draw({
+      kind: "rectangle",
+      nodeId: "r",
+      geometry: { x: 200.4, y: 150.6, width: 100, height: 70 },
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("card");
+    expect([created.style.left, created.style.top]).toEqual(["160px", "111px"]);
+  });
+
+  it("gives a static card a containing block without rewriting its authored style", () => {
+    const { doc } = draw({
+      kind: "ellipse",
+      nodeId: "o",
+      geometry: { x: 200, y: 150, width: 60, height: 60 },
+    });
+    expect(
+      doc
+        .querySelector('[data-agent-native-node-id="card"]')
+        ?.getAttribute("style"),
+    ).toBe(
+      "width:400px;height:260px;padding:24px;background:#1E1E2A;border-radius:12px;position: relative",
+    );
+  });
+
+  it("nests click-created text on a card's heading into the card, not the text leaf", () => {
+    const { created } = draw({
+      kind: "text",
+      nodeId: "t",
+      geometry: { x: 100, y: 70, width: 80, height: 20 },
+      text: "Hi",
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("card");
+  });
+
+  it("joins an auto layout row at the drop position", () => {
+    const { created } = draw(
+      {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 140, y: 330, width: 40, height: 40 },
+      },
+      "flow",
+    );
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("row");
+    expect(
+      Array.from(created.parentElement!.children).map((child) =>
+        child.getAttribute("data-agent-native-node-id"),
+      ),
+    ).toEqual(["red", "r", "green"]);
+  });
+
+  it("does not nest into a locked layer", () => {
+    const { created } = draw({
+      kind: "rectangle",
+      nodeId: "r",
+      geometry: { x: 100, y: 470, width: 40, height: 40 },
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("main");
+  });
+
+  it("reports the authored card as the host the creation layout is read from", () => {
+    expect(
+      canvasPrimitiveInsertionHostNodeId(
+        authored,
+        {
+          kind: "rectangle",
+          nodeId: "r",
+          geometry: { x: 200, y: 150, width: 100, height: 70 },
+        },
+        false,
+        liveDocumentFor(authored),
+      ),
+    ).toEqual({ kind: "frame", nodeId: "card" });
   });
 });

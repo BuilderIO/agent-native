@@ -472,6 +472,7 @@ export default {
       image: "Bild",
       style: "Stil",
       rotation: "Drehung",
+      length: "Länge",
       flipHorizontal: "Horizontal spiegeln",
       flipVertical: "Vertikal spiegeln",
       shadow: "Schatten",
@@ -488,7 +489,6 @@ export default {
       showGrid: "Raster anzeigen",
       hideGrid: "Raster ausblenden",
       reorderLayer: "Ebene neu anordnen",
-      stylesComingSoon: "Stile — Demnächst verfügbar",
       linkSides: "Seiten verknüpfen",
       unlinkSides: "Seiten lösen",
       allSides: "Alle",
@@ -1228,6 +1228,14 @@ export default {
         animation: "Animation",
         distance: "Abstand",
         amount: "Wert",
+        axis: "Achse",
+        axisBoth: "Beide",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Startbreite",
+        endWidth: "Endbreite",
+        startHeight: "Starthöhe",
+        endHeight: "Endhöhe",
         delay: "Verzögerung",
         easing: "Beschleunigung",
         editCurve: "Kurve bearbeiten",
@@ -1887,7 +1895,7 @@ export default {
       ellipse: "Ellipse",
       polygon: "Polygon",
       star: "Stern",
-      imageVideo: "Bild/Video...",
+      imageVideo: "Bild/Video…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1908,8 +1916,12 @@ export default {
         small: "Kleiner Schritt",
         big: "Großer Schritt",
         unit: "px",
-        description:
-          "Pfeiltasten verschieben um den kleinen Wert, Umschalt Pfeil um den großen. In einem Auto-Layout-Rahmen ordnen die Pfeiltasten die Ebene neu an.",
+        close: "Verschiebeschrittweite schließen",
+        done: "Fertig",
+        smallDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit den Pfeiltasten verschoben wird.",
+        bigDescription:
+          "Legt fest, um wie viele Pixel ein Objekt mit Umschalt + Pfeiltasten verschoben wird.",
       },
       keys: {
         or: "oder",
@@ -1947,6 +1959,7 @@ export default {
         arrange: "Anordnen",
         components: "Komponenten",
         layout: "Layout",
+        code: "Code",
       },
       commands: {
         showShortcuts: "Tastenkürzel",
@@ -1963,7 +1976,7 @@ export default {
         drawTool: "Zeichnen",
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
-        toggleUi: "View",
+        toggleUi: "Benutzeroberfläche ein- oder ausblenden",
         toggleMinimalUi: "Minimale Oberfläche",
         toggleComments: "Kommentar anheften",
         zoomIn: "Vergrößern",
@@ -1971,6 +1984,8 @@ export default {
         zoomReset: "Zoom 100%",
         zoomFit: "An Bildschirm anpassen",
         zoomSelection: "Zoom: Auswahl",
+        bold: "Fett",
+        italic: "Kursiv",
         underline: "Unterstrichen",
         strikethrough: "Durchgestrichen",
         rectangle: "Rectangle",
@@ -1985,7 +2000,8 @@ export default {
         previousSibling: "← Auswahl",
         nextScreen: "Screens →",
         previousScreen: "← Screens",
-        toggleLayoutGrids: "Layoutraster: View",
+        toggleLayoutGrids: "Layoutraster ein- oder ausblenden",
+        toggleRulers: "Lineale ein- oder ausblenden",
         nudge: "Move",
         nudgeLarge: "Großer Schritt",
         copy: "Kopieren",
@@ -2018,7 +2034,15 @@ export default {
         ungroup: "Gruppierung aufheben",
         frameSelection: "Auswahl rahmen",
         autoLayout: "Auto-Layout",
-        imageVideo: "Bild/Video...",
+        removeAutoLayout: "Auto-Layout entfernen",
+        toggleHidden: "Auswahl ein- oder ausblenden",
+        toggleLocked: "Auswahl sperren oder entsperren",
+        alignHorizontalCenters: "Horizontale Mitten ausrichten",
+        alignVerticalCenters: "Vertikale Mitten ausrichten",
+        distributeHorizontal: "Horizontale Abstände verteilen",
+        distributeVertical: "Vertikale Abstände verteilen",
+        setOpacity: "Deckkraft festlegen",
+        imageVideo: "Bild/Video…",
       },
     },
     undo: "Rückgängig machen",
@@ -2202,6 +2226,20 @@ export default {
       added: "Screen hinzugefügt",
       addFailed: "Screen konnte nicht hinzugefügt werden",
     },
+    localhostConsent: {
+      approvedTitle: "Genehmigt – führe die Änderung erneut aus",
+      approvedDescription:
+        "Dateischreibzugriff ist für 8 Stunden erlaubt. Die Änderung, die den Zugriff angefordert hat, wurde nicht gespeichert.",
+      retryInChat: "Im Chat erneut ausführen",
+      retryPrompt:
+        "Dateischreibzugriff für {{rootPath}} ist genehmigt. Führe die Änderung, die ihn brauchte, erneut aus.",
+      unavailableTitle: "Diese Schreibanfrage steht nicht mehr aus",
+      unavailableDescription:
+        "Führe die Änderung erneut aus, um Zugriff anzufordern.",
+      close: "Schließen",
+      prepareSignInError:
+        "Diese Anfrage konnte vor der Anmeldung nicht gespeichert werden. Versuche es erneut.",
+    },
     nodeRewrite: {
       composerTitle: "Auswahl fragen oder ändern",
       send: "Senden",
@@ -2342,6 +2380,7 @@ export default {
         "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
       versionHistoryUnavailable:
         "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
+      removeAutoLayoutFailed: "Auto-Layout konnte nicht entfernt werden",
       autoLayoutScreensUnsupported:
         "Auto-Layout hinzufügen gilt nicht für Bildschirme",
       booleanSubtractUnsupported:
@@ -2360,8 +2399,28 @@ export default {
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       imageUploading: "Bild wird hochgeladen…",
       pasteReplaceFailed: "Diese Ebene konnte nicht ersetzt werden",
+      pasteTargetUnmeasured:
+        "Die ausgewählte Ebene konnte zum Einfügen nicht gemessen werden",
+      pasteClipboardUnreadable:
+        "Erlaube den Zugriff auf die Zwischenablage, um hier einzufügen",
+      pasteClipboardUntrusted:
+        "Aus Design auf einer anderen Website kopierte Ebenen können nicht eingefügt werden",
       swapFillStrokeLayeredFill:
         "Mehrere Füllungen oder Bildfüllungen können noch nicht zur Kontur werden",
+      alignNeedsTwoLayers:
+        "Wähle zwei oder mehr Ebenen aus, um sie auszurichten",
+      alignNeedsTwoScreens:
+        "Wähle zwei oder mehr Screens aus, um sie auszurichten",
+      layoutUnmeasurable:
+        "Eine ausgewählte Ebene konnte nicht gemessen werden. Prüfe, ob sie auf der Arbeitsfläche sichtbar ist, und versuche es erneut.",
+      layoutAutoLayoutChildren:
+        "Auto-Layout positioniert diese Ebenen. Entferne das Auto-Layout aus ihrem Rahmen, um sie frei zu verschieben.",
+      layoutUnsupportedPosition:
+        "Sticky-Ebenen und Formen in einem SVG lassen sich so nicht verschieben",
+      layoutMovesNestedLayers:
+        "Das Verschieben dieser Ebene würde die darin positionierten Ebenen versetzen",
+      layoutMoveFailed:
+        "Die ausgewählten Ebenen konnten nicht verschoben werden",
     },
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",
@@ -2385,6 +2444,7 @@ export default {
     order: "Reihenfolge",
     createComponent: "Komponente erstellen",
     addAutoLayout: "Auto-Layout hinzufügen",
+    removeAutoLayout: "Auto-Layout entfernen",
     copyAs: "Kopieren/Einfügen als",
     copyProps: "Eigenschaften kopieren",
     pasteProps: "Eigenschaften einfügen",
@@ -2405,13 +2465,15 @@ export default {
     allScreens: "Alle Screens",
     thumbnail: "Miniaturansicht",
     addScreen: "Screen hinzufügen",
-    searchPlaceholder: "Ebenen suchen...",
+    searchPlaceholder: "Ebenen suchen",
     empty: "Keine Ebenen",
     noMatches: "Keine passenden Ebenen",
     designLayers: "Design-Ebenen",
     codeLayers: "Code-Ebenen",
     elementLayers: "Element-Ebenen",
     collapse: "Ebene einklappen",
+    collapseAll: "Alle Ebenen einklappen",
+    clearSearch: "Suche löschen",
     expand: "Ebene ausklappen",
     lock: "Ebene sperren",
     unlock: "Ebene entsperren",

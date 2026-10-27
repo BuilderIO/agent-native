@@ -2716,7 +2716,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
+  it("sends no reasoning_effort when none is chosen for an effort-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2732,10 +2732,10 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("high");
+    expect(body).not.toHaveProperty("reasoning_effort");
   });
 
-  it("sends reasoning_effort high by default for Luna", async () => {
+  it("sends no reasoning_effort when none is chosen for Luna", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -2749,7 +2749,7 @@ describe("createBuilderEngine", () => {
     await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("high");
+    expect(body).not.toHaveProperty("reasoning_effort");
   });
 
   it("sends the real reasoning_effort for a GPT model when tools are present", async () => {
@@ -2767,6 +2767,7 @@ describe("createBuilderEngine", () => {
       engine.stream({
         ...BASE_OPTS,
         model: "gpt-5-6-luna",
+        reasoningEffort: "high",
         tools: [
           {
             name: "list_items",
@@ -2826,6 +2827,7 @@ describe("createBuilderEngine", () => {
     await collectEvents(
       engine.stream({
         ...BASE_OPTS,
+        reasoningEffort: "high",
         tools: [
           {
             name: "list_items",

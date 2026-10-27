@@ -25,6 +25,7 @@ import {
   waitForWorkflowRun,
   type SchedulerOutcome,
 } from "../server/lib/factory-workflow-run-wait.js";
+import { WORKFLOW_JOB_APP_ID } from "../server/lib/factory-workflow-runner.js";
 import { watchAgentCall } from "../server/lib/factory-workflow-tripwires.js";
 import { recordTripwire } from "../server/tripwire/index.js";
 import { getWorkflowReadModels } from "../server/workflow-host/factory-read-models.js";
@@ -375,6 +376,7 @@ export default defineAction({
               userEmail: scoped.userEmail,
               orgId: scoped.orgId,
               appId: "factory",
+              additionalJobAppIds: [WORKFLOW_JOB_APP_ID],
               scope: "organization",
               path: job.resource.path,
               requestHeaders: context?.requestHeaders,

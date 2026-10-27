@@ -4,7 +4,9 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 
+import { assertRecordingNotExpired } from "../../server/lib/recording-read-access.js";
 import type { ClipsAiRequestKind } from "../../shared/ai-request-status.js";
 
 const STATUS_KEY_PREFIX = "clips-ai-request-status-";
@@ -85,6 +87,9 @@ export async function queueBackgroundAiRequest({
       );
     }
 
+    assertRecordingNotExpired(
+      await assertAccess("recording", recordingId, "editor"),
+    );
     if (
       await compareAndSetManyAppState([
         {

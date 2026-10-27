@@ -225,6 +225,32 @@ describe("file-upload registry", () => {
   });
 
   describe("listFileUploadProviderStatusesForRequest", () => {
+    it.each(["sync", "async"])(
+      "isolates a failed %s provider check without reporting it as absent",
+      async (kind) => {
+        const failed = makeProvider("failed", false);
+        if (kind === "sync") {
+          failed.isConfigured = () => {
+            throw new Error("unreadable credential");
+          };
+        } else {
+          failed.isConfiguredForRequest = async () => {
+            throw new Error("unreadable credential");
+          };
+        }
+        const healthy = makeProvider("healthy", true);
+        registerFileUploadProvider(failed);
+        registerFileUploadProvider(healthy);
+
+        await expect(
+          listFileUploadProviderStatusesForRequest(),
+        ).resolves.toEqual([
+          { provider: failed, configured: false, unavailable: true },
+          { provider: healthy, configured: true, unavailable: false },
+        ]);
+      },
+    );
+
     it("detects each provider once, in the order the active lookup walks", async () => {
       const envBacked = {
         ...makeProvider("env-backed", true),

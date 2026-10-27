@@ -31,18 +31,42 @@ export interface ContentBodyIntentRecord {
  * recorded twice would claim two revisions.
  */
 export interface ContentBodyWriteCause {
-  ctx?: ActionRunContext;
+  ctx?: ActionRunContext | undefined;
   /** The History operation, such as `"accept-suggestion"`. */
   operation: string;
   origin?: string;
   historySessionId?: string;
   intent?: ContentBodyIntentRecord;
+  /** A title the write sets with the body, as a version restore does. */
+  title?: string;
+  /**
+   * Where a body copied from elsewhere got its private callout icons, so
+   * an editor who doesn't own them may restore or copy them.
+   */
+  calloutSource?:
+    | { kind: "version"; versionId: string }
+    | { kind: "document"; documentId: string };
+  /**
+   * Collections the commit locks with the page's own, in the same id-ordered
+   * pass before its memberships and the page, so a writer can check their
+   * rows under those locks. A source-policy change locks its collection
+   * first, so locking that collection after the page could deadlock.
+   */
+  lockCollections?: readonly string[];
+  /**
+   * The primary Blocks field revision the writer read, checked under the page
+   * lock as the field's identity moves. A body that went A→B→A still matches
+   * the text an edit names, but not this revision.
+   */
+  expectedBlocksFieldRevision?: { propertyId: string; revision: number };
 }
 
 /** A page being switched to its live copy, from the body at `baseRevision`. */
 export interface LiveBodyConversion {
   documentId: string;
   baseRevision: number;
+  /** The backfill's: refused `opted_out` for a page sent back to legacy. */
+  unlessOptedOut?: true;
 }
 
 interface WriteScope {

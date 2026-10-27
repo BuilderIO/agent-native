@@ -64,4 +64,38 @@ describe("useLiveDragPosition", () => {
     });
     expect(text()).toBe("none");
   });
+
+  it("matches the canvas bridge's report by the layer's node id", async () => {
+    await act(async () =>
+      root.render(<Probe selector='[data-agent-native-node-id="an-card"]' />),
+    );
+    const text = () => container.querySelector("output")?.textContent;
+
+    await post({
+      type: "agent-native:live-drag-position",
+      sourceId: "an-other",
+      active: true,
+      left: "9px",
+      top: "9px",
+    });
+    expect(text()).toBe("none");
+
+    await post({
+      type: "agent-native:live-drag-position",
+      sourceId: "an-card",
+      active: true,
+      left: "180px",
+      top: "180px",
+    });
+    expect(text()).toBe("180px,180px");
+
+    await post({
+      type: "agent-native:live-drag-position",
+      sourceId: "an-card",
+      active: false,
+      left: "80px",
+      top: "80px",
+    });
+    expect(text()).toBe("none");
+  });
 });

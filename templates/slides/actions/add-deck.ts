@@ -95,7 +95,7 @@ export default defineAction({
       });
 
     const slideCount = Array.isArray(deck.slides) ? deck.slides.length : 0;
-    trackDeckCreated(
+    await trackDeckCreated(
       id,
       {
         creationMethod: args.creationMethod ?? "unknown",

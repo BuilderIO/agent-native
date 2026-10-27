@@ -29,7 +29,20 @@ type FirstRunCookieState = "present" | "absent" | "unreadable";
 const FIRST_RUN_STATUS_MAX_ATTEMPTS = 2;
 const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
 
-const FirstRunOnboardingGateContext = createContext(false);
+// A standalone app's Vite dev server pre-bundles `app/chat` (the sidebar and
+// panel) but serves `app/providers` (this gate) unbundled, so this module can
+// load twice. One context per copy left the sidebar reading `false` and
+// mounting a second questionnaire behind the gate, revealed at step 1 once
+// the gate stepped aside. Every copy shares one context through globalThis.
+const FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY = Symbol.for(
+  "agent-native.toolkit.firstRunOnboardingGateContext",
+);
+const firstRunOnboardingGateGlobal = globalThis as typeof globalThis & {
+  [FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY]?: React.Context<boolean>;
+};
+const FirstRunOnboardingGateContext = (firstRunOnboardingGateGlobal[
+  FIRST_RUN_ONBOARDING_GATE_CONTEXT_KEY
+] ??= createContext(false));
 
 function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   if (typeof document === "undefined") return "present";

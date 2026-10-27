@@ -1353,6 +1353,10 @@ export default {
     drilldownHideSql: "SQL 숨기기",
     drilldownDownloadCsv: "CSV 다운로드",
     drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownShowingLoaded:
+      "불러온 {{loaded}}개 레코드 중 {{shown}}개 표시; 전체 개수는 알 수 없습니다.",
+    drilldownCsvTruncatedUnknownTotal:
+      "내보내기가 완전한지 알 수 없습니다. 이 파일에는 로드된 {{loaded}}개 레코드 중 필터링 후 {{exported}}개가 포함됩니다.",
     drilldownCsvTruncated:
       "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
     drilldownCountMismatch:
@@ -1360,7 +1364,13 @@ export default {
     drilldownAggregateOnly:
       "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
     drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownNoRecordsIncomplete:
+      "불러온 레코드가 없습니다. 결과가 불완전하므로 일치하는 레코드가 있을 수 있습니다.",
+    drilldownNoLoadedMatches:
+      "불러온 레코드 중 일치하는 항목이 없지만, 전체 결과에는 불러오지 않은 레코드가 포함될 수 있습니다.",
     drilldownLoadFailed: "레코드를 불러오지 못했습니다",
+    drilldownOverByteCap:
+      "이 레코드는 {{gib}}GiB를 넘게 읽게 되어 불러오지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
@@ -1429,12 +1439,25 @@ export default {
     columnFormatCurrency: "통화",
     columnFormatPercent: "백분율",
     columnFormatDate: "날짜",
+    columnFormatDuration: "소요 시간(초)",
     columnRename: "열 이름 바꾸기",
     columnHide: "열 숨기기",
     columnShow: '"{{name}}" 표시',
     columnShowHidden: "숨긴 열 표시",
     columnName: "열 이름",
     columnResize: "열 크기 조절",
+    metricComparisonVs: "{{period}} 대비",
+    metricComparisonPreviousPeriod: "이전 기간",
+    metricComparisonNoChange: "변화 없음",
+    metricComparisonPoints: "{{value}}%p",
+    metricComparisonUp: "{{period}} {{previous}} 대비 {{change}} 증가",
+    metricComparisonDown: "{{period}} {{previous}} 대비 {{change}} 감소",
+    metricComparisonFlat: "{{period}} {{previous}} 대비 변화 없음",
+    metricComparisonBetter: "{{comparison}}(개선)",
+    metricComparisonWorse: "{{comparison}}(악화)",
+    calloutSeverityCritical: "심각",
+    calloutSeverityWarning: "경고",
+    calloutSeverityInfo: "정보",
     rowBreakdownBy: "세부 기준",
     rowBreakdownAll: "전체",
     rowBreakdownOther: "기타",

@@ -37,7 +37,7 @@ import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isSameOriginRequest } from "../server/request-origin.js";
+import { hasSameOriginBrowserEvidence } from "../server/request-origin.js";
 import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 import { generateAgentCard } from "./agent-card.js";
 import { addAgentProfileExamples } from "./app-profile.js";
@@ -107,7 +107,7 @@ export interface A2ATokenPayload {
 }
 
 export class A2AIdentityVerificationUnavailableError extends Error {
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(cause: unknown) {
     super("A2A identity verification is temporarily unavailable");
@@ -313,6 +313,8 @@ export async function verifyA2AToken(
   event?: any,
   audienceOptions?: {
     routePrefix?: string;
+    /** Trusted audience(s) supplied by the mounted route that is verifying the token. */
+    expectedAudience?: string | string[];
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
     /** Only use the deployment-wide secret, never an org-domain secret. */
@@ -466,6 +468,7 @@ async function verifyA2ATokenInternal(
   event?: any,
   audienceOptions?: {
     routePrefix?: string;
+    expectedAudience?: string | string[];
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
     globalSecretOnly?: boolean;
@@ -535,8 +538,12 @@ async function verifyA2ATokenInternal(
     // whose `aud` targets ANOTHER service verify against a shared secret. A
     // token that self-declares an audience must be checked against ours, so
     // when we have nothing to check it against we reject rather than skip.
-    const aud = expectedJwtAudience(event, audienceOptions);
-    if (!aud) return { payload: { email: null, orgDomain: null } };
+    const aud =
+      audienceOptions?.expectedAudience ??
+      expectedJwtAudience(event, audienceOptions);
+    if (!aud || (Array.isArray(aud) && aud.length === 0)) {
+      return { payload: { email: null, orgDomain: null } };
+    }
     verifyOptions.audience = aud;
   }
   if (
@@ -834,8 +841,8 @@ export function mountA2A(
         return { error: "Approval not found" };
       }
 
-      const { getSession } = await import("../server/auth.js");
-      const session = await getSession(event);
+      const { getBrowserCookieSession } = await import("../server/auth.js");
+      const session = await getBrowserCookieSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { error: "Sign in to review this approval" };
@@ -885,7 +892,7 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      if (!isSameOriginRequest(event)) {
+      if (!hasSameOriginBrowserEvidence(event)) {
         setResponseStatus(event, 403);
         return { error: "Cross-origin approval denied" };
       }

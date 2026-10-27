@@ -127,6 +127,33 @@ describe("comment stack blocks", () => {
     expect(blocks.get("a")?.key).toBe(blocks.get("b")?.key);
     expect(blocks.get("b")!.order).toBeLessThan(blocks.get("a")!.order);
   });
+
+  it("puts a thread on a whole block with the highlights in that block", () => {
+    const root = editor(
+      `<ul><li>
+         <p><span data-comment-thread="text">x</span></p>
+         <div data-comment-block-threads="clip-1 clip-2"><video></video></div>
+       </li></ul>
+       <div data-comment-block-threads="solo"><video></video></div>`,
+    );
+    const blocks = measureCommentBlocks(root, [
+      thread("text"),
+      thread("clip-1"),
+      thread("clip-2"),
+      thread("solo"),
+    ]);
+    expect([...blocks.keys()]).toEqual(["text", "clip-1", "clip-2", "solo"]);
+    expect(blocks.get("clip-1")?.key).toBe(blocks.get("text")?.key);
+    expect(blocks.get("clip-2")?.key).toBe(blocks.get("text")?.key);
+    expect(blocks.get("solo")?.key).not.toBe(blocks.get("text")?.key);
+    const stacks = groupCommentStacks(
+      [thread("clip-1"), thread("clip-2"), thread("solo")],
+      blocks,
+    );
+    expect(stacks.map((stack) => stack.threads.map((t) => t.threadId))).toEqual(
+      [["clip-1", "clip-2"]],
+    );
+  });
 });
 
 describe("grouping comment stacks", () => {
