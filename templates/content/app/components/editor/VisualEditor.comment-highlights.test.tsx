@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -15,8 +16,15 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
+import { derivedVideoBlockId } from "@shared/comment-block-anchor";
+
 import { commentHighlightKey } from "./extensions/CommentHighlight";
 import { VisualEditor } from "./VisualEditor";
+
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
 
 const BEFORE = "Intro.\nThe team ships every Friday afternoon, so it lands.";
 const AFTER = "Intro.\nThe team ships every Friday at 2 pm, so it lands.";
@@ -76,6 +84,7 @@ describe("VisualEditor comment highlights", () => {
     threads: CommentThread[],
     resetKey = "seed",
     showCommentIndicators = true,
+    props: Partial<Parameters<typeof VisualEditor>[0]> = {},
   ) {
     root.render(
       createElement(
@@ -95,6 +104,7 @@ describe("VisualEditor comment highlights", () => {
               editable: true,
               commentThreads: threads,
               showCommentIndicators,
+              ...props,
             }),
           ),
         ),
@@ -290,5 +300,342 @@ describe("VisualEditor comment highlights", () => {
     await settle();
 
     expect(start()).toBe(12);
+  });
+
+  describe("threads on a video", () => {
+    const VIDEO = "https://example.com/demo.mp4";
+    const onVideo = (threadId: string, blockId: string): CommentThread => ({
+      ...thread(threadId, ""),
+      quotedText: null,
+      block: { blockId, blockType: "video" },
+    });
+    // How a comment on a video was saved before videos had ids.
+    const legacy = (threadId: string): CommentThread =>
+      thread(threadId, "Video");
+    const marked = (threadId: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-comment-block-threads~="${threadId}"]`,
+      );
+
+    it("marks the video the thread is anchored to", async () => {
+      await act(async () =>
+        render(
+          `Intro.\n<video src="${VIDEO}" id="video-demo0001"></video>\nAfter.`,
+          [onVideo("v1", "video-demo0001")],
+        ),
+      );
+      await settle();
+      const element = marked("v1");
+      expect(element?.querySelector("video")).not.toBeNull();
+      expect(element?.className).toContain("comment-highlight--block");
+    });
+
+    it("opens a video's thread when the video is clicked, keeping the open one", async () => {
+      const onActivateThread = vi.fn();
+      const content = `Intro.\n<video src="${VIDEO}" id="video-demo0001"></video>`;
+      const threads = [
+        onVideo("v1", "video-demo0001"),
+        onVideo("v2", "video-demo0001"),
+      ];
+      await act(async () =>
+        render(content, threads, "seed", true, { onActivateThread }),
+      );
+      await settle();
+      await act(async () =>
+        found(found(marked("v1")).querySelector("video")).click(),
+      );
+      expect(onActivateThread).toHaveBeenLastCalledWith("v1");
+
+      await act(async () =>
+        render(content, threads, "seed", true, {
+          onActivateThread,
+          activeThreadId: "v2",
+        }),
+      );
+      await settle();
+      await act(async () =>
+        found(found(marked("v2")).querySelector("video")).click(),
+      );
+      expect(onActivateThread).toHaveBeenLastCalledWith("v2");
+    });
+
+    it("writes down the id a new comment names on a video saved without one", async () => {
+      const onBlockComment = vi.fn();
+      await act(async () =>
+        render(
+          `Intro.
+<video src="${VIDEO}"></video>`,
+          [],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      const button = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      await act(async () => found(button).click());
+
+      const derived = derivedVideoBlockId(VIDEO, 0);
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({ blockId: derived, blockType: "video" }),
+        expect.any(Number),
+      );
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: unknown[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids).toEqual([derived]);
+    });
+
+    it("lets a reader who can comment but not edit comment on a video, by the id it goes by", async () => {
+      const onBlockComment = vi.fn();
+      const content = `Intro.\n<video src="${VIDEO}" id="video-saved001"></video>\n<video src="${VIDEO}"></video>`;
+      await act(async () =>
+        render(content, [], "seed", true, { editable: false, onBlockComment }),
+      );
+      await settle();
+      expect(
+        container.querySelector(
+          '[aria-label="editor.media.resizeVideoFromLeft"]',
+        ),
+        "no media-edit controls",
+      ).toBeNull();
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      expect(buttons).toHaveLength(2);
+      await act(async () => found(buttons[0]).click());
+      await act(async () => found(buttons[1]).click());
+
+      expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
+        expect.objectContaining({ blockId: "video-saved001" }),
+        expect.objectContaining({ blockId: derivedVideoBlockId(VIDEO, 1) }),
+      ]);
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: unknown[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids, "a tab that can't edit writes no id").toEqual([
+        "video-saved001",
+        null,
+      ]);
+    });
+
+    it("shows a reader who can't edit no Comment button on a video that goes by no id", async () => {
+      const onBlockComment = vi.fn();
+      const derived = derivedVideoBlockId(VIDEO, 0);
+      const shared = `<video src="https://example.com/other.mp4" id="video-shared01"></video>`;
+      await act(async () =>
+        render(
+          [
+            "Intro.",
+            `<video src="${VIDEO}"></video>`,
+            `<video src="${VIDEO}" id="${derived}"></video>`,
+            shared,
+            shared,
+          ].join("\n"),
+          [],
+          "seed",
+          true,
+          { editable: false, onBlockComment },
+        ),
+      );
+      await settle();
+      const buttons = [
+        ...container.querySelectorAll<HTMLElement>(".ProseMirror video"),
+      ].map((video) =>
+        video
+          .closest(".media-block")
+          ?.querySelector<HTMLButtonElement>(
+            '[aria-label="editor.media.commentOnVideo"]',
+          ),
+      );
+      expect(
+        buttons.map((button) => !!button),
+        "only the video with an id of its own",
+      ).toEqual([false, true, false, false]);
+      await act(async () => found(buttons[1]).click());
+      expect(onBlockComment.mock.calls.map(([target]) => target)).toEqual([
+        expect.objectContaining({ blockId: derived }),
+      ]);
+    });
+
+    it("shows no Comment button on a video to a reader who can't comment", async () => {
+      await act(async () =>
+        render(`Intro.\n<video src="${VIDEO}"></video>`, [], "seed", true, {
+          editable: false,
+        }),
+      );
+      await settle();
+      expect(
+        container.querySelector('[aria-label="editor.media.commentOnVideo"]'),
+      ).toBeNull();
+    });
+
+    it("gives a video an id of its own before a comment on it, when another video shares its id", async () => {
+      const onBlockComment = vi.fn();
+      const shared = `<video src="${VIDEO}" id="video-shared01"></video>`;
+      await act(async () =>
+        render(
+          `Intro.\n${shared}\n${shared}`,
+          [onVideo("old", "video-shared01")],
+          "seed",
+          true,
+          {
+            onBlockComment,
+          },
+        ),
+      );
+      await settle();
+      expect(marked("old"), "on neither video").toBeNull();
+
+      const buttons = container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label="editor.media.commentOnVideo"]',
+      );
+      await act(async () => found(buttons[1]).click());
+
+      const editor = (
+        container.querySelector(".ProseMirror") as HTMLElement & {
+          editor: Editor;
+        }
+      ).editor;
+      const ids: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "video") ids.push(node.attrs.blockId);
+      });
+      expect(ids[0]).toBe("video-shared01");
+      expect(ids[1]).toMatch(/^video-/);
+      expect(ids[1]).not.toBe("video-shared01");
+      expect(onBlockComment).toHaveBeenCalledWith(
+        expect.objectContaining({ blockId: ids[1], blockType: "video" }),
+        expect.any(Number),
+      );
+    });
+
+    describe("while two videos share the thread's id", () => {
+      const ORIGINAL = `<video src="${VIDEO}" id="video-demo0001"></video>`;
+      const open = async () => {
+        await act(async () =>
+          render(
+            `Intro.
+${ORIGINAL}
+After.`,
+            [onVideo("v1", "video-demo0001")],
+          ),
+        );
+        await settle();
+        return (
+          container.querySelector(".ProseMirror") as HTMLElement & {
+            editor: Editor;
+          }
+        ).editor;
+      };
+      const videos = (editor: Editor) => {
+        const videos: { pos: number; id: string }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "video")
+            videos.push({ pos, id: node.attrs.blockId });
+        });
+        return videos;
+      };
+      const fromElsewhere = (
+        editor: Editor,
+        change: (tr: Editor["state"]["tr"]) => unknown,
+      ) =>
+        act(async () => {
+          const tr = editor.state.tr;
+          change(tr);
+          editor.view.dispatch(
+            tr.setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+          );
+        });
+
+      it("marks neither video after another tab's copy, and the original again once the copy goes", async () => {
+        const editor = await open();
+        const original = found(videos(editor)[0]);
+        const node = found(editor.state.doc.nodeAt(original.pos));
+        await fromElsewhere(editor, (tr) =>
+          tr.insert(original.pos + node.nodeSize, node),
+        );
+        await settle();
+        expect(videos(editor).map((video) => video.id)).toEqual([
+          "video-demo0001",
+          "video-demo0001",
+        ]);
+        expect(marked("v1"), "on neither video").toBeNull();
+
+        const copy = found(videos(editor)[1]);
+        await fromElsewhere(editor, (tr) =>
+          tr.delete(copy.pos, copy.pos + node.nodeSize),
+        );
+        await settle();
+        expect(marked("v1")?.querySelector("video")).not.toBeNull();
+      });
+
+      it("keeps the mark on the original through this tab's paste of a copy", async () => {
+        const editor = await open();
+        const original = found(videos(editor)[0]);
+        const node = found(editor.state.doc.nodeAt(original.pos));
+        const rendered: boolean[] = [];
+        const updateState = editor.view.updateState.bind(editor.view);
+        vi.spyOn(editor.view, "updateState").mockImplementation((state) => {
+          rendered.push(
+            found(commentHighlightKey.getState(state)).decorations.find()
+              .length > 0,
+          );
+          updateState(state);
+        });
+        await act(async () => {
+          editor.view.dispatch(
+            editor.state.tr.insert(original.pos + node.nodeSize, node),
+          );
+        });
+        await settle();
+
+        const list = videos(editor);
+        const kept = found(list[0]);
+        const pasted = found(list[1]);
+        expect(kept.id).toBe("video-demo0001");
+        expect(pasted.id).not.toBe("video-demo0001");
+        expect(rendered.length).toBeGreaterThan(0);
+        expect(rendered, "no state without the mark").not.toContain(false);
+        expect(marked("v1")?.querySelector("video"), "on the original").toBe(
+          container.querySelectorAll("video")[0],
+        );
+      });
+    });
+
+    it("anchors an old video comment to the page's only video", async () => {
+      await act(async () =>
+        render(`Video notes.\n<video src="${VIDEO}"></video>`, [legacy("old")]),
+      );
+      await settle();
+      expect(marked("old")?.querySelector("video")).not.toBeNull();
+    });
+
+    it("leaves an old video comment as it was when the page has two videos", async () => {
+      await act(async () =>
+        render(
+          `Video notes.\n<video src="${VIDEO}"></video>\n<video src="${VIDEO}"></video>`,
+          [legacy("old")],
+        ),
+      );
+      await settle();
+      expect(highlighted("old")).toBe("Video");
+    });
   });
 });

@@ -17,6 +17,9 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
+    expect(dispatchActions.create_embed_session.mcpApp?.visibility).toEqual([
+      "app",
+    ]);
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
