@@ -341,6 +341,7 @@ vi.mock("./social-og-image.js", () => ({
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "../a2a/handlers.js";
+import type { Part } from "../a2a/types.js";
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { isOutsideAgentCall } from "../action-caller.js";
 import type { ActionRunContext } from "../action.js";
@@ -1170,6 +1171,7 @@ let taskCounter = 0;
 async function receiveA2A(
   taskId: string,
   metadata: Record<string, unknown> = {},
+  parts: Part[] = [{ type: "text", text: "summarise my decks" }],
 ): Promise<CapturedRun> {
   const before = booted.loopRuns.length;
   taskCounter += 1;
@@ -1178,7 +1180,7 @@ async function receiveA2A(
   await asAlice(() =>
     booted
       .a2aConfig!.handler(
-        { role: "user", parts: [{ type: "text", text: "summarise my decks" }] },
+        { role: "user", parts },
         {
           taskId,
           metadata,
@@ -1269,6 +1271,47 @@ describe.each(SURFACES)("$name surface", (surface) => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
+
+  it("hands A2A file parts to the app's upload hook and to its actions", async () => {
+    const prepareRequest = vi.fn(async ({ message, attachments }: any) => ({
+      message: `${message}\n<app-uploads>report.pdf at upload://report</app-uploads>`,
+      attachments: attachments.map((attachment: any) => ({
+        ...attachment,
+        appUploadPath: "upload://report",
+      })),
+    }));
+    await bootRuntime({ prepareRequest });
+
+    const run = await receiveA2A("task-file", {}, [
+      { type: "text", text: "make slides from this PDF" },
+      {
+        type: "file",
+        file: {
+          uri: "https://files.example.test/report.pdf",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+        },
+      },
+    ]);
+
+    expect(prepareRequest.mock.calls[0]![0].attachments).toEqual([
+      {
+        type: "file",
+        name: "report.pdf",
+        url: "https://files.example.test/report.pdf",
+        contentType: "application/pdf",
+      },
+    ]);
+    expect(run.runOptions.attachments).toEqual([
+      expect.objectContaining({
+        name: "report.pdf",
+        appUploadPath: "upload://report",
+      }),
+    ]);
+    expect(JSON.stringify(run.runOptions.messages[0].content)).toContain(
+      "report.pdf at upload://report",
+    );
+  }, 240_000);
 
   it("takes the runtime inventory from the real factories", async () => {
     await bootRuntime();
