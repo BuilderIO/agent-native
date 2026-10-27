@@ -1255,6 +1255,23 @@ describe("migrate-content-database-rows", () => {
 
   it("performs guarded rollback/finalize and refuses drift", async () => {
     const db = getDb();
+    // Tombstones on these rows whose property no longer exists.
+    const orphanedTombstones = (seed: {
+      rows: Array<{ documentId: string }>;
+    }) =>
+      db
+        .select()
+        .from(schema.documentPropertyValueTombstones)
+        .where(
+          and(
+            inArray(
+              schema.documentPropertyValueTombstones.documentId,
+              seed.rows.map((row) => row.documentId),
+            ),
+            sql`NOT EXISTS (SELECT 1 FROM document_property_definitions
+              WHERE id = ${schema.documentPropertyValueTombstones.propertyId})`,
+          ),
+        );
     const rollbackSeed = await fixture();
     const rollbackPlan: any = structuredClone(plan(rollbackSeed));
     const beforeRollback = await readFixtureState(rollbackSeed);
@@ -1284,6 +1301,7 @@ describe("migrate-content-database-rows", () => {
     expect(withoutDocumentBodyRevisions(afterRollback)).toEqual(
       withoutDocumentBodyRevisions(beforeRollback),
     );
+    expect(await orphanedTombstones(rollbackSeed)).toEqual([]);
     const rollbackStateBeforeReplay =
       await readDurableMigrationState(rollbackSeed);
     const rollbackReplay: any = await runWithRequestContext(
@@ -1433,6 +1451,7 @@ describe("migrate-content-database-rows", () => {
           ),
         ),
     ).toHaveLength(0);
+    expect(await orphanedTombstones(finalizeSeed)).toEqual([]);
     const driftSeed = await fixture();
     const driftPlan: any = structuredClone(plan(driftSeed));
     const drifted: any = await runWithRequestContext({ userEmail: OWNER }, () =>

@@ -48,11 +48,13 @@ export async function getDatabaseSetupContract(
         setupPropertyTypes.some((type) => type === property.type);
       const reason = !canEdit
         ? "Database edit access required"
-        : property.sourceManaged
-          ? "Source-managed definition"
-          : !editableMetadata
-            ? "Computed definitions use their own actions"
-            : null;
+        : property.systemRole
+          ? "System definition"
+          : property.sourceManaged
+            ? "Source-managed definition"
+            : !editableMetadata
+              ? "Computed definitions use their own actions"
+              : null;
       return { propertyId: property.id, editable: reason === null, reason };
     }),
   };

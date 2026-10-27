@@ -588,6 +588,13 @@ export interface AgentKitController {
     threadId: ThreadId,
     messages: readonly AgentMessage[],
   ): void;
+  /**
+   * Folds events for work done outside a server run, such as a voice chat
+   * tool call, into the thread. Each run's sequences must continue from its
+   * last one; already-applied sequences are skipped. The events stay local
+   * until persistThreadSnapshot() saves them.
+   */
+  appendLocalEvents?(threadId: ThreadId, events: readonly AgentEvent[]): void;
   steerQueuedMessage(
     threadId: ThreadId,
     messageId: string,
@@ -792,11 +799,15 @@ function isAgentKitRunSlotBusyError(
 
 function submittedRunIdFromError(error: unknown): RunId | undefined {
   const submittedRunId = errorProperty(error, "submittedRunId");
+  const code = errorProperty(error, "code");
+  const isSubmissionReceiptError =
+    isAgentKitRunSlotBusyError(error) ||
+    code === "queued_message_already_submitted" ||
+    (code === undefined && errorProperty(error, "status") === 409);
   if (
     typeof submittedRunId !== "string" ||
     submittedRunId.length === 0 ||
-    (!isAgentKitRunSlotBusyError(error) &&
-      errorProperty(error, "status") !== 409)
+    !isSubmissionReceiptError
   ) {
     return undefined;
   }
@@ -3947,6 +3958,28 @@ export class AgentKitClient implements AgentKitController {
       else next[index] = message;
     }
     this.setThread(threadId, { ...thread, messages: next });
+  }
+
+  public appendLocalEvents(
+    threadId: ThreadId,
+    events: readonly AgentEvent[],
+  ): void {
+    this.assertActive();
+    if (events.length === 0) return;
+    const incoming = events.map((event, index) =>
+      parseAgentEvent(event, `events[${index}]`),
+    );
+    let next = this.getThread(threadId);
+    for (const event of incoming) {
+      if (event.threadId !== threadId) {
+        throw new AgentProtocolValidationError(
+          "event.threadId",
+          `must be ${threadId}`,
+        );
+      }
+      next = reduceAgentEvent(next, event);
+    }
+    this.setThread(threadId, next);
   }
 
   public cancelQueuedMessageReservation(

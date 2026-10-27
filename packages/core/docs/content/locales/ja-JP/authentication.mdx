@@ -339,6 +339,8 @@ export default createAuthPlugin({
 });
 ```
 
+カスタム認証では、UI 機能とブラウザー承認のために、オプションの `AuthOptions.getBrowserSession` コールバックも設定する必要があります。これは `H3Event` を受け取り、`getSession` と同様に `AuthSession | null` を返しますが、読み取るのはブラウザーの Cookie のみで、Bearer トークン、クエリトークン、その他のヘッダーは読み取ってはいけません。この明示的なフックがない場合、ブラウザー専用のこれらの操作は `401` を返します。
+
 ## パブリック ワークスペース アプリ {#public-workspace-apps}
 
 ワークスペース アプリはデフォルトで内部にあります。匿名の訪問者がパブリックをロードできるようにするには

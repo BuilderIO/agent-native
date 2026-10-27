@@ -99,4 +99,40 @@ describe("realtime voice transcript registry", () => {
     visible = true;
     expect(registry.activeThreadId()).toBe("thread-1");
   });
+
+  it("queues a reply's work until its thread's sink takes it, finished over running", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    const running = {
+      id: "call-1",
+      threadId: "thread-1",
+      calls: [
+        {
+          id: "call-1",
+          name: "web-search",
+          status: "running" as const,
+          startedAt: "2026-07-10T20:00:00.000Z",
+        },
+      ],
+    };
+    registry.publishWork(running);
+    registry.publishWork({
+      ...running,
+      completedAt: "2026-07-10T20:00:02.000Z",
+    });
+    registry.publishWork(running);
+    expect(registry.pendingCount()).toBe(1);
+
+    const appendWork = vi.fn(() => true);
+    registry.register({
+      threadId: "thread-1",
+      active: true,
+      append: vi.fn(() => true),
+      appendWork,
+    });
+    expect(appendWork).toHaveBeenCalledOnce();
+    expect(appendWork).toHaveBeenCalledWith(
+      expect.objectContaining({ completedAt: "2026-07-10T20:00:02.000Z" }),
+    );
+    expect(registry.pendingCount()).toBe(0);
+  });
 });

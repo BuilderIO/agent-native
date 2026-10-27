@@ -420,7 +420,7 @@ describe("direct recording route shell cue", () => {
       'setPanel(recording?.enableComments ? "comments" : "transcript")',
     );
     expect(normalizedEffect).toContain(
-      'setPanel( recording && !recording.enableComments ? defaultPanel : "comments", )',
+      'setPanel(recording && !canReadComments ? defaultPanel : "comments")',
     );
 
     // `defaultPanel` is where the panel lands when the requested tab does not
@@ -430,7 +430,7 @@ describe("direct recording route shell cue", () => {
     // made the guard bounce them between two tabs it rejects.
     const route2 = readRoute("_app.r.$recordingId.tsx").replace(/\s+/g, " ");
     expect(route2).toContain(
-      'const defaultPanel: SidePanel = !isImage ? "transcript" : recording && !recording.enableComments && canEdit ? "settings" : "comments";',
+      'const defaultPanel: SidePanel = !isImage ? "transcript" : recording && !canReadComments && canEdit ? "settings" : "comments";',
     );
     expect(route2).not.toContain('!recording?.enableComments ? "settings"');
   });
@@ -459,7 +459,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "recordingId === VIEWER_REDESIGN_PREVIEW_ID\n      ? VIEWER_PREVIEW_COMMENTS",
     );
-    expect(route).toContain(
+    expect(route.replace(/\s+/g, " ")).toContain(
       "role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID",
     );
     expect(route).not.toContain("persistedPreviewReplies");

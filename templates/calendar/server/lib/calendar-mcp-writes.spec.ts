@@ -218,7 +218,6 @@ describe("Calendar direct MCP writes", () => {
       "ask_app",
       "ask_app_status",
       "create-event",
-      "create_embed_session",
       "list-events",
       "list_apps",
       "open_app",

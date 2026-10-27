@@ -135,6 +135,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "Autre",
   "onboarding.roleOtherInputLabel": "Décrivez votre rôle",
   "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.builderProvisionFailedDetail":
+    "Impossible de créer votre compte Builder.io. Réessayez ou connectez-vous avec un compte existant.",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
   "onboarding.builderSignInWithAccount":
@@ -436,6 +438,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "Ouvrez l’application de bureau pour utiliser ce chat.",
   "composer.removeAttachment": "Supprimer {{name}}",
+  "composer.attachmentReadFailed": "Impossible de lire ce fichier",
+  "composer.attachmentTooLarge": "Le fichier dépasse 8 Mo",
+  "composer.attachmentNotUtf8": "Le fichier n'est pas du texte UTF-8",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
@@ -1259,6 +1264,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.imageTooLargeToAttach":
+    "« {{name}} » fait {{size}} Mo : les images de plus de {{limit}} Mo ne peuvent pas être jointes. Utilisez une image plus petite.",
+  "composer.imageTooManyPixelsToAttach":
+    "« {{name}} » fait {{megapixels}} mégapixels : les images de plus de {{limit}} mégapixels ne peuvent pas être jointes. Utilisez une image plus petite.",
   "composer.fileTooLarge":
     "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
   "composer.sessionExpired":

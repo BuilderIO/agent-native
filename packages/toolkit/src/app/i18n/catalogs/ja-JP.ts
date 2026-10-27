@@ -133,6 +133,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "その他",
   "onboarding.roleOtherInputLabel": "役割を入力してください",
   "onboarding.skipForNow": "今はスキップ",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io アカウントを作成できませんでした。もう一度試すか、既存のアカウントでサインインしてください。",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
   "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
@@ -429,6 +431,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
+  "composer.attachmentReadFailed": "このファイルを読み込めませんでした",
+  "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
+  "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
@@ -558,6 +563,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.imageTooLargeToAttach":
+    "「{{name}}」は {{size}} MB です。{{limit}} MB を超える画像は添付できません。小さい画像を使用してください。",
+  "composer.imageTooManyPixelsToAttach":
+    "「{{name}}」は {{megapixels}} メガピクセルです。{{limit}} メガピクセルを超える画像は添付できません。小さい画像を使用してください。",
   "composer.fileTooLarge":
     "このファイルはアップロード上限の {{size}} MB を超えています。",
   "composer.sessionExpired":

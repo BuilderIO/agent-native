@@ -130,6 +130,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
+  "onboarding.builderProvisionFailedDetail":
+    "Builder.io 계정을 만들지 못했습니다. 다시 시도하거나 기존 계정으로 로그인하세요.",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
   "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
@@ -416,6 +418,9 @@ const messages: ToolkitAgentChatTranslation = {
     "놓은 파일을 추가할 수 없습니다. 다른 형식을 사용해 보세요.",
   "composer.openDesktop": "이 채팅을 사용하려면 데스크톱 앱을 여세요.",
   "composer.removeAttachment": "{{name}} 제거",
+  "composer.attachmentReadFailed": "이 파일을 읽을 수 없습니다",
+  "composer.attachmentTooLarge": "파일이 8MB를 초과합니다",
+  "composer.attachmentNotUtf8": "파일이 UTF-8 텍스트가 아닙니다",
   "composer.scrollToBottom": "맨 아래로 스크롤",
   "composer.suggestedPrompts": "추천 프롬프트",
   "composer.stopResponse": "응답 중지",
@@ -540,6 +545,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" 파일은 {{size}} MB입니다. {{limit}} MB를 넘는 이미지는 첨부할 수 없습니다. 더 작은 이미지를 사용해 주세요.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" 이미지는 {{megapixels}} 메가픽셀입니다. {{limit}} 메가픽셀을 넘는 이미지는 첨부할 수 없습니다. 더 작은 이미지를 사용해 주세요.',
   "composer.fileTooLarge": "이 파일은 {{size}}MB 업로드 제한보다 큽니다.",
   "composer.sessionExpired":
     "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",

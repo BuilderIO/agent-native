@@ -1940,6 +1940,9 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   transform: translate(-50%, -50%);
   width: calc(100% - 32px);
   max-width: 320px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--bg);

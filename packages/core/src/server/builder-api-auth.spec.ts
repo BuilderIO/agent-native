@@ -1,11 +1,43 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ActionContractError } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
+  isBuilderReauthorizationRequired,
   resolveBuilderApiAuthorization,
   resolveBuilderRequestAuthorization,
 } from "./builder-api-auth.js";
+
+describe("Builder status reauthorization", () => {
+  it.each([
+    [new AppSecretDecryptionError(), true],
+    [
+      new CredentialStoreUnavailableErrorMock(new AppSecretDecryptionError()),
+      true,
+    ],
+    [
+      new CredentialStoreUnavailableErrorMock(
+        new Error("database unavailable"),
+      ),
+      false,
+    ],
+    [new Error("unexpected failure"), false],
+    [
+      new ActionContractError("Example expired grant", {
+        errorCode: "builder_oauth_reauthorization_required",
+        statusCode: 400,
+      }),
+      true,
+    ],
+  ])(
+    "classifies %s without treating store outages as expired grants",
+    (error, expected) => {
+      expect(isBuilderReauthorizationRequired(error)).toBe(expected);
+    },
+  );
+});
 
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());

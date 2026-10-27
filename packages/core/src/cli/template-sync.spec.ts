@@ -372,6 +372,23 @@ describe("mergeTemplateTrees", () => {
     );
     expect(result.manual).toEqual(["CLAUDE.md (local symlink)"]);
   });
+
+  it("ignores local symlinks when upstream has not changed the file", () => {
+    const base = tree({ "CLAUDE.md": "upstream\n" });
+    const theirs = tree({ "CLAUDE.md": "upstream\n" });
+    const app = tree({ "AGENTS.md": "agents\n" });
+    fs.symlinkSync("AGENTS.md", path.join(app, "CLAUDE.md"));
+
+    const result = mergeTemplateTrees(app, base, theirs);
+
+    expect(fs.lstatSync(path.join(app, "CLAUDE.md")).isSymbolicLink()).toBe(
+      true,
+    );
+    expect(result.manual).toEqual([]);
+    expect(result.added).toEqual([]);
+    expect(result.updated).toEqual([]);
+    expect(result.deleted).toEqual([]);
+  });
 });
 
 describe("materializeTemplate", () => {

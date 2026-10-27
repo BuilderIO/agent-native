@@ -63,6 +63,22 @@ describe("list-connected-database-tables", () => {
     expect(mocks.withDbAdminConnectionRuntime).toHaveBeenCalledTimes(1);
   });
 
+  it("includes durable experiment assignments in the Analytics table catalog", async () => {
+    mocks.listTables.mockResolvedValue({
+      tables: [
+        { name: "agent_experiment_assignments", type: "table", rowCount: 4 },
+      ],
+    });
+
+    const result = await action.run({}, {} as never);
+
+    expect(result.connections[0]?.tables).toContainEqual({
+      name: "agent_experiment_assignments",
+      type: "table",
+      rowCount: 4,
+    });
+  });
+
   it("rejects an unknown requested connection", async () => {
     await expect(
       action.run({ connectionIds: ["missing"] }, {} as never),

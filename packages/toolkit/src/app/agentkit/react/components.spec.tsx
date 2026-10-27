@@ -154,6 +154,26 @@ describe("AgentMessageActions layout", () => {
     },
   );
 
+  it("drops an older user message's hover row by padding, so the pointer never crosses a gap that ends the hover", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
+    const rule = (selector: string) =>
+      rules.find(
+        (match) => match[1]?.trim().replace(/\s+/g, " ") === selector,
+      )?.[2];
+    const hoverRow =
+      '.agentkit-message-actions[data-role="user"]:not( [data-latest="true"], [data-has-error="true"] )';
+
+    expect(rule(hoverRow)).toContain("margin-block-start: 0;");
+    expect(rule(hoverRow)).toContain("padding-block-start: 0.25rem;");
+    expect(rule(hoverRow)).toContain("min-block-size: 1.75rem;");
+  });
+
   it("clusters user controls at the logical end without changing assistant grouping", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
@@ -411,10 +431,10 @@ describe("AgentKitChat", () => {
       /font-family:\s*var\(\s*--agentkit-transcript-font-family,\s*var\(--font-sans,\s*inherit\)\s*\);/,
     );
     expect(styles).toContain(
-      "line-height: var(--agentkit-transcript-message-line-height, 1.52);",
+      "line-height: var(--agentkit-transcript-message-line-height, 1.25rem);",
     );
     expect(styles).toContain(
-      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.52)",
+      "--agentkit-user-bubble-line-height,\n    var(--agentkit-transcript-message-line-height, 1.25rem)",
     );
     expect(styles).toContain("var(--agentkit-user-bubble-max-width, 38rem)");
     expect(styles).toContain(
@@ -431,7 +451,7 @@ describe("AgentKitChat", () => {
     );
     expect(styles).toContain("overflow-anchor: none;");
     expect(styles).toMatch(
-      /\.agentkit-agent \{[\s\S]*padding: 0\.125rem 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
+      /\.agentkit-agent \{[\s\S]*min-block-size: 1\.5rem;\n\s+padding: 0 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
     );
     expect(styles).toContain("overscroll-behavior-block: contain;");
     expect(styles).toContain("max-block-size: 12.5rem;");
@@ -493,7 +513,7 @@ describe("AgentKitChat", () => {
       /@container \(max-width: 24rem\) \{\s*\.agentkit-composer \[data-agent-composer-slot="toolbar"\] \{([^}]*)\}/,
     )?.[1];
     expect(narrowToolbarRule).toContain(
-      "--agentkit-composer-toolbar-control-gap: 0.125rem;",
+      "--agentkit-composer-toolbar-control-gap: 0;",
     );
     expect(narrowToolbarRule).not.toContain(
       "--agentkit-composer-model-max-width",

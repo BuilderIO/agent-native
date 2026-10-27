@@ -355,6 +355,34 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.clip-embeds",
+    surface: "editor",
+    label:
+      "Turn a pasted Clips link into a Clip block and play it with its comment markers",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoLinkForm.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a ClipEmbed tag naming the recording; playback grants and comment markers are fetched from Clips per view and never stored.",
+    uiImplementation:
+      "The video block's Link tab reads where Clips lives through get-clips-links and inserts the ClipEmbed block; the player reads get-clip-playback and list-clip-comments, which check document access before asking Clips. Agents write the same ClipEmbed tag with edit-document, and view-screen names the recording of a selected Clip.",
+    status: "action-backed",
+    actions: ["get-clips-links", "get-clip-playback", "list-clip-comments"],
+    exception:
+      "The three reads are hidden with agentTool: false because they feed the player short-lived media URLs and scrubber markers; agents read the ClipEmbed tag with get-document and the selected Clip with view-screen.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-embed-actions.test.ts",
+      "app/components/editor/clip-embed/ClipEmbedBlock.test.tsx",
+      "app/components/editor/extensions/VideoLinkForm.test.tsx",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -698,6 +726,32 @@ export const parityMatrix: ParityRow[] = [
       "actions/resync-content-database-source.db.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
   },
   {
     id: "source-sync.database-source-bindings",

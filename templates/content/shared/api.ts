@@ -292,7 +292,8 @@ export interface DocumentPropertyDefinition {
 export type DocumentPropertySystemRole =
   | "files_kind"
   | "files_parent"
-  | "files_source";
+  | "files_source"
+  | "builder_status";
 
 /** A linked row of a relation property, resolved for the current viewer. */
 export interface DocumentPropertyRelationTarget {
@@ -653,6 +654,19 @@ export interface ContentDatabaseItem {
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
+  /**
+   * Generation of each property, by property ID. It goes up on every change,
+   * A to B to A included; compare for equality only. Pass it back as
+   * expectedPropertyGenerations to write only while the value is unchanged.
+   */
+  propertyGenerations?: Record<string, number>;
+  /**
+   * Change ID of each property's current value, by property ID: it changes
+   * only when that value is written anew, so it identifies one change. Null
+   * when the property has no stored value. Not for guarding writes; use
+   * propertyGenerations for that.
+   */
+  propertyChangeIds?: Record<string, number | null>;
   /** Open Comment threads on this row, when it has any the viewer can read. */
   comments?: ContentDatabaseItemComments;
 }
@@ -716,6 +730,8 @@ export interface ContentDatabaseMutationContract {
     type: DocumentPropertyType;
     writable: boolean;
     sourceManaged: boolean;
+    /** Set on properties Content maintains itself, such as the Builder status. */
+    systemRole: string | null;
     acceptedShape: string | null;
     options: DocumentPropertyOptions;
   }>;
@@ -744,6 +760,10 @@ export interface ContentDatabaseRowMutationReceipt {
     verified: true;
     title: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
+    /** Absent on receipts stored before change IDs existed. */
+    propertyChangeIds?: Record<string, number | null>;
   };
 }
 
@@ -762,6 +782,10 @@ export interface ContentDatabaseRowPatchReceipt {
     verified: true;
     title?: string;
     propertyValues: Record<string, DocumentPropertyValue>;
+    /** Absent on receipts stored before property generations existed. */
+    propertyGenerations?: Record<string, number>;
+    /** Absent on receipts stored before change IDs existed. */
+    propertyChangeIds?: Record<string, number | null>;
   };
 }
 
@@ -1791,12 +1815,26 @@ export interface StageBuilderSourceBulkUpdateResponse {
   review: ContentDatabaseSourceReviewPayload | null;
 }
 
-export type BuilderCmsWriteEffect =
-  | "autosave"
-  | "update_in_place"
-  | "create_draft"
-  | "publish"
-  | "unpublish";
+export const BUILDER_CMS_WRITE_EFFECTS = [
+  "autosave",
+  "save_draft",
+  "update_in_place",
+  "create_draft",
+  "publish",
+  "unpublish",
+] as const;
+
+/**
+ * `autosave` saves unpublished changes to a published entry; `save_draft`
+ * saves a draft entry. Neither changes what is live.
+ */
+export type BuilderCmsWriteEffect = (typeof BUILDER_CMS_WRITE_EFFECTS)[number];
+
+export function isBuilderCmsWriteEffect(
+  value: unknown,
+): value is BuilderCmsWriteEffect {
+  return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
+}
 
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;

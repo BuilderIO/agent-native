@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 
@@ -57,7 +59,12 @@ export default defineAction({
         trashedAt: schema.recordings.trashedAt,
       })
       .from(schema.recordings)
-      .where(eq(schema.recordings.organizationId, organizationId))
+      .where(
+        and(
+          eq(schema.recordings.organizationId, organizationId),
+          recordingExpiryQuery(getRequestUserEmail()).available,
+        ),
+      )
       .orderBy(desc(schema.recordings.createdAt))
       .limit(MAX_RECORDINGS);
     const truncatedRecordings = recordings.length >= MAX_RECORDINGS;

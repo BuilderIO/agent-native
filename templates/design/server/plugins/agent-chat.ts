@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
+import { DESIGN_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
@@ -298,7 +299,9 @@ export default createAgentChatPlugin({
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  realtimeVoice: DESIGN_REALTIME_VOICE,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     keyToolNames: ["get-visual-edit-pending"],
     instructions:

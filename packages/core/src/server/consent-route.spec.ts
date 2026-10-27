@@ -5,7 +5,47 @@ import { CONSENT_PATH, CONSENT_REGION_PATH } from "../shared/consent.js";
 import {
   createConsentHandler,
   createConsentRegionHandler,
+  requestAllowsConsentCategoryFromHeaders,
 } from "./consent-route.js";
+
+describe("request consent decisions", () => {
+  it.each([undefined, "XX", "ZZ", "T1"])(
+    "fails closed when the country is unknown (%s)",
+    (country) => {
+      const headers = new Headers(
+        country ? { "cf-ipcountry": country } : undefined,
+      );
+
+      expect(
+        requestAllowsConsentCategoryFromHeaders(headers, "performance"),
+      ).toBe(false);
+      expect(
+        requestAllowsConsentCategoryFromHeaders(headers, "targeting"),
+      ).toBe(false);
+    },
+  );
+
+  it("uses the country default or an explicit stored choice", () => {
+    expect(
+      requestAllowsConsentCategoryFromHeaders(
+        new Headers({ "cf-ipcountry": "US" }),
+        "performance",
+      ),
+    ).toBe(true);
+    expect(
+      requestAllowsConsentCategoryFromHeaders(
+        new Headers({ "cf-ipcountry": "DE" }),
+        "targeting",
+      ),
+    ).toBe(false);
+    expect(
+      requestAllowsConsentCategoryFromHeaders(
+        new Headers({ cookie: "an_consent=1.p1.t0", "cf-ipcountry": "US" }),
+        "targeting",
+      ),
+    ).toBe(false);
+  });
+});
 
 function region(headers: Record<string, string> = {}, method = "GET") {
   return new H3().use(CONSENT_REGION_PATH, createConsentRegionHandler()).fetch(

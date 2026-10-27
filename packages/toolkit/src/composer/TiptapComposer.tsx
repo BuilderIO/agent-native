@@ -1276,6 +1276,8 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
+  /** Starts voice chat from the empty Send slot in place of the provider's default start. */
+  onVoiceChatStart?: () => void;
   /** Selected model override for this conversation */
   selectedModel?: string;
   /** Selected provider engine for this conversation */
@@ -2915,6 +2917,7 @@ function TiptapComposerSurface({
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   voiceChatEnabled = true,
+  onVoiceChatStart,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -6362,6 +6365,7 @@ function TiptapComposerSurface({
       sendLabel={sendButtonTooltip}
       busy={sendButtonBusy}
       voiceEnabled={voiceEnabled && voiceChatEnabled}
+      onVoiceChatStart={onVoiceChatStart}
       voiceChatEligible={
         !hasDraft &&
         !planNext &&

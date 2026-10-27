@@ -15,6 +15,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  chatHandoffComposerOptions,
   readFailedChatHandoff,
   writeFailedChatHandoff,
 } from "@/lib/chat-paths";
@@ -1506,6 +1507,41 @@ describe("ChatRoute AgentKit surface", () => {
     ).toContain("Use the selected references");
     expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
       tags: { area: "chat_initial_message" },
+    });
+  });
+
+  it("sends a Home handoff built from a composer submission on the first try", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = {
+      initialMessage: "Call the hello action",
+      initialComposerOptions: chatHandoffComposerOptions(
+        {
+          intent: "immediate",
+          submissionId: "client-request-home",
+          model: "claude-example",
+          engine: "anthropic",
+          effort: "auto",
+          onLocalSubmit: vi.fn(),
+        },
+        { references: [] },
+      ),
+    };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Call the hello action",
+        options: expect.objectContaining({ model: "claude-example" }),
+        queueWhileRunning: false,
+      }),
+    );
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: expect.not.objectContaining({
+        initialText: expect.anything(),
+      }),
     });
   });
 

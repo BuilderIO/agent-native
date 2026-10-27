@@ -14,6 +14,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconCopiedFromDocument,
 } from "../server/lib/private-icon-references.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -152,12 +153,15 @@ export default defineAction({
         row.database.systemRole === "files"
           ? lockedRow.document.parentId
           : row.database.documentId;
-      const values = await tx
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(
-          eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
-        );
+      const values = await withoutBuilderStatusValues(
+        tx,
+        await tx
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(
+            eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
+          ),
+      );
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)

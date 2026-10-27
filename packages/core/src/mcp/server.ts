@@ -15,6 +15,7 @@ import {
   type BearerCredentialRefusal,
 } from "../server/bearer-credential-refusal.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -453,6 +454,7 @@ async function handleMcpRequestInternal(
 
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
+    resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
     approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
@@ -543,6 +545,11 @@ export function mountMCP(
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
   if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (config.appApprovalPage && routePrefix !== "/_agent-native") {
+    throw new Error(
+      `appApprovalPage needs MCP mounted under /_agent-native, where the app's review page reads approvals, not under ${routePrefix}.`,
+    );
+  }
 
   mountMcpApprovalRoute(
     nitroApp,
@@ -551,6 +558,7 @@ export function mountMCP(
       // Only a signed-in caller makes a grant, and MCP runs its calls from
       // `productionActions` when there is one (`selectMcpActionSurface`).
       actions: config.productionActions ?? config.actions,
+      appPage: config.appApprovalPage === true,
     },
     routePrefix,
   );

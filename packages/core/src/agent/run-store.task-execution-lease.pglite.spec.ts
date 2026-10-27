@@ -78,6 +78,7 @@ const {
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   clearLedgerForThread,
+  clearRunDispatchPayload,
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
   getRunById,
@@ -96,6 +97,7 @@ const {
   persistRunCheckpointEvent,
   markRunAborted,
   markTurnAborted,
+  readRunDispatchPayload,
   readBackgroundRunClaim,
   reapUnclaimedBackgroundRun,
   reapIfStale,
@@ -103,6 +105,7 @@ const {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   updateRunTerminalStateIfRunning,
   writeLedgerEntry,
+  tryClaimRunSlot,
 } = await import("./run-store.js");
 
 beforeAll(async () => {
@@ -708,6 +711,124 @@ describe("task execution leases", () => {
         ),
       ),
     ).rejects.toMatchObject({ code: "missing_execution_fence" });
+  });
+
+  it("rejects run insertion and slot claims when a requested fence is missing", async () => {
+    const threadId = "thread-missing-fenced-run-admission";
+    const turnId = "turn-missing-fenced-run-admission";
+
+    await expect(
+      withExecutionLeaseRequested(() =>
+        insertRun("run-missing-fenced-insert", threadId, turnId),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+    await expect(
+      withExecutionLeaseRequested(() =>
+        tryClaimRunSlot(threadId, "run-missing-fenced-slot", undefined, {
+          turnId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+
+    const rows = await pglite.query(
+      "SELECT id FROM agent_runs WHERE id IN (?, ?)",
+      ["run-missing-fenced-insert", "run-missing-fenced-slot"],
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
+  it("fences run-slot inserts against a replaced execution generation", async () => {
+    const threadId = "thread-fenced-slot-insert";
+    const turnId = "turn-fenced-slot-insert";
+    const firstRunId = "run-fenced-slot-first";
+    const secondRunId = "run-fenced-slot-second";
+    await insertRun(firstRunId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id IN (?, ?)",
+      [firstRunId, secondRunId],
+    );
+
+    await expect(
+      withExecutionFence(firstFence, () =>
+        tryClaimRunSlot(threadId, "run-fenced-slot-stale-child", undefined, {
+          turnId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    await expect(
+      withExecutionFence(secondFence, () =>
+        tryClaimRunSlot(threadId, "run-fenced-slot-current-child", undefined, {
+          turnId,
+        }),
+      ),
+    ).resolves.toMatchObject({ claimed: true });
+    const staleInsert = await pglite.query(
+      "SELECT id FROM agent_runs WHERE id = ?",
+      ["run-fenced-slot-stale-child"],
+    );
+    expect(staleInsert.rows).toHaveLength(0);
+  });
+
+  it("does not clear a run dispatch payload from a stale generation", async () => {
+    const threadId = "thread-fenced-dispatch-payload";
+    const turnId = "turn-fenced-dispatch-payload";
+    const firstRunId = "run-fenced-dispatch-payload-first";
+    const secondRunId = "run-fenced-dispatch-payload-second";
+    await insertRun(firstRunId, threadId, turnId, {
+      dispatchPayload: "first-payload",
+    });
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await claimTurnExecutionLease(threadId, turnId, secondRunId);
+
+    await expect(
+      withExecutionFence(firstFence, () => clearRunDispatchPayload(firstRunId)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    await expect(readRunDispatchPayload(firstRunId)).resolves.toBe(
+      "first-payload",
+    );
+    const currentRunId = "run-fenced-dispatch-payload-current";
+    const currentTurnId = "turn-fenced-dispatch-payload-current";
+    await insertRun(currentRunId, threadId, currentTurnId, {
+      dispatchPayload: "current-payload",
+    });
+    const currentFence = await claimTurnExecutionLease(
+      threadId,
+      currentTurnId,
+      currentRunId,
+    );
+    await withExecutionFence(currentFence, () =>
+      clearRunDispatchPayload(currentRunId),
+    );
+    await expect(readRunDispatchPayload(currentRunId)).resolves.toBeNull();
   });
 
   it("claims and renews without an agent_runs row, then fences stale generations", async () => {

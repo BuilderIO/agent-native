@@ -128,6 +128,8 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
+  "onboarding.builderProvisionFailedDetail":
+    "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
   "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
@@ -418,6 +420,9 @@ const messages = {
     "Could not add the dropped file. Try a different format.",
   "composer.openDesktop": "Open Desktop to use this chat.",
   "composer.removeAttachment": "Remove {{name}}",
+  "composer.attachmentReadFailed": "Couldn't read this file",
+  "composer.attachmentTooLarge": "File is over 8 MB",
+  "composer.attachmentNotUtf8": "File isn't UTF-8 text",
   "composer.scrollToBottom": "Scroll to bottom",
   "composer.suggestedPrompts": "Suggested prompts",
   "composer.stopResponse": "Stop response",
@@ -544,6 +549,10 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" is {{size}} MB - images over {{limit}} MB cannot be attached. Please use a smaller image.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" is {{megapixels}} megapixels - images over {{limit}} megapixels cannot be attached. Please use a smaller image.',
   "composer.fileTooLarge":
     "This file is larger than the {{size}} MB upload limit.",
   "composer.sessionExpired":

@@ -1,4 +1,7 @@
-import { getEngineCredentialOwner } from "../agent/engine/credential-owner.js";
+import {
+  getEngineCredentialOwner,
+  getEngineLlmConnectionSource,
+} from "../agent/engine/credential-owner.js";
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import type {
@@ -36,6 +39,7 @@ import {
   redactSensitiveFields,
 } from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
+import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
   recordAgentToolCall,
   recordGenAiChat,
@@ -1718,6 +1722,18 @@ export async function instrumentAgentLoop(opts: {
           browserSessionId,
           extraProperties: {
             ...trackingIdentityProperties(),
+            ...llmConnectionTrackingProperties(
+              typeof loopOpts.engine?.name === "string"
+                ? {
+                    configured: true,
+                    engine: loopOpts.engine.name,
+                    model: usage?.model ?? loopOpts.model,
+                    source:
+                      getEngineLlmConnectionSource(loopOpts.engine) ??
+                      "unknown",
+                  }
+                : null,
+            ),
             source: "agent_observability",
             run_id: runId,
             thread_id: threadId,

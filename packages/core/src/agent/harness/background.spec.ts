@@ -6,6 +6,7 @@ const {
   getAgentHarnessSessionByRunIdMock,
   listAgentHarnessSessionEventsMock,
   stopAndPersistAgentHarnessSessionMock,
+  sendAgentHarnessFollowUpMock,
 } = vi.hoisted(() => ({
   abortRunDurablyMock: vi.fn(),
   getRunEventsSinceMock: vi.fn<
@@ -23,6 +24,7 @@ const {
     async () => [],
   ),
   stopAndPersistAgentHarnessSessionMock: vi.fn(),
+  sendAgentHarnessFollowUpMock: vi.fn(),
 }));
 
 vi.mock("../run-manager.js", () => ({
@@ -33,7 +35,7 @@ vi.mock("../run-store.js", () => ({
 }));
 vi.mock("./lifecycle.js", () => ({
   resolveAgentHarnessApproval: vi.fn(),
-  sendAgentHarnessFollowUp: vi.fn(),
+  sendAgentHarnessFollowUp: sendAgentHarnessFollowUpMock,
   stopAndPersistAgentHarnessSession: stopAndPersistAgentHarnessSessionMock,
 }));
 vi.mock("./store.js", () => ({
@@ -43,6 +45,7 @@ vi.mock("./store.js", () => ({
 }));
 
 import {
+  createAgentHarnessBackgroundAgentController,
   listAgentHarnessBackgroundTranscriptEvents,
   stopAgentHarnessBackgroundRun,
 } from "./background.js";
@@ -51,6 +54,11 @@ beforeEach(() => {
   abortRunDurablyMock.mockReset();
   getRunEventsSinceMock.mockReset().mockResolvedValue([]);
   listAgentHarnessSessionEventsMock.mockReset().mockResolvedValue([]);
+  sendAgentHarnessFollowUpMock.mockReset().mockResolvedValue({
+    ok: true,
+    runId: "run-1",
+    session: null,
+  });
   getAgentHarnessSessionByRunIdMock.mockReset().mockResolvedValue({
     id: "session-1",
     runId: "run-1",
@@ -67,6 +75,20 @@ beforeEach(() => {
       const session = await getAgentHarnessSessionByRunIdMock();
       return { ...session, status, stoppedAt: Date.now() };
     });
+});
+
+it("forwards the host completion hook to follow-up runs", async () => {
+  const onRunComplete = vi.fn();
+  const controller = createAgentHarnessBackgroundAgentController(
+    { ownerEmail: null },
+    { onRunComplete },
+  );
+
+  await controller.sendFollowUp({ runId: "run-1", prompt: "continue" });
+
+  expect(sendAgentHarnessFollowUpMock).toHaveBeenCalledWith(
+    expect.objectContaining({ onRunComplete }),
+  );
 });
 
 it("replays persisted approval operations in the background transcript", async () => {

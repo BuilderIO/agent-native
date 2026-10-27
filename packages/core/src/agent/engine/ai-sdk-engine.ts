@@ -7,6 +7,7 @@ import {
 import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
+  claudeAdaptiveThinking,
   isGPTReasoningModel,
   isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
@@ -418,7 +419,7 @@ class AISDKEngine implements AgentEngine {
         if (explicitThinking || supportsClaudeAdaptiveThinking(opts.model)) {
           providerOpts.anthropic = {
             ...((providerOpts.anthropic as object) ?? {}),
-            thinking: explicitThinking ?? { type: "adaptive" },
+            thinking: explicitThinking ?? claudeAdaptiveThinking(opts.model),
             ...(explicitThinking
               ? {}
               : { outputConfig: { effort: reasoningEffort } }),
@@ -479,7 +480,7 @@ class AISDKEngine implements AgentEngine {
       // the model's own default level applies.
       providerOpts.anthropic = {
         ...(providerOpts.anthropic as object | undefined),
-        thinking: { type: "adaptive" },
+        thinking: claudeAdaptiveThinking(opts.model),
       };
     }
 

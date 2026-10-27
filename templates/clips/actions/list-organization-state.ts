@@ -24,6 +24,7 @@ import {
   agentRecordingAccessFilter,
   isAgentRecordingCaller,
 } from "../server/lib/agent-recording-access.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
@@ -174,6 +175,7 @@ export default defineAction({
             ),
             eq(schema.recordings.organizationId, organizationId),
             isNotNull(schema.recordings.folderId),
+            recordingExpiryQuery(ownerEmail).available,
             isNull(schema.recordings.archivedAt),
             isNull(schema.recordings.trashedAt),
             notExists(
