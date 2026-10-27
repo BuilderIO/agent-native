@@ -623,8 +623,8 @@ export async function startBackgroundAutomationHistory(
         ...automationRunOwnership(automation.resource.owner, ownerEmail, orgId),
         automation: automation.name,
         path: automation.resource.path,
-        appId,
-        notificationEmail,
+        ...(appId !== undefined ? { appId } : {}),
+        ...(notificationEmail !== undefined ? { notificationEmail } : {}),
       },
       options,
     );
