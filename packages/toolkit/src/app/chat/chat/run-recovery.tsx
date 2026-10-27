@@ -343,7 +343,10 @@ export function BuilderConnectCta({
     trackingSource: "assistant_chat_builder_cta",
     onConnected: handleConnected,
   });
-  const { configured, orgName, connecting, error } = flow;
+  const { configured, orgName, connecting } = flow;
+  // A failed status read changes nothing here: the card only shows while AI
+  // is missing, and connecting re-reads status. Its retry lives in Settings.
+  const error = flow.errorKind === "status-read" ? null : flow.error;
   useEffect(() => {
     const attempt = connectAttemptRef.current;
     if (!attempt) return;
