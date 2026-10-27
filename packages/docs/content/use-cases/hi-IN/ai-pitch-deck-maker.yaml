@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: "सवाल हैं? हमारे पास जवाब हैं"
   items:
-    - q: "क्या Slides फ़्री है?"
+    - q: "क्या Agent-Native Slides फ़्री है?"
       a: "हाँ, Agent-Native Slides फ़्री और ओपन सोर्स है। डेक बनाने के लिए AI कनेक्शन चाहिए, या तो Builder.io से या आपकी अपनी AI key से, और इमेज बनाने के लिए आपकी अपनी Gemini या OpenAI key चाहिए। Slides अभी alpha में है, इसलिए आगे इसमें बदलाव होते रहेंगे।"
     - q: "क्या मैं अपना पिच डेक PowerPoint या Google Slides में एक्सपोर्ट कर सकता हूँ?"
       a: "Slides एडिट करने लायक PowerPoint (PPTX) फ़ाइल एक्सपोर्ट करता है। Google Slides के लिए यह आपको इम्पोर्ट लिंक के साथ एक PPTX फ़ाइल देता है, जिसे आप खुद Google Slides में खोलते हैं। आप डेक को एक HTML फ़ाइल के रूप में भी एक्सपोर्ट कर सकते हैं।"

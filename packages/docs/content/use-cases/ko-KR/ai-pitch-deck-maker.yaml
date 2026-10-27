@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: 궁금한 점이 있으신가요? 답해 드릴게요
   items:
-    - q: Slides는 무료인가요?
+    - q: Agent-Native Slides는 무료인가요?
       a: "네, Agent-Native Slides는 무료 오픈 소스예요. 덱을 만들려면 Builder.io 또는 내 AI 키를 통한 AI 연결이 필요하고, 이미지를 만들려면 내 Gemini 또는 OpenAI 키가 필요해요. Slides는 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
     - q: 피치덱을 PowerPoint나 Google Slides로 내보낼 수 있나요?
       a: "Slides는 편집 가능한 PowerPoint(PPTX) 파일로 내보내요. Google Slides의 경우 가져오기 링크가 포함된 PPTX 파일을 제공하니, Google Slides에서 직접 열면 돼요. 덱을 HTML 파일 하나로 내보낼 수도 있어요."

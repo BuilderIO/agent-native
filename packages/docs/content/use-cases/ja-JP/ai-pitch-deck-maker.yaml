@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: よくある質問
   items:
-    - q: Slidesは無料ですか？
+    - q: Agent-Native Slidesは無料ですか？
       a: はい、Agent-Native Slidesは無料のオープンソースです。デッキの作成にはAIとの接続が必要で、Builder.ioを経由するか、ご自身のAIキーを使用します。画像の生成には、ご自身のGeminiまたはOpenAIのキーが必要です。Slidesはアルファ版のため、今後変更が加わる可能性があります。
     - q: ピッチデッキをPowerPointやGoogle Slidesにエクスポートできますか？
       a: Slidesは編集可能なPowerPoint（PPTX）ファイルを書き出せます。Google Slides向けには、インポート用リンク付きのPPTXファイルが用意されるので、ご自身でGoogle Slidesで開いてください。デッキを1つのHTMLファイルとして書き出すこともできます。

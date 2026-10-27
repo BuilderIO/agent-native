@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: 有疑问？这里有答案
   items:
-    - q: Slides 免费吗？
+    - q: Agent-Native Slides 免费吗？
       a: 是的，Agent-Native Slides 免费且开源。制作 PPT 需要连接 AI，可以通过 Builder.io 或你自己的 AI 密钥；生成图片需要你自己的 Gemini 或 OpenAI 密钥。Slides 目前处于 alpha 阶段，后续还会有变化。
     - q: 我能把路演 PPT 导出为 PowerPoint 或 Google Slides 吗？
       a: Slides 可导出可编辑的 PowerPoint（PPTX）文件。对于 Google Slides，它会给你一个 PPTX 文件和导入链接，由你自己在 Google Slides 中打开。你也可以把 PPT 导出为单个 HTML 文件。

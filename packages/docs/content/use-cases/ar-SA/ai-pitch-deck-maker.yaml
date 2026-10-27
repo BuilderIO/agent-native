@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: "لديك أسئلة؟ لدينا الإجابات"
   items:
-    - q: "هل Slides مجاني؟"
+    - q: "هل Agent-Native Slides مجاني؟"
       a: "نعم، Agent-Native Slides مجاني ومفتوح المصدر. يحتاج بناء العرض إلى اتصال بالذكاء الاصطناعي، إما عبر Builder.io أو عبر مفتاحك الخاص، ويحتاج إنشاء الصور إلى مفتاح Gemini أو OpenAI الخاص بك. لا يزال Slides في مرحلة ألفا، فتوقّع تغييرات مع تطوّره."
     - q: "هل يمكنني تصدير عرضي التقديمي إلى PowerPoint أو Google Slides؟"
       a: "يصدّر Slides ملف PowerPoint (PPTX) قابلًا للتعديل. أما لـ Google Slides، فيعطيك ملف PPTX مع رابط استيراد تفتحه بنفسك في Google Slides. ويمكنك أيضًا تصدير العرض كملف HTML واحد."

@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: "有問題？我們來解答"
   items:
-    - q: "Slides 是免費的嗎？"
+    - q: "Agent-Native Slides 是免費的嗎？"
       a: "是的，Agent-Native Slides 免費且開源。製作簡報需要連接 AI，可以透過 Builder.io 或你自己的 AI 金鑰；產生圖片則需要你自己的 Gemini 或 OpenAI 金鑰。Slides 目前是 alpha 版，功能會隨著發展持續調整。"
     - q: "我可以把募資簡報匯出成 PowerPoint 或 Google Slides 嗎？"
       a: "Slides 可以匯出可編輯的 PowerPoint（PPTX）檔案。若要用 Google Slides，它會給你一個 PPTX 檔案和匯入連結，由你自己在 Google Slides 中開啟。你也可以把簡報匯出成單一 HTML 檔案。"

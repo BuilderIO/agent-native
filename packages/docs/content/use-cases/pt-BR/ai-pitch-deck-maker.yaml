@@ -94,7 +94,7 @@ other_uses:
 faqs:
   heading: Dúvidas? Temos as respostas
   items:
-    - q: O Slides é gratuito?
+    - q: O Agent-Native Slides é gratuito?
       a: Sim, o Agent-Native Slides é gratuito e open source. Para montar um deck, é preciso uma conexão de IA, pelo Builder.io ou com sua própria chave de IA, e para gerar imagens é preciso sua própria chave do Gemini ou da OpenAI. O Slides está em alfa, então espere mudanças à medida que ele evolui.
     - q: Posso exportar meu pitch deck para PowerPoint ou Google Slides?
       a: O Slides exporta um arquivo PowerPoint (PPTX) editável. Para o Google Slides, ele gera um arquivo PPTX com um link de importação, que você abre no Google Slides. Você também pode exportar o deck como um único arquivo HTML.
