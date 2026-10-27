@@ -930,22 +930,21 @@ class CollabDocConnection {
       if (keepalive && this.keepaliveRequested) {
         this.keepaliveRequested = false;
         void this.flushPendingUpdates(true);
-      } else if (
-        !this.disposed &&
-        this.pendingUpdates.length &&
-        !this.flushTimer
-      ) {
-        this.flushTimer = setTimeout(
-          () => {
-            this.flushTimer = null;
-            void this.flushPendingUpdates();
-          },
-          this.updateErrors
-            ? calcBackoff(this.updateErrors)
-            : UPDATE_DEBOUNCE_MS,
-        );
+      } else {
+        this.scheduleUpdateRetry();
       }
     }
+  }
+
+  private scheduleUpdateRetry(): void {
+    if (this.disposed || !this.pendingUpdates.length || this.flushTimer) return;
+    this.flushTimer = setTimeout(
+      () => {
+        this.flushTimer = null;
+        void this.flushPendingUpdates();
+      },
+      this.updateErrors ? calcBackoff(this.updateErrors) : UPDATE_DEBOUNCE_MS,
+    );
   }
 
   private startSync(): void {
