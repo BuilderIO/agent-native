@@ -183,10 +183,11 @@ a one-line lesson in the recap and Steve will decide whether it goes in.
 
 ## 5. Close the loop
 
-This step is the only place a claimed report gets its closing reply. `/ship`
-step 6 runs it for the threads in the PR's `Reports` section once they merge,
-and `address-feedback-with-replies` runs it for its threads. Run it once per
-thread: if a reply in the thread already links this PR, just make sure ✅ is
+This step is the only place a claimed report gets its closing reply. Run it
+after the merge for the threads in the PR's `Reports` section. If the merge
+happened outside this run, the next sweep runs it: when you collect, check
+each open item's sweep PR, and close out the reports of any that have merged.
+Run it once per thread: if a reply in the thread already links this PR, just make sure ✅ is
 there and move on.
 
 Write only as the connected Slack profile (Steve), only in the feedback
