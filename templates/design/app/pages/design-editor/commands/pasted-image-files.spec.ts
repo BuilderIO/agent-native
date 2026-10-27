@@ -15,6 +15,7 @@ vi.mock("@/lib/svg-paste", async (importOriginal) => ({
       : null,
 }));
 
+import { cancelPendingPastedMediaAbsentFromReplay } from "../domains/pending-pasted-media";
 import { findScreenFrameAtCanvasPoint } from "../overview-camera";
 import type { DesignFile } from "../types";
 import {
@@ -321,7 +322,15 @@ describe("runPastedImageFiles", () => {
         }),
     );
     let previewContent: string | null = null;
-    let cancelled = false;
+    const pendingByScreen = new Map<string, Map<string, boolean>>();
+    const registerPendingPastedMedia = (screenId: string, nodeId: string) => {
+      let pending = pendingByScreen.get(screenId);
+      if (!pending) {
+        pending = new Map();
+        pendingByScreen.set(screenId, pending);
+      }
+      pending.set(nodeId, false);
+    };
     const replacePreviewContent = vi.fn((content: string) => {
       previewContent = content;
     });
@@ -332,7 +341,14 @@ describe("runPastedImageFiles", () => {
       () => "<main></main>",
       () => previewContent,
     );
-    pasteArgs.isPendingPastedMediaCancelled = () => cancelled;
+    pasteArgs.registerPendingPastedMedia = registerPendingPastedMedia;
+    pasteArgs.isPendingPastedMediaCancelled = (screenId, nodeId) =>
+      pendingByScreen.get(screenId)?.get(nodeId) === true;
+    pasteArgs.clearPendingPastedMedia = (screenId, nodeId) => {
+      const pending = pendingByScreen.get(screenId);
+      pending?.delete(nodeId);
+      if (pending?.size === 0) pendingByScreen.delete(screenId);
+    };
 
     runPastedImageFiles(pasteArgs, [file], {
       fileId: "screen-1",
@@ -343,8 +359,14 @@ describe("runPastedImageFiles", () => {
     await vi.waitFor(() =>
       expect(replacePreviewContent).toHaveBeenCalledOnce(),
     );
-    previewContent = "<main></main>";
-    cancelled = true;
+    expect(previewContent).toContain("blob:deleted");
+    const replayedContent = "<main></main>";
+    cancelPendingPastedMediaAbsentFromReplay(
+      pendingByScreen,
+      "screen-1",
+      replayedContent,
+    );
+    replacePreviewContent(replayedContent);
     await vi.waitFor(() => expect(upload).toHaveBeenCalled());
     resolveUpload("https://cdn.example/deleted.png");
     await new Promise((resolve) => setTimeout(resolve, 0));

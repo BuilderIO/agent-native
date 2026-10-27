@@ -1023,16 +1023,11 @@ export function useEditorEditCommands({
     for (const change of changes) {
       const content = direction === "undo" ? change.before : change.after;
       if (change.before === change.after) continue;
-      const previousContent = getScreenContent(change.fileId);
       const result = applyFileContentUpdate(change.fileId, content, {
         recordHistory: false,
       });
       if (result.status === "accepted")
-        cancelPendingPastedMediaForHistoryReplay(
-          change.fileId,
-          previousContent,
-          content,
-        );
+        cancelPendingPastedMediaForHistoryReplay(change.fileId, content);
     }
     if (direction !== "commit") {
       applyDesignDataHistoryChanges(changes, direction);

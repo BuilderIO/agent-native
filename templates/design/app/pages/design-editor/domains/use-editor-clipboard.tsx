@@ -112,7 +112,7 @@ import {
 import { resolvePastePlacementForSelection } from "../paste-placement";
 import { positionCoordinateRenderOffsetForWindow } from "../position-coordinate-context";
 import {
-  cancelRemovedPendingPastedMedia,
+  cancelPendingPastedMediaAbsentFromReplay,
   type PendingPastedMediaByScreen,
 } from "./pending-pasted-media";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
@@ -286,12 +286,11 @@ export function useEditorClipboard({
     [],
   );
   const cancelPendingPastedMediaForHistoryReplay = useCallback(
-    (screenId: string, previousContent: string, nextContent: string) => {
-      cancelRemovedPendingPastedMedia(
+    (screenId: string, replayedContent: string) => {
+      cancelPendingPastedMediaAbsentFromReplay(
         pendingPastedMediaRef.current,
         screenId,
-        previousContent,
-        nextContent,
+        replayedContent,
       );
     },
     [],

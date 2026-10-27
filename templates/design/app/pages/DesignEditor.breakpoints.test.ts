@@ -568,8 +568,8 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       "// Item 7b — same breakpoint-scoped display:none routing as the",
     );
     const multiElementBranch = handler.slice(0, singleElementStart);
-    expect(multiElementBranch).toContain(
-      "file.id === activeFile?.id && !useBreakpointScopedDelete",
+    expect(multiElementBranch).toMatch(
+      /file\.id === activeFile\??\.id && !useBreakpointScopedDelete/,
     );
     expect(multiElementBranch).toContain(
       "if (updated && useBreakpointScopedDelete)",
@@ -591,8 +591,8 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(singleElementStart).toBeGreaterThanOrEqual(0);
     expect(singleElementEnd).toBeGreaterThan(singleElementStart);
     expect(singleElementBranch).not.toContain("deleteFromLiveDom(");
-    expect(singleElementBranch).toContain(
-      "syncLiveScreenSnapshotPreview(activeFile!.id, patch.content)",
+    expect(singleElementBranch).toMatch(
+      /syncLiveScreenSnapshotPreview\(activeFile!?\.id, patch\.content\)/,
     );
   });
 
