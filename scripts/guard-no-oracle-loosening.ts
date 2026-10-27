@@ -18,9 +18,9 @@
  *                       object, test.describe.configure({ retries }), and
  *                       .retries(N) with N other than 0
  *   script-loosened     package.json scripts: --passWithNoTests, vitest -u / --update
- *   snapshot-changed    test files: changed body of an existing
+ *   snapshot-changed    test files: changed body or removal of an existing
  *                       toMatchInlineSnapshot() expectation; *.snap files:
- *                       changed body of an existing exported snapshot
+ *                       changed body or removal of an existing exported snapshot
  *   assertions-removed  test files: fewer expect( / expect.soft|poll|element( / assert( /
  *                       assert.x( calls than before, counted in the AST of the
  *                       file at the merge-base and of the file now, with each
@@ -35,8 +35,9 @@
  *   // oracle-change: <reason>
  *
  * on the flagged added line or on the added line directly above it.
- * assertions-removed takes it on any added line in the file. A deleted file
- * takes `oracle-change(<path>): <reason>` on any added line in the diff.
+ * assertions-removed takes it on any added line in the file. A removed
+ * snapshot expectation or deleted file takes
+ * `oracle-change(<path>): <reason>` on any added line in the diff.
  * The pragma counts only inside a comment. In TypeScript or JavaScript, text
  * in a string or template literal is not a reason. JSON has no comments, so
  * package.json keeps the older line match.
@@ -697,37 +698,74 @@ interface SnapshotExpectation {
   line: number;
 }
 
+// Only stable identities pair; an unmatched baseline is a removal and an
+// unmatched current expectation is new, so copies cannot consume old oracles.
 function pairSnapshots<T extends SnapshotExpectation>(
   before: readonly T[],
   after: readonly T[],
   added: ReadonlySet<number>,
-): [T, T][] {
+  removed: readonly { line: number }[],
+): { pairs: [T, T][]; unmatchedBefore: T[] } {
   const remainingBefore = new Set(before);
   const remainingAfter = new Set(after);
   const pairs: [T, T][] = [];
+
+  const currentLineFor = (oldLine: number): number | null => {
+    let currentLine = oldLine;
+    const seen = new Set<number>();
+    for (
+      let attempt = 0;
+      attempt <= added.size + removed.length;
+      attempt += 1
+    ) {
+      if (seen.has(currentLine)) return null;
+      seen.add(currentLine);
+      const nextLine =
+        oldLine +
+        [...added].filter((line) => line <= currentLine).length -
+        removed.filter((entry) => entry.line <= currentLine).length;
+      if (nextLine === currentLine) return currentLine;
+      currentLine = nextLine;
+    }
+    return null;
+  };
 
   const pairWhere = (
     matches: (previous: T, current: T) => boolean,
     preferUnchangedCallLines: boolean,
   ) => {
-    const currentSnapshots = [...remainingAfter].sort((left, right) => {
-      if (preferUnchangedCallLines) {
-        const addedOrder =
-          Number(added.has(left.line)) - Number(added.has(right.line));
-        if (addedOrder !== 0) return addedOrder;
-      }
-      return left.line - right.line;
-    });
+    const previousSnapshots = [...remainingBefore].sort(
+      (left, right) => left.line - right.line,
+    );
 
-    for (const current of currentSnapshots) {
-      const previous = [...remainingBefore]
-        .filter((candidate) => matches(candidate, current))
+    for (const previous of previousSnapshots) {
+      if (!remainingBefore.has(previous)) continue;
+      const mappedLine = currentLineFor(previous.line) ?? previous.line;
+      const candidates = [...remainingAfter]
+        .filter((current) => matches(previous, current))
         .sort(
           (left, right) =>
-            Math.abs(left.line - current.line) -
-            Math.abs(right.line - current.line),
-        )[0];
-      if (previous === undefined) continue;
+            Math.abs(mappedLine - left.line) -
+              Math.abs(mappedLine - right.line) ||
+            (preferUnchangedCallLines
+              ? Number(added.has(left.line)) - Number(added.has(right.line))
+              : 0) ||
+            left.line - right.line,
+        );
+      const current = candidates[0];
+      if (current === undefined) continue;
+      const copiedExpectationBeforeChangedCandidate =
+        added.has(current.line) &&
+        current.body === previous.body &&
+        [...remainingAfter].some(
+          (other) =>
+            other !== current &&
+            other.body !== previous.body &&
+            ![...remainingBefore].some(
+              (baseline) => baseline.key === other.key,
+            ),
+        );
+      if (copiedExpectationBeforeChangedCandidate) continue;
       pairs.push([previous, current]);
       remainingBefore.delete(previous);
       remainingAfter.delete(current);
@@ -735,12 +773,8 @@ function pairSnapshots<T extends SnapshotExpectation>(
   };
 
   pairWhere((previous, current) => previous.key === current.key, true);
-  pairWhere((previous, current) => previous.body === current.body, false);
-  // A renamed identity is only paired at its original source line; elsewhere
-  // an unmatched expectation is a new oracle with no baseline counterpart.
-  pairWhere((previous, current) => previous.line === current.line, false);
 
-  return pairs;
+  return { pairs, unmatchedBefore: [...remainingBefore] };
 }
 
 function testContext(node: ts.Node, scope: ImportScope): string {
@@ -806,11 +840,12 @@ function inlineSnapshots(file: string, source: string): InlineSnapshot[] {
       if (matcher?.name === "toMatchInlineSnapshot" && receiver !== null) {
         const argument = node.arguments.at(-1);
         const body =
-          argument !== undefined &&
-          (ts.isStringLiteral(argument) ||
-            ts.isNoSubstitutionTemplateLiteral(argument))
-            ? argument.text
-            : null;
+          argument === undefined
+            ? null
+            : ts.isStringLiteral(argument) ||
+                ts.isNoSubstitutionTemplateLiteral(argument)
+              ? argument.text
+              : argument.getText(sourceFile);
         snapshots.push({
           key: `${testContext(node, scope)}\u0000${receiver
             .getText(sourceFile)
@@ -866,6 +901,9 @@ function checkInlineSnapshots(
   rel: string,
   file: ChangedFile,
   sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
   report: (
     line: number,
     rule: string,
@@ -882,7 +920,13 @@ function checkInlineSnapshots(
   const before = inlineSnapshots(rel, sources.base);
   const after = inlineSnapshots(rel, sources.next);
   const previousPragmas = pragmasIn(rel, sources.base);
-  for (const [previous, snapshot] of pairSnapshots(before, after, file.added)) {
+  const { pairs, unmatchedBefore } = pairSnapshots(
+    before,
+    after,
+    file.added,
+    removedLines,
+  );
+  for (const [previous, snapshot] of pairs) {
     if (previous.body === snapshot.body) continue;
     report(
       snapshot.line,
@@ -891,11 +935,22 @@ function checkInlineSnapshots(
       snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
     );
   }
+  for (const previous of unmatchedBefore) {
+    report(
+      previous.line,
+      "snapshot-changed",
+      "removed an existing toMatchInlineSnapshot() expectation",
+      deletedFileReason(oldPath, addedFiles),
+    );
+  }
 }
 
 function checkExternalSnapshots(
   file: ChangedFile,
   sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
   report: (
     line: number,
     rule: string,
@@ -912,7 +967,13 @@ function checkExternalSnapshots(
   const before = externalSnapshots("snapshot.snap", sources.base);
   const after = externalSnapshots("snapshot.snap", sources.next);
   const previousPragmas = pragmasIn("snapshot.snap", sources.base);
-  for (const [previous, snapshot] of pairSnapshots(before, after, file.added)) {
+  const { pairs, unmatchedBefore } = pairSnapshots(
+    before,
+    after,
+    file.added,
+    removedLines,
+  );
+  for (const [previous, snapshot] of pairs) {
     if (previous.body === snapshot.body) continue;
     report(
       snapshot.line,
@@ -921,12 +982,23 @@ function checkExternalSnapshots(
       snapshotReasonFor(file, snapshot.line, previous.line, previousPragmas),
     );
   }
+  for (const previous of unmatchedBefore) {
+    report(
+      previous.line,
+      "snapshot-changed",
+      `removed existing snapshot "${previous.key}"`,
+      deletedFileReason(oldPath, addedFiles),
+    );
+  }
 }
 
 function checkTestFile(
   rel: string,
   file: ChangedFile,
   sources: AssertionSource | undefined,
+  oldPath: string,
+  addedFiles: ReadonlyMap<string, ChangedFile>,
+  removedLines: readonly { line: number }[],
   report: (
     line: number,
     rule: string,
@@ -934,7 +1006,15 @@ function checkTestFile(
     reason: string | null,
   ) => void,
 ) {
-  checkInlineSnapshots(rel, file, sources, report);
+  checkInlineSnapshots(
+    rel,
+    file,
+    sources,
+    oldPath,
+    addedFiles,
+    removedLines,
+    report,
+  );
   for (const site of findDisabledTests(rel, file.source.join("\n"))) {
     if (!file.added.has(site.line)) continue;
     report(site.line, site.rule, site.message, optOutFor(file, site.line));
@@ -1023,6 +1103,7 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
 
   for (const [abs, file] of changes.added) {
     const rel = relOf(abs);
+    const removedLines = changes.removed.get(abs)?.lines ?? [];
     const report = (
       line: number,
       rule: string,
@@ -1033,10 +1114,26 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
       if (text !== null)
         violations.push({ file: rel, line, rule, message: text });
     };
+    const oldPath = changes.removed.get(abs)?.oldPath ?? rel;
     if (isTestFile(rel))
-      checkTestFile(rel, file, changes.assertionSources.get(abs), report);
+      checkTestFile(
+        rel,
+        file,
+        changes.assertionSources.get(abs),
+        oldPath,
+        changes.added,
+        removedLines,
+        report,
+      );
     if (SNAPSHOT_FILE.test(rel))
-      checkExternalSnapshots(file, changes.snapshotSources.get(abs), report);
+      checkExternalSnapshots(
+        file,
+        changes.snapshotSources.get(abs),
+        oldPath,
+        changes.added,
+        removedLines,
+        report,
+      );
     if (CONFIG_FILE.test(rel)) checkRunnerConfig(file, report);
     if (PACKAGE_JSON.test(rel)) checkPackageScripts(file, report);
   }
@@ -1093,8 +1190,25 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
       if (text !== null)
         violations.push({ file: rel, line, rule, message: text });
     };
-    if (isTest) checkInlineSnapshots(rel, file, sources, report);
-    if (isSnapshot) checkExternalSnapshots(file, sources, report);
+    if (isTest)
+      checkInlineSnapshots(
+        rel,
+        file,
+        sources,
+        changed.oldPath,
+        changes.added,
+        changed.lines,
+        report,
+      );
+    if (isSnapshot)
+      checkExternalSnapshots(
+        file,
+        sources,
+        changed.oldPath,
+        changes.added,
+        changed.lines,
+        report,
+      );
   }
 
   for (const [abs, removed] of changes.removed) {
