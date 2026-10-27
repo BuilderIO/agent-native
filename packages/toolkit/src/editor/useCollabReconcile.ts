@@ -146,10 +146,11 @@ export interface UseCollabReconcileOptions {
   /**
    * Called once for each changed saved body the base-aware merge takes in, with
    * how many of its hunks were set aside for overlapping this tab's edits (see
-   * `BaseAwareReconcileResult`; only `prefer-live` sets any aside). For
-   * counting: it runs once the merge is in the doc (when the server adopts
-   * snapshots, once the server takes it in) and cannot change it, even by
-   * throwing.
+   * `BaseAwareReconcileResult`; only `prefer-live` sets any aside). A body
+   * whose changes this tab already made, beside edits of its own, counts with
+   * none set aside; one the tab already matches isn't a merge. For counting:
+   * it runs once the merge is in the doc (when the server adopts snapshots,
+   * once the server takes it in) and cannot change it, even by throwing.
    */
   onBaseAwareMerge?: (outcome: { setAside: number }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;

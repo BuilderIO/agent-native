@@ -143,6 +143,27 @@ describe("useCollabReconcile merge counts", () => {
     expect(captured.merges).toEqual([]);
   });
 
+  it("counts a body whose change the tab already made as kept", async () => {
+    const { captured, render } = makeHarness({ overlapPolicy: "prefer-live" });
+    await render(opened);
+    act(() => {
+      captured.editor!.commands.insertContentAt(7, " Edited");
+    });
+    typeAtEndOfList(captured.editor!, " local");
+    const live = getEditorMarkdown(captured.editor!);
+
+    await render({
+      value: "Intro. Edited\n\n1. One\n2. Two",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      contentRevision: "revision-2",
+    });
+
+    expect(live).toBe("Intro. Edited\n\n1. One\n2. Two local");
+    expect(getEditorMarkdown(captured.editor!)).toBe(live);
+    expect(captured.reconciled).toEqual(["merged"]);
+    expect(captured.merges).toEqual([{ setAside: 0 }]);
+  });
+
   it("counts nothing when the saved body already matches the tab", async () => {
     const { captured, render } = makeHarness({ overlapPolicy: "prefer-live" });
     await render(opened);

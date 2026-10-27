@@ -331,10 +331,13 @@ function makeTabs(
     setOptions: (next: Partial<UseCollabReconcileOptions>) => {
       extraOptions = next;
     },
-    /** Types at the start of the first paragraph without pushing it. */
-    type: (index: number, text: string) =>
+    /**
+     * Types at `at`, the start of the first paragraph by default, without
+     * pushing it.
+     */
+    type: (index: number, text: string, at = 1) =>
       act(() => {
-        editors[index]!.commands.insertContentAt(1, text);
+        editors[index]!.commands.insertContentAt(at, text);
       }),
     rebaseWithoutRevision: () => {
       rebaseWithoutRevision = true;
@@ -533,6 +536,38 @@ describe("useCollabReconcile — snapshot adoption", () => {
       ]);
       expect(tabs.adoptionCalls).toEqual([]);
       expect(merges).toEqual([{ setAside: 1 }]);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("counts a write whose change the tab already made as kept", async () => {
+    vi.useFakeTimers();
+    setVisibility("hidden");
+    const tabs = makeTabs(1, { visible: false, adoption: "server" });
+    const merges: Array<{ setAside: number }> = [];
+    tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
+    try {
+      tabs.render(FIRST);
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      // The start of "Bravo paragraph.", then the start of the page.
+      tabs.type(0, "Local. ", 19);
+      tabs.type(0, "Typed. ");
+
+      const revised = {
+        value: "Typed. Alpha paragraph.\n\nBravo paragraph.",
+        revision: "revision-2",
+        updatedAt: "2024-01-01T00:00:02.000Z",
+      };
+      tabs.saveRevision(revised.revision);
+      tabs.render(revised);
+      await act(async () => vi.advanceTimersByTimeAsync(8000));
+
+      expect(tabs.markdown()).toEqual([
+        "Typed. Alpha paragraph.\n\nLocal. Bravo paragraph.",
+      ]);
+      expect(tabs.adoptionCalls).toEqual([]);
+      expect(merges).toEqual([{ setAside: 0 }]);
     } finally {
       tabs.dispose();
     }

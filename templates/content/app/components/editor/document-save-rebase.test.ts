@@ -306,6 +306,29 @@ describe("document save ownership after a rejected CAS", () => {
     expect(onMerge.mock.calls).toEqual([[{ setAside: 1 }], [{ setAside: 0 }]]);
   });
 
+  it("reports a newer body whose change the save already holds as kept_all", async () => {
+    const onMerge = vi.fn();
+    const sharedEdit = { ...winner, content: "Alpha edited.\n\nBravo." };
+    const localDraft = "Alpha edited.\n\nBravo local.";
+    const persist = vi
+      .fn()
+      .mockResolvedValueOnce({ conflict: true, document: sharedEdit })
+      .mockResolvedValueOnce({ ...sharedEdit, content: localDraft });
+    const result = await saveDocumentWithRebase({
+      base: { ...base, content: "Alpha.\n\nBravo." },
+      content: localDraft,
+      persist,
+      onMerge,
+    });
+
+    expect(result.status).toBe("saved");
+    expect(persist).toHaveBeenLastCalledWith(
+      localDraft,
+      expect.objectContaining({ content: sharedEdit.content }),
+    );
+    expect(onMerge.mock.calls).toEqual([[{ setAside: 0 }]]);
+  });
+
   it("does not report a displaced save or a newer revision with the base's body", async () => {
     const onMerge = vi.fn();
     const localDraft = original.replace("inspect", "discuss");
