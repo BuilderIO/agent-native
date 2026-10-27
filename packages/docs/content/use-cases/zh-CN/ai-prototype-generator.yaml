@@ -1,0 +1,95 @@
+template: v2
+slug: ai-prototype-generator
+app: design
+title: 把需求简报变成可点击的原型
+seo_title: 从产品简报生成原型的 AI 工具
+meta_description: 粘贴产品或设计简报，Agent-Native Design 就会生成可点击、可运行的界面。让 AI agent 给出几个方向，再细化你选中的那个。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design 会按照产品或设计简报的描述生成界面，产出可以直接试用的 HTML。让 AI agent 给出几个方向，再手动或通过提问细化你选中的那个。
+  button:
+    label: 为简报做原型
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F003e186182b74e3cbe462fe098559bc6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8f432f3b71d432698c025a7147301bc
+    alt: Design 编辑器中打开的 Guided checklist，这是为一款团队报销应用选定的引导流程方向，显示在桌面端和移动端画框中。agent 聊天里显示粘贴的简报、Pick a direction 选项，以及 agent 接下来做的修改。
+how_to:
+  heading: 如何用 AI 把简报变成原型
+  steps:
+    - title: 描述你需要的界面
+      body: 在 Design 首页，把简报粘贴到提示框里：面向谁、是哪个界面或流程、需要实现什么。请它给出三个方向。如果缺少关键信息，Design 会先问你。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
+        alt: Design 首页提示框的特写，里面粘贴了一段报销应用引导流程的简短简报，结尾是“Show me three directions”。
+    - title: 选出你喜欢的方向
+      body: Design 会把三个方向并排放在画布上，每个都是风格各异、可以运行的界面。在 **Interact** 中逐个试用，在 **选择方向** 下选一个，agent 就会把剩下的部分做完。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
+        alt: 画布上并排放着三个引导流程方向，agent 聊天中显示“Pick a direction”，每个方向名称各有一个按钮。
+    - title: 和团队一起细化
+      body: 在 **设计** 标签页编辑文案、间距和颜色，或选中一个元素交给 agent。同事固定评论后，点击 **发送给 agent**，agent 就会做出那处修改。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572
+        alt: 选定的引导界面，邀请步骤上固定着一位同事的评论，Comments 标签页里打开了评论串，并带有 Send to agent 按钮。
+features:
+  heading: 从简报到原型所需的一切
+  items:
+    - title: 一开始就能点击
+      body: 你选中的方向会变成交互可用的 HTML，带桌面端和移动端画框。**Design 预览** 会在浏览器标签页中打开它。
+    - title: 沿用简报的措辞
+      body: agent 使用你的术语和表述。简报漏掉了重要的选择时，它会问你，或说明它做了什么假设。
+    - title: 交付前先检查
+      body: 在告诉你设计已就绪之前，agent 会对原型做一次无障碍和视觉检查。
+    - title: 符合品牌的原型
+      body: 用 Figma 文件、你的网站或 GitHub 仓库建立设计系统，新原型一开始就是你的配色和字体。
+    - title: agent 会落实的反馈
+      body: 评论固定在对应元素上。agent 修改那个位置，确认改动生效后，再关闭评论串或请你来决定。
+    - title: 交给编码 agent
+      body: 导出 HTML 或包含所有文件的 ZIP，或者复制一段现成的提示词，把文件和设计令牌交给编码 agent。
+integrations:
+  heading: 把 Design 连接到你已经在用的工具
+  cards:
+    - title: 从你的品牌出发
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: 把 Figma 画框导入为可编辑的界面，或用 Figma 文件、GitHub 仓库建立设计系统。
+    - title: 交给你的编码 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: 复制一段包含原型文件和设计令牌的现成提示词，或让编码 agent 通过 Design 的 MCP 服务器打开设计。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: Granola
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Design 还能做的其他东西
+  cards:
+    - title: 把发布简报变成落地页原型
+      url: https://www.agent-native.com/use-cases/landing-page-prototypes/
+      body: 把发布简报变成几版落地页，并排比较。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Design 免费吗？
+      a: 是的，Agent-Native Design 免费且开源。agent 需要 AI 连接，可以通过 Builder.io，也可以用你自己的 AI 密钥。Design 目前处于 alpha 阶段，随着发展还会有变化。
+    - q: 可以从我的 PRD 或产品简报开始吗？
+      a: 可以。把简报，或产品需求文档（PRD）中相关的部分粘贴到提示框里，想要多个选项就让它给出几个方向。agent 会保留你的术语和原有表述；如果简报漏掉了会影响设计的选择，它会问你或说明它的假设。这里介绍了[设计简报里该写什么](https://www.agent-native.com/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/)。
+    - q: 原型可以点击操作吗？
+      a: 可以。每个界面都是带有可用交互的真实 HTML，你选中的方向默认会有桌面端和移动端画框。用 **Interact** 模式在画布上试用，或用 **Design 预览** 在新的浏览器标签页中打开界面。
+    - q: 可以用我自己的设计系统或 Figma 设计吗？
+      a: 可以。[设计系统](https://www.agent-native.com/docs/template-design-features/)可以来自 Figma 文件、你的网站、GitHub 仓库、design.md 文件或笔记，新设计都会遵循它。你也可以把 Figma 画框导入为可编辑的界面，Design 会列出它无法完全还原的部分。
+    - q: 原型是生产代码吗？
+      a: 不是。原型只是起点，应用逻辑、集成、测试和部署仍然需要开发。你可以导出 HTML 或包含所有文件的 ZIP，或用 **复制 agent 提示词** 把文件、设计令牌和现成的提示词交给编码 agent。Claude Code 和 Codex 还可以[通过 Design 的 MCP 服务器打开设计](https://www.agent-native.com/docs/template-design-integrations/)。
+    - q: Design 和让聊天机器人生成 UI 有什么不同？
+      a: 在 Design 中，agent 在画布上搭建原型，你可以点击试用、比较不同方向并直接编辑，团队的评论也会直接交给 agent。用聊天机器人的话，结果只停留在对话里。这让 Design 成为一个[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。

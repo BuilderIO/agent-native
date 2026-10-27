@@ -1,0 +1,95 @@
+template: v2
+slug: ai-prototype-generator
+app: design
+title: Transforme um briefing em um protótipo clicável
+seo_title: Gerador de protótipos com IA a partir de briefings
+meta_description: Cole um briefing de produto ou de design e o Agent-Native Design cria telas funcionais para você clicar. Peça direções ao agente de IA e refine a que escolher.
+updated: 2026-10-27
+hero:
+  body: O Agent-Native Design cria as telas que seu briefing de produto ou de design descreve, em HTML funcional para testar. Peça algumas direções ao agente de IA e refine a escolhida à mão ou pedindo.
+  button:
+    label: Prototipe seu briefing
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F003e186182b74e3cbe462fe098559bc6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8f432f3b71d432698c025a7147301bc
+    alt: O editor do Design com Guided checklist, a direção de onboarding escolhida para um app de despesas de equipe, nos frames de desktop e de celular. O chat do agente mostra o briefing colado, a escolha em Escolher uma direção e o que o agente mudou em seguida.
+how_to:
+  heading: Como transformar um briefing em um protótipo com IA
+  steps:
+    - title: Descreva a tela de que você precisa
+      body: "Na tela inicial do Design, cole seu briefing na caixa de prompt: para quem é, a tela ou o fluxo e o que precisa fazer. Peça três direções. Se faltar algo importante, o Design pergunta antes."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
+        alt: Detalhe da caixa de prompt da tela inicial do Design com um briefing curto para o fluxo de onboarding de um app de despesas, terminando com "Show me three directions".
+    - title: Escolha a direção de que você gosta
+      body: O Design coloca três direções lado a lado no canvas, cada uma uma tela funcional com estilo próprio. Teste cada uma no modo **Interagir**, escolha uma em **Escolher uma direção**, e o agente constrói o resto dela.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
+        alt: O canvas com as três direções de onboarding lado a lado e o chat do agente mostrando "Escolher uma direção", com um botão para o nome de cada direção.
+    - title: Refine com sua equipe
+      body: Edite textos, espaçamentos e cores na aba **Design**, ou selecione um elemento e peça ao agente. Quando um colega fixar um comentário, clique em **Enviar ao agente**, e o agente faz a mudança.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572
+        alt: A tela de onboarding escolhida com o comentário de um colega fixado na etapa de convite, e a conversa do comentário aberta na aba de comentários com o botão Enviar ao agente.
+features:
+  heading: Tudo o que você precisa para ir do briefing ao protótipo
+  items:
+    - title: Clicável desde o início
+      body: A direção que você escolhe vira HTML com interações funcionais, em frames de desktop e de celular. A **Visualização do Design** abre tudo em uma aba do navegador.
+    - title: Mantém as palavras do briefing
+      body: O agente usa seus termos e suas afirmações. Quando o briefing deixa de fora uma escolha importante, ele pergunta ou diz o que presumiu.
+    - title: Conferido antes de ficar pronto
+      body: O agente faz a própria checagem de acessibilidade e visual em um protótipo antes de dizer que o design está pronto.
+    - title: Protótipos com a sua marca
+      body: Crie um design system a partir de um arquivo do Figma, do seu site ou de um repositório do GitHub, e os protótipos já nascem com suas cores e fontes.
+    - title: Feedback que o agente aplica
+      body: Um comentário fica fixado no elemento. O agente edita aquele ponto, confere se a mudança entrou e então resolve a conversa ou pede que você decida.
+    - title: Entregue a agentes de código
+      body: Exporte HTML ou um ZIP com os arquivos, ou copie um prompt pronto que passa ao seu agente de código os arquivos e os design tokens.
+integrations:
+  heading: Conecte o Design às ferramentas que você já usa
+  cards:
+    - title: Comece pela sua marca
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: Importe frames do Figma como telas editáveis, ou crie um design system a partir de um arquivo do Figma ou de um repositório do GitHub.
+    - title: Entregue ao seu agente de código
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Copie um prompt pronto com os arquivos e os design tokens do protótipo, ou deixe seu agente de código abrir os designs pelo servidor MCP do Design.
+    - title: Conecte qualquer coisa via MCP
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: Granola
+      more: true
+      body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
+other_uses:
+  heading: Outras coisas que você pode criar no Agent-Native Design
+  cards:
+    - title: Prototipe a landing page do seu lançamento
+      url: https://www.agent-native.com/use-cases/landing-page-prototypes/
+      body: Transforme um briefing de lançamento em versões de landing page para comparar lado a lado.
+faqs:
+  heading: Dúvidas? Temos respostas
+  items:
+    - q: O Agent-Native Design é gratuito?
+      a: Sim, o Agent-Native Design é gratuito e open source. O agente precisa de uma conexão de IA, pelo Builder.io ou com sua própria chave de IA. O Design está em alfa, então espere mudanças à medida que ele evolui.
+    - q: Posso começar pelo meu PRD ou briefing de produto?
+      a: Sim. Cole o briefing, ou a parte relevante do seu documento de requisitos de produto (PRD), na caixa de prompt, e peça direções se quiser opções. O agente mantém seus termos e suas afirmações exatas, e se o briefing deixar de fora uma escolha que muda o design, ele pergunta ou diz o que presumiu. Veja [o que colocar em um briefing de design](https://www.agent-native.com/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/).
+    - q: Dá para clicar pelo protótipo?
+      a: Sim. Cada tela é HTML de verdade, com interações funcionais, e a direção que você escolhe ganha frames de desktop e de celular por padrão. Use o modo **Interagir** para testar no canvas, ou a **Visualização do Design** para abrir a tela em uma nova aba do navegador.
+    - q: Posso usar meu próprio design system ou meus designs do Figma?
+      a: Sim. Um [design system](https://www.agent-native.com/docs/template-design-features/) pode vir de um arquivo do Figma, do seu site, de um repositório do GitHub, de um arquivo design.md ou de notas, e os novos designs seguem esse sistema. Você também pode importar um frame do Figma como tela editável, e o Design lista tudo o que não conseguiu reproduzir com exatidão.
+    - q: O protótipo é código de produção?
+      a: Não. O protótipo é um ponto de partida, e a lógica do app, as integrações, os testes e o deploy ainda precisam ser construídos. Exporte HTML ou um ZIP com os arquivos, ou use **Copiar prompt do agente** para passar a um agente de código os arquivos, os design tokens e um prompt pronto. O Claude Code e o Codex também podem [abrir designs pelo servidor MCP do Design](https://www.agent-native.com/docs/template-design-integrations/).
+    - q: Qual a diferença entre o Design e pedir uma interface a um chatbot?
+      a: "No Design, o agente constrói o protótipo em um canvas onde você clica por ele, compara direções e edita, e os comentários da sua equipe vão direto para o agente. Com um chatbot, o resultado fica na conversa. É isso que faz do Design um [app agêntico](https://www.agent-native.com/articles/what-is-an-agent-native-app/): o cérebro de um agente, a intuitividade de um app."

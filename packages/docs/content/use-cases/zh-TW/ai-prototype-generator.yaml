@@ -1,0 +1,95 @@
+template: v2
+slug: ai-prototype-generator
+app: design
+title: 把需求說明變成可點擊的原型
+seo_title: 從產品需求說明產生原型的 AI 工具
+meta_description: 貼上產品或設計需求說明，Agent-Native Design 就會做出可以點擊操作的畫面。請 AI agent 提出幾個方向，再細修你選中的那一個。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Design 依照產品或設計需求說明，以可實際試用的 HTML 做出畫面。請 AI agent 提出幾個方向，再手動或透過提問細修你選中的那一個。
+  button:
+    label: 為需求做出原型
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F003e186182b74e3cbe462fe098559bc6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8f432f3b71d432698c025a7147301bc
+    alt: Design 編輯器中，為團隊報帳應用程式選定的新手引導方向「Guided checklist」，顯示在桌面版和行動版畫框中。agent 對話顯示貼上的需求說明、「選取方向」的選擇，以及 agent 接著做了哪些修改。
+how_to:
+  heading: 如何用 AI 把需求說明變成原型
+  steps:
+    - title: 描述你需要的畫面
+      body: 在 Design 首頁把需求說明貼到提示框：給誰用、哪個畫面或流程，以及它要做到什麼。請它提出三個方向。如果缺少重要資訊，Design 會先問你。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
+        alt: Design 首頁提示框的特寫，貼上了一段報帳應用程式新手引導流程的簡短需求說明，結尾是「Show me three directions」。
+    - title: 選出你喜歡的方向
+      body: Design 會把三個方向並排在畫布上，每個都是風格各異、可實際操作的畫面。在 **互動** 中逐一試用，在 **選取方向** 中選一個，agent 就會把其餘部分做完。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
+        alt: 畫布上並排的三個新手引導方向，agent 對話顯示「選取方向」，每個方向名稱各有一個按鈕。
+    - title: 和團隊一起細修
+      body: 在 **設計** 分頁編輯文案、間距和顏色，或選取一個元素請 agent 修改。隊友釘上留言後，點選 **傳送給代理**，agent 就會做出那項修改。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572
+        alt: 選定的新手引導畫面，一則隊友的留言釘在邀請步驟上，「留言」分頁中開著這則留言的討論串，並有「傳送給代理」按鈕。
+features:
+  heading: 從需求說明到原型所需的一切
+  items:
+    - title: 一開始就能點擊
+      body: 你選的方向會變成有實際互動的 HTML，放在桌面版和行動版畫框中。**Design 預覽** 會在瀏覽器分頁中開啟它。
+    - title: 保留需求說明的用詞
+      body: agent 會沿用你的用語和主張。需求說明漏掉重要的選擇時，它會問你，或說明它的假設。
+    - title: 完成前先檢查
+      body: 在告訴你設計完成之前，agent 會先對原型執行自己的無障礙和視覺檢查。
+    - title: 符合品牌的原型
+      body: 從 Figma 檔案、你的網站或 GitHub repo 建立設計系統，新的原型就會以你的顏色和字型開始。
+    - title: agent 會處理的意見
+      body: 留言會釘在對應的元素上。agent 修改那個位置，確認修改到位，再解決討論串，或請你決定。
+    - title: 交給程式開發 agent
+      body: 匯出 HTML 或檔案的 ZIP，或複製一段現成的提示，把檔案和設計權杖交給你的程式開發 agent。
+integrations:
+  heading: 將 Design 連接到你已在用的工具
+  cards:
+    - title: 從你的品牌開始
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: 把 Figma 畫框匯入成可編輯的畫面，或從 Figma 檔案或 GitHub repo 建立設計系統。
+    - title: 交給你的程式開發 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: 複製一段附有原型檔案和設計權杖的現成提示，或讓程式開發 agent 透過 Design 的 MCP 伺服器開啟設計。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: Granola
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Design 做的其他東西
+  cards:
+    - title: 把上市企劃變成到達頁原型
+      url: https://www.agent-native.com/use-cases/landing-page-prototypes/
+      body: 把上市企劃變成幾個到達頁版本，並排比較。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Design 是免費的嗎？
+      a: 是的，Agent-Native Design 免費且開源。agent 需要 AI 連線，可以透過 Builder.io 或你自己的 AI 金鑰。Design 目前是 alpha 版，功能會隨著發展持續調整。
+    - q: 我可以從 PRD 或產品需求說明開始嗎？
+      a: 可以。把需求說明，或產品需求文件（PRD）中相關的部分貼到提示框；想要多個選項的話，就請它提出幾個方向。agent 會保留你的用語和確切主張；如果需求說明漏掉會影響設計的選擇，它會問你或說明它的假設。這裡有[設計需求說明該寫些什麼](https://www.agent-native.com/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/)。
+    - q: 原型可以點擊操作嗎？
+      a: 可以。每個畫面都是有實際互動的真正 HTML，你選的方向預設會有桌面版和行動版畫框。用 **互動** 模式在畫布上試用，或用 **Design 預覽** 在新的瀏覽器分頁中開啟畫面。
+    - q: 我可以使用自己的設計系統或 Figma 設計嗎？
+      a: 可以。[設計系統](https://www.agent-native.com/docs/template-design-features/)可以來自 Figma 檔案、你的網站、GitHub repo、design.md 檔案或筆記，新的設計都會遵循它。你也可以把 Figma 畫框匯入成可編輯的畫面，Design 會列出無法完全對應的部分。
+    - q: 原型是正式上線用的程式碼嗎？
+      a: 不是。原型是一個起點，應用程式邏輯、整合、測試和部署仍需要開發。匯出 HTML 或檔案的 ZIP，或用 **複製代理提示** 把檔案、設計權杖和現成提示交給程式開發 agent。Claude Code 和 Codex 也能[透過 Design 的 MCP 伺服器開啟設計](https://www.agent-native.com/docs/template-design-integrations/)。
+    - q: Design 和請聊天機器人做 UI 有什麼不同？
+      a: 在 Design 中，agent 在畫布上做出原型，你可以點擊操作、比較方向並編輯，團隊的留言也會直接送到 agent。用聊天機器人的話，結果只留在對話裡。這就是 Design 之所以是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/) 的原因：擁有 agent 的智慧，也有應用程式的直覺易用。
