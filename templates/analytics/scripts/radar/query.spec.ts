@@ -368,6 +368,38 @@ describe("radar query safety", () => {
     }
   });
 
+  it("can return a failed job response with byte metadata for accounting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          status: { errorResult: { reason: "badQuery" } },
+          jobReference: { jobId: "job-1" },
+          totalBytesProcessed: "42",
+          jobComplete: true,
+        }),
+      ),
+    );
+    try {
+      await expect(
+        bqRequest(
+          "https://example.test",
+          "test-token",
+          undefined,
+          undefined,
+          true,
+        ),
+      ).resolves.toMatchObject({
+        status: { errorResult: { reason: "badQuery" } },
+        jobReference: { jobId: "job-1" },
+        totalBytesProcessed: "42",
+        jobComplete: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("streams PostgreSQL rows and fails explicitly at row and byte caps", async () => {
     async function* batches() {
       yield [{ value: "a" }];

@@ -101,6 +101,7 @@ export interface RadarWeeklyReport {
       reservedBytes: number;
       actualBytesProcessed: number;
       actualQueryCount: number;
+      unaccountedQueryCount: number;
       exceeded: boolean;
     };
   };
@@ -547,6 +548,7 @@ async function buildWeeklyReportWithinBudget(
         reservedBytes: bigQueryScanBudget.reservedBytes,
         actualBytesProcessed: bigQueryScanBudget.actualBytesProcessed,
         actualQueryCount: bigQueryScanBudget.actualQueryCount,
+        unaccountedQueryCount: bigQueryScanBudget.unaccountedQueryCount,
         exceeded: bigQueryScanBudget.exceeded,
       },
     },

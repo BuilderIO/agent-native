@@ -1305,6 +1305,7 @@ export async function bqRequest(
   token: string,
   init?: RequestInit,
   maxResponseBytes = MAX_BQ_RESULT_BYTES,
+  allowJobErrors = false,
 ): Promise<BqPayload> {
   let response: Response;
   try {
@@ -1375,7 +1376,7 @@ export async function bqRequest(
   if (payload.error) {
     throw new RadarQueryError("BigQuery rejected the read-only query.", 1);
   }
-  if (payload.status?.errorResult) {
+  if (payload.status?.errorResult && !allowJobErrors) {
     throw new RadarQueryError("BigQuery query job completed with an error.", 1);
   }
   return payload;
@@ -1557,18 +1558,32 @@ export async function runBigQuery(
   let actualBytesProcessed: number | null = null;
   let jobComplete = false;
   try {
-    const first = await bqRequest(postUrl, token, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...payload,
-        maximumBytesBilled: Math.floor(maxBytes),
-        maxResults: MAX_BQ_PAGE_SIZE,
-      }),
-    });
+    const first = await bqRequest(
+      postUrl,
+      token,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          maximumBytesBilled: Math.floor(maxBytes),
+          maxResults: MAX_BQ_PAGE_SIZE,
+        }),
+      },
+      MAX_BQ_RESULT_BYTES,
+      true,
+    );
     const jobId = first.jobReference?.jobId;
     actualBytesProcessed = parseActualBigQueryBytes(first.totalBytesProcessed);
-    jobComplete = first.jobComplete === true;
+    jobComplete =
+      first.jobComplete === true || Boolean(first.status?.errorResult);
+    if (first.status?.errorResult) {
+      submitted = true;
+      throw new RadarQueryError(
+        "BigQuery query job completed with an error.",
+        1,
+      );
+    }
     if (!jobId) {
       throw new RadarQueryError("BigQuery did not return a query job id.", 1);
     }
@@ -1605,10 +1620,10 @@ export async function runBigQuery(
       const page = await bqRequest(
         `${baseUrl}/queries/${encodeURIComponent(jobId)}?${queryParams.toString()}`,
         token,
+        undefined,
+        MAX_BQ_RESULT_BYTES,
+        true,
       );
-      if (page.schema?.fields) {
-        fields.splice(0, fields.length, ...page.schema.fields);
-      }
       const pageBytesProcessed = parseActualBigQueryBytes(
         page.totalBytesProcessed,
       );
@@ -1619,8 +1634,18 @@ export async function runBigQuery(
         );
       }
       pageToken = page.pageToken as string | undefined;
-      jobComplete = page.jobComplete === true;
+      jobComplete =
+        page.jobComplete === true || Boolean(page.status?.errorResult);
       location = page.jobReference?.location ?? location;
+      if (page.status?.errorResult) {
+        throw new RadarQueryError(
+          "BigQuery query job completed with an error.",
+          1,
+        );
+      }
+      if (page.schema?.fields) {
+        fields.splice(0, fields.length, ...page.schema.fields);
+      }
       appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
     }
 
