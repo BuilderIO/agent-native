@@ -1,12 +1,12 @@
 template: v2
 slug: ai-pitch-deck-maker
 app: slides
-title: AI Pitch Deck Maker
-seo_title: AI pitch deck maker that starts from your notes
-meta_description: Agent-Native Slides is a free AI pitch deck maker for founders. It turns your notes, docs or website into a deck you edit by hand or with the agent.
+title: Turn your notes into a pitch deck
+seo_title: AI pitch deck maker for startup founders
+meta_description: Start your pitch deck from a doc, your website or rough notes. Agent-Native Slides drafts it slide by slide, and you edit by hand or by asking the agent.
 updated: 2026-10-23
 hero:
-  body: Agent-Native Slides turns your notes, a doc, a PDF or your website into a pitch deck for startup founders. The agent builds it slide by slide, and you edit any slide by hand or by asking.
+  body: "Agent-Native Slides drafts your pitch deck from what you already have: a doc, a PDF, your website or rough notes. The agent builds it slide by slide, and you edit any slide by hand or by asking."
   button:
     label: Build your deck
     url: https://slides.agent-native.com
@@ -79,18 +79,6 @@ integrations:
         - name: Amplitude
       more: true
       body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
-other_uses:
-  heading: Other decks you can make in Slides
-  cards:
-    - title: AI Board Deck Maker
-      url: https://www.agent-native.com/use-cases/ai-board-deck-maker/
-      body: Turn your metrics and notes into a board deck you can refresh every quarter.
-    - title: AI Sales Deck Maker
-      url: https://www.agent-native.com/use-cases/ai-sales-deck-maker/
-      body: Build a sales deck from your product notes and website, in your brand.
-    - title: AI Investor Update Maker
-      url: https://www.agent-native.com/use-cases/ai-investor-update-maker/
-      body: Turn this month's numbers and wins into a short update for your investors.
 faqs:
   heading: Questions? We have answers
   items:
