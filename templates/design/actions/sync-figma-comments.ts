@@ -231,7 +231,10 @@ async function writeLocalMapping(input: {
       return expected
         ? JSON.stringify(mappings[input.reviewCommentId]) ===
             JSON.stringify(expected)
-        : !Object.hasOwn(mappings, input.reviewCommentId);
+        : !Object.prototype.hasOwnProperty.call(
+            mappings,
+            input.reviewCommentId,
+          );
     },
   });
 }
@@ -326,7 +329,7 @@ export default defineAction({
       .select({ data: schema.designs.data })
       .from(schema.designs)
       .where(eq(schema.designs.id, args.designId));
-    const design = designs.at(0);
+    const design = designs[0];
     if (!design) {
       failAction("Design not found.", {
         errorCode: "not_found",
@@ -342,7 +345,7 @@ export default defineAction({
           eq(schema.designFiles.designId, args.designId),
         ),
       );
-    const screen = screens.at(0);
+    const screen = screens[0];
     if (!screen) {
       failAction("Choose a screen linked to the source file.", {
         errorCode: "figma_sync_screen_missing",
@@ -603,7 +606,7 @@ export default defineAction({
           userId: currentUser.id,
           since: pendingSince,
         });
-        const existingComment = existing.at(0);
+        const existingComment = existing[0];
         if (existing.length === 1 && existingComment) {
           const reconciled = {
             figmaCommentId: existingComment.id,

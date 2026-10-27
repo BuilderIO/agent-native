@@ -624,7 +624,9 @@ export async function fetchFigmaNodeSnapshot(
   const nodes = await fetchFigmaNodes(fileKey, [nodeId], true, (metadata) => {
     fileMetadata = metadata;
   });
-  const node = Object.hasOwn(nodes, nodeId) ? nodes[nodeId] : undefined;
+  const node = Object.prototype.hasOwnProperty.call(nodes, nodeId)
+    ? nodes[nodeId]
+    : undefined;
   if (!node) {
     failFigmaImport(
       `Figma node ${nodeId} was not found in the response for file ${fileKey}.`,
