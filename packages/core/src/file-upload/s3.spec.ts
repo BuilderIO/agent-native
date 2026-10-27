@@ -6,7 +6,10 @@ const isBlockedUrlMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
-  assertCredentialStoreReadable: () => {},
+  // Core's throws only for outages and undecryptable secrets.
+  assertCredentialStoreReadable: (result: { lookupFailed: boolean }) => {
+    if (result.lookupFailed) throw new Error("credential store unavailable");
+  },
   prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
   readDeployCredentialEnv: (key: string) => process.env[key] || undefined,
   resolveSecret: async (key: string) =>
@@ -99,6 +102,34 @@ describe("s3FileUploadProvider", () => {
     expect(order[0]).toBe("prefetch");
     expect(new Set(prefetched)).toEqual(new Set(resolved));
     expect(resolved).toHaveLength(12);
+  });
+
+  it("fails instead of using env values a failed lookup fell back to", async () => {
+    Object.assign(process.env, {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_REGION: "auto",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com",
+    });
+    // A self-hosted runtime answers a failed lookup with the env value, here
+    // under both the S3_ and R2_ names of every setting.
+    resolveSecretDetailedMock.mockImplementation(async (key: string) => ({
+      value: process.env[key.replace(/^R2_/, "S3_")],
+      lookupFailed: true,
+      cause: new Error("database unavailable"),
+      source: "env",
+    }));
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "hero.png",
+        mimeType: "image/png",
+      }),
+    ).rejects.toThrow("credential store unavailable");
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
   });
 
   it("is unavailable until all public URL and credential values exist", async () => {

@@ -21,6 +21,7 @@ export {
   cancelS3ResponseBody,
   fetchS3WithTimeout,
   presignS3GetUrl,
+  readS3ErrorText,
   rfc3986,
   s3ObjectUri,
   sha256Hex,

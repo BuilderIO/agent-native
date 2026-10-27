@@ -7,6 +7,7 @@ const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 let hostedEndpoint = "https://hosted-s3.example.com";
+let lookupFailure: Error | undefined;
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
@@ -16,6 +17,12 @@ vi.mock("@agent-native/core/server", () => ({
   // was saved by the workspace.
   resolveSecretDetailed: async (key: string) => {
     const value = await mockResolveSecret(key);
+    // A self-hosted runtime answers a failed lookup with the env value.
+    if (lookupFailure) {
+      return value
+        ? { value, lookupFailed: true, cause: lookupFailure, source: "env" }
+        : { value: null, lookupFailed: true, cause: lookupFailure };
+    }
     if (!value) return { value: null, lookupFailed: false };
     return process.env[key] === value
       ? { value, lookupFailed: false, source: "env" }
@@ -65,6 +72,7 @@ describe("s3FileUploadProvider", () => {
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
     hostedEndpoint = "https://hosted-s3.example.com";
+    lookupFailure = undefined;
     mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
       fetch(url, init),
     );
@@ -160,6 +168,33 @@ describe("s3FileUploadProvider", () => {
       expect.objectContaining({ method: "PUT" }),
       expect.anything(),
     );
+  });
+
+  it("fails instead of using env values a failed lookup fell back to", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+      S3_REGION: "auto",
+      S3_PUBLIC_BASE_URL: "https://files.example.com",
+    });
+    // Every setting has an env value under both names, so no lookup comes
+    // back empty.
+    mockResolveSecret.mockImplementation(
+      async (key: string) => process.env[key.replace(/^R2_/, "S3_")] ?? null,
+    );
+    lookupFailure = new Error("database unavailable");
+    mockSsrfSafeFetch.mockReset();
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toBe(lookupFailure);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("reports configured from request-scoped DB secrets", async () => {

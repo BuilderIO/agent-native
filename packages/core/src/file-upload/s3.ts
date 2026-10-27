@@ -8,7 +8,12 @@ import {
   listFileUploadProviders,
   registerFileUploadProvider,
 } from "./registry.js";
-import { cancelS3ResponseBody, rfc3986, signedS3Request } from "./s3-client.js";
+import {
+  cancelS3ResponseBody,
+  readS3ErrorText,
+  rfc3986,
+  signedS3Request,
+} from "./s3-client.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -108,8 +113,10 @@ async function readSavedConfig(): Promise<S3Config | null> {
   await Promise.all(
     STORAGE_SECRET_KEYS.map(async (key) => {
       const detail = await resolveSecretDetailed(key);
+      // A self-hosted runtime answers a failed lookup with the env value,
+      // which could stand in for a bucket the workspace saved.
+      assertCredentialStoreReadable(detail);
       if (cleanValue(detail.value)) found.set(key, detail);
-      else assertCredentialStoreReadable(detail);
     }),
   );
   const saved = (detail: ResolvedSecretDetail | undefined) =>
@@ -166,7 +173,7 @@ async function putObject(
     timeoutMs: PUT_TIMEOUT_MS,
   });
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readS3ErrorText(response);
     throw new Error(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );
@@ -184,7 +191,7 @@ async function deleteObject(config: S3Config, key: string): Promise<boolean> {
     await cancelS3ResponseBody(response);
     return true;
   }
-  const detail = await response.text();
+  const detail = await readS3ErrorText(response);
   throw new Error(
     `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,
   );

@@ -14,6 +14,7 @@ vi.mock("../extensions/url-safety.js", () => ({
 import {
   fetchS3WithTimeout,
   presignS3GetUrl,
+  readS3ErrorText,
   s3ObjectUri,
   signedS3Request,
   signS3Request,
@@ -283,6 +284,37 @@ describe("fetchS3WithTimeout", () => {
     );
     await vi.advanceTimersByTimeAsync(901_000);
     expect(String(large.error)).toContain("timed out after 901000ms");
+  });
+});
+
+describe("readS3ErrorText", () => {
+  it("reads only the start of an endless error body, then cancels it", async () => {
+    let cancelled = false;
+    const chunk = new TextEncoder().encode("x".repeat(600));
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    await expect(
+      readS3ErrorText(new Response(body, { status: 500 })),
+    ).resolves.toBe("x".repeat(1024));
+    expect(cancelled).toBe(true);
+  });
+
+  it("returns a short body whole", async () => {
+    const error = "<Error><Code>AccessDenied</Code></Error>";
+
+    await expect(
+      readS3ErrorText(new Response(error, { status: 403 })),
+    ).resolves.toBe(error);
+    await expect(
+      readS3ErrorText(new Response(null, { status: 403 })),
+    ).resolves.toBe("");
   });
 });
 

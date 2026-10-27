@@ -21,6 +21,7 @@ import { getAppConfig } from "../app-config/index.js";
 import {
   cancelS3ResponseBody,
   presignS3GetUrl,
+  readS3ErrorText,
   signedS3Request,
   type S3ClientConfig,
 } from "../file-upload/s3-client.js";
@@ -475,7 +476,7 @@ function failureKindForStatus(status: number) {
 
 async function readFailure(response: Response, action: string) {
   // coercion-ok: the body only adds detail to a failure thrown below with its status.
-  const detail = await response.text().catch(() => "");
+  const detail = await readS3ErrorText(response).catch(() => "");
   return new PrivateBlobError(
     `S3 ${action} failed (${response.status}): ${detail.slice(0, 300) || response.statusText}`,
     failureKindForStatus(response.status),

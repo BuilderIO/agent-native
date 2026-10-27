@@ -302,6 +302,34 @@ export async function cancelS3ResponseBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
+/**
+ * The start of an S3 error response's body, for an error message. It reads
+ * at most `maxBytes` and cancels the rest, so an endpoint can't make the app
+ * hold a huge or endless error body in memory.
+ */
+export async function readS3ErrorText(
+  response: Response,
+  maxBytes = 1024,
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  let remaining = maxBytes;
+  try {
+    while (remaining > 0) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value.subarray(0, remaining);
+      remaining -= chunk.byteLength;
+      text += decoder.decode(chunk, { stream: true });
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text + decoder.decode();
+}
+
 async function hmac(key: ArrayBuffer, message: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",

@@ -133,12 +133,14 @@ async function readS3Config(): Promise<S3Config | null> {
   await Promise.all(
     S3_SECRET_KEYS.map(async (key) => {
       const detail = await resolveSecretDetailed(key);
-      if (cleanValue(detail.value)) found.set(key, detail);
-      else if (detail.lookupFailed) {
+      // A self-hosted runtime answers a failed lookup with the env value,
+      // which could stand in for a bucket the workspace saved.
+      if (detail.lookupFailed) {
         throw detail.cause instanceof Error
           ? detail.cause
           : new Error(`Unable to read configured ${key}`);
       }
+      if (cleanValue(detail.value)) found.set(key, detail);
     }),
   );
   const saved = (detail: ResolvedSecretDetail | undefined) =>
