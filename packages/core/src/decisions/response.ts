@@ -208,11 +208,7 @@ function buildParsedAnswers(
       Object.defineProperty(answers, question.name, {
         configurable: true,
         enumerable: true,
-        value: answerForQuestion(
-          provider,
-          question,
-          values.get(question.name),
-        ),
+        value: answerForQuestion(provider, question, values.get(question.name)),
         writable: true,
       });
     } catch (error) {

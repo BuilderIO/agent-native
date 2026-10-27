@@ -219,9 +219,9 @@ describe("decision question limits", () => {
       ...question,
       name: `route-${index}`,
     }));
-    expect(DecideInputSchema.safeParse({ input: "mail", questions }).success).toBe(
-      false,
-    );
+    expect(
+      DecideInputSchema.safeParse({ input: "mail", questions }).success,
+    ).toBe(false);
     expect(validateDecisionInput({ input: "mail", questions })).toBe(true);
     expect(
       validateDecisionInput({

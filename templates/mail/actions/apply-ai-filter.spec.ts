@@ -44,7 +44,8 @@ vi.mock("../server/lib/automation-actions.js", () => ({
 }));
 
 vi.mock("../server/lib/automations.js", () => ({
-  assertMailDecisionProviderAvailable: mocks.assertMailDecisionProviderAvailable,
+  assertMailDecisionProviderAvailable:
+    mocks.assertMailDecisionProviderAvailable,
   createAutomationRule: mocks.createAutomationRule,
   listAutomationRules: mocks.listAutomationRules,
 }));

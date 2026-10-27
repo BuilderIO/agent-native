@@ -613,7 +613,8 @@ const messages = {
       "O provedor de decisões de IA não pôde revisar esses registros. Os candidatos encontrados por regras continuam visíveis.",
     duplicateReviewEmpty: "Nenhuma duplicata provável encontrada.",
     duplicateRuleConfidence: "Correspondência por regras: {{percent}}%",
-    duplicateDecisionProbability: "Probabilidade de mesma entidade: {{percent}}%",
+    duplicateDecisionProbability:
+      "Probabilidade de mesma entidade: {{percent}}%",
     duplicateMatchedOn: "Sinais em comum: {{values}}",
     evidenceAttached: "Evidência de chamada anexada.",
     evidenceAttachFailed: "Não foi possível anexar a evidência.",

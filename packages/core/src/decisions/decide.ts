@@ -455,7 +455,9 @@ export async function decide(input: {
       };
       if (
         !result.questionFailures &&
-        !Object.values(result.answers).some((answer) => answer.type === "refusal")
+        !Object.values(result.answers).some(
+          (answer) => answer.type === "refusal",
+        )
       ) {
         writeDecisionCache(key, result);
       }

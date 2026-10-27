@@ -245,7 +245,8 @@ export default {
     weekStartMonday: "Lunes - domingo",
     eventRules: "Reglas de invitación",
     eventRulesAutomationLink: "Para otras acciones, crea una automatización.",
-    eventRulesConnectJev: "Conecta un proveedor de IA para usar las reglas de invitación",
+    eventRulesConnectJev:
+      "Conecta un proveedor de IA para usar las reglas de invitación",
     eventRulesFreeBuilderOrApiKey:
       "Usa Builder.io o conecta otro proveedor de IA en Configuración.",
     eventRulesConnectBuilder: "Usar Builder.io",

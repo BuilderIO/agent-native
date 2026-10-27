@@ -48,7 +48,9 @@ function decision({
         name: "queue",
         choice,
         ...(includeQueueProbability
-          ? { probabilities: [{ value: choice, probability: queueProbability }] }
+          ? {
+              probabilities: [{ value: choice, probability: queueProbability }],
+            }
           : {}),
         ...(includeQueueConfidence ? { confidence: queueConfidence } : {}),
       },
@@ -127,7 +129,11 @@ describe("suggest-task-route", () => {
       config: { options: [{ id: "billing", name: "Billing" }] },
     });
     decide.mockResolvedValue(
-      decision({ choice: "unknown", queueProbability: 0.9, urgentProbability: 0.2 }),
+      decision({
+        choice: "unknown",
+        queueProbability: 0.9,
+        urgentProbability: 0.2,
+      }),
     );
 
     await expect(

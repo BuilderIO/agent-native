@@ -617,7 +617,8 @@ const messages = {
       "Der KI-Entscheidungsanbieter konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
     duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
     duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
-    duplicateDecisionProbability: "Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
+    duplicateDecisionProbability:
+      "Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
     duplicateMatchedOn: "Treffermerkmale: {{values}}",
     evidenceAttached: "Anrufbeleg angehängt.",
     evidenceAttachFailed: "Beleg konnte nicht angehängt werden.",

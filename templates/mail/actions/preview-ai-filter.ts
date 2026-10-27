@@ -46,7 +46,9 @@ export default defineAction({
       model: evaluation.model,
       evaluatedCount: evaluation.evaluatedCount,
       failedCount: evaluation.failedCount,
-      failures: z.array(aiFilterPreviewFailureSchema).parse(evaluation.failures),
+      failures: z
+        .array(aiFilterPreviewFailureSchema)
+        .parse(evaluation.failures),
       rules,
       emails: emails.map((email) => ({
         ...email,

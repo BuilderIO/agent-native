@@ -119,7 +119,8 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span>
               {suggestion.queue ?? t("taskFields.noQueueMatch")}
-              {suggestion.queue && suggestion.queueProbability !== undefined &&
+              {suggestion.queue &&
+                suggestion.queueProbability !== undefined &&
                 ` (${Math.round(suggestion.queueProbability * 100)}%)`}
             </span>
             <span className="text-muted-foreground">

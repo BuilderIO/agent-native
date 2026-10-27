@@ -36,7 +36,6 @@ import {
   type AiFilterDecision,
   type AiFilterPreviewEmail,
   type AiFilterPreviewRule,
-  type AiFilterState,
 } from "@shared/ai-filter.js";
 import {
   AI_PRIORITY_DEFAULT_INSTRUCTION,

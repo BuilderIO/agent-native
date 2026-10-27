@@ -229,7 +229,8 @@ export default {
     eventRulesAddJevApiKey: "新增 Jev API 金鑰",
     eventRulesTabRules: "規則",
     eventRulesHelpLabel: "瞭解邀請規則提示",
-    eventRulesHelp: "撰寫提示，告訴已設定的 AI 提供者要自動接受、拒絕或隱藏哪些邀請。",
+    eventRulesHelp:
+      "撰寫提示，告訴已設定的 AI 提供者要自動接受、拒絕或隱藏哪些邀請。",
     eventRuleAccept: "自動接受",
     eventRuleDecline: "自動拒絕",
     eventRuleHide: "自動隱藏",

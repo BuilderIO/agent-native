@@ -67,21 +67,22 @@ export default defineAction({
   run: async (args) => {
     if (args.sort === "priority") {
       const ownerEmail = getRequestUserEmail();
-      const status = ownerEmail
-        ? await getDecisionsStatus(ownerEmail)
-        : null;
+      const status = ownerEmail ? await getDecisionsStatus(ownerEmail) : null;
       if (
         !status ||
         !status.providers.some((provider) => provider.status === "ready")
       ) {
-        fail("Priority sort requires an AI decision provider for this account.", {
-          errorCode: "jev_not_enabled",
-          statusCode: status?.providers.some(
-            (provider) => provider.status === "unknown",
-          )
-            ? 503
-            : 403,
-        });
+        fail(
+          "Priority sort requires an AI decision provider for this account.",
+          {
+            errorCode: "jev_not_enabled",
+            statusCode: status?.providers.some(
+              (provider) => provider.status === "unknown",
+            )
+              ? 503
+              : 403,
+          },
+        );
       }
     }
     const tab = args.tab || args.label || args.filter;
