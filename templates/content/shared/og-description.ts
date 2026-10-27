@@ -7,7 +7,12 @@ function stripFrontmatter(markdown: string): string {
 }
 
 function stripFencedCode(markdown: string): string {
-  return markdown.replace(/(?:^|\n)(```|~~~)[\s\S]*?(?:\n\1[ \t]*|$)/g, "\n");
+  // A closing fence is at least as long as the opening one and has nothing
+  // after it, so a line like ```js inside the block doesn't close it.
+  return markdown.replace(
+    /(?:^|\n) {0,3}((`|~)\2{2,})[\s\S]*?(?:\n {0,3}\1\2*[ \t]*(?=\n|$)|$)/g,
+    "\n",
+  );
 }
 
 function decodeCommonEntities(text: string): string {
@@ -22,9 +27,10 @@ function decodeCommonEntities(text: string): string {
 
 function normalizeForComparison(text: string): string {
   return stripMarkdownForPreview(text)
+    .normalize("NFC")
     .toLowerCase()
     .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -39,11 +45,19 @@ function isHeadingBlock(block: string): boolean {
   if (/^#{1,6}\s+\S/.test(trimmed)) return true;
   if (/^<h[1-6]\b/i.test(trimmed)) return true;
 
+  // Lines of paragraph text underlined with `=` or `-`. Under a list, quote
+  // or table, a `---` is a divider instead.
   const lines = trimmed.split("\n");
   return (
-    lines.length === 2 &&
-    lines[0].trim().length > 0 &&
-    /^\s*(=+|-+)\s*$/.test(lines[1])
+    lines.length >= 2 &&
+    /^\s*(=+|-+)\s*$/.test(lines[lines.length - 1]) &&
+    lines
+      .slice(0, -1)
+      .every(
+        (line) =>
+          line.trim().length > 0 &&
+          !/^\s{0,3}(?:(?:[-+*]|\d+[.)])(?:\s|$)|>|\|)/.test(line),
+      )
   );
 }
 
@@ -52,41 +66,51 @@ function isDividerBlock(block: string): boolean {
 }
 
 export function stripMarkdownForPreview(markdown: string): string {
-  return decodeCommonEntities(markdown)
-    .replace(/<[^>\n]+\/>/g, " ")
-    .replace(/<\/?[^>\n]+>/g, " ")
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\s+#+\s*$/gm, "")
-    .replace(/^\s{0,3}>\s?/gm, "")
-    .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/gm, "")
-    .replace(/^\s*[-+*]\s+/gm, "")
-    .replace(/^\s*\d+[.)]\s+/gm, "")
-    .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ")
-    .replace(/\|/g, " ")
-    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
-    .replace(/__([^_\n]+)__/g, "$1")
-    .replace(/\*([^*\n]+)\*/g, "$1")
-    .replace(/_([^_\n]+)_/g, "$1")
-    .replace(/~~([^~\n]+)~~/g, "$1")
-    .replace(/\\([\\`*_[\]{}()#+\-.!|>])/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    decodeCommonEntities(markdown)
+      .replace(/<[^>\n]+\/>/g, " ")
+      .replace(/<\/?[^>\n]+>/g, " ")
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/\s+#+\s*$/gm, "")
+      .replace(/^\s{0,3}>\s?/gm, "")
+      .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/gm, "")
+      .replace(/^\s*[-+*]\s+/gm, "")
+      .replace(/^\s*\d+[.)]\s+/gm, "")
+      .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ")
+      // Heading underlines and dividers that share a block with text.
+      .replace(/^[ \t]{0,3}(?:=+|-+)[ \t]*$/gm, " ")
+      .replace(/\|/g, " ")
+      .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+      .replace(/__([^_\n]+)__/g, "$1")
+      .replace(/\*([^*\n]+)\*/g, "$1")
+      .replace(/_([^_\n]+)_/g, "$1")
+      .replace(/~~([^~\n]+)~~/g, "$1")
+      .replace(/\\([\\`*_[\]{}()#+\-.!|>])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+/** Ends text with "...", shortening it at a word so the whole fits. */
+function withEllipsis(text: string, maxLength: number): string {
+  const hardLimit = Math.max(20, maxLength - 3);
+  let kept = text;
+  if (kept.length > hardLimit) {
+    const prefix = kept.slice(0, hardLimit);
+    const wordBoundary = prefix.lastIndexOf(" ");
+    kept =
+      wordBoundary > hardLimit * 0.6 ? prefix.slice(0, wordBoundary) : prefix;
+  }
+
+  return `${kept.replace(/[.,;:!?\s-]+$/g, "")}...`;
 }
 
 function truncateDescription(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-
-  const hardLimit = Math.max(20, maxLength - 3);
-  const prefix = text.slice(0, hardLimit);
-  const wordBoundary = prefix.lastIndexOf(" ");
-  const truncated =
-    wordBoundary > hardLimit * 0.6 ? prefix.slice(0, wordBoundary) : prefix;
-
-  return `${truncated.replace(/[.,;:!?\s-]+$/g, "")}...`;
+  return text.length <= maxLength ? text : withEllipsis(text, maxLength);
 }
 
 export function buildPublicDocumentDescription({
@@ -125,4 +149,202 @@ export function buildPublicDocumentDescription({
   return fallback
     ? truncateDescription(fallback, maxLength)
     : DEFAULT_DESCRIPTION;
+}
+
+/** A line frontmatter holds: a key, list item, indented value, comment or blank. */
+/** A frontmatter key and its colon. A quoted key can hold colons. */
+const FRONTMATTER_KEY_SOURCE = String.raw`(?:"[^"\n]*"|'[^'\n]*'|[^\s#:-][^:\n]*):(?=\s|$)`;
+const FRONTMATTER_KEY = new RegExp(`^${FRONTMATTER_KEY_SOURCE}`);
+const FRONTMATTER_LINE = new RegExp(
+  String.raw`^(?:[ \t]*(?:#.*)?|[ \t]+\S.*|-(?:[ \t].*)?|${FRONTMATTER_KEY_SOURCE}.*)$`,
+);
+const FRONTMATTER_START = new RegExp(
+  String.raw`^---[ \t]*\n(?:#|${FRONTMATTER_KEY_SOURCE})`,
+);
+// A key cut before its colon: one word, or a quoted name.
+const FRONTMATTER_KEY_START = /^(?:"[^"\n]*|'[^'\n]*|[^\s#:-][^\s:]*)$/;
+// A key written the way frontmatter keys are: one word that doesn't start
+// with a capital, or a quoted name. A label like `Note:` starts prose.
+const CONVENTIONAL_FRONTMATTER_KEY =
+  /^(?:"[^"\n]*"|'[^'\n]*'|[^\s\p{Lu}#:"'-][^\s:]*):(?=\s|$)/u;
+
+/**
+ * The markdown after its frontmatter, or null when a prefix ends inside it.
+ * Frontmatter opens with `---` and a key or comment, and holds only YAML lines,
+ * at least one a key, up to a closing `---`. A divider at the top of a page is
+ * followed by a blank line or by text that isn't YAML.
+ */
+function stripExcerptFrontmatter(
+  markdown: string,
+  truncated: boolean,
+): string | null {
+  if (!FRONTMATTER_START.test(markdown)) return markdown;
+  const lines = markdown.split("\n");
+  let hasKey = false;
+  for (let index = 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (/^---[ \t]*$/.test(line)) {
+      return hasKey ? lines.slice(index + 1).join("\n") : markdown;
+    }
+    if (FRONTMATTER_KEY.test(line)) hasKey = true;
+    // A prefix's last line may be cut short. After a whole line, it counts if
+    // it could still begin a YAML line. Cut as the first line, it counts only
+    // with a conventional key, so a long `Note: …` paragraph after a top
+    // divider stays page text while a long `description:` stays hidden.
+    if (truncated && index === lines.length - 1) {
+      const couldBeYaml =
+        index > 1
+          ? FRONTMATTER_LINE.test(line) || FRONTMATTER_KEY_START.test(line)
+          : CONVENTIONAL_FRONTMATTER_KEY.test(line);
+      if (!couldBeYaml) return markdown;
+      break;
+    }
+    if (!FRONTMATTER_LINE.test(line)) return markdown;
+  }
+  // A prefix that has shown only YAML lines may end inside the frontmatter,
+  // even before its first key.
+  return truncated ? null : markdown;
+}
+
+/**
+ * Drops opening markers with no partner after them, like the `**` of a bold
+ * run a cut split. Closed spans keep their text, markers and all.
+ */
+function dropUnclosedMarkers(markdown: string): string {
+  return markdown.replace(
+    /(^|\s)(\*{1,3}|_{1,3}|~~|`+)(?=[\p{L}\p{M}\p{N}])/gu,
+    (match, space: string, marker: string, offset: number) =>
+      markdown.slice(offset + match.length).includes(marker) ? match : space,
+  );
+}
+
+const DEFAULT_EXCERPT_LENGTH = 300;
+/** Scripts written without spaces between words. */
+const SPACELESS_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * Plain text from the start of a page body, for a list row. Images, code,
+ * dividers and a first paragraph that repeats the title drop out, and
+ * headings only count when the page has no other text. `truncated` means the
+ * markdown is only the body's first part, so it may end partway through;
+ * `nextCharacter`, when known, tells whether its last word goes on.
+ */
+export function buildDocumentExcerpt({
+  content,
+  title,
+  truncated = false,
+  nextCharacter,
+  maxLength = DEFAULT_EXCERPT_LENGTH,
+}: {
+  content?: string | null;
+  title?: string | null;
+  truncated?: boolean;
+  nextCharacter?: string;
+  maxLength?: number;
+}): string {
+  const body = stripExcerptFrontmatter(
+    content?.replace(/\r\n?/g, "\n") ?? "",
+    truncated,
+  );
+  // A prefix that ends inside the frontmatter has no body text yet.
+  if (body === null) return "";
+  let markdown = body;
+  if (truncated) {
+    // Drop an image or tag the cut leaves open. A link it leaves open keeps
+    // its text, and when the cut falls in its address, that text is whole.
+    let linkTextEnded = false;
+    markdown = markdown
+      .replace(/!\[[^\]\n]*(?:\]\([^)\n]*)?$/, "")
+      .replace(/<[A-Za-z/!][^>\n]*$/, "")
+      .replace(
+        /\[([^\]\n]*)(\]\([^)\n]*)?$/,
+        (_match, text: string, address?: string) => {
+          linkTextEnded = address !== undefined;
+          return text;
+        },
+      );
+    // Drop a word the cut splits, with any markup or punctuation in front of
+    // it. A cut right after punctuation or closing markup ends a whole word,
+    // an apostrophe after the cut means the word goes on, and text in a
+    // script written without spaces has no word to finish.
+    const lastWord = /\s(\S*[\p{L}\p{M}\p{N}'’])$/u.exec(markdown)?.[1];
+    const wordGoesOn =
+      nextCharacter === undefined || /[\p{L}\p{M}\p{N}'’]/u.test(nextCharacter);
+    if (
+      lastWord &&
+      wordGoesOn &&
+      !linkTextEnded &&
+      !SPACELESS_SCRIPT.test(lastWord)
+    ) {
+      markdown = markdown.slice(0, -lastWord.length);
+    }
+    // Then markup or an opening bracket or quote left with nothing after it.
+    markdown = markdown.replace(/(^|\s)[*_~`(["'“‘]+$/u, "$1");
+  }
+  const blocks = stripFencedCode(markdown)
+    // Headings and dividers stand alone even without blank lines around them.
+    // A line of `=` or `-` right under a line of text underlines it as a
+    // heading, so it stays with that line.
+    .replace(/^ {0,3}#{1,6}[ \t].*$/gm, "\n$&\n")
+    .replace(/(?<=\S[^\n]*\n) {0,3}(?:=+|-+)[ \t]*$/gm, "$&\n")
+    .replace(/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/gm, "\n")
+    .replace(/(^|\n\n)[ \t]{0,3}(?:[-*_][ \t]*){3,}(?=\n|$)/g, "$1\n")
+    .split(/\n{2,}/);
+  const paragraphs: string[] = [];
+  const headings: string[] = [];
+  let length = 0;
+  for (const [index, block] of blocks.entries()) {
+    if (length > maxLength) break;
+    if (!block.trim() || isDividerBlock(block)) continue;
+    // The cut can only leave markup open in the last block.
+    const source =
+      truncated && index === blocks.length - 1
+        ? dropUnclosedMarkers(block)
+        : block;
+    const text = stripMarkdownForPreview(
+      source.replace(/!\[[^\]]*\]\([^)]*\)/g, " "),
+    );
+    if (!text) continue;
+    if (isHeadingBlock(block)) {
+      headings.push(text);
+    } else if (paragraphs.length > 0 || !isTitleRepeat(text, title ?? "")) {
+      paragraphs.push(text);
+      length += text.length + 1;
+    }
+  }
+  const text = (paragraphs.length > 0 ? paragraphs : headings).join(" ");
+  if (text.length > maxLength) return truncateDescription(text, maxLength);
+  return truncated && text ? withEllipsis(text, maxLength) : text;
+}
+
+/**
+ * How much of a page body a list row's excerpt reads: enough markdown for
+ * three lines of text once links and formatting are stripped.
+ */
+export const EXCERPT_SOURCE_CHARS = 1000;
+
+/**
+ * A list row's excerpt, from only the first `EXCERPT_SOURCE_CHARS` characters
+ * of the page body. A whole body and a list read's prefix, which takes one
+ * character more to tell a longer body from one that fits, give the same text.
+ */
+export function buildListRowExcerpt({
+  content,
+  title,
+}: {
+  content?: string | null;
+  title?: string | null;
+}): string {
+  // Count characters the way the database does, not UTF-16 units. No
+  // character takes more than two units.
+  const characters = Array.from(
+    (content ?? "").slice(0, 2 * (EXCERPT_SOURCE_CHARS + 1)),
+  );
+  return buildDocumentExcerpt({
+    content: characters.slice(0, EXCERPT_SOURCE_CHARS).join(""),
+    title,
+    truncated: characters.length > EXCERPT_SOURCE_CHARS,
+    nextCharacter: characters[EXCERPT_SOURCE_CHARS],
+  });
 }

@@ -796,6 +796,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "E-Mail-Entwurf - Mail",
+    },
+    draftCard: {
+      loadFailed: "Dieser Entwurf konnte nicht geladen werden.",
+      notFoundTitle: "Entwurf nicht gefunden",
+      threadUnavailable:
+        "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
+      threadLookupFailed:
+        "Die Unterhaltung zu dieser Antwort wurde nicht gefunden, daher kann sie noch nicht gesendet werden.",
+      earlierMessages: "Frühere Nachrichten ({{count}})",
+      deleted: "Entwurf gelöscht.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

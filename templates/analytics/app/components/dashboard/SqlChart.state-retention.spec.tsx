@@ -65,7 +65,7 @@ describe("SqlChart renderer state across a refresh", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.query.isFetching = false;
-    mocks.query.data.rows = Array.from({ length: 25 }, (_, index) => ({
+    mocks.query.data.rows = Array.from({ length: 60 }, (_, index) => ({
       name: `row-${index}`,
       signups: index,
       visits: index * 2,
@@ -130,7 +130,7 @@ describe("SqlChart renderer state across a refresh", () => {
     );
     expect(nextPage).not.toBeNull();
     await act(async () => nextPage!.click());
-    expect(container.textContent).toContain("11–20 of 25");
+    expect(container.textContent).toContain("26–50 of 60");
     const visibleRows = Array.from(
       container.querySelectorAll("tbody tr"),
       (row) => row.textContent,
@@ -144,7 +144,7 @@ describe("SqlChart renderer state across a refresh", () => {
     expect(container.querySelector("table")).toBe(table);
     expect(header("signups")).toBe(signupsHeader);
     expect(header("signups").getAttribute("aria-sort")).toBe("descending");
-    expect(container.textContent).toContain("11–20 of 25");
+    expect(container.textContent).toContain("26–50 of 60");
     expect(
       Array.from(
         container.querySelectorAll("tbody tr"),
@@ -160,7 +160,7 @@ describe("SqlChart renderer state across a refresh", () => {
     expect(container.querySelector("table")).toBe(table);
     expect(header("signups")).toBe(signupsHeader);
     expect(header("signups").getAttribute("aria-sort")).toBe("descending");
-    expect(container.textContent).toContain("11–20 of 25");
+    expect(container.textContent).toContain("26–50 of 60");
     expect(
       Array.from(
         container.querySelectorAll("tbody tr"),

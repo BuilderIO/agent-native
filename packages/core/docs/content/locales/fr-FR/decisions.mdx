@@ -1,0 +1,121 @@
+---
+title: "Décisions"
+description: "Classification et notation tenant compte des capacités avec @agent-native/core/decisions."
+---
+
+# Décisions
+
+Le package `@agent-native/core/decisions` exporte `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`, un classificateur et évaluateur adapté aux capacités pour des questions structurées. Il renvoie un résultat que l’appelant peut examiner. Il n’exécute ni n’autorise aucune action ultérieure.
+
+## Entrées et questions
+
+decide() accepte un ownerEmail, un tableau de parties d’entrée, des questions nommées et des paramètres d’exécution facultatifs. Les parties d’entrée peuvent contenir du texte, du JSON structuré ou une URL d’image :
+
+Une chaîne peut également être transmise directement comme input.
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+La taille JSON sérialisée combinée de `input` et `questions` ne doit pas dépasser 256 Kio.
+
+Chaque question possède un nom et des instructions. Son type détermine les champs supplémentaires :
+
+| Type        | Champs supplémentaires                                           | Objectif                                |
+| ----------- | ---------------------------------------------------------------- | --------------------------------------- |
+| `predicate` | Aucun                                                            | Évaluer un prédicat indiqué             |
+| `choice`    | `choices` : valeurs textuelles avec descriptions                 | Choisir parmi les valeurs fournies      |
+| `score`     | `levels` : 2 à 10 niveaux ordonnés avec libellés et descriptions | Situer l’entrée sur une échelle fournie |
+
+Les éléments de choices ont la forme `{ value: string, description: string }`. Les niveaux de score ont la forme `{ label: string, description: string }`.
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+Cet exemple combine une question de choix et une question de notation dans un même appel. La notation utilise cinq niveaux ordonnés, dans la plage prise en charge de 2 à 10.
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+L’objet d’arguments comprend les champs suivants :
+
+- **ownerEmail**: L’adresse e-mail du propriétaire de l’espace de travail utilisée pour résoudre la configuration.
+- **input**: Les parties texte, JSON ou URL d’image à évaluer.
+- **questions**: Des questions nommées de type predicate, choice ou score.
+- **options**: Les paramètres facultatifs signal, timeoutMs, providers ou cacheKey.
+
+En cas de réussite, result.status vaut ok. Le résultat contient provider, model et answers indexées par nom de question, avec cached et usage en option. not_configured contient le motif missing_credentials et une liste de providers. failed contient un motif typé et peut inclure provider et questionNames. La mise en cache est activée uniquement si cacheKey est fourni. La clé de cache tient compte du propriétaire, de l’organisation, du fournisseur, du modèle, de cacheKey, de input et des questions. Le cache en mémoire expire au bout de 60 secondes et est limité à 256 entrées.
+
+## Prise en charge selon les capacités du fournisseur
+
+La prise en charge des questions peut varier selon le fournisseur et le modèle. decide() tient compte des capacités. Ne supposez donc pas que chaque fournisseur prend en charge tous les types de question. N’annoncez une combinaison fournisseur, modèle et type de question qu’après l’avoir vérifiée. Le résultat réussi identifie le fournisseur et le modèle qui ont répondu.
+
+L’ordre par défaut des fournisseurs provient de la configuration partagée de l’application pour le déploiement, et non d’un réglage par espace de travail. Tous les espaces de travail servis par ce déploiement utilisent le même ordre, sauf si un appel le remplace avec `options.providers`. Par défaut, Builder Jev est essayé, puis une clé Jev personnelle, puis OpenAI. Si aucun fournisseur n’est configuré, `decide()` renvoie `not_configured`. Le champ partagé de configuration de l’application `decisions.providerOrder` définit l’ordre par défaut entre Jev et OpenAI. `decisions.timeoutMs` définit le budget total d’une décision. Il inclut la recherche des identifiants et l’exécution du fournisseur. Tous les essais de fournisseur partagent ce budget. Les alias d’environnement sont `DECISIONS_PROVIDER_ORDER` (séparé par des virgules) et `DECISIONS_TIMEOUT_MS`. Toute clé de seuil ou de cache propre à un fournisseur doit inclure à la fois le fournisseur et le modèle afin de ne pas réutiliser l’étalonnage ou les résultats d’un modèle pour un autre.
+Les capacités des fournisseurs dépendent de la route. Le proxy Builder Jev est vérifié pour les questions `predicate`, `choice` et `score`. Les réponses `score` de Jev utilisent les enregistrements `legend` et `probabilities` du proxy pour calculer le même indice de niveau attendu pondéré par les probabilités et indexé à partir de zéro que celui d’OpenAI. `getDecisionsStatus()` renvoie l’état de vérification des capacités et indique si chacune est activée. La vérification de l’état respecte l’annulation et utilise le budget configuré de `decisions.timeoutMs` pour les contrôles de disponibilité ; les fournisseurs encore en cours de vérification à l’expiration sont renvoyés avec l’état `unknown`. L’API OpenAI Decisions accepte des questions de score avec 2 à 10 niveaux ordonnés ; des fixtures conformes au format documenté couvrent la conversion des requêtes et des réponses.
+
+decide() renvoie des classifications ou des scores que l’appelant interprète. Utilisez une action autorisée distincte pour toute modification ultérieure des données de l’application.

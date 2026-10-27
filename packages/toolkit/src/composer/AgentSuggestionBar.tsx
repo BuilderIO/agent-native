@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -27,6 +28,8 @@ export type AgentSuggestionInput = string | AgentSuggestionItem;
 export interface AgentSuggestionBarProps {
   suggestions: readonly AgentSuggestionInput[];
   ariaLabel: string;
+  /** Visible label above the chips; it also names the group. */
+  title?: string;
   onSelect: (suggestion: AgentSuggestionItem) => void;
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
@@ -142,6 +145,7 @@ function useTwoLineSuggestionTrack(layoutKey: string) {
 export function AgentSuggestionBar({
   suggestions,
   ariaLabel,
+  title,
   onSelect,
   renderSuggestion,
   className,
@@ -149,6 +153,7 @@ export function AgentSuggestionBar({
   announceUpdates = false,
   layout = "wrap",
 }: AgentSuggestionBarProps) {
+  const titleId = useId();
   const items = suggestions.map(normalizeAgentSuggestion);
   const { scrollerRef, trackRef, overflow } = useTwoLineSuggestionTrack(
     loading ? "loading" : items.map((item) => item.id).join("\n"),
@@ -157,12 +162,22 @@ export function AgentSuggestionBar({
 
   return (
     <section
-      aria-label={ariaLabel}
+      aria-label={title ? undefined : ariaLabel}
+      aria-labelledby={title ? titleId : undefined}
       aria-busy={loading || undefined}
       aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
+      {title ? (
+        <p
+          id={titleId}
+          data-agent-suggestion-title="true"
+          className="agent-kit-caption-copy mb-1.5 px-0.5 text-muted-foreground"
+        >
+          {title}
+        </p>
+      ) : null}
       <div
         ref={scrollerRef}
         data-agent-suggestion-scroller="true"
@@ -174,9 +189,9 @@ export function AgentSuggestionBar({
           ref={trackRef}
           data-agent-suggestion-track="true"
           className={cn(
-            "flex min-w-full gap-1",
+            "flex min-w-full gap-[var(--agent-suggestion-gap,0.25rem)]",
             layout === "single-line" || loading
-              ? "h-7 w-max flex-nowrap items-center"
+              ? "h-6 w-max flex-nowrap items-center"
               : "w-(--agent-suggestion-track-width) flex-wrap",
           )}
           onFocus={revealKeyboardFocusedChip}
@@ -187,18 +202,20 @@ export function AgentSuggestionBar({
                   key={index}
                   aria-hidden="true"
                   data-agent-suggestion-placeholder="true"
-                  className={cn("h-7 shrink-0 rounded-full", width)}
+                  className={cn("h-6 shrink-0 rounded-full", width)}
                 />
               ))
             : items.map((suggestion) => (
                 <Button
                   key={suggestion.id}
                   type="button"
-                  variant="secondary"
+                  variant="ghost"
                   size="sm"
                   disabled={suggestion.disabled}
                   onClick={() => onSelect(suggestion)}
-                  className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
+                  data-agent-suggestion-chip="true"
+                  // The scroller clips overflow, so the focus ring sits inside.
+                  className="agent-kit-caption-copy h-6 shrink-0 snap-start whitespace-nowrap rounded-full border border-border bg-transparent px-2.5 font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
                 >
                   <span>
                     {renderSuggestion

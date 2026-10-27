@@ -1,5 +1,5 @@
 import { useComposerRuntime } from "@assistant-ui/react";
-import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react";
+import { IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { uploadedSkillSlug } from "../skill-upload.js";
@@ -92,6 +92,9 @@ export function useComposerDefaultActions({
   const [view, setView] = useState<View>("menu");
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const skillControls = useRef<ComposerContextPageControls | null>(null);
+  const skillFilePickerOpen = useRef(false);
+  const skillPageDismissedWhilePickerOpen = useRef(false);
+  const skillResumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillEpoch = useRef(0);
   const skillRequest = useRef<AbortController | null>(null);
   const skillCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,13 +107,48 @@ export function useComposerDefaultActions({
   } | null>(null);
   const [skillUploadBusy, setSkillUploadBusy] = useState(false);
   const formId = useId();
-  const cancelSkillWork = useCallback(() => {
+  const invalidateSkillWork = useCallback(() => {
     skillEpoch.current++;
     skillRequest.current?.abort();
     skillRequest.current = null;
     if (skillCloseTimer.current !== null) clearTimeout(skillCloseTimer.current);
     skillCloseTimer.current = null;
   }, []);
+  const cancelSkillWork = useCallback(() => {
+    skillFilePickerOpen.current = false;
+    skillPageDismissedWhilePickerOpen.current = false;
+    if (skillResumeTimer.current !== null)
+      clearTimeout(skillResumeTimer.current);
+    skillResumeTimer.current = null;
+    invalidateSkillWork();
+  }, [invalidateSkillWork]);
+  const finishSkillFilePicker = useCallback(() => {
+    skillFilePickerOpen.current = false;
+    if (!skillPageDismissedWhilePickerOpen.current) return;
+    skillPageDismissedWhilePickerOpen.current = false;
+    if (skillResumeTimer.current !== null)
+      clearTimeout(skillResumeTimer.current);
+    skillResumeTimer.current = setTimeout(() => {
+      skillResumeTimer.current = null;
+      skillControls.current?.onResume();
+    }, 0);
+  }, []);
+  const dismissSkillPage = useCallback(() => {
+    if (skillFilePickerOpen.current) {
+      skillPageDismissedWhilePickerOpen.current = true;
+      return;
+    }
+    cancelSkillWork();
+  }, [cancelSkillWork]);
+  useEffect(() => {
+    const input = skillFileInputRef.current;
+    input?.addEventListener("cancel", finishSkillFilePicker);
+    return () => {
+      input?.removeEventListener("cancel", finishSkillFilePicker);
+      if (skillResumeTimer.current !== null)
+        clearTimeout(skillResumeTimer.current);
+    };
+  }, [finishSkillFilePicker]);
   useEffect(() => cancelSkillWork, [cancelSkillWork, adapters.resolvePath]);
   useEffect(() => {
     if (!disabled) return;
@@ -128,7 +166,7 @@ export function useComposerDefaultActions({
     setSkillUploadBusy(false);
   };
   const handleSkillFileSelected = async (file: File) => {
-    cancelSkillWork();
+    invalidateSkillWork();
     const epoch = skillEpoch.current;
     setSkillUploadStatus(null);
     try {
@@ -298,7 +336,7 @@ export function useComposerDefaultActions({
         }),
       ],
       onSelect: resetSkillUpload,
-      onDismiss: cancelSkillWork,
+      onDismiss: dismissSkillPage,
       render: (controls) => {
         skillControls.current = controls;
         return view === "menu" ? (
@@ -317,7 +355,12 @@ export function useComposerDefaultActions({
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
-                skillFileInputRef.current?.click();
+                const input = skillFileInputRef.current;
+                if (!input) return;
+                skillPageDismissedWhilePickerOpen.current = false;
+                skillFilePickerOpen.current = true;
+                controls.onClose({ restoreFocus: false });
+                input.click();
               }}
             >
               {t("agentChat.composer.skill.uploadFile", {
@@ -346,10 +389,10 @@ export function useComposerDefaultActions({
             <Button
               type="button"
               variant="ghost"
-              className="justify-start"
+              size="sm"
+              className="-ms-3 justify-self-start"
               onClick={resetSkillUpload}
             >
-              <IconArrowLeft className="rtl:-scale-x-100" />
               {t("agentChat.composer.skill.back", { defaultValue: "Back" })}
             </Button>
             <p className="break-words text-xs text-muted-foreground">
@@ -451,6 +494,7 @@ export function useComposerDefaultActions({
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
+            finishSkillFilePicker();
             if (file) void handleSkillFileSelected(file);
           }}
         />

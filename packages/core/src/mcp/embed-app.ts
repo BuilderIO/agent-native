@@ -4,6 +4,8 @@ import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
 } from "../shared/mcp-app-display.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
+import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
 const MCP_APP_IMPORT =
   "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
@@ -130,6 +132,7 @@ export function embedApp(
     const startTool = body.dataset.startTool || "create_embed_session";
     const embedByDefault = body.dataset.embedDefault !== "0";
     const chatBridgeParam = ${JSON.stringify(MCP_APP_CHAT_BRIDGE_QUERY_PARAM)};
+    const hiddenEmbedUrl = ${JSON.stringify(HIDDEN_EMBED_URL)};
     const defaultIntrinsicHeight = ${height};
     const chromeHeight = ${MCP_APP_WRAPPER_CHROME_HEIGHT};
     const hostFillAttribute = ${JSON.stringify(MCP_APP_HOST_FILL_ATTRIBUTE)};
@@ -394,9 +397,17 @@ export function embedApp(
       return typeof record.webUrl === "string" ? record.webUrl : "";
     }
 
+    // A field whose embed URL MCP hid holds the placeholder, which opens nothing.
     function firstNonEmbedStartUrl(values) {
       for (const value of values) {
-        if (typeof value === "string" && value && !isEmbedStartUrl(value)) return value;
+        if (
+          typeof value === "string" &&
+          value &&
+          value !== hiddenEmbedUrl &&
+          !isEmbedStartUrl(value)
+        ) {
+          return value;
+        }
       }
       return "";
     }
@@ -744,7 +755,7 @@ export function embedApp(
     }
 
     function installExternalEmbedRuntime(config) {
-      window.__AGENT_NATIVE_EXTERNAL_EMBED = config;
+      window[${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)}] = config;
       installReactRefreshPreambleFallback();
       try {
         if (config.target) {

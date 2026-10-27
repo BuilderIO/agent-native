@@ -2,6 +2,7 @@ import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import type { DesignClipboardRefreshStatus } from "@/lib/design-clipboard";
 import {
   extractLayerPosition,
   insertClonedHtmlLayers,
@@ -33,6 +34,7 @@ export interface PasteOverSelectionArgs {
   getCanvasClipboardEntries: () => CanvasLayerClipboardEntry[];
   getFreshActiveContent: () => string;
   handlePasteSelection: () => Promise<void>;
+  refreshClipboardFromSystemClipboard: () => Promise<DesignClipboardRefreshStatus>;
   selectedElement: ElementInfo | null;
   selectInsertedLayers: (
     screenId: string,
@@ -105,18 +107,33 @@ export function resolvePasteOverPositions(
   }));
 }
 
-export function runPasteOverSelection({
+export async function runPasteOverSelection({
   activeFile,
   applyLocalContentUpdate,
   getCanvasClipboardEntries,
   getFreshActiveContent,
   handlePasteSelection,
+  refreshClipboardFromSystemClipboard,
   selectedElement,
   selectInsertedLayers,
   t,
 }: PasteOverSelectionArgs) {
+  const refreshStatus = await refreshClipboardFromSystemClipboard();
   const entries = getCanvasClipboardEntries();
-  if (!activeFile || entries.length === 0) return;
+  if (entries.length === 0) {
+    if (refreshStatus === "unreadable" || refreshStatus === "untrusted") {
+      toast.error(
+        t(
+          refreshStatus === "unreadable"
+            ? "designEditor.toasts.pasteClipboardUnreadable"
+            : "designEditor.toasts.pasteClipboardUntrusted",
+        ),
+        { duration: 4000 },
+      );
+    }
+    return;
+  }
+  if (!activeFile) return;
   const styleSnapshots = entries.map((entry) =>
     portableStyleSnapshotForPasteTarget(entry, activeFile.id),
   );

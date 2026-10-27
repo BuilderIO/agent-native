@@ -10,13 +10,13 @@ export class LazyChunkErrorBoundary extends React.Component<
   },
   { error: unknown }
 > {
-  state: { error: unknown } = { error: null };
+  override state: { error: unknown } = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
     return { error };
   }
 
-  componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
     if (this.props.shouldHandleError && !this.props.shouldHandleError(error)) {
       return;
     }
@@ -25,7 +25,7 @@ export class LazyChunkErrorBoundary extends React.Component<
     console.error("[agent-native] Lazy client chunk failed", error, errorInfo);
   }
 
-  render() {
+  override render() {
     if (
       this.state.error &&
       this.props.shouldHandleError &&

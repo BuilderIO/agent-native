@@ -1,5 +1,5 @@
 import { ChatFirstAgentActivityPanel } from "./ChatFirstAgentActivityPanel.js";
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstAgentsPaneProps } from "./types.js";
 
 export function ChatFirstAgentsPane({
@@ -8,8 +8,9 @@ export function ChatFirstAgentsPane({
   error,
   onRefresh,
   onWatch,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstAgentsPaneProps) {
+  const copy = useChatFirstCopy(copyProp);
   return (
     <section
       data-chat-first-agents-pane

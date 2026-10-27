@@ -24,6 +24,8 @@ import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   act,
   createElement,
+  useCallback,
+  useState,
   type ComponentProps,
   type ComponentType,
 } from "react";
@@ -493,6 +495,19 @@ describe("suggestion replacement intent", () => {
     }
   });
 });
+
+// The server's accepted text reaches the editor as a content load, never as
+// typing, which can't touch the words an accepted suggestion is replacing.
+function loadAcceptedContent(editor: Editor, markdown: string) {
+  editor
+    .chain()
+    .command(({ tr }) => {
+      tr.setMeta("addToHistory", false);
+      return true;
+    })
+    .setContent(nfmToDoc(markdown))
+    .run();
+}
 
 function createMarkdownEditor(content: string) {
   return new Editor({
@@ -1949,7 +1964,7 @@ describe("live suggestion presentation", () => {
       ).toHaveLength(1);
       expect(docToNfm(editor.getJSON() as any)).toBe(before);
 
-      editor.commands.setContent(nfmToDoc(readback));
+      loadAcceptedContent(editor, readback);
       apply(
         presentations.filter((presentation) => presentation.id !== "unrelated"),
       );
@@ -1960,6 +1975,71 @@ describe("live suggestion presentation", () => {
       expect(docToNfm(editor.getJSON() as any)).toBe(readback);
     } finally {
       editor.destroy();
+    }
+  });
+  it("reports an outdated accept readback without re-checking on every parent render", async () => {
+    // DocumentEditor builds the readback inline, and each report renders it
+    // again even when the divergence it keeps is unchanged.
+    const before = "Before";
+    const readback = " AddedBefore";
+    const suggestion: VisualEditorSuggestion = {
+      id: "accept-outdated",
+      kind: "insert_text",
+      beforeText: "",
+      afterText: " Added",
+      beforePresentation: { source: before, from: 0, to: 0 },
+      afterPresentation: { source: readback, from: 0, to: 6 },
+      anchor: { from: 0, prefix: "", suffix: before },
+      presentation: "settling",
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+    const reported: string[] = [];
+    let divergence: string | null = null;
+    function Parent() {
+      const [actual, setActual] = useState<string | null>(null);
+      const [, setRenders] = useState(0);
+      divergence = actual;
+      const onOutdated = useCallback((id: string, content: string) => {
+        reported.push(id);
+        setActual((previous) => (previous === content ? previous : content));
+        setRenders((count) => count + 1);
+      }, []);
+      return createElement(VisualEditor, {
+        content: `${before} peer`,
+        onChange: () => {},
+        suggestions: suggestionList,
+        acceptedDecisionReadback: { id: suggestion.id, content: readback },
+        onAcceptedDecisionReadbackOutdated: onOutdated,
+      });
+    }
+    const suggestionList = [suggestion];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              TooltipProviderWithoutChildren,
+              { delayDuration: 0 },
+              createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(Parent),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(divergence).toBe(`${before} peer`);
+      expect(reported).toEqual([suggestion.id]);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
     }
   });
   it("keeps an accepted insertion visible while the mounted editor is still behind", () => {
@@ -2024,7 +2104,7 @@ describe("live suggestion presentation", () => {
           beforeText: "Before\n",
         }),
       ).toBe(false);
-      editor.commands.setContent(nfmToDoc(after));
+      loadAcceptedContent(editor, after);
       expect(
         editor.view.dom.querySelector(".suggestion-settling-text"),
       ).toBeNull();
@@ -2861,8 +2941,8 @@ describe("live suggestion presentation", () => {
           if (presentation === "draft") {
             expect(
               editor.view.dom.querySelector(".suggestion-delete-widget")
-                ?.textContent,
-            ).toBe("Upper↵Lower");
+                ?.innerHTML,
+            ).toBe("<strong>Upper</strong><br><strong>Lower</strong>");
             expect(
               editor.view.dom.querySelectorAll(
                 ".suggestion-delete-widget strong",
@@ -4035,7 +4115,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("renders markdown table header cells as plain table cells", () => {
+  it("renders a header row as column headers", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -4097,8 +4177,17 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
-      expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
-      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+      const headers = editor.view.dom.querySelectorAll("th");
+      expect(
+        Array.from(headers, (cell) => [
+          cell.textContent,
+          cell.getAttribute("scope"),
+        ]),
+      ).toEqual([
+        ["A", "col"],
+        ["B", "col"],
+      ]);
+      expect(editor.view.dom.querySelectorAll("td")).toHaveLength(2);
     } finally {
       editor.destroy();
     }
@@ -4207,6 +4296,11 @@ describe("VisualEditor markdown round-tripping", () => {
       expect(
         editor.view.dom.querySelectorAll(".content-table-header-cell"),
       ).toHaveLength(4);
+      expect(
+        Array.from(editor.view.dom.querySelectorAll("th"), (cell) =>
+          cell.getAttribute("scope"),
+        ),
+      ).toEqual(["col", "col", "row", "row"]);
     } finally {
       editor.destroy();
     }
@@ -4650,6 +4744,23 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  // The server half of adopting a newer saved body, for one editor: it takes
+  // the editor's proposal as the live doc and returns it.
+  const fakeSnapshotAdoptionServer = () =>
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const proposal =
+        String(input).includes("adopt-document-snapshot") &&
+        typeof init?.body === "string"
+          ? /"adoptionUpdateBase64":"([^"]+)"/.exec(init.body)?.[1]
+          : undefined;
+      return new Response(
+        JSON.stringify(
+          proposal ? { status: "adopted", stateBase64: proposal } : {},
+        ),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
   it("keeps exact A restored after a recent A-to-B edit with a trailing empty block", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -4707,6 +4818,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ),
       );
 
+    const adoptionServer = fakeSnapshotAdoptionServer();
     try {
       act(() => {
         root.render(
@@ -4865,6 +4977,7 @@ describe("VisualEditor markdown round-tripping", () => {
         );
       });
     } finally {
+      adoptionServer.mockRestore();
       await act(async () => root.unmount());
       queryClient.clear();
       ydoc.destroy();

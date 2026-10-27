@@ -5,30 +5,38 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import { openCliHandoff } from "./runner.js";
+const approvalAudit = vi.hoisted(() => vi.fn(async (_input: any) => {}));
+const question = vi.hoisted(() => vi.fn(async () => "n"));
+const closePrompt = vi.hoisted(() => vi.fn());
+vi.mock("../audit/record.js", () => ({ recordActionAudit: approvalAudit }));
+vi.mock("node:readline/promises", () => ({
+  createInterface: () => ({ question, close: closePrompt }),
+}));
+
+import { defineAction } from "../action.js";
+import { openCliHandoff, runScript } from "./runner.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
 const fileUploadIndex = path.resolve(__dirname, "../file-upload/index.ts");
 
+// Searches upward from this file rather than from a fixed repo root, so the
+// spec also finds tsx from a copy of Core, such as Stryker's sandbox.
 function resolveTsxCli(): string {
-  const binCandidates = [
-    path.join(repoRoot, "node_modules", ".bin", "tsx"),
-    path.join(repoRoot, "packages", "core", "node_modules", ".bin", "tsx"),
-  ];
-  for (const candidate of binCandidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
-  if (fs.existsSync(pnpmDir)) {
-    const tsxEntry = fs
-      .readdirSync(pnpmDir)
-      .filter((name) => name.startsWith("tsx@"))
-      .sort()
-      .pop();
+  for (let dir = __dirname; ; dir = path.dirname(dir)) {
+    const bin = path.join(dir, "node_modules", ".bin", "tsx");
+    if (process.platform !== "win32" && fs.existsSync(bin)) return bin;
+    const pnpmDir = path.join(dir, "node_modules", ".pnpm");
+    const tsxEntry = fs.existsSync(pnpmDir)
+      ? fs
+          .readdirSync(pnpmDir)
+          .filter((name) => name.startsWith("tsx@"))
+          .sort()
+          .pop()
+      : undefined;
     if (tsxEntry) {
       const cli = path.join(
         pnpmDir,
@@ -40,8 +48,8 @@ function resolveTsxCli(): string {
       );
       if (fs.existsSync(cli)) return cli;
     }
+    if (path.dirname(dir) === dir) return "tsx";
   }
-  return binCandidates[0];
 }
 
 const tsxCli = resolveTsxCli();
@@ -49,6 +57,210 @@ const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
 const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
 const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
 const spawnTimeoutMs = 30_000;
+
+describe("runScript CLI approval", () => {
+  const originalArgv = process.argv;
+  const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const stdoutTty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  function setTty(value: boolean) {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      configurable: true,
+      value,
+    });
+  }
+  let run: ReturnType<typeof vi.fn>;
+  let error: ReturnType<typeof vi.spyOn>;
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    run = vi.fn(async (args) => args);
+    approvalAudit.mockClear();
+    question.mockReset().mockResolvedValue("n");
+    closePrompt.mockClear();
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`exit:${code}`);
+    });
+    setTty(false);
+    error = vi.spyOn(console, "error").mockImplementation(() => {});
+    log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.stubEnv("AGENT_USER_EMAIL", "owner@example.test");
+  });
+
+  afterEach(() => {
+    process.argv = originalArgv;
+    if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);
+    else delete (process.stdin as any).isTTY;
+    if (stdoutTty) Object.defineProperty(process.stdout, "isTTY", stdoutTty);
+    else delete (process.stdout as any).isTTY;
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  async function invoke(
+    needsApproval: any,
+    args: string[] = [],
+    auditEnabled = false,
+  ) {
+    vi.mocked(process.exit).mockClear();
+    process.argv = ["node", "actions/run.ts", "fixture-action", ...args];
+    return runScript({
+      packageActions: {
+        "fixture-action": defineAction({
+          schema: z.object({ action: z.string().default("delete") }).strict(),
+          needsApproval,
+          audit: { enabled: auditEnabled },
+          changeEvents: false,
+          run,
+        }),
+      },
+    }).catch((error) => {
+      // A mocked exit throws through dispatch's catch; the first exit is the CLI result.
+      const code = vi.mocked(process.exit).mock.calls[0]?.[0];
+      if (code !== undefined) throw new Error(`exit:${code}`);
+      throw error;
+    });
+  }
+
+  it("refuses a flat gate with a copy-pasteable command and never runs", async () => {
+    await expect(invoke(true, ['{"action":"delete"}'])).rejects.toThrow(
+      "exit:1",
+    );
+    expect(error).toHaveBeenCalledWith(
+      'Action "fixture-action" failed:',
+      'Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\npnpm action fixture-action \'{"action":"delete"}\' --approved',
+    );
+    expect(run).not.toHaveBeenCalled();
+    expect(question).not.toHaveBeenCalled();
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it("evaluates a function gate against defaulted args and cli context", async () => {
+    const gate = (args: any, ctx: any) =>
+      ctx?.caller === "cli" && args.action === "delete";
+    await expect(invoke(gate)).rejects.toThrow("exit:1");
+    expect(run).not.toHaveBeenCalled();
+    await expect(invoke(gate, ["--action", "read"])).rejects.toThrow("exit:0");
+    expect(run).toHaveBeenCalledWith(
+      { action: "read" },
+      expect.objectContaining({ caller: "cli" }),
+    );
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it("strips --approved before strict validation and records it on the action's audit row", async () => {
+    await expect(
+      invoke(true, ["--approved", '{"action":"delete"}'], true),
+    ).rejects.toThrow("exit:0");
+    expect(run).toHaveBeenCalledWith(
+      { action: "delete" },
+      expect.objectContaining({ caller: "cli" }),
+    );
+    expect(question).not.toHaveBeenCalled();
+    // One row per run: the approval rides on the action's own audit event.
+    expect(approvalAudit).toHaveBeenCalledTimes(1);
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      args: { action: "delete" },
+      ctx: { actionName: "fixture-action" },
+      attribution: { caller: "cli", approval: "cli-flag" },
+      status: "success",
+    });
+  });
+
+  it.each(["y", "yes", "Y", "n", "", "anything"])(
+    "handles TTY answer %j",
+    async (answer) => {
+      setTty(true);
+      question.mockResolvedValue(answer);
+      const accepted = ["y", "yes", "Y"].includes(answer);
+      await expect(invoke(true, [], true)).rejects.toThrow(
+        accepted ? "exit:0" : "exit:1",
+      );
+      expect(question).toHaveBeenCalledWith("Run this action? [y/N] ");
+      expect(log).toHaveBeenCalledWith('{\n  "action": "delete"\n}');
+      expect(closePrompt).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      expect(approvalAudit).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      if (accepted)
+        expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+          attribution: { caller: "cli", approval: "cli-prompt" },
+          status: "success",
+        });
+    },
+  );
+
+  it.each([{ args: [] }, { args: ["--approved"] }])(
+    "leaves ungated calls unchanged with flags %j",
+    async ({ args }) => {
+      await expect(invoke(false, args)).rejects.toThrow("exit:0");
+      expect(run).toHaveBeenCalledWith({ action: "delete" }, expect.anything());
+      expect(question).not.toHaveBeenCalled();
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when the approval predicate throws", async () => {
+    await expect(
+      invoke(() => {
+        throw new Error("predicate failed");
+      }),
+    ).rejects.toThrow("exit:1");
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps invalid-input auditing for an ungated action", async () => {
+    await expect(invoke(false, ['{"action":42}'], true)).rejects.toThrow(
+      "exit:1",
+    );
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).toHaveBeenCalledTimes(1);
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      ctx: { actionName: "fixture-action" },
+      attribution: { caller: "cli" },
+      status: "error",
+    });
+  });
+
+  it.each(["/bin/bash", ""])(
+    "quotes apostrophes for the invoking shell (%j)",
+    async (shell) => {
+      vi.stubEnv("SHELL", shell);
+      await expect(invoke(true, ["--action", "O'Brien"])).rejects.toThrow(
+        "exit:1",
+      );
+      const unknownWindowsShell = process.platform === "win32" && shell === "";
+      const rerun = unknownWindowsShell
+        ? `pnpm action fixture-action --action 'O''Brien' --approved\nIn cmd.exe: pnpm action fixture-action --action "O'Brien" --approved`
+        : `pnpm action fixture-action --action 'O'"'"'Brien' --approved`;
+      expect(error).toHaveBeenCalledWith(
+        'Action "fixture-action" failed:',
+        `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\n${rerun}`,
+      );
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves leading @ values instead of PowerShell variable splatting", async () => {
+    vi.stubEnv("SHELL", "");
+    await expect(
+      invoke(true, ["--action", "@reviewQuoteArgs"]),
+    ).rejects.toThrow("exit:1");
+    // cmd.exe has no splatting, so its form leaves the value bare.
+    const rerun =
+      process.platform === "win32"
+        ? "pnpm action fixture-action --action '@reviewQuoteArgs' --approved\nIn cmd.exe: pnpm action fixture-action --action @reviewQuoteArgs --approved"
+        : "pnpm action fixture-action --action @reviewQuoteArgs --approved";
+    expect(error).toHaveBeenCalledWith(
+      'Action "fixture-action" failed:',
+      `Action "fixture-action" requires human approval. Ask the person to approve this call, then rerun:\n${rerun}`,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+});
 
 describe("runScript package actions", () => {
   let tmpDir: string;
@@ -179,6 +391,61 @@ describe("runScript package actions", () => {
     expect(result.stdout).toContain("Fixture package actions:");
     expect(result.stdout).toContain("package-action");
   }, 40_000);
+
+  it.each([false, true])(
+    "enforces approval for a local defineAction (approved=%j)",
+    (approved) => {
+      fs.writeFileSync(
+        path.join(tmpDir, "actions", "gated-local.ts"),
+        `
+      import { writeFileSync } from "node:fs";
+      import { defineAction } from ${JSON.stringify(pathToFileURL(path.resolve(__dirname, "../action.ts")).href)};
+      export default defineAction({
+        needsApproval: true,
+        audit: { enabled: false },
+        run: async (args) => { writeFileSync("local-output.json", JSON.stringify(args)); return "local-ok"; },
+      });
+    `,
+      );
+      const result = spawnSync(
+        tsxCommand,
+        [
+          ...tsxLeadingArgs,
+          "actions/run.ts",
+          "gated-local",
+          "--label",
+          "test value",
+          ...(approved ? ["--approved"] : []),
+        ],
+        {
+          cwd: tmpDir,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            AGENT_USER_EMAIL: "owner@example.test",
+            AGENT_NATIVE_AUDIT_ENABLED: "false",
+          },
+          timeout: spawnTimeoutMs,
+        },
+      );
+      expect(result.status).toBe(approved ? 0 : 1);
+      if (approved)
+        expect(
+          JSON.parse(
+            fs.readFileSync(path.join(tmpDir, "local-output.json"), "utf8"),
+          ),
+        ).toEqual({ label: "test value" });
+      else {
+        expect(result.stderr).toContain(
+          "pnpm action gated-local --label 'test value' --approved",
+        );
+        expect(fs.existsSync(path.join(tmpDir, "local-output.json"))).toBe(
+          false,
+        );
+      }
+    },
+    40_000,
+  );
 
   it("exits non-zero when a local script rejects during dispatch", () => {
     fs.writeFileSync(

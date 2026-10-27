@@ -1,0 +1,1692 @@
+import { readFileSync } from "node:fs";
+
+import { createApp } from "h3";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const getObservabilityConfigMock = vi.hoisted(() => vi.fn());
+const instrumentAgentLoopMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
+const runLifecycleStore = vi.hoisted(() => ({
+  runs: new Map<
+    string,
+    { threadId: string; turnId: string; status: string; abortReason?: string }
+  >(),
+  events: [] as Array<{
+    runId: string;
+    seq: number;
+    eventData: string;
+    eventAt?: number;
+  }>,
+}));
+const a2aReceiver = vi.hoisted(() => ({
+  config: undefined as
+    | {
+        handler: (
+          message: unknown,
+          context: unknown,
+        ) => AsyncGenerator<unknown, void>;
+      }
+    | undefined,
+  initPromises: [] as Promise<void>[],
+}));
+
+vi.mock("../observability/traces.js", () => ({
+  getObservabilityConfig: getObservabilityConfigMock,
+  instrumentAgentLoop: instrumentAgentLoopMock,
+}));
+
+// Boot the real plugin and capture the A2A config it mounts, so the receiver
+// handler under test is the one the app ships.
+vi.mock("./framework-request-handler.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./framework-request-handler.js")>()),
+  awaitBootstrap: () => Promise.resolve(),
+  getH3App: (nitroApp: any) => nitroApp.h3App,
+  markDefaultPluginProvided: vi.fn(),
+  trackPluginInit: (_nitroApp: any, promise: Promise<void>) => {
+    a2aReceiver.initPromises.push(promise);
+  },
+}));
+
+vi.mock("../a2a/server.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../a2a/server.js")>()),
+  mountA2A: (_app: unknown, config: any) => {
+    a2aReceiver.config = config;
+  },
+}));
+
+vi.mock("../agent/run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agent/run-store.js")>();
+  const persistEvent = (
+    runId: string,
+    seq: number,
+    eventData: string,
+    eventAt?: number,
+  ) => {
+    if (
+      !runLifecycleStore.events.some(
+        (event) => event.runId === runId && event.seq === seq,
+      )
+    ) {
+      runLifecycleStore.events.push({ runId, seq, eventData, eventAt });
+    }
+  };
+  return {
+    ...actual,
+    insertRun: vi.fn(
+      async (runId: string, threadId: string, turnId?: string) => {
+        runLifecycleStore.runs.set(runId, {
+          threadId,
+          turnId: turnId ?? runId,
+          status: "running",
+        });
+      },
+    ),
+    claimTurnExecutionLease: vi.fn(
+      async (threadId: string, turnId: string, runId: string) => ({
+        threadId,
+        turnId,
+        runId,
+        generation: "1",
+      }),
+    ),
+    renewTurnExecutionLease: vi.fn(async () => {}),
+    releaseTurnExecutionLease: vi.fn(async () => true),
+    insertRunEvent: vi.fn(
+      async (runId: string, seq: number, eventData: string) => {
+        persistEvent(runId, seq, eventData);
+      },
+    ),
+    insertRunEvents: vi.fn(
+      async (
+        runId: string,
+        events: Array<{ seq: number; eventData: string; eventAt?: number }>,
+      ) => {
+        for (const event of events) {
+          persistEvent(runId, event.seq, event.eventData, event.eventAt);
+        }
+      },
+    ),
+    updateRunStatusIfRunning: vi.fn(async (runId: string, status: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      if (!run || run.status !== "running") return false;
+      run.status = status;
+      return true;
+    }),
+    getRunStatus: vi.fn(
+      async (runId: string) =>
+        runLifecycleStore.runs.get(runId)?.status ?? null,
+    ),
+    getRunAbortState: vi.fn(async (runId: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      return run?.status === "aborted"
+        ? { aborted: true, reason: run.abortReason }
+        : { aborted: false };
+    }),
+    markRunAborted: vi.fn(async (runId: string, reason?: string) => {
+      const run = runLifecycleStore.runs.get(runId);
+      if (!run || run.status !== "running") return;
+      run.status = "aborted";
+      run.abortReason = reason;
+      const seq =
+        Math.max(
+          -1,
+          ...runLifecycleStore.events
+            .filter((event) => event.runId === runId)
+            .map((event) => event.seq),
+        ) + 1;
+      persistEvent(
+        runId,
+        seq,
+        JSON.stringify(actual.terminalEventForAbortReason(reason)),
+      );
+    }),
+    getCurrentTurnRunEventsForThread: vi.fn(
+      async (threadId: string, turnId?: string) =>
+        runLifecycleStore.events
+          .filter((event) => {
+            const run = runLifecycleStore.runs.get(event.runId);
+            return (
+              run?.threadId === threadId &&
+              (turnId === undefined || run.turnId === turnId)
+            );
+          })
+          .sort((a, b) => a.seq - b.seq)
+          .map((event) => ({
+            runId: event.runId,
+            seq: event.seq,
+            event: JSON.parse(event.eventData),
+          })),
+    ),
+    updateRunHeartbeat: vi.fn(async () => {}),
+    bumpRunProgress: vi.fn(async () => true),
+    setRunInFlightMarker: vi.fn(async () => {}),
+    setRunTerminalReason: vi.fn(async () => {}),
+    setRunError: vi.fn(async () => {}),
+    reconcileTerminalRunFromEvents: vi.fn(async () => false),
+    cleanupOldRuns: vi.fn(async () => {}),
+    listUnclaimedBackgroundRunRows: vi.fn(async () => []),
+    reapAllStaleRuns: vi.fn(async () => ({
+      scanned: 0,
+      reaped: 0,
+      failed: 0,
+      truncated: false,
+    })),
+  };
+});
+
+vi.mock("../mcp-client/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mcp-client/index.js")>()),
+  buildMergedConfig: vi.fn(async () => null),
+  startMcpConfigRefresh: () => () => {},
+}));
+
+vi.mock("../jobs/scheduler.js", () => ({
+  processRecurringJobs: vi.fn(async () => {}),
+}));
+
+vi.mock("../triggers/dispatcher.js", () => ({
+  initTriggerDispatcher: vi.fn(async () => {}),
+}));
+
+vi.mock("../chat-threads/migrations.js", () => ({
+  runChatThreadDataMigrations: vi.fn(async () => {}),
+}));
+
+vi.mock("./social-og-image.js", () => ({
+  createAgentNativeOgImageHandler: () => () => new Response(),
+}));
+
+import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
+import { EngineError } from "../agent/engine/types.js";
+import * as runManagerModule from "../agent/run-manager.js";
+import { replayCompletedTurn } from "../agent/run-manager.js";
+import { markRunAborted } from "../agent/run-store.js";
+import { loadActionsFromStaticRegistry } from "./action-discovery.js";
+import {
+  assembleA2AFinalResponse,
+  buildSelectedA2AReceiverContext,
+  buildPublicAgentA2ASkills,
+  createA2AEngineToolSurface,
+  createAgentChatPlugin,
+  isSelectedA2AReceiver,
+  createSerializedA2ATaskStatusWriter,
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+  resolveA2ARecoverableArtifactSecret,
+  runMCPAgentLoop,
+  runA2AAgentLoop,
+  runA2AAgentLoopWithRunManager,
+  runA2AWithUsageLedger,
+} from "./agent-chat-plugin.js";
+import { unverifiedA2AUserError } from "./agent-chat/action-filters-a2a.js";
+
+describe("A2A receiver usage ledger", () => {
+  const usage = () => ({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    engineName: "test-engine",
+    model: "test-model",
+  });
+  const identity = {
+    ownerEmail: "receiver@example.test",
+    orgId: "receiver-org",
+    appId: "qr",
+    taskId: "a2a-task-1",
+  };
+
+  beforeEach(() => recordUsageMock.mockReset());
+
+  it("records verified receiver identity and a stable key per task lease", async () => {
+    const firstUsage = Object.assign(usage(), {
+      inputTokens: 120,
+      outputTokens: 40,
+      builderCreditsUsed: 0.4,
+      usageReported: true,
+    });
+    const first = {
+      ...identity,
+      processingAttemptId: "lease-generation-1",
+      usage: firstUsage,
+      persistUsage: recordUsageMock,
+    };
+    const record = {
+      ownerEmail: identity.ownerEmail,
+      inputTokens: 120,
+      outputTokens: 40,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      builderCreditsUsed: 0.4,
+      engineName: "test-engine",
+      model: "test-model",
+      app: "qr",
+      orgId: "receiver-org",
+      label: "a2a",
+      refId: "a2a-task-1:lease-generation-1",
+      runId: "a2a-task-1",
+      threadId: "a2a-task-1",
+      taskId: "a2a-task-1",
+    };
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve("done"), first),
+    ).resolves.toBe("done");
+    // A replay under the same lease replaces the row. A re-claimed task has a
+    // new lease generation and retains the earlier usage segment.
+    await runA2AWithUsageLedger(Promise.resolve("done"), first);
+    await runA2AWithUsageLedger(Promise.resolve("done"), {
+      ...first,
+      processingAttemptId: "lease-generation-2",
+      usage: {
+        ...firstUsage,
+        inputTokens: 18,
+        outputTokens: 5,
+        builderCreditsUsed: 0.05,
+      },
+    });
+
+    expect(recordUsageMock).toHaveBeenCalledTimes(3);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(1, record);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(2, record);
+    expect(recordUsageMock).toHaveBeenNthCalledWith(3, {
+      ...record,
+      refId: "a2a-task-1:lease-generation-2",
+      inputTokens: 18,
+      outputTokens: 5,
+      builderCreditsUsed: 0.05,
+    });
+  });
+
+  it("persists usage observed before a terminal error and preserves the run error", async () => {
+    const runError = new Error("receiver model failed after reporting usage");
+    const runUsage = usage();
+    const run = vi.fn(async () => {
+      Object.assign(runUsage, {
+        inputTokens: 70,
+        usageReported: true,
+      });
+      throw runError;
+    });
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve().then(run), {
+        ...identity,
+        usage: runUsage,
+        persistUsage: recordUsageMock,
+      }),
+    ).rejects.toBe(runError);
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        app: identity.appId,
+        label: "a2a",
+        runId: identity.taskId,
+        threadId: identity.taskId,
+        taskId: identity.taskId,
+        inputTokens: 70,
+      }),
+    );
+  });
+
+  it("fails the run when reported usage cannot be persisted", async () => {
+    const runUsage = {
+      ...usage(),
+      inputTokens: 1,
+      usageReported: true,
+    };
+
+    await expect(
+      runA2AWithUsageLedger(Promise.resolve("done"), {
+        ...identity,
+        usage: runUsage,
+        persistUsage: async () => {
+          throw new Error("usage store unavailable");
+        },
+      }),
+    ).rejects.toThrow("usage store unavailable");
+  });
+});
+
+describe("delegated A2A recoverable artifact checkpoints", () => {
+  it("prefers the organization A2A secret when a global secret is also configured", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => "org-only-a2a-secret"),
+    }));
+
+    await expect(resolveA2ARecoverableArtifactSecret("org-qa")).resolves.toBe(
+      "org-only-a2a-secret",
+    );
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
+  it("does not use the global secret when organization secret lookup fails", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => {
+        throw new Error("organization secret store unavailable");
+      }),
+    }));
+
+    await expect(
+      resolveA2ARecoverableArtifactSecret("org-qa"),
+    ).resolves.toBeUndefined();
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
+  it("serializes status writes and flushes the latest checkpoint", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondWrite = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const writeStatus = vi
+      .fn()
+      .mockImplementationOnce(() => firstWrite)
+      .mockImplementationOnce(() => secondWrite);
+    const writer = createSerializedA2ATaskStatusWriter(
+      "task-checkpoint",
+      writeStatus,
+    );
+
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "first checkpoint" }],
+    });
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "latest checkpoint" }],
+    });
+    await vi.waitFor(() => expect(writeStatus).toHaveBeenCalledTimes(1));
+
+    let flushed = false;
+    const flush = writer.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+    expect(writeStatus).toHaveBeenNthCalledWith(
+      1,
+      "task-checkpoint",
+      expect.objectContaining({
+        parts: [{ type: "text", text: "first checkpoint" }],
+      }),
+    );
+
+    releaseFirst();
+    await vi.waitFor(() => expect(writeStatus).toHaveBeenCalledTimes(2));
+    expect(flushed).toBe(false);
+    expect(writeStatus).toHaveBeenNthCalledWith(
+      2,
+      "task-checkpoint",
+      expect.objectContaining({
+        parts: [{ type: "text", text: "latest checkpoint" }],
+      }),
+    );
+
+    releaseSecond();
+    await flush;
+    expect(flushed).toBe(true);
+  });
+
+  it("retries a failed latest checkpoint and rejects flush when it is not durable", async () => {
+    const writeError = new Error("database unavailable");
+    const writeStatus = vi.fn(async () => {
+      throw writeError;
+    });
+    const onError = vi.fn();
+    const writer = createSerializedA2ATaskStatusWriter(
+      "task-checkpoint-failure",
+      writeStatus,
+      onError,
+    );
+
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "must become durable" }],
+    });
+
+    await expect(writer.flush()).rejects.toBe(writeError);
+    expect(writeStatus).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(writeError);
+  });
+});
+
+describe("A2A shared run lifecycle", () => {
+  beforeEach(() => {
+    runLifecycleStore.runs.clear();
+    runLifecycleStore.events.splice(0);
+  });
+
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 2,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "test-model",
+  };
+
+  function runOptions(
+    taskId: string,
+    send: (event: any) => void | Promise<void> = () => {},
+  ) {
+    return {
+      engine: { name: "test-engine" } as any,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [],
+      actions: {},
+      runId: taskId,
+      threadId: taskId,
+      turnId: taskId,
+      send,
+      signal: new AbortController().signal,
+    };
+  }
+
+  it("persists events before writes and replays the completed task journal", async () => {
+    const delivered: any[] = [];
+    let eventsAtWrite: Array<{ type: string }> = [];
+    const runner = vi.fn(async (options: any) => {
+      options.send({
+        type: "tool_start",
+        tool: "create-report",
+        input: { title: "Quarterly report" },
+      });
+      await options.beforeWrite();
+      eventsAtWrite = runLifecycleStore.events
+        .filter((event) => event.runId === "task-journal-replay")
+        .map((event) => JSON.parse(event.eventData));
+      options.send({
+        type: "tool_done",
+        tool: "create-report",
+        result: "Created",
+      });
+      options.send({ type: "text", text: "The report is ready." });
+      options.send({ type: "done" });
+      return usage;
+    });
+
+    await runA2AAgentLoopWithRunManager(
+      runOptions("task-journal-replay", (event) => delivered.push(event)),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+    );
+
+    expect(runner.mock.calls[0]?.[0]).toMatchObject({
+      recoverCompletedExecutionSteps: true,
+    });
+    expect(eventsAtWrite.map((event) => event.type)).toContain("tool_start");
+    expect(runLifecycleStore.runs.get("task-journal-replay")?.status).toBe(
+      "completed",
+    );
+    expect(delivered.map((event) => event.type)).toEqual([
+      "tool_start",
+      "tool_done",
+      "text",
+      "done",
+    ]);
+
+    const replay = await replayCompletedTurn(
+      "task-journal-replay",
+      "task-journal-replay",
+    );
+    expect(replay).not.toBeNull();
+    const reader = replay!.getReader();
+    const chunks: string[] = [];
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(new TextDecoder().decode(next.value));
+    }
+    const replayed = chunks
+      .join("")
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => JSON.parse(line.slice(6)));
+    expect(replayed.map((event) => event.type)).toEqual([
+      "tool_start",
+      "tool_done",
+      "text",
+      "done",
+    ]);
+  });
+
+  it("durably aborts the shared run when the A2A task signal is canceled", async () => {
+    const taskController = new AbortController();
+    let runnerSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      (options: any) =>
+        new Promise<typeof usage>((resolve) => {
+          runnerSignal = options.signal;
+          options.signal.addEventListener("abort", () => resolve(usage), {
+            once: true,
+          });
+        }),
+    );
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-cancel", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+    taskController.abort("canceled-by-task-claim");
+
+    await expect(pending).rejects.toThrow("canceled-by-task-claim");
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(runLifecycleStore.runs.get("task-cancel")?.status).toBe("aborted");
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-cancel" &&
+          JSON.parse(event.eventData).errorCode ===
+            "aborted_canceled-by-task-claim",
+      ),
+    ).toBe(true);
+  });
+
+  it("handles durable abort rejection before the A2A run finalizes", async () => {
+    const taskController = new AbortController();
+    const persistenceError = new Error("abort persistence unavailable");
+    let releaseRunner!: () => void;
+    let finishRun!: () => void;
+    const finalizationBarrier = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    const runner = vi.fn(async (options: any) => {
+      await new Promise<void>((resolve) => {
+        releaseRunner = resolve;
+        options.signal.addEventListener("abort", resolve, { once: true });
+      });
+      await finalizationBarrier;
+      return usage;
+    });
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", recordUnhandled);
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-cancel-persistence-failure", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    try {
+      await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+      taskController.abort("canceled-by-task-claim");
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalledOnce());
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+
+      finishRun();
+      await expect(pending).rejects.toBe(persistenceError);
+    } finally {
+      finishRun();
+      releaseRunner?.();
+      process.off("unhandledRejection", recordUnhandled);
+    }
+  });
+
+  it("reports run finalization and durable abort failures together", async () => {
+    const taskController = new AbortController();
+    const finalizationError = new Error("run finalization unavailable");
+    const persistenceError = new Error("abort persistence unavailable");
+    vi.mocked(markRunAborted).mockRejectedValueOnce(persistenceError);
+    const startRun = vi.spyOn(runManagerModule, "startRun").mockReturnValue({
+      runId: "task-cancel-dual-failure",
+      threadId: "task-cancel-dual-failure",
+      turnId: "task-cancel-dual-failure",
+      events: [],
+      status: "running",
+      abort: new AbortController(),
+      finalized: Promise.reject(finalizationError),
+    } as any);
+    taskController.abort("canceled-by-task-claim");
+
+    try {
+      let thrown: unknown;
+      try {
+        await runA2AAgentLoopWithRunManager(
+          runOptions("task-cancel-dual-failure"),
+          {},
+          { backgroundFunction: false },
+          { runner: vi.fn() as any },
+          taskController.signal,
+        );
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(AggregateError);
+      expect((thrown as AggregateError).errors).toEqual([
+        finalizationError,
+        persistenceError,
+      ]);
+    } finally {
+      startRun.mockRestore();
+    }
+  });
+
+  it("does not durably abort a replacement run after losing the task lease", async () => {
+    vi.mocked(markRunAborted).mockClear();
+    const taskController = new AbortController();
+    let runnerSignal: AbortSignal | undefined;
+    const runner = vi.fn(
+      (options: any) =>
+        new Promise<typeof usage>((resolve) => {
+          runnerSignal = options.signal;
+          options.signal.addEventListener("abort", () => resolve(usage), {
+            once: true,
+          });
+        }),
+    );
+    const claimLost = Object.assign(new Error("A2A task claim was lost"), {
+      code: "a2a_task_claim_lost",
+    });
+
+    const pending = runA2AAgentLoopWithRunManager(
+      runOptions("task-replacement-lease-loss", () => {}),
+      {},
+      { backgroundFunction: false },
+      { runner: runner as any },
+      taskController.signal,
+    );
+    await vi.waitFor(() => expect(runner).toHaveBeenCalledOnce());
+    taskController.abort(claimLost);
+
+    await expect(pending).rejects.toBe(claimLost);
+    expect(runnerSignal?.aborted).toBe(true);
+    expect(markRunAborted).not.toHaveBeenCalled();
+  });
+
+  it("propagates the persisted terminal error code back to the A2A task", async () => {
+    const runner = vi.fn(async (options: any) => {
+      throw new EngineError("No LLM provider is connected.", {
+        errorCode: "missing_credentials",
+      });
+    });
+
+    await expect(
+      runA2AAgentLoopWithRunManager(
+        runOptions("task-terminal-error", () => {}),
+        {},
+        { backgroundFunction: false },
+        { runner: runner as any },
+      ),
+    ).rejects.toMatchObject({
+      message: "No LLM provider is connected.",
+      agentNativeErrorCode: "missing_credentials",
+    });
+    expect(runLifecycleStore.runs.get("task-terminal-error")?.status).toBe(
+      "errored",
+    );
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-terminal-error" &&
+          JSON.parse(event.eventData).errorCode === "missing_credentials",
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves terminal agent events available for A2A partial-result handling", async () => {
+    const delivered: any[] = [];
+    const runner = vi.fn(async (options: any) => {
+      options.send({ type: "text", text: "A verified result was created." });
+      options.send({
+        type: "error",
+        error: "A later step failed.",
+        errorCode: "provider_network_error",
+      });
+      return usage;
+    });
+
+    await expect(
+      runA2AAgentLoopWithRunManager(
+        runOptions("task-partial-terminal", (event) => delivered.push(event)),
+        {},
+        { backgroundFunction: false },
+        { runner: runner as any },
+      ),
+    ).resolves.toEqual(usage);
+    expect(runLifecycleStore.runs.get("task-partial-terminal")?.status).toBe(
+      "errored",
+    );
+    expect(delivered.map((event) => event.type)).toEqual(["text", "error"]);
+    expect(
+      runLifecycleStore.events.some(
+        (event) =>
+          event.runId === "task-partial-terminal" &&
+          JSON.parse(event.eventData).errorCode === "provider_network_error",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("delegated A2A final response guards", () => {
+  beforeEach(() => {
+    getObservabilityConfigMock.mockReset();
+    instrumentAgentLoopMock.mockReset();
+  });
+
+  it("runs an Analytics-style real-data guard for delegated turns", async () => {
+    const analyticsGuard = vi.fn(
+      (context: { text: string; toolResults: unknown[] }) =>
+        context.toolResults.length === 0 && context.text.includes("42")
+          ? {
+              retryMessage: "Query a real analytics source before answering.",
+              fallbackMessage: "No grounded analytics result is available.",
+            }
+          : null,
+    );
+    const delegatedRunner = vi.fn(async (options: any) => {
+      const guardResult = await options.finalResponseGuard?.({
+        messages: options.messages,
+        assistantContent: [{ type: "text", text: "The answer is 42." }],
+        text: "The answer is 42.",
+        toolCalls: [],
+        toolResults: [],
+        retryCount: 0,
+        executionMode: "act",
+      });
+      expect(guardResult).toEqual({
+        retryMessage: "Query a real analytics source before answering.",
+        fallbackMessage: "No grounded analytics result is available.",
+      });
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "What were sales this week?" }],
+          },
+        ],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {
+        finalResponseGuard: analyticsGuard as any,
+        runSoftTimeoutMs: 12_345,
+      },
+      { backgroundFunction: true },
+      { runner: delegatedRunner as any },
+    );
+
+    expect(analyticsGuard).toHaveBeenCalledOnce();
+    expect(delegatedRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finalResponseGuard: analyticsGuard,
+        maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
+        maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+        systemPrompt: expect.stringContaining(
+          "Choose providers, schemas, queries, and joins here",
+        ),
+        toolLimits: expect.objectContaining({
+          hardMaxResultChars: DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+        }),
+      }),
+      12_345,
+      { backgroundFunction: true },
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "best grounded partial answer",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Do not bounce the work back",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Reach for your own registered actions first",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "never use a shell, filesystem, or code-execution tool",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "This step is cut off after about 12 seconds",
+    );
+  });
+
+  it("keeps the MCP-local ask_app loop on the same guard contract", async () => {
+    const guard = vi.fn(() => null);
+    const runner = vi.fn(async (options: any) => {
+      expect(options.finalResponseGuard).toBe(guard);
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runMCPAgentLoop(
+      {
+        engine: {} as any,
+        model: "gpt-5.6",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      { finalResponseGuard: guard as any, runSoftTimeoutMs: 1_000 },
+      { backgroundFunction: false },
+      { runner: runner as any },
+    );
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finalResponseGuard: guard,
+        maxOutputTokens: 64_000,
+        reasoningEffort: undefined,
+        maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
+        maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+        toolLimits: expect.objectContaining({
+          hardMaxResultChars: DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+        }),
+      }),
+      1_000,
+      { backgroundFunction: false },
+    );
+  });
+
+  it("lets apps deliberately tighten delegated budgets", async () => {
+    const runner = vi.fn(async () => ({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        toolLimits: { maxResultChars: 40_000 },
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {
+        delegatedRunPolicy: {
+          maxIterations: 25,
+          maxRunInputTokens: 250_000,
+          maxToolResultChars: 8_000,
+        },
+      },
+      {},
+      { runner: runner as any },
+    );
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxIterations: 25,
+        maxRunInputTokens: 250_000,
+        toolLimits: {
+          maxResultChars: 40_000,
+          hardMaxResultChars: 8_000,
+        },
+      }),
+      undefined,
+      {},
+    );
+  });
+
+  it("instruments A2A loops with stable task correlation and user identity", async () => {
+    getObservabilityConfigMock.mockResolvedValueOnce({ enabled: true });
+    instrumentAgentLoopMock.mockImplementationOnce(async (options: any) =>
+      options.runAgentLoop(options.loopOpts),
+    );
+    const runner = vi.fn(async () => ({
+      inputTokens: 1,
+      outputTokens: 2,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        networkProtocol: "a2a",
+        networkId: "task-qa",
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {},
+      { backgroundFunction: true },
+      {
+        runner: runner as any,
+        telemetry: {
+          runId: "task-qa",
+          threadId: "caller-thread",
+          userId: "alice@example.test",
+          delegation: {
+            protocol: "a2a",
+            callerApp: "mail",
+            taskId: "task-qa",
+            parentRunId: "run-parent",
+            parentTurnId: "turn-parent",
+          },
+        },
+      },
+    );
+
+    expect(instrumentAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "task-qa",
+        threadId: "caller-thread",
+        userId: "alice@example.test",
+        loopOpts: expect.objectContaining({
+          networkProtocol: "a2a",
+          networkId: "task-qa",
+        }),
+        delegation: {
+          protocol: "a2a",
+          callerApp: "mail",
+          taskId: "task-qa",
+          parentRunId: "run-parent",
+          parentTurnId: "turn-parent",
+        },
+      }),
+    );
+    expect(runner).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the uninstrumented delegated loop when setup fails", async () => {
+    getObservabilityConfigMock.mockRejectedValueOnce(
+      new Error("observability database unavailable"),
+    );
+    const runner = vi.fn(async () => ({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runMCPAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {},
+      { backgroundFunction: false },
+      {
+        runner: runner as any,
+        telemetry: {
+          runId: "mcp-request-qa",
+          threadId: "mcp-request-qa",
+          userId: "alice@example.test",
+          delegation: { protocol: "mcp" },
+        },
+      },
+    );
+
+    expect(instrumentAgentLoopMock).not.toHaveBeenCalled();
+    expect(runner).toHaveBeenCalledOnce();
+  });
+});
+
+describe("delegated A2A tool surface", () => {
+  const tool = (name: string) => ({
+    name,
+    description: `${name} description`,
+    inputSchema: { type: "object" as const },
+  });
+
+  it("starts with configured tools plus tool-search and retains the full registry for discovery", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("tool-search"),
+      tool("rare-analytics-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+    ]);
+    expect(surface.availableTools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+      "rare-analytics-action",
+    ]);
+  });
+
+  it("keeps framework automation tools on the delegated first request", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", "utf8");
+    const a2aActionsStart = source.indexOf(
+      "const a2aRegisteredActions = devActive",
+    );
+    const a2aToolSurfaceStart = source.indexOf(
+      "const a2aToolSurface = createA2AEngineToolSurface(",
+      a2aActionsStart,
+    );
+    const a2aActions = source.slice(a2aActionsStart, a2aToolSurfaceStart);
+
+    expect(a2aActions.match(/\.\.\.automationTools,/g)).toHaveLength(2);
+
+    const surface = createA2AEngineToolSurface(
+      [tool("manage-automations"), tool("tool-search"), tool("rare-action")],
+      ["manage-automations"],
+    );
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "manage-automations",
+      "tool-search",
+    ]);
+    expect(surface.availableTools.map((entry) => entry.name)).toEqual([
+      "manage-automations",
+      "tool-search",
+      "rare-action",
+    ]);
+  });
+
+  it("prioritizes a selected receiver's bounded local catalog before cross-app tools", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("list-content-databases"),
+      tool("describe-content-database"),
+      tool("describe-workspace-apps"),
+      tool("call-agent"),
+      tool("tool-search"),
+      tool("rare-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"], {
+      receiverOwnsObjective: true,
+      localCapabilityNames: [
+        "list-content-databases",
+        "describe-content-database",
+      ],
+    });
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "list-content-databases",
+      "describe-content-database",
+      "tool-search",
+    ]);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+
+  it("matches only the receiver app selected by bounded A2A metadata", () => {
+    expect(isSelectedA2AReceiver("content", "content")).toBe(true);
+    expect(isSelectedA2AReceiver("agent-native-content", "CONTENT")).toBe(true);
+    expect(isSelectedA2AReceiver("design", "content")).toBe(false);
+    expect(isSelectedA2AReceiver(undefined, "content")).toBe(false);
+    expect(buildSelectedA2AReceiverContext("content")).toContain(
+      "The caller already selected this app",
+    );
+  });
+
+  it("keeps the existing full A2A tool surface without an initial allow-list", () => {
+    const availableTools = [tool("starter"), tool("tool-search"), tool("rare")];
+
+    const surface = createA2AEngineToolSurface(availableTools);
+
+    expect(surface.tools).toBe(availableTools);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+
+  it("compacts the MCP ask_app inner loop's first request the same way as A2A", () => {
+    const availableTools = [
+      tool("template-app-action"),
+      tool("tool-search"),
+      tool("list-integration-memory"),
+      tool("provider-api-request"),
+      tool("mcp__some-server__some-tool"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, [
+      "template-app-action",
+    ]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "template-app-action",
+      "tool-search",
+    ]);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+});
+
+describe("agent-chat A2A public skills", () => {
+  it("advertises Brain retrieval actions from the static registry in dev mode", () => {
+    const publicAgent = {
+      expose: true,
+      readOnly: true,
+      requiresAuth: false,
+      isConsequential: false,
+    };
+    const actions = loadActionsFromStaticRegistry({
+      "search-knowledge": {
+        default: {
+          tool: {
+            description:
+              "Search Brain knowledge with SQL text matching over title, summary, and body.",
+            parameters: {},
+          },
+          http: { method: "GET" },
+          readOnly: true,
+          publicAgent,
+          run: async () => ({ knowledge: [] }),
+        },
+      },
+      "search-everything": {
+        default: {
+          tool: {
+            description:
+              "Search Brain company memory across published knowledge, accessible raw captures, and accessible source records.",
+            parameters: {},
+          },
+          http: { method: "GET" },
+          readOnly: true,
+          publicAgent,
+          run: async () => ({ results: [] }),
+        },
+      },
+      "write-note": {
+        default: {
+          tool: { description: "Write a private note.", parameters: {} },
+          readOnly: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    const skills = buildPublicAgentA2ASkills(actions);
+
+    expect(skills.map((skill) => skill.id)).toEqual([
+      "search-knowledge",
+      "search-everything",
+    ]);
+    expect(skills).toEqual([
+      expect.objectContaining({
+        id: "search-knowledge",
+        description:
+          "Search Brain knowledge with SQL text matching over title, summary, and body.",
+        publicAgent,
+      }),
+      expect.objectContaining({
+        id: "search-everything",
+        description:
+          "Search Brain company memory across published knowledge, accessible raw captures, and accessible source records.",
+        publicAgent,
+      }),
+    ]);
+  });
+});
+
+describe("assembleA2AFinalResponse", () => {
+  it("fails terminal agent errors instead of completing with no response", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [
+          { type: "clear" },
+          {
+            type: "error",
+            error: "I ran out of time before finishing this step.",
+            errorCode: "run_budget_exhausted",
+            recoverable: true,
+          },
+        ],
+        [],
+      ),
+    ).toThrow(/run_budget_exhausted/);
+  });
+
+  it("fails terminal runs while preserving verified artifact links in the error", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [
+          { type: "tool_start", tool: "update-dashboard", input: {} },
+          {
+            type: "tool_done",
+            tool: "update-dashboard",
+            result: JSON.stringify({
+              id: "growth-funnel",
+              name: "Growth Funnel",
+              urlPath: "/adhoc/growth-funnel",
+            }),
+          },
+          {
+            type: "error",
+            error: "The follow-up summary was interrupted.",
+            errorCode: "stream_ended",
+            recoverable: true,
+          },
+        ],
+        [
+          {
+            tool: "update-dashboard",
+            result: JSON.stringify({
+              id: "growth-funnel",
+              name: "Growth Funnel",
+              urlPath: "/adhoc/growth-funnel",
+            }),
+          },
+        ],
+        { baseUrl: "https://analytics.agent.test" },
+      ),
+    ).toThrow(
+      /stream_ended[\s\S]*https:\/\/analytics\.agent\.test\/adhoc\/growth-funnel/,
+    );
+  });
+
+  it.each([
+    {
+      label: "tripwire",
+      event: {
+        type: "tripwire" as const,
+        reason: "Delegated token budget exhausted",
+        processor: "run-input-token-budget",
+      },
+      code: "tripwire:run-input-token-budget",
+    },
+    {
+      label: "loop limit",
+      event: { type: "loop_limit" as const, maxIterations: 80 },
+      code: "loop_limit",
+    },
+  ])(
+    "fails a terminal $label instead of reporting completion",
+    ({ event, code }) => {
+      expect(() => assembleA2AFinalResponse([event], [])).toThrow(code);
+    },
+  );
+
+  it("rejects an empty completed response", () => {
+    expect(() => assembleA2AFinalResponse([{ type: "done" }], [])).toThrow(
+      "empty_agent_response",
+    );
+  });
+
+  it("treats the typed outcome as authoritative over a stale trailing done", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [{ type: "text", text: "partial" }, { type: "done" }],
+        [],
+        {
+          outcome: {
+            state: "failed",
+            code: "provider_network_error",
+            retryable: true,
+            message: "The specialist connection was interrupted.",
+          },
+        },
+      ),
+    ).toThrow(/provider_network_error/);
+  });
+
+  it("accepts a typed completion after stale recovered events", () => {
+    expect(
+      assembleA2AFinalResponse(
+        [
+          {
+            type: "error",
+            error: "An earlier attempt was interrupted.",
+            errorCode: "provider_network_error",
+            recoverable: true,
+          },
+          { type: "clear" },
+          { type: "text", text: "Recovered answer" },
+          { type: "done" },
+        ],
+        [],
+        { outcome: { state: "completed" } },
+      ).finalText,
+    ).toBe("Recovered answer");
+  });
+
+  it("returns structured verified Content mutation receipts with the final text", () => {
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Feedback updated." }, { type: "done" }],
+      [
+        {
+          tool: "upsert-database-item-by-key",
+          result: JSON.stringify({
+            receipt: {
+              receiptId: "receipt-row-1",
+              operation: "upsert",
+              outcome: "updated",
+              target: {
+                authorityScope: {
+                  kind: "personal",
+                  id: "alice@example.test",
+                },
+                spaceId: "space-alice",
+                databaseId: "feedback-db",
+                databaseDocumentId: "feedback-db-document",
+              },
+              row: {
+                itemId: "feedback-item-1",
+                documentId: "feedback-document-1",
+                urlPath: "/page/feedback-document-1",
+              },
+              idempotency: {
+                key: "request-1",
+                result: "applied",
+                payloadDigest: "digest-1",
+              },
+              revisions: { before: "before", after: "after" },
+              readback: { verified: true, propertyValues: {} },
+            },
+          }),
+        },
+      ],
+    );
+
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        row: expect.objectContaining({ documentId: "feedback-document-1" }),
+      }),
+    ]);
+    expect(assembled.finalText).toContain("/page/feedback-document-1");
+  });
+
+  it("signs final mutation receipts with an organization-only secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const secret = "org-only-final-receipt-secret";
+    const toolResults = [
+      {
+        tool: "upsert-database-item-by-key",
+        result: JSON.stringify({
+          receipt: {
+            receiptId: "receipt-org-secret",
+            operation: "upsert",
+            outcome: "created",
+            target: {
+              authorityScope: { kind: "personal", id: "owner@example.test" },
+              spaceId: "space-owner",
+              databaseId: "feedback-db",
+              databaseDocumentId: "feedback-db-document",
+            },
+            row: {
+              itemId: "feedback-item",
+              documentId: "feedback-document",
+              urlPath: "/page/feedback-document",
+            },
+            idempotency: {
+              key: "request-org-secret",
+              result: "applied",
+              payloadDigest: "digest-org-secret",
+            },
+            revisions: { after: "after" },
+            readback: { verified: true, propertyValues: {} },
+          },
+        }),
+      },
+    ];
+
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Created feedback." }, { type: "done" }],
+      toolResults,
+      {
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toEqual([expect.objectContaining({ receiptId: "receipt-org-secret" })]);
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-other",
+        },
+      ),
+    ).toEqual([]);
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({ receiptId: "receipt-org-secret" }),
+    ]);
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    {
+      outcome: {
+        state: "input_required" as const,
+        code: "needs_approval",
+        message: "Approval is required.",
+      },
+      code: "needs_approval",
+    },
+    {
+      outcome: {
+        state: "canceled" as const,
+        message: "The delegated run was canceled.",
+      },
+      code: "canceled",
+    },
+  ])(
+    "does not collapse typed $code outcomes into success",
+    ({ outcome, code }) => {
+      expect(() =>
+        assembleA2AFinalResponse([{ type: "done" }], [], { outcome }),
+      ).toThrow(code);
+    },
+  );
+});
+
+describe("typed A2A receiver failures", () => {
+  const loopOptions = {
+    engine: {} as any,
+    model: "test-model",
+    systemPrompt: "system",
+    tools: [],
+    messages: [],
+    actions: {},
+    send: () => {},
+    signal: new AbortController().signal,
+  };
+
+  it("carries a typed engine failure to the A2A task instead of dropping it", async () => {
+    const runner = vi.fn(async () => {
+      throw new EngineError("No LLM provider is connected.", {
+        errorCode: "missing_credentials",
+      });
+    });
+
+    await expect(
+      runA2AAgentLoop(loopOptions, {}, {}, { runner: runner as any }),
+    ).rejects.toMatchObject({
+      message: "No LLM provider is connected.",
+      agentNativeErrorCode: "missing_credentials",
+    });
+  });
+
+  it("leaves untyped failures and an existing agentNativeErrorCode untouched", async () => {
+    const untyped = new Error("boom");
+    const alreadyTyped = Object.assign(
+      new EngineError("engine", {
+        errorCode: "provider_network_error",
+      }),
+      { agentNativeErrorCode: "permanent_precondition" },
+    );
+
+    await expect(
+      runA2AAgentLoop(
+        loopOptions,
+        {},
+        {},
+        {
+          runner: vi.fn(async () => {
+            throw untyped;
+          }) as any,
+        },
+      ),
+    ).rejects.not.toHaveProperty("agentNativeErrorCode");
+    await expect(
+      runA2AAgentLoop(
+        loopOptions,
+        {},
+        {},
+        {
+          runner: vi.fn(async () => {
+            throw alreadyTyped;
+          }) as any,
+        },
+      ),
+    ).rejects.toMatchObject({ agentNativeErrorCode: "permanent_precondition" });
+  });
+
+  it("words an organization-verified call from the receiver's own assurance", () => {
+    const error = unverifiedA2AUserError({
+      context: { __a2aIdentityAssurance: "organization" },
+    }) as Error & { agentNativeErrorCode?: string };
+
+    expect(error.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(error.message).toContain("verified as an organization");
+    expect(error.message).toContain("do not retry");
+    expect(error.message).toContain("code: permanent_precondition");
+  });
+
+  it.each([
+    undefined,
+    {},
+    { context: {} },
+    { context: { __a2aIdentityAssurance: "user" } },
+  ])(
+    "words any other call with no verified user as arriving unverified (%j)",
+    (event) => {
+      const error = unverifiedA2AUserError(event) as Error & {
+        agentNativeErrorCode?: string;
+      };
+
+      expect(error.agentNativeErrorCode).toBe("permanent_precondition");
+      expect(error.message).toContain("without a verified user");
+      expect(error.message).toContain("code: permanent_precondition");
+      expect(error.message).not.toContain("verified as an organization");
+    },
+  );
+});
+
+describe("A2A receiver handler with no verified user", () => {
+  const CLAIMED_EMAIL = "julia@example.test";
+  const message = {
+    role: "user" as const,
+    parts: [{ type: "text" as const, text: "list my decks" }],
+  };
+  const closers: Array<() => void | Promise<void>> = [];
+
+  afterEach(async () => {
+    await Promise.all(closers.splice(0).map((close) => close()));
+  });
+
+  async function receive(
+    metadata: Record<string, unknown>,
+    event?: unknown,
+  ): Promise<Error & { agentNativeErrorCode?: string }> {
+    const nitroApp = {
+      h3App: createApp(),
+      hooks: {
+        hook(name: string, callback: () => void | Promise<void>) {
+          if (name === "close") closers.push(callback);
+        },
+      },
+    };
+    createAgentChatPlugin({
+      actions: () => ({}),
+      a2aAgentDelegation: false,
+      frameworkTools: "minimal",
+      leanPrompt: true,
+      mcp: { enabled: false },
+    })(nitroApp);
+    await a2aReceiver.initPromises.at(-1);
+
+    const handler = a2aReceiver.config!.handler;
+    return handler(message, {
+      taskId: "task-no-user",
+      metadata,
+      event,
+      writeArtifact: () => "",
+    })
+      .next()
+      .then(
+        () => {
+          throw new Error("expected the A2A handler to fail");
+        },
+        (error: Error & { agentNativeErrorCode?: string }) => error,
+      );
+  }
+
+  it("fails the task as a permanent precondition without echoing the claimed email", async () => {
+    const failure = await receive({ userEmail: CLAIMED_EMAIL });
+
+    expect(failure.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(failure.message).toContain("without a verified user");
+    expect(failure.message).toContain("code: permanent_precondition");
+    expect(failure.message).not.toContain(CLAIMED_EMAIL);
+  });
+
+  it("words an organization-verified call from the receiver's assurance, never the caller's claim", async () => {
+    const event = { context: { __a2aIdentityAssurance: "organization" } };
+
+    const claimed = await receive({ userEmail: CLAIMED_EMAIL }, event);
+    const unclaimed = await receive({}, event);
+
+    expect(claimed.agentNativeErrorCode).toBe("permanent_precondition");
+    expect(claimed.message).toContain("verified as an organization");
+    expect(claimed.message).not.toContain(CLAIMED_EMAIL);
+    expect(claimed.message).toBe(unclaimed.message);
+  });
+});

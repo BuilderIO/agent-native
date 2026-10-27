@@ -28,6 +28,16 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverAnchor,
@@ -90,6 +100,9 @@ export interface CommentAiDraft {
   mode: CommentAiMode;
 }
 
+/** What Escape would throw away, which picks the confirmation's wording. */
+export type CommentDiscardKind = "comment" | "reply" | "edit";
+
 interface CommentComposerProps {
   value: string;
   onChange: (value: string) => void;
@@ -102,7 +115,13 @@ interface CommentComposerProps {
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   aiModelStorageKey?: string;
+  /** Cancels the draft. Open menus close first. */
   onEscape?: () => void;
+  /**
+   * Set while cancelling would lose unsent text: Escape then asks before
+   * calling `onEscape`, worded for this kind of draft.
+   */
+  confirmEscape?: CommentDiscardKind | false;
   onBlur?: () => void;
   onFocus?: () => void;
   onSelectionChange?: (selection: ComposerTextSelection) => void;
@@ -283,6 +302,7 @@ export const CommentComposer = forwardRef<
     onAiDraftChange,
     aiModelStorageKey,
     onEscape,
+    confirmEscape = false,
     onBlur,
     onFocus,
     onSelectionChange,
@@ -331,9 +351,35 @@ export const CommentComposer = forwardRef<
   onMentionsChangeRef.current = onMentionsChange;
   onModelChangeRef.current = models.onModelChange;
 
+  // Escape cancels the draft, asking first while it holds unsent text.
+  const [confirmingDiscard, setConfirmingDiscard] =
+    useState<CommentDiscardKind | null>(null);
+  const discardButtonRef = useRef<HTMLButtonElement>(null);
+  const discardedRef = useRef(false);
+  // Keep editing puts the cursor back where it was, not at the end.
+  const keptSelectionRef =
+    useRef<ReturnType<TiptapComposerHandle["getSelection"]>>(null);
+  const escapeRef = useRef<() => void>(() => {});
+  escapeRef.current = () => {
+    if (!confirmEscape) {
+      onEscape?.();
+      return;
+    }
+    keptSelectionRef.current = composerRef.current?.getSelection() ?? null;
+    setConfirmingDiscard(confirmEscape);
+  };
+  const escape = useCallback(() => escapeRef.current(), []);
+  const discard = () => {
+    discardedRef.current = true;
+    setConfirmingDiscard(null);
+    onEscape?.();
+  };
+
   const [focused, setFocused] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
+  // The Escape that closes the model menu; it must not cancel the draft too.
+  const modelMenuEscapeRef = useRef<KeyboardEvent | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>(
     {},
   );
@@ -674,6 +720,8 @@ export const CommentComposer = forwardRef<
       }}
       onKeyDownCapture={(event) => {
         if (event.key !== "Escape" || !event.defaultPrevented) return;
+        // The discard dialog's own Escape reaches here through its portal.
+        if (!wrapperRef.current?.contains(event.target as Node)) return;
         if (
           event.nativeEvent.isComposing ||
           event.nativeEvent.keyCode === 229
@@ -681,7 +729,13 @@ export const CommentComposer = forwardRef<
           event.stopPropagation();
           return;
         }
-        if (!composerRef.current?.dismissPopover()) onEscape?.();
+        // The model menu keeps focus in the editor and closes on this
+        // Escape before it reaches here.
+        if (event.nativeEvent === modelMenuEscapeRef.current) {
+          event.stopPropagation();
+          return;
+        }
+        if (!composerRef.current?.dismissPopover()) escape();
         event.stopPropagation();
       }}
     >
@@ -706,7 +760,7 @@ export const CommentComposer = forwardRef<
         mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}
-        onEscape={onEscape}
+        onEscape={onEscape ? escape : undefined}
         onFocus={onFocus}
         onBlur={onBlur}
         onSelectionChange={onSelectionChange}
@@ -774,6 +828,9 @@ export const CommentComposer = forwardRef<
           sideOffset={6}
           className="w-64 p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            modelMenuEscapeRef.current = event;
+          }}
         >
           <CommentAiModelList
             models={connectedModels}
@@ -782,6 +839,89 @@ export const CommentComposer = forwardRef<
           />
         </PopoverContent>
       </Popover>
+      {/* The dialog renders in a portal, but React still bubbles its events
+          through this tree, where a thread card would read them as its own. */}
+      <span
+        className="contents"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {/* Dialog, not AlertDialog: AlertDialog bundles its own focus trap,
+            which the mobile Comments Sheet's trap would fight. It takes
+            AlertDialog's layer instead, above a Collection cell's card. */}
+        <Dialog
+          open={confirmingDiscard !== null}
+          onOpenChange={(open) => {
+            if (!open) setConfirmingDiscard(null);
+          }}
+        >
+          <DialogContent
+            role="alertdialog"
+            hideClose
+            overlayClassName="z-[340]"
+            className="z-[350] max-w-sm gap-0 rounded-lg p-5"
+            onOpenAutoFocus={(event) => {
+              // Escape then Enter discards; a second Escape keeps the draft.
+              event.preventDefault();
+              discardButtonRef.current?.focus();
+            }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              // After a discard the caller decides where focus goes.
+              if (discardedRef.current) {
+                discardedRef.current = false;
+                return;
+              }
+              const selection = keptSelectionRef.current;
+              if (selection) {
+                composerRef.current?.setSelection(
+                  selection.start,
+                  selection.end,
+                  selection.direction,
+                );
+              } else {
+                composerRef.current?.focus();
+              }
+            }}
+          >
+            <DialogHeader className="space-y-0 gap-1.5 text-start">
+              <DialogTitle className="text-base leading-tight tracking-tight">
+                {confirmingDiscard === "edit"
+                  ? t("comments.discardEditQuestion")
+                  : confirmingDiscard === "reply"
+                    ? t("comments.discardReplyQuestion")
+                    : t("comments.discardCommentQuestion")}
+              </DialogTitle>
+              <DialogDescription className="leading-normal [text-wrap:pretty]">
+                {confirmingDiscard === "edit"
+                  ? t("comments.discardEditDescription")
+                  : t("comments.discardDescription")}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
+              <DialogClose asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+                >
+                  {t("comments.keepEditing")}
+                </Button>
+              </DialogClose>
+              <Button
+                ref={discardButtonRef}
+                variant="destructive"
+                size="sm"
+                className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+                onClick={discard}
+              >
+                {t("comments.discard")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </span>
     </div>
   );
 });

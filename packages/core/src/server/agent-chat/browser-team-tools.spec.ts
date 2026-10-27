@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ActionContractError } from "../../action.js";
+import type { AgentEngine } from "../../agent/engine/types.js";
+import {
+  actionsToEngineTools,
+  runAgentLoop,
+} from "../../agent/production-agent.js";
+import { BUILDER_OAUTH_SCOPE } from "../builder-oauth.js";
+import { runWithRequestContext } from "../request-context.js";
 import {
   createBuilderBrowserTool,
   createTeamTools,
@@ -12,10 +20,13 @@ const mocks = vi.hoisted(() => ({
   getBuilderCredentialAuthFailure: vi.fn(),
   getBuilderBrowserConnectUrlForOwner: vi.fn(),
   getAgentTeamRunDispatchState: vi.fn(),
+  getMcpManagerForCurrentRequest: vi.fn(),
   getTask: vi.fn(),
   listTasks: vi.fn(),
+  requestBuilderBrowserConnection: vi.fn(),
   resolveBuilderBranchProjectId: vi.fn(),
   resolveBuilderCredentials: vi.fn(),
+  resolveBuilderRequestAuthorization: vi.fn(),
 }));
 
 vi.mock("../../sharing/access.js", () => ({
@@ -25,7 +36,17 @@ vi.mock("../../sharing/access.js", () => ({
 vi.mock("../builder-browser.js", () => ({
   getBuilderBrowserConnectUrlForOwner:
     mocks.getBuilderBrowserConnectUrlForOwner,
+  requestBuilderBrowserConnection: mocks.requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId: mocks.resolveBuilderBranchProjectId,
+}));
+
+vi.mock("../builder-api-auth.js", () => ({
+  resolveBuilderRequestAuthorization: mocks.resolveBuilderRequestAuthorization,
+}));
+
+vi.mock("./mcp-glue.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp-glue.js")>()),
+  getMcpManagerForCurrentRequest: mocks.getMcpManagerForCurrentRequest,
 }));
 
 vi.mock("../credential-provider.js", () => ({
@@ -210,6 +231,180 @@ describe("connect-builder source-change handoff", () => {
   });
 });
 
+describe("Builder sign-in without a legacy key pair", () => {
+  const reconfigure = vi.fn();
+
+  beforeEach(() => {
+    mocks.getBuilderCredentialAuthFailure.mockReset().mockResolvedValue(null);
+    mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
+      "https://builder.example.test/connect",
+    );
+    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderCredentials.mockReset().mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      orgName: null,
+    });
+    mocks.resolveBuilderRequestAuthorization.mockReset().mockResolvedValue({
+      token: "oauth-test-token",
+      authorization: "Bearer oauth-test-token",
+      source: "oauth",
+      oauthScope: "user",
+      oauthResource: "general",
+    });
+    mocks.requestBuilderBrowserConnection
+      .mockReset()
+      .mockResolvedValue({ wsUrl: "wss://browser.example.test/session" });
+    reconfigure.mockReset();
+    mocks.getMcpManagerForCurrentRequest.mockReset().mockResolvedValue({
+      getConfig: () => ({ servers: {}, source: "runtime" }),
+      reconfigure,
+    });
+  });
+
+  afterEach(() => {
+    mocks.resolveBuilderRequestAuthorization.mockReset();
+  });
+
+  async function runBuilderTool(
+    name: "connect-builder" | "activate-browser",
+    args: Record<string, unknown>,
+  ) {
+    const entry = createBuilderBrowserTool({
+      getOrigin: () => "https://app.example.test",
+      getOwner: () => "owner@example.test",
+    })[name];
+    return JSON.parse(await entry.run(args));
+  }
+
+  it("connect-builder renders the card as connected", async () => {
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({
+      kind: "connect-builder-card",
+      configured: true,
+      builderEnabled: true,
+    });
+    expect(mocks.resolveBuilderRequestAuthorization).toHaveBeenCalledWith({
+      requiredScope: BUILDER_OAUTH_SCOPE,
+    });
+  });
+
+  it("activate-browser opens a browser instead of asking to connect", async () => {
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({
+      success: true,
+      wsUrl: "wss://browser.example.test/session",
+      sessionId: "session-1",
+    });
+    expect(mocks.resolveBuilderRequestAuthorization).toHaveBeenCalledWith({
+      requiredScope: "builder:browser:connect",
+    });
+    expect(mocks.requestBuilderBrowserConnection).toHaveBeenCalledWith({
+      sessionId: "session-1",
+    });
+    expect(reconfigure).toHaveBeenCalledTimes(1);
+  });
+
+  it("activate-browser asks to reconnect a sign-in without the browser scope", async () => {
+    mocks.resolveBuilderRequestAuthorization.mockImplementation(
+      async ({ requiredScope }: { requiredScope: string }) => {
+        if (requiredScope === BUILDER_OAUTH_SCOPE) {
+          return {
+            token: "oauth-test-token",
+            authorization: "Bearer oauth-test-token",
+            source: "oauth",
+            oauthScope: "user",
+            oauthResource: "general",
+          };
+        }
+        throw new ActionContractError(
+          `Builder.io access needs re-authorizing to grant ${requiredScope}. Open Settings and authorize Builder.io again.`,
+          {
+            errorCode: "builder_oauth_reauthorization_required",
+            statusCode: 400,
+            details: { reason: "missing_scope", scope: requiredScope },
+          },
+        );
+      },
+    );
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: true });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({
+      error: "builder-reauthorization-required",
+      message: expect.stringContaining("builder:browser:connect"),
+    });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a deploy key pair when the sign-in needs re-authorizing", async () => {
+    mocks.resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "private-test-key",
+      publicKey: "public-test-key",
+      orgName: "Test org",
+    });
+    mocks.resolveBuilderRequestAuthorization.mockRejectedValue(
+      new ActionContractError(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+        {
+          errorCode: "builder_oauth_reauthorization_required",
+          statusCode: 400,
+        },
+      ),
+    );
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: false });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({
+      error: "builder-reauthorization-required",
+      message: expect.stringContaining("Re-authorize Builder.io in Settings"),
+    });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+  });
+
+  it("asks to connect when there is no sign-in or key pair", async () => {
+    mocks.resolveBuilderRequestAuthorization.mockResolvedValue(null);
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: false });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({ error: "builder-not-connected" });
+    expect(mocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+  });
+
+  it("keeps a legacy key pair connected in both tools", async () => {
+    mocks.resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "private-test-key",
+      publicKey: "public-test-key",
+      orgName: "Test org",
+    });
+    mocks.resolveBuilderRequestAuthorization.mockResolvedValue({
+      token: "private-test-key",
+      authorization: "Bearer private-test-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+      legacyPublicKey: "public-test-key",
+    });
+
+    await expect(
+      runBuilderTool("connect-builder", { prompt: "Add a pricing page." }),
+    ).resolves.toMatchObject({ configured: true, orgName: "Test org" });
+    await expect(
+      runBuilderTool("activate-browser", { sessionId: "session-1" }),
+    ).resolves.toMatchObject({ success: true });
+  });
+});
+
 describe("createTeamTools Plan-mode effects", () => {
   it("allows task observation but blocks delegation and messages", () => {
     const entry = createTeamTools({
@@ -230,6 +425,200 @@ describe("createTeamTools Plan-mode effects", () => {
     expect(effect({ action: "list" })).toBe("read");
     expect(effect({ action: "spawn" })).toBe("write");
     expect(effect({ action: "send" })).toBe("write");
+  });
+});
+
+describe("createTeamTools bounded task reads", () => {
+  const task = {
+    taskId: "task-1",
+    threadId: "child-1",
+    parentThreadId: "parent-1",
+    status: "running",
+    description: "Review email",
+    summary: "",
+    preview: "Inspecting",
+  };
+  function teamTool() {
+    return createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as AgentEngine,
+      getModel: () => "test-model",
+      getParentThreadId: () => "parent-1",
+      getSend: () => null,
+    })["agent-teams"];
+  }
+  beforeEach(() => {
+    mocks.getTask.mockReset().mockResolvedValue(task);
+    mocks.getAgentTeamRunDispatchState.mockReset().mockResolvedValue(null);
+  });
+  afterEach(() => {
+    mocks.getTask.mockReset();
+    mocks.getAgentTeamRunDispatchState.mockReset();
+  });
+
+  it("waits for a terminal result and keeps every read in the caller's scope", async () => {
+    mocks.getTask.mockResolvedValueOnce(task).mockResolvedValue({
+      ...task,
+      status: "completed",
+      summary: "Reviewed unchanged hash; no issues.",
+    });
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        teamTool().run({
+          action: "read-result",
+          taskId: "task-1",
+          waitMs: 1000,
+        }),
+    );
+    expect(JSON.parse(result)).toMatchObject({
+      status: "completed",
+      summary: "Reviewed unchanged hash; no issues.",
+    });
+    expect(mocks.getTask.mock.calls).toEqual([
+      ["task-1", { ownerEmail: "owner@example.test", orgId: "org-1" }],
+      ["task-1", { ownerEmail: "owner@example.test", orgId: "org-1" }],
+    ]);
+  });
+
+  it("returns an honest queued snapshot when the wait expires", async () => {
+    mocks.getAgentTeamRunDispatchState.mockResolvedValue({ status: "queued" });
+    const result = JSON.parse(
+      await teamTool().run({
+        action: "read-result",
+        taskId: "task-1",
+        waitMs: 20,
+      }),
+    );
+    expect(result).toMatchObject({ status: "queued", taskId: "task-1" });
+    expect(result).not.toHaveProperty("summary");
+    expect(mocks.getTask.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not wait or expose queue state for a foreign or missing task", async () => {
+    mocks.getTask.mockResolvedValue(undefined);
+    expect(
+      JSON.parse(
+        await teamTool().run({
+          action: "status",
+          taskId: "foreign",
+          waitMs: 20000,
+        }),
+      ),
+    ).toEqual({ error: "Task not found" });
+    expect(mocks.getTask).toHaveBeenCalledTimes(1);
+    expect(mocks.getAgentTeamRunDispatchState).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit personal scope instead of falling back to the ambient organization", async () => {
+    mocks.getTask.mockResolvedValue(undefined);
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        teamTool().run(
+          { action: "status", taskId: "task-1" },
+          { caller: "agent", orgId: null },
+        ),
+    );
+    expect(mocks.getTask).toHaveBeenCalledWith("task-1", {
+      ownerEmail: "owner@example.test",
+      orgId: null,
+    });
+  });
+
+  it("aborts an active wait without another task read", async () => {
+    const controller = new AbortController();
+    const waiting = teamTool().run(
+      { action: "status", taskId: "task-1", waitMs: 1000 },
+      { caller: "agent", signal: controller.signal },
+    );
+    const outcome = waiting.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(mocks.getTask).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([-1, 20001, 1.5, "1000"])(
+    "rejects invalid wait bounds (%s)",
+    async (waitMs) => {
+      await expect(
+        teamTool().run({ action: "status", taskId: "task-1", waitMs }),
+      ).rejects.toThrow("waitMs");
+      expect(mocks.getTask).not.toHaveBeenCalled();
+    },
+  );
+
+  it("observes changed task status across identical bounded waits in one agent turn", async () => {
+    let calls = 0;
+    mocks.getTask.mockImplementation(async () =>
+      calls < 10 ? task : { ...task, status: "completed", summary: "Clear" },
+    );
+    const entry = teamTool();
+    const observed: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      async *stream(opts) {
+        const last = opts.messages[opts.messages.length - 1];
+        for (const part of last?.content ?? [])
+          if (part.type === "tool-result") observed.push(part.content);
+        if (++calls <= 10) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `status-${calls}`,
+                name: "agent-teams",
+                input: { action: "status", taskId: "task-1", waitMs: 1 },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Review complete." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "Observe task state",
+      tools: actionsToEngineTools({ "agent-teams": entry }),
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Wait until the task completes" }],
+        },
+      ],
+      actions: { "agent-teams": entry },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    expect(mocks.getTask.mock.calls.length).toBeGreaterThanOrEqual(10);
+    expect(observed.map((content) => JSON.parse(content).status)).toEqual([
+      ...Array(9).fill("running"),
+      "completed",
+    ]);
   });
 });
 

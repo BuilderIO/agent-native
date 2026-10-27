@@ -113,6 +113,7 @@ export const FRAMEWORK_HTTP_ROUTES = [
   MCP_LEGACY_ROUTE_PREFIX,
   `${MCP_LEGACY_ROUTE_PREFIX}/oauth/*`,
   `${MCP_LEGACY_ROUTE_PREFIX}/connect/*`,
+  `${MCP_LEGACY_ROUTE_PREFIX}/approvals/:id`,
   `${MCP_LEGACY_ROUTE_PREFIX}/servers/*`,
   `${MCP_LEGACY_ROUTE_PREFIX}/hub/*`,
   `${MCP_LEGACY_ROUTE_PREFIX}/*`,

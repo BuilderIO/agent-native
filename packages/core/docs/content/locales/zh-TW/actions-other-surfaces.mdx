@@ -66,7 +66,49 @@ pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-這對代理開發迴圈、腳本與 cron 工作都很有用。
+對於 `defineAction()` 呼叫，CLI 會使用已準備、解析並套用結構描述預設值的引數，以及呼叫者 `cli` 來評估 `needsApproval`。若 stdin 和 stdout 都是 TTY，它會顯示 action 名稱與引數，並提示 `y/N`。只有 `y` 或 `yes` 才會執行 action。
+
+若缺少任一 TTY，CLI 會要求代理向本人請求核准。本人核准這次特定呼叫後，使用完全相同的原始 `pnpm action` 引數重新執行，並在結尾加上 `--approved`：
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` 是保留的 CLI 中繼資料，會在解析輸入前移除。它不接受值：後面接著另一個旗標或 JSON 物件以外的內容時，呼叫會被拒絕；名為 `approved` 的輸入要寫成 `--approved=<value>`。用於不需核准的 action 時不會造成影響。CLI 無法確認是誰加上它：代理未經詢問就加上它，便會略過確認。這個旗標讓核准顯示在本人核准的命令中，也顯示在稽核記錄裡，稽核記錄會將其標為未驗證。在沒有 POSIX `SHELL` 的 Windows 上，拒絕訊息會提供 PowerShell 用的命令；引號規則不同時，也會提供 cmd.exe 用的命令。在 Windows 上，無論從哪個 shell 執行，pnpm 都會經由 cmd.exe 傳遞 action 參數，而 cmd.exe 即使在引號內也會展開 `%NAME%`。參數中含有這類變數時，拒絕訊息不會提供帶 `--approved` 的重新執行命令：由本人在終端機中執行命令，並在確認提示中核對參數值。如果參數中同時含有引號和 `&`、`|`、`<`、`>`、`^` 之一，pnpm 無法將它們原樣傳給 cmd.exe，因此拒絕訊息不會提供任何命令，由本人在應用程式中核准這次呼叫。Windows PowerShell 5.1 會刪除參數中的每個 `"`，因此在沒有 POSIX `SHELL` 的 Windows 上，含雙引號的參數也會改走確認提示，而不是帶 `--approved` 的重新執行命令。
+
+本機開發橋接會在 JSON 請求主體中將核准中繼資料放在 `input` 之外：
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+對於尚未核准的受限呼叫，橋接會傳回 HTTP `409`：
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+在 TTY 中確認後，CLI 會使用核准請求回應中的 `argumentsHash` 重試：
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+橋接只會執行一次本人審閱過的那次呼叫，因此每次呼叫都會變動的預設值（例如時間戳記）會保留本人看到的值。沒有可執行的保留呼叫的確認（已執行過、已過 10 分鐘或開發伺服器已重新啟動）會收到 HTTP `409` 和 `errorCode: "approval_expired"`。請重新執行命令進行審閱。
+
+`arguments` 包含準備好的引數。本機開發橋接的此約定不會改變[公開 HTTP action API 的核准規則](/docs/actions-access-control#needs-approval)。已核准的受限 CLI 呼叫會在該 action 自己的稽核記錄列中寫入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，呼叫者為 `cli`。由於只有 CLI 能看到確認提示，稽核記錄會將兩者都顯示為未驗證。
 
 ## 從另一個代理呼叫它（A2A）{#a2a}
 

@@ -24,11 +24,15 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  defineActionErrors,
+  type ActionErrors,
   fail,
   type FailOptions,
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
+  NoWriteError,
+  isNoWriteError,
   ActionOutputContractError,
   isActionOutputContractError,
   type ActionOutputContractErrorOptions,

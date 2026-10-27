@@ -729,7 +729,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आपका टूल इमेज नहीं लौटा सकता या इन लिंक को नहीं खोल सकता, तो बताएं कि यह आपके टूल की सीमा है; यह Clips की त्रुटि नहीं है।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -744,12 +744,16 @@ const messages = {
     chooseFile: "फ़ाइल चुनें",
     remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
-    embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
-    embedPublicDescription:
-      "यह क्लिप वर्तमान में {{visibility}} है। एंबेडेड आईफ्रेम गुमनाम रूप से लोड होते हैं, इसलिए दर्शकों के देखने के लिए क्लिप सार्वजनिक होनी चाहिए।",
-    makingPublic: "सार्वजनिक किया जा रहा है...",
-    makePublic: "सार्वजनिक करो",
     askOwnerPublic: "मालिक से इसे सार्वजनिक करने के लिए कहें.",
+    advanced: "उन्नत",
+    passwordSet: "पासवर्ड सेट है",
+    noPassword: "कोई पासवर्ड नहीं",
+    linkExpires: "लिंक की समाप्ति",
+    expiresOn: "{{date}} को समाप्त होगा",
+    neverExpires: "कभी समाप्त नहीं होता",
+    embedNeedsLinkAccess:
+      "एम्बेड किए गए प्लेयर बिना साइन इन के लोड होते हैं, इसलिए वे तभी चलते हैं जब लिंक वाला कोई भी व्यक्ति देख सकता है।",
+    changeGeneralAccess: "सामान्य एक्सेस बदलें",
     responsive: "प्रतिक्रियाशील (16:9)",
     fixedSize: "निश्चित आकार",
     embedIframeTitle: "Clips वीडियो",
@@ -1310,12 +1314,13 @@ const messages = {
     actionItems: "कार्य आइटम",
     sharedContent: "साझा की गई सामग्री",
     summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
-    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
-    includeTranscriptDescription:
-      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
     transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
-    agentLinkDescription:
-      "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
+    transcriptOnShareLink: "शेयर लिंक पर ट्रांसक्रिप्ट",
+    transcriptOnShareLinkDescription:
+      "आपके आमंत्रित लोग Clips में हमेशा ट्रांसक्रिप्ट देखते हैं।",
+    linkShowsTranscript: "लिंक में ट्रांसक्रिप्ट शामिल है",
+    linkShowsNotesOnly: "लिंक केवल नोट्स दिखाता है",
+    copyAgentLink: "एजेंट लिंक कॉपी करें",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",

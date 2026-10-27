@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-21
+
+### Improved
+
+- Share panels describe general access in a sentence and no longer open an empty people list when you click into them.
+
 ## 2026-10-20
 
 ### Fixed
@@ -59,6 +65,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Share dialogs make it easier to see who has access and manage common sharing changes.
 - Rewind settings now show whether Rewind is remembering screen only or screen + audio.
 - Clips detects browser meetings more reliably and keeps notes until the meeting stop and transcript save are confirmed.
 - Clips detects browser meetings sooner, asks before starting when the active tab is unclear, and retries failed stops.
@@ -1616,25 +1623,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Slack unfurls now recognize recording dashboard links pasted from Clips.
 - The agent sidebar now slides in smoothly without duplicate edge borders.
 - The clip details sidebar now collapses into a slide-out panel on smaller screens.
-
-## 2026-06-25
-
-### Added
-
-- GitHub issue and pull request pages can now preview playable Clips links when the Chrome extension is installed.
-- Recording pages now offer a download action for viewers with video download access.
-
-### Improved
-
-- Clip titles are now edited only from a clip's detail view, not from the library grid
-- Console diagnostics keep more useful non-secret details when clips are shared with agents.
-- Recording cards now avoid duplicate rename controls in the overflow menu.
-
-### Fixed
-
-- Chrome extension recordings now upload large capture bursts reliably and report extension errors to Sentry.
-- Fixed owner recognition so Clips created from desktop and web sessions remain editable by the same signed-in user.
-- Fixed the Mac menu bar popover so it opens reliably after launch at login.
-- Localized Clips Settings changelog and extension sidebar labels in every supported interface language.
 
 For the full list of updates, see the [changelog folder](./changelog/).

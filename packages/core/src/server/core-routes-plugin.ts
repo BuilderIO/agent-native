@@ -115,6 +115,7 @@ import {
   resolveOrgScopeForEmail,
 } from "../org/context.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
+import { ensureS3PrivateBlobProviders } from "../private-blob/s3-private.js";
 import { createProgressHandler } from "../progress/routes.js";
 import { REALTIME_POLL_LIVE_QUERY_PARAM } from "../realtime-protocol.js";
 import {
@@ -181,6 +182,7 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
+import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -210,6 +212,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  BuilderAccountProvisioningError,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -800,6 +803,21 @@ export function builderEffectiveConnectionFor(
 ): BuilderEffectiveConnection | null {
   if (source === "user") return "personal";
   return source ?? null;
+}
+
+export function hasUsableBuilderCredentialPair(credentials: {
+  privateKey: string | null;
+  publicKey: string | null;
+  lookupFailed: boolean;
+}): credentials is {
+  privateKey: string;
+  publicKey: string;
+  lookupFailed: false;
+} {
+  return (
+    !credentials.lookupFailed &&
+    Boolean(credentials.privateKey && credentials.publicKey)
+  );
 }
 
 /**
@@ -2514,11 +2532,13 @@ export async function activateBuilderAccount(
     message: string,
     reason: string,
     code?: string,
+    diagnostics: Record<string, unknown> = {},
   ): Promise<BuilderAccountActivationResult> => {
     await trackBuilderLifecycle(event, "builder connect failed", ownerEmail, {
       ...builderConnectTrackingProperties(input.tracking),
       reason,
       stage: "provision",
+      ...diagnostics,
     });
     return { ok: false, status, message, reason, ...(code ? { code } : {}) };
   };
@@ -2617,10 +2637,12 @@ export async function activateBuilderAccount(
     });
     return { ok: true, scope: written.scope };
   } catch (error) {
-    console.error(
-      "[builder] Agent-Native account provisioning failed:",
-      error instanceof Error ? error.message : error,
-    );
+    const provisioningError =
+      error instanceof BuilderAccountProvisioningError ? error : null;
+    console.error("[builder] Agent-Native account provisioning failed:", {
+      errorType: error instanceof Error ? error.name : typeof error,
+      upstreamStatus: provisioningError?.upstreamStatus ?? null,
+    });
     if (isBuilderAccountAlreadyExistsError(error)) {
       return fail(
         409,
@@ -2633,6 +2655,15 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
+      undefined,
+      {
+        upstream_response_received: provisioningError?.upstreamStatus != null,
+        upstream_status: provisioningError?.upstreamStatus ?? null,
+        upstream_body: provisioningError?.upstreamErrorBody ?? null,
+        upstream_body_read_error_type:
+          provisioningError?.upstreamBodyReadErrorType ?? null,
+        upstream_error_type: error instanceof Error ? error.name : typeof error,
+      },
     );
   }
 }
@@ -2830,6 +2861,18 @@ export interface OAuthCustodyBuilderKeyStatus {
    * read downstream as "the user never connected Builder keys".
    */
   keyLookupFailed: boolean;
+  optionalMetadataLookupFailure?: "unreadable" | "unavailable";
+}
+
+export function hasUnavailableBuilderCredentialPair(credentials: {
+  privateKey: string | null;
+  publicKey: string | null;
+  lookupFailed: boolean;
+}): boolean {
+  return (
+    credentials.lookupFailed &&
+    !(credentials.privateKey && credentials.publicKey)
+  );
 }
 
 /**
@@ -2841,22 +2884,66 @@ export interface OAuthCustodyBuilderKeyStatus {
  */
 export async function resolveOAuthCustodyBuilderKeyStatus(
   dependencies: {
-    resolveCredentialsDetailed: () => Promise<{
+    role?: string | null;
+    resolveOrgCredentialPair?: () => Promise<[string, string] | null>;
+    resolveCredentialsDetailed?: () => Promise<{
       privateKey: string | null;
       publicKey: string | null;
       orgName: string | null;
       lookupFailed: boolean;
+      optionalMetadataLookupFailure?: "unreadable" | "unavailable";
     }>;
-  } = {
-    resolveCredentialsDetailed: async () => {
-      const { resolveBuilderCredentialsDetailed } =
-        await import("./credential-provider.js");
-      return resolveBuilderCredentialsDetailed();
-    },
-  },
+  } = {},
 ): Promise<OAuthCustodyBuilderKeyStatus> {
   try {
-    const creds = await dependencies.resolveCredentialsDetailed();
+    if (isBuilderOrgManagerRole(dependencies.role)) {
+      const resolveOrgCredentialPair =
+        dependencies.resolveOrgCredentialPair ??
+        (async () => {
+          const orgId = getRequestOrgId()?.trim();
+          if (!orgId) return null;
+          const { readAppSecrets } = await import("../secrets/storage.js");
+          const { getBuilderCredentialAuthFailure } =
+            await import("./credential-provider.js");
+          for (const scope of ["org", "workspace"] as const) {
+            const secrets = await readAppSecrets({
+              keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+              scope,
+              scopeId: orgId,
+            });
+            const privateKey = secrets.get("BUILDER_PRIVATE_KEY")?.value;
+            const publicKey = secrets.get("BUILDER_PUBLIC_KEY")?.value;
+            if (!privateKey || !publicKey) continue;
+            if (
+              !(await getBuilderCredentialAuthFailure({
+                privateKey,
+                publicKey,
+              }))
+            ) {
+              return [privateKey, publicKey];
+            }
+          }
+          return null;
+        });
+      const pair = await resolveOrgCredentialPair();
+      if (pair) {
+        return {
+          privateKeyConfigured: true,
+          publicKeyConfigured: true,
+          orgName: "Builder OAuth",
+          keyLookupFailed: false,
+        };
+      }
+    }
+
+    const resolveCredentialsDetailed =
+      dependencies.resolveCredentialsDetailed ??
+      (async () => {
+        const { resolveBuilderCredentialsDetailed } =
+          await import("./credential-provider.js");
+        return resolveBuilderCredentialsDetailed();
+      });
+    const creds = await resolveCredentialsDetailed();
     return {
       privateKeyConfigured: !!creds.privateKey,
       publicKeyConfigured: !!creds.publicKey,
@@ -2865,6 +2952,11 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
           ? creds.orgName
           : "Builder OAuth",
       keyLookupFailed: creds.lookupFailed,
+      ...(creds.optionalMetadataLookupFailure
+        ? {
+            optionalMetadataLookupFailure: creds.optionalMetadataLookupFailure,
+          }
+        : {}),
     };
   } catch {
     // OAuth already proves the chat gateway, so a thrown key-pair lookup
@@ -3043,6 +3135,57 @@ export function mountMcpConnectRoutes(
   }
 }
 
+// Each image module loads on the first request for its route. The OG image
+// module embeds its background image, over a megabyte of source, and loading
+// it while the routes mount would cost every cold instance its first request.
+// A failed load isn't kept, so the route's next request tries again.
+export function mountImageRoutes(
+  app: H3AppShim,
+  routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
+): void {
+  app.use(
+    `${routePrefix}/og-image.png`,
+    lazyRouteHandler(async () => {
+      const { createAgentNativeOgImageHandler } =
+        await import("./social-og-image.js");
+      return createAgentNativeOgImageHandler();
+    }),
+  );
+
+  // Signed, content-only recap PNG images. POST (authenticated with the
+  // same `agent-native connect` bearer token the action surface accepts)
+  // stores a PNG and returns a public image URL; GET <token>.png serves
+  // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
+  // screenshot into a private-repo PR comment. Mounted as a prefix so it
+  // owns both `/_agent-native/recap-image` (POST) and
+  // `/_agent-native/recap-image/<token>.png` (GET).
+  app.use(
+    `${routePrefix}/recap-image`,
+    lazyRouteHandler(async () => {
+      const { createRecapImageHandler } =
+        await import("./recap-image-route.js");
+      return createRecapImageHandler();
+    }),
+  );
+}
+
+type RouteHandler = (event: H3Event) => unknown;
+
+// h3's `defineLazyEventHandler` keeps any rejected load, which would fail the
+// route for the rest of the instance's life. This one retries a handler that
+// failed to build or a module Node couldn't find or read. A module whose
+// evaluation threw stays failed, because Node keeps that error.
+function lazyRouteHandler(load: () => Promise<RouteHandler>) {
+  let loaded: Promise<RouteHandler> | undefined;
+  return defineEventHandler(async (event: H3Event) => {
+    const handler = await (loaded ??= load().catch((error: unknown) => {
+      loaded = undefined;
+      throw error;
+    }));
+    return handler(event);
+  });
+}
+
 export function mountApplicationStateRoutes(
   nitroApp: any,
   routePrefix: string = FRAMEWORK_ROUTE_PREFIX,
@@ -3171,8 +3314,10 @@ export function createCoreRoutesPlugin(
       // app does not mount the optional onboarding plugin. The settings CTA and
       // the upload route share this registry. An app may register its own
       // provider under the conventional `s3` id, so preserve that explicit
-      // registration instead of replacing it during core bootstrap.
+      // registration instead of replacing it during core bootstrap. The
+      // private-blob side gets the workspace and hosted private buckets.
       ensureS3FileUploadProvider();
+      ensureS3PrivateBlobProviders();
 
       getH3App(nitroApp).use(
         `${P}/oauth/popup`,
@@ -4019,9 +4164,23 @@ export function createCoreRoutesPlugin(
         if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+        let startupTimer: ReturnType<typeof setTimeout> | null = null;
+        let sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-        setTimeout(() => {
-          setInterval(() => {
+        const stopSandboxExecutionSweep = () => {
+          if (startupTimer) {
+            clearTimeout(startupTimer);
+            startupTimer = null;
+          }
+          if (sweepTimer) {
+            clearInterval(sweepTimer);
+            sweepTimer = null;
+          }
+        };
+
+        startupTimer = setTimeout(() => {
+          startupTimer = null;
+          sweepTimer = setInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -4034,7 +4193,12 @@ export function createCoreRoutesPlugin(
               // best-effort — never break the server
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
+          sweepTimer.unref?.();
         }, 25_000); // Start 25s after init (after the agent sweeps)
+        startupTimer.unref?.();
+
+        registerBackgroundJobStop(stopSandboxExecutionSweep);
+        nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
       })();
 
       getH3App(nitroApp).use(
@@ -4064,27 +4228,7 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      {
-        const { createAgentNativeOgImageHandler } =
-          await import("./social-og-image.js");
-        getH3App(nitroApp).use(
-          `${P}/og-image.png`,
-          createAgentNativeOgImageHandler(),
-        );
-      }
-
-      // Signed, content-only recap PNG images. POST (authenticated with the
-      // same `agent-native connect` bearer token the action surface accepts)
-      // stores a PNG and returns a public image URL; GET <token>.png serves
-      // the opaque bytes anonymously so GitHub's camo proxy can inline a recap
-      // screenshot into a private-repo PR comment. Mounted as a prefix so it
-      // owns both `/_agent-native/recap-image` (POST) and
-      // `/_agent-native/recap-image/<token>.png` (GET).
-      {
-        const { createRecapImageHandler } =
-          await import("./recap-image-route.js");
-        getH3App(nitroApp).use(`${P}/recap-image`, createRecapImageHandler());
-      }
+      mountImageRoutes(getH3App(nitroApp), P);
 
       mountBrowserSessionRoutes(nitroApp, { routePrefix: P });
 
@@ -4247,7 +4391,9 @@ export function createCoreRoutesPlugin(
                     legacyCredentialKeys: BUILDER_STATUS_LEGACY_CREDENTIAL_KEYS,
                   });
                 if (requestAuthorization?.source === "oauth") {
-                  const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
+                  const keyStatus = await resolveOAuthCustodyBuilderKeyStatus({
+                    role: orgRole,
+                  });
                   const oauthSource =
                     requestAuthorization.oauthScope === "org"
                       ? ("org" as const)
@@ -4263,6 +4409,8 @@ export function createCoreRoutesPlugin(
                       privateKeyConfigured: keyStatus.privateKeyConfigured,
                       publicKeyConfigured: keyStatus.publicKeyConfigured,
                       keyLookupFailed: keyStatus.keyLookupFailed,
+                      optionalMetadataLookupFailure:
+                        keyStatus.optionalMetadataLookupFailure,
                       orgName: keyStatus.orgName,
                       spaces: [],
                     },
@@ -4311,14 +4459,36 @@ export function createCoreRoutesPlugin(
             // blocking a user from connecting their own Builder account.
             try {
               const {
-                resolveBuilderCredentials,
-                resolveBuilderCredentialSource,
+                resolveBuilderCredentialsDetailed,
                 getBuilderCredentialAuthFailure,
               } = await import("./credential-provider.js");
-              const [creds, credentialSource] = await Promise.all([
-                resolveBuilderCredentials(),
-                resolveBuilderCredentialSource(),
-              ]);
+              const creds = await resolveBuilderCredentialsDetailed();
+              const credentialSource = creds.source;
+              if (creds.lookupFailed) {
+                return withConnectToken({
+                  ...requestStatus,
+                  configured: false,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  userId: undefined,
+                  orgName: undefined,
+                  orgKind: undefined,
+                  subscription: undefined,
+                  subscriptionLevel: undefined,
+                  subscriptionName: undefined,
+                  isEnterprise: undefined,
+                  isFreeAccount: undefined,
+                  credentialSource: credentialSource ?? undefined,
+                  canDisconnect: false,
+                  keyLookupFailed: true,
+                  ...(creds.optionalMetadataLookupFailure
+                    ? {
+                        optionalMetadataLookupFailure:
+                          creds.optionalMetadataLookupFailure,
+                      }
+                    : {}),
+                });
+              }
               const authFailure = await getBuilderCredentialAuthFailure(creds);
               if (authFailure) {
                 return withConnectToken({
@@ -4347,7 +4517,7 @@ export function createCoreRoutesPlugin(
                   },
                 });
               }
-              if (creds.privateKey && creds.publicKey) {
+              if (hasUsableBuilderCredentialPair(creds)) {
                 // Best-effort: surface the real space name(s) from Builder's
                 // Admin API. Stay NON-BLOCKING — return whatever is cached now
                 // and refresh in the background for the next poll. Falls back
@@ -4395,6 +4565,9 @@ export function createCoreRoutesPlugin(
                       envStatus.isFreeAccount ??
                       undefined,
                     credentialSource: credentialSource ?? undefined,
+                    keyLookupFailed: creds.lookupFailed,
+                    optionalMetadataLookupFailure:
+                      creds.optionalMetadataLookupFailure,
                     canDisconnect:
                       credentialSource === "user" ||
                       (credentialSource === "org" &&
@@ -4404,7 +4577,24 @@ export function createCoreRoutesPlugin(
                 );
               }
             } catch {
-              // Secrets table not ready — fall through to env status
+              // A failed credential lookup is not proof that no connection
+              // exists, so never replace it with an environment-only status.
+              return withConnectToken({
+                ...requestStatus,
+                configured: false,
+                privateKeyConfigured: false,
+                publicKeyConfigured: false,
+                userId: undefined,
+                orgName: undefined,
+                orgKind: undefined,
+                subscription: undefined,
+                subscriptionLevel: undefined,
+                subscriptionName: undefined,
+                isEnterprise: undefined,
+                isFreeAccount: undefined,
+                canDisconnect: false,
+                keyLookupFailed: true,
+              });
             }
 
             // Honor legacy disconnect flag for existing deployments.

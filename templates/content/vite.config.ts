@@ -395,7 +395,7 @@ export default defineConfig({
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      clientCompatibilityVersion: "content-spaces-v1",
+      clientCompatibilityVersion: "content-video-block-ids-v1",
       fsAllow: [
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,

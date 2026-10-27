@@ -1,5 +1,50 @@
 # @agent-native/scheduling
 
+## 0.2.45
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ddd3bd1]
+- Updated dependencies [4ea7d64]
+- Updated dependencies
+- Updated dependencies [0c211bc]
+- Updated dependencies [b73b8ef]
+  - @agent-native/toolkit@0.220.0
+
+## 0.2.44
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [838e1ae]
+- Updated dependencies
+- Updated dependencies [86429da]
+- Updated dependencies [7b293b2]
+  - @agent-native/toolkit@0.219.0
+
+## 0.2.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [84e4b2e]
+- Updated dependencies [fc038a0]
+  - @agent-native/toolkit@0.218.0
+
+## 0.2.42
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [4c43f86]
+- Updated dependencies
+- Updated dependencies [9e4119f]
+  - @agent-native/toolkit@0.217.0
+
 ## 0.2.41
 
 ### Patch Changes
@@ -1111,36 +1156,5 @@
 
 - Updated dependencies [680b1eb]
   - @agent-native/toolkit@0.4.4
-
-## 0.1.21
-
-### Patch Changes
-
-- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
-- Updated dependencies [823d635]
-- Updated dependencies [823d635]
-  - @agent-native/toolkit@0.4.3
-
-## 0.1.20
-
-### Patch Changes
-
-- Updated dependencies [ec523c4]
-  - @agent-native/toolkit@0.4.2
-
-## 0.1.19
-
-### Patch Changes
-
-- Updated dependencies [e1ad535]
-  - @agent-native/toolkit@0.4.1
-
-## 0.1.18
-
-### Patch Changes
-
-- Updated dependencies [9d8c83c]
-- Updated dependencies [9d8c83c]
-  - @agent-native/toolkit@0.4.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
