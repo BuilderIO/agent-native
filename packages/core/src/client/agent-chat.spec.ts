@@ -1933,7 +1933,7 @@ describe("sendToAgentChat", () => {
       trackEventMock.mockReset();
     });
 
-    it("reports a Builder code prompt once, as routed to Builder", () => {
+    it("reports a Builder code prompt once, as routed to Builder", async () => {
       frameState.inBuilderFrame = true;
 
       sendToAgentChat({
@@ -1943,15 +1943,18 @@ describe("sendToAgentChat", () => {
         preset: "app-editor",
         submitMessageId: "submit-builder",
       });
+      await flushMicrotasks();
 
       expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
       expect(submitted()).toEqual([
-        {
+        expect.objectContaining({
           routed_to: "builder",
           surface: "app-editor",
           initiator: "app",
           submit_message_id: "submit-builder",
-        },
+          prompt_category: "edit",
+          prompt_length_bucket: "1-50",
+        }),
       ]);
     });
 
@@ -1975,12 +1978,14 @@ describe("sendToAgentChat", () => {
       expect(parentPostMessageSpy).toHaveBeenCalledOnce();
       const [event] = submitted();
       expect(submitted()).toHaveLength(1);
-      expect(event).toEqual({
+      expect(event).toMatchObject({
         routed_to: "mcp_host",
         surface: "chat",
         initiator: "app",
         submit_message_id:
           parentPostMessageSpy.mock.calls[0][0].data.submitMessageId,
+        prompt_category: "edit",
+        prompt_length_bucket: "1-50",
       });
       expect(event).not.toHaveProperty("turn_id");
     });

@@ -129,16 +129,25 @@ describe("safe prompt metadata", () => {
       send,
     );
 
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenNthCalledWith(
+      1,
       TURN_SUBMITTED_EVENT,
       expect.objectContaining({
         prompt_category: "edit",
         prompt_length_bucket: "1-50",
+      }),
+    );
+    expect(send.mock.calls[0]?.[1]).not.toHaveProperty("prompt_hash");
+    expect(send).toHaveBeenNthCalledWith(
+      2,
+      "agent_prompt_hash_recorded",
+      expect.objectContaining({
+        turn_id: "turn-1",
         prompt_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
       }),
     );
-    expect(JSON.stringify(send.mock.calls[0])).not.toContain(prompt);
+    expect(JSON.stringify(send.mock.calls)).not.toContain(prompt);
   });
 
   it("does not classify or hash system continuations", async () => {

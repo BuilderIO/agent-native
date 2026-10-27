@@ -124,21 +124,27 @@ function sessionScopedHashKey(sessionId: string): Uint8Array | undefined {
  * The HMAC key stays in tab-local sessionStorage and rotates with the analytics
  * session, so prompt hashes cannot be joined across browser sessions.
  */
-export async function buildSafePromptMetadata(
+export function summarizePrompt(
   prompt: string,
-): Promise<SafePromptMetadata> {
+): Omit<SafePromptMetadata, "prompt_hash"> {
   const normalized = prompt.trim().replace(/\s+/g, " ");
-  const metadata: SafePromptMetadata = {
+  return {
     prompt_category: promptCategory(normalized),
     prompt_length_bucket: promptLengthBucket(normalized.length),
   };
-  if (!normalized) return metadata;
+}
+
+export async function buildSafePromptHash(
+  prompt: string,
+): Promise<string | undefined> {
+  const normalized = prompt.trim().replace(/\s+/g, " ");
+  if (!normalized) return undefined;
 
   try {
     const sessionId = getOrCreateAnalyticsSessionId();
     const keyBytes = sessionId ? sessionScopedHashKey(sessionId) : undefined;
     const cryptoApi = Reflect.get(globalThis, "crypto") as Crypto | undefined;
-    if (!keyBytes || !cryptoApi?.subtle) return metadata;
+    if (!keyBytes || !cryptoApi?.subtle) return undefined;
 
     const keyBuffer = new ArrayBuffer(keyBytes.byteLength);
     new Uint8Array(keyBuffer).set(keyBytes);
@@ -154,10 +160,18 @@ export async function buildSafePromptMetadata(
       key,
       new TextEncoder().encode(`${PROMPT_HASH_DOMAIN}${normalized}`),
     );
-    metadata.prompt_hash = bytesToHex(new Uint8Array(digest));
+    return bytesToHex(new Uint8Array(digest));
   } catch {
     // coercion-ok: crypto failure omits only the optional prompt hash.
     // Metadata is optional; an unavailable crypto or storage API adds no hash.
+    return undefined;
   }
-  return metadata;
+}
+
+export async function buildSafePromptMetadata(
+  prompt: string,
+): Promise<SafePromptMetadata> {
+  const summary = summarizePrompt(prompt);
+  const promptHash = await buildSafePromptHash(prompt);
+  return promptHash ? { ...summary, prompt_hash: promptHash } : summary;
 }

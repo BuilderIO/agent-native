@@ -985,8 +985,10 @@ async function* parseJsonlStream(
             const errCode =
               canonicalizeBuilderGatewayErrorCode(rawErrCode, String(errMsg)) ??
               rawErrCode;
+            const gatewayRequestId =
+              typeof event.requestId === "string" ? event.requestId : undefined;
             console.warn(
-              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
             if (isExplicitBuilderCreditsLimitCode(errCode)) {
               await notifyBuilderCreditLimit();
@@ -1043,7 +1045,7 @@ async function* parseJsonlStream(
               gatewayErrCode === "invalid_request" ||
               gatewayErrCode === "invalid_request_error";
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
             );
             if (isCredentialAuthError) {
               await recordAuthFailureForCurrentLane({

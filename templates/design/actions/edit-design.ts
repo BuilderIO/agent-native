@@ -193,10 +193,7 @@ export function applySearchReplaceEdits(
     });
   } catch (error) {
     if (!(error instanceof DesignEditSearchConflictError)) throw error;
-    throw new NoWriteError(
-      designEditConflictMessage(),
-      designEditConflictOptions(),
-    );
+    throw new NoWriteError(error.message, designEditConflictOptions());
   }
   return { content: next, applied: edits.length };
 }

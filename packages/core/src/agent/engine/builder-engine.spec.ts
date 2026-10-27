@@ -2257,6 +2257,9 @@ describe("createBuilderEngine", () => {
   });
 
   it("keeps invalid_request stop reasons terminal when the message looks transient", async () => {
+    const privateProviderMessage =
+      "The request timed out while the upstream provider was temporarily unavailable.";
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2265,8 +2268,7 @@ describe("createBuilderEngine", () => {
             type: "stop",
             reason: "invalid_request",
             requestId: "req_bad_history",
-            error:
-              "The request timed out while the upstream provider was temporarily unavailable.",
+            error: privateProviderMessage,
             errorCode: "tool_message_shape_invalid",
           },
         ]),
@@ -2281,6 +2283,12 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("tool_message_shape_invalid");
     expect(stop?.error).toContain("temporarily unavailable");
     expect(stop?.providerRetryable).toBe(false);
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("requestId=req_bad_history"),
+    );
+    expect(warning.mock.calls.flat().join(" ")).not.toContain(
+      privateProviderMessage,
+    );
   });
 
   it("marks unclassified no-detail gateway stop errors as retryable", async () => {
