@@ -51,6 +51,7 @@ import {
 import { isDefaultTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
+  isWorkflowRequester,
   isRecentWorkflowGeneration,
   matchesWorkflowRequest,
   shouldScheduleWorkflowTimeoutFallback,
@@ -532,6 +533,7 @@ interface GeneratedWorkflowState {
   content?: string;
   recordingId?: string;
   requestedAt?: string;
+  requestedBy?: string;
   requestId?: string;
   failureReason?: "cancelled" | "timed_out" | "session-rejected";
   error?: string;
@@ -1422,6 +1424,11 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
+  const isGeneratedWorkflowRequester = isWorkflowRequester(
+    generatedWorkflow?.requestedBy,
+    session?.email,
+  );
+  const canStopWorkflow = canEdit && isGeneratedWorkflowRequester;
   const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
   const [workflowStopAttempt, setWorkflowStopAttempt] =
     useState<WorkflowStopAttempt | null>(null);
@@ -1474,7 +1481,7 @@ export default function RecordingPage() {
     (workflow: GeneratedWorkflowState) => {
       const recordingId = workflow.recordingId ?? recording?.id;
       const requestedAt = workflow.requestedAt;
-      if (!canEdit || !recordingId || !requestedAt) return;
+      if (!canStopWorkflow || !recordingId || !requestedAt) return;
       const attemptKey = `${recordingId}:${requestedAt}:${workflow.requestId ?? ""}`;
       if (workflowStopInFlightRef.current === attemptKey) return;
 
@@ -1498,13 +1505,13 @@ export default function RecordingPage() {
 
       requestStop();
     },
-    [canEdit, recording?.id, startWorkflowToast, t],
+    [canStopWorkflow, recording?.id, startWorkflowToast, t],
   );
   useEffect(() => {
     const recordingId = generatedWorkflow?.recordingId;
     const requestedAt = generatedWorkflow?.requestedAt;
     if (
-      !canEdit ||
+      !canStopWorkflow ||
       generatedWorkflow?.status !== "generating" ||
       !requestedAt ||
       !recordingId
@@ -1549,7 +1556,7 @@ export default function RecordingPage() {
     );
     return () => window.clearTimeout(timer);
   }, [
-    canEdit,
+    canStopWorkflow,
     generatedWorkflow?.requestId,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestedAt,
@@ -1562,7 +1569,8 @@ export default function RecordingPage() {
     const recordingId = workflow?.recordingId ?? recording?.id;
     const requestedAt = workflow?.requestedAt;
     if (
-      canEdit ||
+      canStopWorkflow ||
+      !isGeneratedWorkflowRequester ||
       workflow?.status !== "generating" ||
       !recordingId ||
       !requestedAt ||
@@ -1600,7 +1608,8 @@ export default function RecordingPage() {
 
     return () => window.clearTimeout(timer);
   }, [
-    canEdit,
+    canStopWorkflow,
+    isGeneratedWorkflowRequester,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.requestedAt,
@@ -1614,7 +1623,7 @@ export default function RecordingPage() {
     const workflow = generatedWorkflow;
     if (!workflowStopAttempt) return;
     if (
-      !canEdit ||
+      !canStopWorkflow ||
       workflow?.status !== "generating" ||
       workflowStopAttempt.recordingId !== workflow.recordingId ||
       !matchesWorkflowRequest(workflow, workflowStopAttempt)
@@ -1684,7 +1693,7 @@ export default function RecordingPage() {
       active = false;
     };
   }, [
-    canEdit,
+    canStopWorkflow,
     cancelWorkflowGeneration,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
@@ -1726,7 +1735,7 @@ export default function RecordingPage() {
       workflowLifecycleActiveRef.current = true;
       startWorkflowToast(
         t("recordingPage.workflowQueued"),
-        canEdit
+        canStopWorkflow
           ? {
               action: {
                 label: t("common.cancel"),
@@ -1764,7 +1773,7 @@ export default function RecordingPage() {
   }, [
     cancelCompletionCue,
     cancelWorkflowGeneration,
-    canEdit,
+    canStopWorkflow,
     completeWorkflowToast,
     failWorkflowToast,
     generatedWorkflow?.error,
@@ -1794,7 +1803,7 @@ export default function RecordingPage() {
     const requestedAt = Date.parse(generatedWorkflow.requestedAt);
     if (!Number.isFinite(requestedAt)) return;
 
-    const action = canEdit
+    const action = canStopWorkflow
       ? {
           label: t("common.cancel"),
           onClick: () => cancelWorkflowGeneration(generatedWorkflow),
@@ -1832,7 +1841,7 @@ export default function RecordingPage() {
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [
     cancelWorkflowGeneration,
-    canEdit,
+    canStopWorkflow,
     generatedWorkflow?.recordingId,
     generatedWorkflow?.requestId,
     generatedWorkflow?.requestedAt,

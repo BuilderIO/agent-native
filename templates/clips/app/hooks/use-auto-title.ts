@@ -464,6 +464,13 @@ export async function retryWorkflowAction(
       if (request.operation === "reject" && result.reason === "not-requester") {
         return true;
       }
+      if (
+        request.operation === "reject" &&
+        result.reason === "rejection-unverified"
+      ) {
+        // Leave the request queued for requester-owned cleanup without looping this dispatch.
+        return true;
+      }
       if (typeof result.reason === "string" && result.reason !== "stale") {
         return false;
       }

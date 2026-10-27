@@ -757,7 +757,7 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
-  it("expires an unclaimed workflow when only a viewer can reconcile it", async () => {
+  it("expires an unclaimed workflow for its requester", async () => {
     const state = {
       kind: "email",
       status: "generating",
@@ -769,6 +769,7 @@ describe("reconcile-workflow-generation", () => {
       kind: "generate-workflow",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "owner@example.com",
     };
     mocks.readAppState
       .mockResolvedValueOnce(state)
@@ -782,7 +783,7 @@ describe("reconcile-workflow-generation", () => {
           requestedAt,
           tabId,
         },
-        { userEmail: "viewer@example.com" } as never,
+        { userEmail: "owner@example.com" } as never,
       ),
     ).resolves.toEqual({ reconciled: true, expired: true });
 
@@ -807,6 +808,65 @@ describe("reconcile-workflow-generation", () => {
         nextValue: null,
       },
     ]);
+  });
+
+  it("does not let another viewer expire an unclaimed workflow", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+    });
+
+    await expect(
+      action.run(
+        {
+          operation: "settle",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, reason: "not-requester" });
+
+    expect(mocks.getActiveRunForThreadAsync).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not expire an unclaimed workflow with an ownerless request", async () => {
+    const state = {
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
+
+    await expect(
+      action.run(
+        {
+          operation: "settle",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "owner@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, reason: "not-requester" });
+
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("settles a terminal run from its durable record after the reconnect window", async () => {
@@ -942,7 +1002,7 @@ describe("reconcile-workflow-generation", () => {
     ]);
   });
 
-  it("fails and consumes a matching request after confirmed dispatch rejection", async () => {
+  it("fails and consumes a matching request only after a server run errors", async () => {
     const state = {
       kind: "email",
       status: "generating",
@@ -955,10 +1015,17 @@ describe("reconcile-workflow-generation", () => {
       kind: "generate-workflow",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
     };
     mocks.readAppState
       .mockResolvedValueOnce(state)
       .mockResolvedValueOnce(request);
+    mocks.getActiveRunForThreadAsync.mockResolvedValue({
+      status: "errored",
+      inFlight: false,
+      awaitingRedispatch: false,
+      hasInFlightWork: false,
+    });
 
     await expect(
       action.run(
@@ -994,6 +1061,74 @@ describe("reconcile-workflow-generation", () => {
     ]);
   });
 
+  it("does not accept a client rejection without server run evidence", async () => {
+    const state = {
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "viewer@example.com",
+      tabId,
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "viewer@example.com",
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
+
+    await expect(
+      action.run(
+        { operation: "reject", recordingId: "rec_123", requestedAt, tabId },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({
+      reconciled: false,
+      reason: "rejection-unverified",
+    });
+
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not accept a completed run as proof of dispatch rejection", async () => {
+    mocks.readAppState
+      .mockResolvedValueOnce({
+        kind: "email",
+        status: "generating",
+        recordingId: "rec_123",
+        requestedAt,
+        requestedBy: "viewer@example.com",
+        tabId,
+      })
+      .mockResolvedValueOnce({
+        kind: "generate-workflow",
+        recordingId: "rec_123",
+        requestedAt,
+        requestedBy: "viewer@example.com",
+      });
+    mocks.getActiveRunForThreadAsync.mockResolvedValue({
+      status: "completed",
+      inFlight: false,
+      awaitingRedispatch: false,
+      hasInFlightWork: false,
+    });
+
+    await expect(
+      action.run(
+        { operation: "reject", recordingId: "rec_123", requestedAt, tabId },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({
+      reconciled: false,
+      reason: "rejection-unverified",
+    });
+
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
   it("does not let another viewer reject the requester's workflow", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
@@ -1026,6 +1161,7 @@ describe("reconcile-workflow-generation", () => {
       kind: "generate-workflow",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
     };
     mocks.readAppState
       .mockResolvedValueOnce({
@@ -1138,16 +1274,20 @@ describe("reconcile-workflow-generation", () => {
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
       tabId,
     });
 
     await expect(
-      action.run({
-        operation: "stop",
-        recordingId: "rec_123",
-        requestedAt,
-        tabId,
-      }),
+      action.run(
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: true });
 
     expect(mocks.assertAccess).toHaveBeenCalledWith(
@@ -1170,6 +1310,38 @@ describe("reconcile-workflow-generation", () => {
         tabId,
       }),
     );
+  });
+
+  it("does not let another editor stop the requester's workflow", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      requestedBy: "owner@example.com",
+      tabId,
+    });
+
+    await expect(
+      action.run(
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+          stopReason: "cancelled",
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
+    ).resolves.toEqual({ reconciled: false, reason: "not-requester" });
+
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "recording",
+      "rec_123",
+      "editor",
+    );
+    expect(mocks.abortTurnByRefDurably).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("does not abort a session outside the recording's deterministic ID", async () => {
@@ -1230,17 +1402,21 @@ describe("reconcile-workflow-generation", () => {
       recordingId: "rec_123",
       requestedAt,
       requestId,
+      requestedBy: "viewer@example.com",
     });
 
     await expect(
-      action.run({
-        operation: "stop",
-        recordingId: "rec_123",
-        requestedAt,
-        requestId,
-        tabId: requestTabId,
-        stopReason: "cancelled",
-      }),
+      action.run(
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          requestId,
+          tabId: requestTabId,
+          stopReason: "cancelled",
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: true });
 
     expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
@@ -1326,17 +1502,21 @@ describe("reconcile-workflow-generation", () => {
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
       tabId,
     });
     mocks.compareAndSetAppState.mockResolvedValue(false);
 
     await expect(
-      action.run({
-        operation: "stop",
-        recordingId: "rec_123",
-        requestedAt,
-        tabId,
-      }),
+      action.run(
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: false, reason: "stale" });
   });
 
@@ -1346,16 +1526,20 @@ describe("reconcile-workflow-generation", () => {
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
+      requestedBy: "viewer@example.com",
       tabId: "arbitrary-thread",
     });
 
     await expect(
-      action.run({
-        operation: "stop",
-        recordingId: "rec_123",
-        requestedAt,
-        tabId,
-      }),
+      action.run(
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId,
+        },
+        { userEmail: "viewer@example.com" } as never,
+      ),
     ).resolves.toEqual({ reconciled: true });
     expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
       tabId,

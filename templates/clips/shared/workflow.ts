@@ -4,6 +4,17 @@ export const WORKFLOW_KINDS = ["pr", "sop", "ticket", "email"] as const;
 export const WorkflowKindSchema = z.enum(WORKFLOW_KINDS);
 export type WorkflowKind = z.infer<typeof WorkflowKindSchema>;
 
+export function isWorkflowRequester(
+  requestedBy: string | null | undefined,
+  userEmail: string | null | undefined,
+): boolean {
+  const requesterEmail = requestedBy?.trim().toLowerCase();
+  const currentEmail = userEmail?.trim().toLowerCase();
+  return Boolean(
+    requesterEmail && currentEmail && requesterEmail === currentEmail,
+  );
+}
+
 const WORKFLOW_GENERATION_STALE_AFTER_MS = 10 * 60_000;
 export const WORKFLOW_GENERATION_PROGRESS_MS = {
   stillGenerating: 30_000,

@@ -15,6 +15,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
+  isWorkflowRequester,
   matchesWorkflowRequest,
   workflowGenerationStaleAt,
   WorkflowKindSchema,
@@ -52,17 +53,6 @@ const TERMINAL_RUN_STATUSES = [
   "errored",
   "aborted",
 ] as const;
-
-const isWorkflowRequester = (
-  requestedBy: string | undefined,
-  userEmail: string | undefined,
-) => {
-  const requesterEmail = requestedBy?.trim().toLowerCase();
-  const currentEmail = userEmail?.trim().toLowerCase();
-  return Boolean(
-    requesterEmail && currentEmail && requesterEmail === currentEmail,
-  );
-};
 
 export default defineAction({
   description:
@@ -384,6 +374,12 @@ export default defineAction({
     const settlingUnclaimedWorkflow =
       operation === "settle" && state.tabId === undefined;
     if (
+      settlingUnclaimedWorkflow &&
+      !isWorkflowRequester(state.requestedBy, ctx?.userEmail)
+    ) {
+      return { reconciled: false, reason: "not-requester" as const };
+    }
+    if (
       operation !== "stop" &&
       state.tabId !== tabId &&
       !settlingUnclaimedWorkflow
@@ -397,8 +393,7 @@ export default defineAction({
         : { reconciled: false, reason: "different-run" as const };
     }
     if (operation === "reject") {
-      const requesterEmail = ctx?.userEmail?.trim().toLowerCase();
-      if (!requesterEmail || state.requestedBy !== requesterEmail) {
+      if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
         return { reconciled: false, reason: "not-requester" as const };
       }
 
@@ -415,6 +410,11 @@ export default defineAction({
         !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
       ) {
         return { reconciled: false, reason: "newer-request" as const };
+      }
+      if (
+        !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+      ) {
+        return { reconciled: false, reason: "not-requester" as const };
       }
       if (parsedRequest.data.deliveredAt || parsedRequest.data.deliveredTabId) {
         return { reconciled: false, reason: "delivered" as const };
@@ -438,6 +438,9 @@ export default defineAction({
       ) {
         return { reconciled: false, reason: "in-progress" as const };
       }
+      if (activeRun?.status !== "errored") {
+        return { reconciled: false, reason: "rejection-unverified" as const };
+      }
 
       const nextState = {
         ...rawState,
@@ -454,6 +457,9 @@ export default defineAction({
         : { reconciled: false, reason: "stale" as const };
     }
     if (operation === "stop") {
+      if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
+        return { reconciled: false, reason: "not-requester" as const };
+      }
       // Persisted claims can be stale; the canonical ID above scopes this abort.
       await abortTurnByRefDurably(
         tabId,
@@ -488,6 +494,12 @@ export default defineAction({
         if (!parsedRequest.success) {
           // guard:allow-bare-error — invariant: generate-workflow writes this shape.
           throw new Error(`Invalid workflow request state for ${recordingId}`);
+        }
+        if (
+          settlingUnclaimedWorkflow &&
+          !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+        ) {
+          return { reconciled: false, reason: "not-requester" as const };
         }
         if (
           !matchesWorkflowRequest(parsedRequest.data, {
