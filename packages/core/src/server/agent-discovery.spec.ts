@@ -200,65 +200,48 @@ describe("agent discovery", () => {
     }
   });
 
-  it("falls back from a mounted directory path only after a missing route", async () => {
-    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
-      "https://dispatch.example.test/dispatch";
+  it("preserves a missing-route result returned by the shared directory client", async () => {
     const directory = await import("../mcp/org-directory.js");
     const fetchSpy = vi
       .spyOn(directory, "fetchOrgAppsResult")
-      .mockResolvedValueOnce({ status: "unavailable", reason: "missing-route" })
-      .mockResolvedValueOnce({ status: "available", apps: [] });
+      .mockResolvedValue({ status: "unavailable", reason: "missing-route" });
 
     try {
       const result = await discoverAgentsWithDirectoryStatus("analytics");
 
-      expect(result.directory).toEqual({ status: "available" });
-      expect(fetchSpy.mock.calls).toEqual([
-        [{ selfId: "analytics" }],
-        [
-          {
-            directoryBaseUrl: "https://dispatch.example.test",
-            selfId: "analytics",
-          },
-        ],
-      ]);
+      expect(result.directory).toEqual({
+        status: "unavailable",
+        reason: "missing-route",
+      });
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith({ selfId: "analytics" });
     } finally {
       fetchSpy.mockRestore();
     }
   });
 
-  it("uses the selected org workspace URL at the Dispatch mount when no URL is configured", async () => {
+  it("reports setup-required when an org has no bound or configured directory", async () => {
     const directory = await import("../mcp/org-directory.js");
-    const context = await import("../org/context.js");
     const fetchSpy = vi
       .spyOn(directory, "fetchOrgAppsResult")
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         status: "unavailable",
         reason: "not-configured",
-      })
-      .mockResolvedValueOnce({ status: "available", apps: [] });
-    const workspaceUrlSpy = vi
-      .spyOn(context, "getOrgWorkspaceUrl")
-      .mockResolvedValue("https://workspace.example.test");
+      });
 
     try {
       const result = await runWithRequestContext({ orgId: "org-123" }, () =>
         discoverAgentsWithDirectoryStatus("analytics"),
       );
 
-      expect(result.directory).toEqual({ status: "available" });
-      expect(fetchSpy.mock.calls).toEqual([
-        [{ selfId: "analytics" }],
-        [
-          {
-            directoryBaseUrl: "https://workspace.example.test/dispatch",
-            selfId: "analytics",
-          },
-        ],
-      ]);
+      expect(result.directory).toEqual({
+        status: "setup-required",
+        reason: "workspace-url-not-set",
+      });
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith({ selfId: "analytics" });
     } finally {
       fetchSpy.mockRestore();
-      workspaceUrlSpy.mockRestore();
     }
   });
 

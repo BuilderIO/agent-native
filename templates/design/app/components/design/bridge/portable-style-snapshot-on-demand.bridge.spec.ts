@@ -251,7 +251,10 @@ describe("portable style snapshots in a frame the editor can call into", () => {
       await frame.addScriptTag({ content: hydratedBridge() });
       await page.waitForTimeout(50);
 
+      // A plain click selects the list; Cmd+click reaches the third row.
+      await page.keyboard.down("Meta");
       await page.mouse.click(40, 100);
+      await page.keyboard.up("Meta");
       await page.waitForFunction(() => (window as any).__selections.length > 0);
       const read = await page.evaluate(() => {
         const selected = (window as any).__selections.at(-1);

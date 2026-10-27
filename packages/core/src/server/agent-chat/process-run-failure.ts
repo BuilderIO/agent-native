@@ -26,7 +26,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
 
   await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
 
-  const claim = await readClaim(runId).catch(() => null);
+  const claim = await readClaim(runId);
   if (
     claim?.status !== "running" ||
     claim.dispatchMode !== "background-processing"
@@ -36,7 +36,7 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
 
   return finalizeFailure(runId, {
     errorCode: CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
-    errorDetail: `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
+    errorDetail: `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} failure=${message}`,
     event: CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
   });
 }

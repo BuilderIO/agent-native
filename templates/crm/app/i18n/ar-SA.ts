@@ -617,12 +617,9 @@ const messages = {
     attachEvidence: "إرفاق الدليل",
     automate: "أتمتة",
     reviewNewClipsCalls: "مراجعة مكالمات Clips الجديدة",
-    reviewDescription:
-      "أعد وصفة مراجعة لسجل CRM هذا من دون نسخ وسائط Clips أو نصوصها المفرغة.",
-    disabledAutomationDescription:
-      "تبدأ هذه العملية معطلة وتبقى مرتبطة بـ {{name}}. عند تفعيلها صراحةً، لا يمكن لكل مقطع جديد إرفاق سوى مرجع صفحة التسجيل الذي تم التحقق من الوصول إليه بهذا السجل.",
-    handoffDescription:
-      "لا يحتفظ التسليم إلا بمعرّف مقطع معتم وعنوان URL دائم لصفحة {{path}} ووقت الالتقاط. ويرفض عناوين URL للأحداث والوسائط ورموز الوصول والنصوص المفرغة والسجلات المستنتجة وعمليات الكتابة لدى الموفرين.",
+    reviewDescription: "إعداد أتمتة المكالمات من CRM إلى Clips غير متاح بعد.",
+    disabledAutomationDescription: "سجل CRM المحدد: {{name}}.",
+    handoffDescription: "الإرفاق التلقائي لروابط صفحات {{path}} غير متاح.",
     manageAutomations: "إدارة الأتمتة",
     configureWithAgent: "الإعداد مع الوكيل",
     editField: "تحرير حقل",

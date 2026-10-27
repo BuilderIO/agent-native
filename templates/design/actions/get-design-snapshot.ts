@@ -10,6 +10,7 @@ import {
   parseDesignTemplateData,
   readDesignTemplateSource,
 } from "../server/lib/design-template-data.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 import getDesignSystem from "./get-design-system.js";
 import "../server/db/index.js";
@@ -48,6 +49,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  dedupe: false,
   capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
@@ -132,6 +134,7 @@ export default defineAction({
         id: f.id,
         filename: f.filename,
         fileType: f.fileType,
+        frameType: isHubSpotEmailHtml(f.content) ? "hubspot-email" : null,
         content: f.content,
         source: f.source,
       })),
@@ -157,7 +160,8 @@ export default defineAction({
               filename: boundedFile.filename,
             },
             nextRequiredAction:
-              `Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
+              `For an in-place refinement, Call edit-design exactly once with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). ` +
+              "For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file frameType=hubspot-email and preserve the original. " +
               "Do not call delete-file or get-design-snapshot again unless edit-design fails with a concrete missing context error.",
           }
         : {}),

@@ -701,6 +701,23 @@ it("returns current running context when retrying an incomplete operation", asyn
   });
 });
 
+it("names the video a thread on a whole video is about", async () => {
+  state.request.snapshotJson = "[]";
+  state.source.root = {
+    quotedText: null,
+    blockId: "video-a1b2c3d4",
+    blockType: "video",
+  };
+  const result = await run(getContext, {});
+  expect(result).toMatchObject({
+    quotedText: null,
+    block: { blockId: "video-a1b2c3d4", blockType: "video" },
+  });
+
+  state.source.root = { quotedText: "Alpha" };
+  expect(await run(getContext, {})).toMatchObject({ block: null });
+});
+
 it("reports prior proposal decisions without treating them as the current result", async () => {
   state.request.intent = "suggest";
   state.request.snapshotJson = "[]";

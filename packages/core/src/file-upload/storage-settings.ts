@@ -9,11 +9,14 @@
  */
 
 import { fail, type ActionRunContext } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   deleteAppSecret,
+  readAppSecret,
   readAppSecrets,
   writeAppSecret,
 } from "../secrets/storage.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getActiveFileUploadProviderForRequest,
@@ -66,6 +69,10 @@ export interface FileStorageStatus {
   canManage: boolean;
   /** The saved workspace values form a complete configuration. */
   configured: boolean;
+  /** True when unreadable saved values prevented a complete status check. */
+  configurationUnavailable: boolean;
+  /** Saved fields that exist but cannot be decrypted; values are never returned. */
+  unreadableFields: FileStorageField[];
   /** Preset inferred from the endpoint; null when nothing is saved. */
   provider: FileStorageProviderId | null;
   /** Non-secret saved values. Null for members and for unsaved fields. */
@@ -82,6 +89,8 @@ export interface FileStorageStatus {
   publicUrlRequired: boolean;
   /** The provider new uploads go to for this request. */
   activeProvider: { id: string; name: string } | null;
+  /** True when saved credential errors prevented the active provider check. */
+  activeProviderUnavailable: boolean;
   /** Whether Builder.io storage would take uploads after a clear; null when the check failed. */
   builderUploadConfigured: boolean | null;
   /** Private-blob readiness in the caller's strict selected-storage context. */
@@ -141,25 +150,56 @@ export function isFileStoragePublicUrlRequired(): boolean {
   return provider?.publicBaseUrlOptional !== true;
 }
 
-async function readWorkspaceValues(
-  scopeId: string,
-): Promise<Record<FileStorageField, string | null>> {
-  const secrets = await readAppSecrets({
-    keys: [
-      ...Object.values(FILE_STORAGE_SECRET_KEYS),
-      ...Object.values(LEGACY_FILE_STORAGE_SECRET_KEYS),
-    ],
-    scope: "workspace",
-    scopeId,
-  });
-  const values = {} as Record<FileStorageField, string | null>;
-  for (const field of FIELDS) {
-    values[field] =
-      secrets.get(FILE_STORAGE_SECRET_KEYS[field])?.value.trim() ||
-      secrets.get(LEGACY_FILE_STORAGE_SECRET_KEYS[field])?.value.trim() ||
-      null;
+async function readWorkspaceValues(scopeId: string): Promise<{
+  values: Record<FileStorageField, string | null>;
+  unreadableFields: Set<FileStorageField>;
+}> {
+  const keys = [
+    ...Object.values(FILE_STORAGE_SECRET_KEYS),
+    ...Object.values(LEGACY_FILE_STORAGE_SECRET_KEYS),
+  ];
+  let secrets = new Map<string, { value: string }>();
+  const unreadableKeys = new Set<string>();
+  try {
+    secrets = await readAppSecrets({
+      keys,
+      scope: "workspace",
+      scopeId,
+    });
+  } catch (error) {
+    if (!(error instanceof AppSecretDecryptionError)) throw error;
+    for (const key of keys) {
+      try {
+        const secret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId,
+        });
+        if (secret) secrets.set(key, secret);
+      } catch (readError) {
+        if (!(readError instanceof AppSecretDecryptionError)) throw readError;
+        unreadableKeys.add(key);
+      }
+    }
   }
-  return values;
+  const values = {} as Record<FileStorageField, string | null>;
+  const unreadableFields = new Set<FileStorageField>();
+  for (const field of FIELDS) {
+    const currentKey = FILE_STORAGE_SECRET_KEYS[field];
+    const legacyKey = LEGACY_FILE_STORAGE_SECRET_KEYS[field];
+    if (unreadableKeys.has(currentKey)) {
+      values[field] = null;
+      unreadableFields.add(field);
+    } else if (secrets.get(currentKey)?.value.trim()) {
+      values[field] = secrets.get(currentKey)?.value.trim() ?? null;
+    } else if (unreadableKeys.has(legacyKey)) {
+      values[field] = null;
+      unreadableFields.add(field);
+    } else {
+      values[field] = secrets.get(legacyKey)?.value.trim() || null;
+    }
+  }
+  return { values, unreadableFields };
 }
 
 async function readBuilderUploadConfigured(): Promise<boolean | null> {
@@ -195,21 +235,42 @@ export async function getFileStorageStatus(
 ): Promise<FileStorageStatus> {
   const access = await resolveFileStorageAccess(ctx);
   const publicUrlRequired = isFileStoragePublicUrlRequired();
-  const values = await readWorkspaceValues(access.scopeId);
-  const [active, builderUploadConfigured, privateStorageReadiness] =
+  const { values, unreadableFields } = await readWorkspaceValues(
+    access.scopeId,
+  );
+  const [activeResult, builderUploadConfigured, privateStorageReadiness] =
     await Promise.all([
-      getActiveFileUploadProviderForRequest(),
+      getActiveFileUploadProviderForRequest().then(
+        (active) => ({ status: "fulfilled" as const, active }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      ),
       readBuilderUploadConfigured(),
       getPrivateStorageReadinessForUser(ctx?.userEmail),
     ]);
+  if (
+    activeResult.status === "rejected" &&
+    !(activeResult.error instanceof CredentialStoreUnavailableError) &&
+    !(activeResult.error instanceof AppSecretDecryptionError)
+  ) {
+    throw activeResult.error;
+  }
+  const active =
+    activeResult.status === "fulfilled" ? activeResult.active : null;
+  const activeProviderUnavailable = activeResult.status === "rejected";
+  const configurationUnavailable =
+    unreadableFields.size > 0 || activeProviderUnavailable;
   const saved = {} as Record<FileStorageField, boolean>;
   for (const field of FIELDS) {
-    saved[field] = access.canManage && values[field] !== null;
+    saved[field] =
+      access.canManage &&
+      (values[field] !== null || unreadableFields.has(field));
   }
   const visible = (value: string | null) => (access.canManage ? value : null);
   return {
     canManage: access.canManage,
     configured: isCompleteConfig(values, publicUrlRequired),
+    configurationUnavailable,
+    unreadableFields: access.canManage ? [...unreadableFields] : [],
     provider: access.canManage
       ? inferFileStorageProvider(values.endpoint)
       : null,
@@ -220,6 +281,7 @@ export async function getFileStorageStatus(
     saved,
     publicUrlRequired,
     activeProvider: active ? { id: active.id, name: active.name } : null,
+    activeProviderUnavailable,
     builderUploadConfigured,
     privateStorageReadiness,
   };
@@ -263,7 +325,8 @@ const BUCKET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
 
 /**
  * Save workspace storage values. Omitted and blank key fields keep their
- * saved value, so editing the bucket doesn't ask for the keys again.
+ * saved value, so editing the bucket doesn't ask for the keys again. If an
+ * existing value is unreadable, a partial save must replace it first.
  */
 export async function saveFileStorage(
   ctx: ActionRunContext | undefined,
@@ -277,7 +340,9 @@ export async function saveFileStorage(
     });
   }
   const publicUrlRequired = isFileStoragePublicUrlRequired();
-  const current = await readWorkspaceValues(access.scopeId);
+  const { values: current, unreadableFields } = await readWorkspaceValues(
+    access.scopeId,
+  );
 
   const writes = new Map<FileStorageField, string>();
   const removals = new Set<FileStorageField>();
@@ -291,13 +356,38 @@ export async function saveFileStorage(
     if (value) {
       writes.set(field, value);
     } else if (field === "region" || field === "publicBaseUrl") {
-      if (current[field] !== null) removals.add(field);
+      if (current[field] !== null || unreadableFields.has(field)) {
+        removals.add(field);
+      }
     }
   }
 
   const next = { ...current };
   for (const field of removals) next[field] = null;
   for (const [field, value] of writes) next[field] = value;
+
+  const unreadableRequiredFields = FIELDS.filter(
+    (field) =>
+      unreadableFields.has(field) &&
+      !writes.has(field) &&
+      !removals.has(field) &&
+      field !== "region" &&
+      (field !== "publicBaseUrl" || publicUrlRequired),
+  );
+  if (unreadableRequiredFields.length > 0) {
+    fail(
+      "Couldn't read saved file storage fields: " +
+        unreadableRequiredFields
+          .map((field) => FIELD_LABELS[field])
+          .join(", ") +
+        ". Enter replacement values or clear file storage.",
+      {
+        statusCode: 503,
+        errorCode: "credential_store_unavailable",
+        details: { unreadableFields: unreadableRequiredFields },
+      },
+    );
+  }
 
   const missing = FIELDS.filter(
     (field) =>

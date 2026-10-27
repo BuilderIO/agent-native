@@ -4,6 +4,7 @@ import {
   buildSessionSteps,
   deriveJourneyStep,
   JOURNEY_COHORT_EVENT_NAMES,
+  JOURNEY_COHORT_PARTITION_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
   SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
@@ -497,7 +498,7 @@ describe("deriveJourneyStep", () => {
     expect(deriveJourneyStep(row("pageview", 1))).toBeNull();
   });
 
-  it("covers every event name the SQL selects", () => {
+  it("covers every event name that can become a journey step", () => {
     for (const name of JOURNEY_STEP_EVENT_NAMES) {
       const input = row(name, 1, {
         path: "/x",
@@ -513,6 +514,15 @@ describe("deriveJourneyStep", () => {
       if (name === "onboarding_started") continue;
       expect(JOURNEY_STEP_EVENT_NAMES, name).toContain(name);
     }
+    expect(JOURNEY_COHORT_PARTITION_EVENT_NAMES).toContain(
+      "onboarding_experiment_exposed",
+    );
+    expect(JOURNEY_STEP_EVENT_NAMES).not.toContain(
+      "onboarding_experiment_exposed",
+    );
+    expect(
+      deriveJourneyStep(row("onboarding_experiment_exposed", 1)),
+    ).toBeNull();
   });
 
   it("uses bounded labels for skipped and abandoned events", () => {

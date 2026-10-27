@@ -21,7 +21,9 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
@@ -102,8 +104,8 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  if (rows.length === 0) return null;
-  const [row] = rows;
+  const row = rows.values().next().value;
+  if (!row) return null;
   const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
   if (
     isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||
@@ -207,6 +209,7 @@ async function fetchLibrary({
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
   const conditions = [
+    recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
       schema.recordings,
       schema.recordingShares,
@@ -405,27 +408,14 @@ async function fetchMeetingDetail(meetingId: string) {
     .from(schema.meetingActionItems)
     .where(eq(schema.meetingActionItems.meetingId, meetingId));
 
-  let recording: { id: string; title: string } | null = null;
-  let transcriptSnippet: string | null = null;
-  if (meeting.recordingId) {
-    const [rec] = await db
-      .select({
-        id: schema.recordings.id,
-        title: schema.recordings.title,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, meeting.recordingId))
-      .limit(1);
-    recording = rec ?? null;
-    const [tr] = await db
-      .select({ fullText: schema.recordingTranscripts.fullText })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-      .limit(1);
-    if (tr?.fullText) {
-      transcriptSnippet = tr.fullText.slice(0, 2000);
-    }
-  }
+  const linked = await loadMeetingRecordingContent(
+    meeting,
+    getRequestUserEmail(),
+  );
+  const recording = linked.recording
+    ? { id: linked.recording.id, title: linked.recording.title }
+    : null;
+  const transcriptSnippet = linked.transcript?.fullText.slice(0, 2000) ?? null;
 
   return {
     meeting: {

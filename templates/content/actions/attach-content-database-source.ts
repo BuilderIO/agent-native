@@ -39,7 +39,10 @@ import {
   updateReadOnlySourceMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { assertNotGitHubSource } from "./_document-source.js";
 import { resolveReadableLocalTableSource } from "./_local-table-source.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
@@ -371,7 +374,10 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseSourceAttachmentResult> => {
+  run: async (
+    args,
+    context,
+  ): Promise<ContentDatabaseSourceAttachmentResult> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -550,10 +556,13 @@ export default defineAction({
         now,
       });
 
-      return getContentDatabaseResponse(database.id, {
-        limit: args.limit,
-        offset: args.offset,
-      });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: args.limit,
+          offset: args.offset,
+        }),
+        context,
+      );
     }
 
     if (
@@ -666,10 +675,13 @@ export default defineAction({
       });
       await ensureDatabaseSourceProperty({ database, now });
 
-      return getContentDatabaseResponse(database.id, {
-        limit: args.limit,
-        offset: args.offset,
-      });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: args.limit,
+          offset: args.offset,
+        }),
+        context,
+      );
     }
 
     if (relationshipMode === "items" && existingSource) {
@@ -815,9 +827,12 @@ export default defineAction({
       };
     }
 
-    return getContentDatabaseResponse(database.id, {
-      limit: args.limit,
-      offset: args.offset,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, {
+        limit: args.limit,
+        offset: args.offset,
+      }),
+      context,
+    );
   },
 });

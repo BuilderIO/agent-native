@@ -222,6 +222,7 @@ describe("mobile parent authentication", () => {
           Accept: "application/json",
           Authorization: "Bearer parent-session",
         },
+        signal: expect.any(AbortSignal),
       },
     );
   });
@@ -350,6 +351,7 @@ describe("mobile parent authentication", () => {
         Accept: "application/json",
         Authorization: "Bearer google-session",
       },
+      signal: expect.any(AbortSignal),
     });
   });
 

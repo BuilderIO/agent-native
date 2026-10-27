@@ -52,7 +52,9 @@ describe("CommentComposer", () => {
 
     expect(editor.getAttribute("contenteditable")).toBe("true");
     expect(editor.className).toContain("agent-composer-prosemirror");
-    expect(editor.className).toContain("max-h-[10rem]");
+    expect(editor.className).toContain(
+      "max-h-[var(--agentkit-composer-editor-max-height,10rem)]",
+    );
   });
 
   it("keeps Cancel on one line beside the Send to AI control", () => {

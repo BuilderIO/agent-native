@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { CredentialContext } from "../credentials/index.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 
 export interface WebSearchResult {
   title: string;
@@ -259,7 +260,7 @@ async function searchBuilderManaged(
 export function createWebSearchToolEntry(
   opts: WebSearchToolOptions = {},
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "web-search": {
       tool: {
         description:
@@ -374,5 +375,5 @@ export function createWebSearchToolEntry(
       },
       readOnly: true,
     },
-  };
+  });
 }

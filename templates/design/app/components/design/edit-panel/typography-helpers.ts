@@ -176,7 +176,11 @@ export function resolveLineHeightFieldValue(
     const value = Number(explicit[1]);
     if (Number.isFinite(value) && value >= 0) {
       const unit = explicit[2]!.toLowerCase() as LineHeightUnit;
-      return { text: formatScrubValue(value, { unit }), value, unit };
+      return {
+        text: formatScrubValue(value, { unit, displayUnit: shownUnit(unit) }),
+        value,
+        unit,
+      };
     }
   }
 
@@ -194,9 +198,12 @@ export function resolveLineHeightFieldValue(
   }
 
   const computedPx = raw === computedLineHeight ? raw : computedLineHeight;
+  const value = lineHeightPixels(computedPx, fontSize, resolvedNormalPx);
   return {
-    text: raw,
-    value: lineHeightPixels(computedPx, fontSize, resolvedNormalPx),
+    text: /px$/i.test(raw)
+      ? formatScrubValue(value, { unit: "px", displayUnit: "", precision: 2 })
+      : raw,
+    value,
     unit: "px",
   };
 }
@@ -208,6 +215,11 @@ function singleUnitToken(
   const matches = raw.match(new RegExp(units.join("|"), "gi"));
   if (matches && matches.length > 1) return null;
   return { unit: matches?.[0]?.toLowerCase() };
+}
+
+// Inspector px fields show a bare number; % keeps its sign.
+function shownUnit(unit: string): string {
+  return unit === "px" ? "" : unit;
 }
 
 export function parseLineHeightInput(
@@ -237,8 +249,16 @@ export function parseLineHeightInput(
   });
   if (!parsed) return null;
   const value = parsed.value;
-  const text = formatScrubValue(value, { unit, precision: 2 });
-  return { text, value, unit, cssValue: text };
+  return {
+    text: formatScrubValue(value, {
+      unit,
+      displayUnit: shownUnit(unit),
+      precision: 2,
+    }),
+    value,
+    unit,
+    cssValue: formatScrubValue(value, { unit, precision: 2 }),
+  };
 }
 
 export type LetterSpacingUnit = "px" | "%";
@@ -285,7 +305,11 @@ export function resolveLetterSpacingFieldValue(
     ? parseNumericValue(computedLetterSpacing)
     : 0;
   return {
-    text: formatScrubValue(value, { unit: "px", precision: 2 }),
+    text: formatScrubValue(value, {
+      unit: "px",
+      displayUnit: "",
+      precision: 2,
+    }),
     value,
     unit: "px",
   };
@@ -320,7 +344,11 @@ export function parseLetterSpacingInput(
     explicitUnit === "em"
       ? Number((parsed.value * 100).toFixed(2))
       : parsed.value;
-  const text = formatScrubValue(value, { unit, precision: 2 });
+  const text = formatScrubValue(value, {
+    unit,
+    displayUnit: shownUnit(unit),
+    precision: 2,
+  });
   return { text, value, unit, cssValue: letterSpacingCssValue(value, unit) };
 }
 

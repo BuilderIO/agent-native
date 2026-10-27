@@ -11,9 +11,13 @@ import {
 function presentationText(nodes: SuggestionPresentationNode[]): string {
   return nodes
     .map((node) =>
-      node.type === "text" || node.type === "indent"
-        ? node.value
-        : presentationText(node.children),
+      node.type === "lineBreak"
+        ? "\n"
+        : node.type === "text" ||
+            node.type === "indent" ||
+            node.type === "block"
+          ? node.value
+          : presentationText(node.children),
     )
     .join("");
 }
@@ -43,8 +47,35 @@ describe("suggestion structural text", () => {
       }),
     ).toEqual([
       { type: "strong", children: [{ type: "text", value: "Upper" }] },
-      { type: "text", value: "↵" },
+      { type: "lineBreak" },
       { type: "strong", children: [{ type: "text", value: "Lower" }] },
+    ]);
+  });
+
+  it("breaks lines beside text and keeps a lone break visible", () => {
+    const source = "Alpha one.\nAlpha two.\n<empty-block/>\n- Item";
+    const presentation = (from: number, to: number) =>
+      suggestionTextPresentationForSource(source.slice(from, to), {
+        source,
+        from,
+        to,
+      });
+    const end = "Alpha one.".length;
+    expect(presentation(end, source.indexOf("\n<empty"))).toEqual([
+      { type: "lineBreak" },
+      { type: "text", value: "Alpha two." },
+    ]);
+    expect(presentation(end, end + 1)).toEqual([{ type: "text", value: "↵" }]);
+    expect(
+      presentation(source.indexOf("\n<empty"), source.indexOf("\n- ")),
+    ).toEqual([
+      { type: "text", value: "↵" },
+      { type: "block", value: "¶" },
+    ]);
+    expect(presentation(source.indexOf("\n- "), source.length)).toEqual([
+      { type: "lineBreak" },
+      { type: "block", value: "- " },
+      { type: "text", value: "Item" },
     ]);
   });
 

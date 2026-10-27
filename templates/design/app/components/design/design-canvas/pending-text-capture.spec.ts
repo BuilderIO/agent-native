@@ -12,6 +12,7 @@ import {
   failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   isPendingTextCaptureBound,
+  isPendingTextDeliveryInFlight,
   isPendingTextRequestLive,
   isPendingTextWriteInFlight,
   onPendingTextCaptureCancel,
@@ -19,6 +20,7 @@ import {
   registerPendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
+  requestTextEditFromOwner,
   returnPendingTextCapture,
   takePendingTextCapture,
 } from "./pending-text-capture";
@@ -275,6 +277,23 @@ describe("pending text capture", () => {
     expect(isPendingTextRequestLive("board", "text-owed")).toBe(false);
   });
 
+  it("leaves an owed delivery queued when a retry finds no owner mounted", () => {
+    vi.useFakeTimers();
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-owed");
+    beginTextEditForOwner("board", "text-owed", { afterPointerGesture: true });
+    type("Standalone");
+    vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS + 1);
+
+    expect(requestTextEditFromOwner("board", "text-owed")).toBe(false);
+
+    const begun = vi.fn(() => true);
+    register("board", begun);
+    expect(begun).toHaveBeenCalledExactlyOnceWith("text-owed", {
+      deliverOwed: true,
+    });
+  });
+
   it("stops intercepting when the owner unmounts with no replacement, and owes the typed text to the next owner", async () => {
     const capture = armPendingTextCapture({ owner: "screen-a" });
     capture.bind("text-gone");
@@ -322,6 +341,15 @@ describe("pending text capture", () => {
     vi.advanceTimersByTime(PENDING_TEXT_INTERCEPT_CAP_MS);
 
     expect(order).toEqual(["revoke-frame-copy", "host-commit"]);
+  });
+
+  it("reports a delivery in flight once the owner has posted the owed text, so retries stand down", () => {
+    const capture = armPendingTextCapture({ owner: "board" });
+    capture.bind("text-1");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(false);
+    beginPendingTextDelivery("board", "text-1", "Sta");
+    expect(isPendingTextDeliveryInFlight("board", "text-1")).toBe(true);
+    expect(isPendingTextDeliveryInFlight("board", "text-2")).toBe(false);
   });
 
   it("commits owed text host-side when no owner ever becomes ready", () => {

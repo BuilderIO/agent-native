@@ -126,7 +126,7 @@ describe("Appearance corner radius on boxless text", () => {
   });
 
   async function render(
-    cornerRadiusDisabled: boolean,
+    cornerRadiusHidden: boolean,
     styles: Record<string, string> = { borderRadius: "500px" },
     onStyleChange = vi.fn(),
   ) {
@@ -137,7 +137,7 @@ describe("Appearance corner radius on boxless text", () => {
             element={element(styles)}
             onStyleChange={onStyleChange}
             hidden={false}
-            cornerRadiusDisabled={cornerRadiusDisabled}
+            showCornerRadius={!cornerRadiusHidden}
           />
         </TooltipProvider>,
       );
@@ -154,10 +154,10 @@ describe("Appearance corner radius on boxless text", () => {
       (button) => button.getAttribute("aria-label") === "Independent corners",
     );
 
-  it("disables the radius field and corner toggle for text layers", async () => {
+  it("hides the radius field and corner toggle for layers without a box", async () => {
     await render(true);
-    expect(radiusInput()?.disabled).toBe(true);
-    expect(cornersToggle()?.disabled).toBe(true);
+    expect(radiusInput()).toBeNull();
+    expect(cornersToggle()).toBeUndefined();
   });
 
   it("keeps the radius editable for layers with a box", async () => {
@@ -166,9 +166,9 @@ describe("Appearance corner radius on boxless text", () => {
     expect(cornersToggle()?.disabled).toBe(false);
   });
 
-  it("shows px in the radius field, including zero", async () => {
+  it("shows a bare pixel radius, including zero", async () => {
     await render(false, { borderRadius: "0px" });
-    expect(radiusInput()?.value).toBe("0px");
+    expect(radiusInput()?.value).toBe("0");
   });
 
   it("preserves percent radius when a typed value is committed", async () => {
@@ -213,7 +213,7 @@ describe("Appearance corner radius on boxless text", () => {
       'input[aria-label="Top right"]',
     );
     expect(topLeft?.value).toBe("50%");
-    expect(topRight?.value).toBe("20px");
+    expect(topRight?.value).toBe("20");
     await act(async () => {
       topLeft!.focus();
       const setValue = Object.getOwnPropertyDescriptor(

@@ -1,5 +1,62 @@
 # @agent-native/toolkit
 
+## 0.220.0
+
+### Patch Changes
+
+- ddd3bd1: An agent run ended by a SQL write now sends its one `agent_run_terminal` too: runs the server reaps (`reaped: true`), stopped runs (`status: "aborted"`), runs the reaper repairs from their event log, and runs that fail or are released before their worker starts. The event carries `turn_id` and the run's user, except an anonymous visitor's. An aborted run is reported by the SQL write that stopped it, so aborted events no longer carry `model`, `engine` or `attempt_count`. `run_started` also carries `turn_id`, and so do `$ai_trace` and `$ai_generation` for agent chat runs.
+
+  The browser now sends `agent_turn_submitted` once per agent request it submits and the server accepts (not yet for a queued message the server's inbox drain admits), with the same `turn_id`, `initiator` (`user`, `app`, or `system`) and `surface`; continuations repeat the turn's `turn_id` as `system`. `agent_run_outcome` now carries `turn_id`, except for a replay whose turn the server did not name. See the tracking skill for the full contract.
+
+- 4ea7d64: Resume the skill file review when a native file picker closes the composer menu.
+- Release all public npm packages with a patch version bump.
+- 0c211bc: Keep pending approvals visible in the chat sidebar while the agent waits for a decision.
+- b73b8ef: Let `VisualScrubInput` show a different unit suffix than it parses (`displayUnit`), and accept `deg` and `°` interchangeably in degree fields.
+- Updated dependencies
+  - @agent-native/agentkit@0.220.0
+
+## 0.219.0
+
+### Minor Changes
+
+- 838e1ae: App-registered commands can render an opt-in preview inside the selected row.
+- 7b293b2: Expose the terminal status of action tool calls to custom chat renderers while keeping `isRunning` available.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 86429da: Keep the agent chat send button and tabs visible in narrow panels: the composer's model picker truncates instead of pushing the toolbar past the panel edge, and chat tabs shrink before scrolling.
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
 ## 0.216.0
 
 ### Minor Changes
@@ -1234,57 +1291,5 @@
 ### Patch Changes
 
 - 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
-
-## 0.13.9
-
-### Patch Changes
-
-- dab8787: Fix the chat sidebar repainting glitches that made app content flash, shift, and
-  render as flat empty rectangles while the agent was generating.
-
-  Three properties on the always-mounted sidebar promoted or re-promoted a
-  compositing layer on every app that renders `AgentSidebar`:
-  - `will-change: transform` sat permanently on the sidebar panel (desktop, mobile
-    and drawer variants). It wraps the whole chat transcript and is never
-    unmounted, so the hint was never retired. The 260ms transform transition is
-    promoted by the browser on its own for exactly as long as it runs.
-  - `view-transition-name` was stamped on the panel unconditionally, including in
-    apps that never start a chat view transition. A permanent name makes the panel
-    a stacking context and the containing block for every fixed and absolutely
-    positioned descendant, and enlists it as a captured group in unrelated route
-    view transitions. It is now applied only while the wide-drawer morph runs.
-  - The chat scroller's top-fade `mask-image` was added and removed with the
-    `hasContentAbove` class, which flips as replies stream into an auto-scrolled
-    transcript. The mask is now always declared and only its length changes.
-
-  The same two defects existed independently on the workspace shell sidebar in
-  `@agent-native/frame`, which hosts the agent panel, so the promotions nested.
-  Fixed there too.
-
-  Regression tests cover all three invariants, and a new repo-wide
-  `pnpm guard:persistent-compositing` fails on any new compositing promotion on a
-  long-lived surface. Genuinely transient elements (a popover that unmounts on
-  close, a drag preview) opt out with a `compositing-ok: <reason>` comment.
-
-- dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
-- dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
-
-## 0.13.8
-
-### Patch Changes
-
-- c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

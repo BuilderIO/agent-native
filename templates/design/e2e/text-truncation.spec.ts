@@ -303,7 +303,8 @@ test(
     await classTitle.screenshot({
       path: testInfo.outputPath("class-title-editing-element.png"),
     });
-    await page.keyboard.press(`${MOD}+End`);
+    // Enter selected all the text; ArrowRight collapses to its end.
+    await page.keyboard.press("ArrowRight");
     await page.keyboard.insertText("!");
     await page.keyboard.press("Escape");
     await expect(editable).toHaveCount(0);
@@ -565,8 +566,8 @@ test(
     const after = await app.savedNodes(designId);
     expect(
       after.get(nodeId!)?.parent,
-      "a plain div is not a container, so the text lands on the screen body",
-    ).toBe([...after.values()].find((node) => node.tag === "body")!.id);
+      "typed over <main>, the text nests in it",
+    ).toBe("fresh-title-canvas");
     expect(after.get(nodeId!)?.text).toBe(freshTitle);
     const placed = await app.designRect(nodeId!);
     expect(

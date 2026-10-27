@@ -1,7 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconChevronDown,
-  IconFile,
   IconFileDiff,
   IconLoader2,
 } from "@tabler/icons-react";
@@ -20,9 +20,14 @@ export interface EditCellMeta {
 interface EditCellProps {
   meta: EditCellMeta;
   isRunning: boolean;
+  defaultExpanded?: boolean;
+  /** Render only the diff, for hosts that already show the path. */
+  hideHeader?: boolean;
 }
 
 const MAX_COLLAPSED_LINES = 40;
+const TOOL_CELL_ROW_CLASS =
+  "agent-kit-activity-row flex w-full min-w-0 items-center gap-2 py-1 text-start text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/50 focus-visible:outline-none";
 
 interface DiffLine {
   kind: "context" | "added" | "removed";
@@ -130,7 +135,7 @@ const DiffView = memo(function DiffView({
               key={idx}
               className={cn(
                 line.kind === "added" &&
-                  "bg-emerald-500/8 dark:bg-emerald-400/8",
+                  "bg-[hsl(var(--agent-kit-positive)/0.08)]",
                 line.kind === "removed" && "bg-destructive/8",
               )}
             >
@@ -146,8 +151,7 @@ const DiffView = memo(function DiffView({
               <td
                 className={cn(
                   "w-4 select-none text-center text-[10px] font-bold",
-                  line.kind === "added" &&
-                    "text-emerald-600 dark:text-emerald-400",
+                  line.kind === "added" && "agent-kit-tone-positive",
                   line.kind === "removed" && "text-destructive",
                   line.kind === "context" && "text-muted-foreground/40",
                 )}
@@ -155,18 +159,11 @@ const DiffView = memo(function DiffView({
                 {line.kind === "added"
                   ? "+"
                   : line.kind === "removed"
-                    ? "-"
+                    ? "\u2212"
                     : " "}
               </td>
               {/* Content */}
-              <td
-                className={cn(
-                  "px-2 text-foreground",
-                  line.kind === "added" &&
-                    "text-emerald-800 dark:text-emerald-200",
-                  line.kind === "removed" && "text-red-800 dark:text-red-200",
-                )}
-              >
+              <td className="px-2 text-foreground">
                 <span
                   style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
                 >
@@ -181,8 +178,14 @@ const DiffView = memo(function DiffView({
   );
 });
 
-export function EditCell({ meta, isRunning }: EditCellProps) {
-  const [expanded, setExpanded] = useState(false);
+export function EditCell({
+  meta,
+  isRunning,
+  defaultExpanded = false,
+  hideHeader = false,
+}: EditCellProps) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAll, setShowAll] = useState(false);
 
   const diff = useMemo(() => {
@@ -199,84 +202,74 @@ export function EditCell({ meta, isRunning }: EditCellProps) {
   const hiddenLines =
     maxCollapsed !== null ? totalLines - MAX_COLLAPSED_LINES : 0;
 
+  const body = hasDiff ? (
+    <div className="mt-1 overflow-hidden rounded-md border border-border/60 bg-background">
+      <DiffView lines={diff} maxLines={maxCollapsed} />
+      {hiddenLines > 0 && (
+        <div className="border-t border-border/40 px-3 py-1 text-xs text-muted-foreground">
+          <button
+            type="button"
+            className="cursor-pointer underline hover:text-foreground"
+            onClick={() => setShowAll(true)}
+          >
+            {t("agentChat.toolCells.showMoreLines", { count: hiddenLines })}
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  if (hideHeader) return <div className="my-1 w-full">{body}</div>;
+
   return (
-    <div className="my-1 overflow-hidden rounded-md border border-border/60">
-      {/* Header */}
+    <div className="my-1 w-full">
       <button
         type="button"
         onClick={() => hasDiff && setExpanded((e) => !e)}
         className={cn(
-          "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-mono",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
-          hasDiff && "cursor-pointer",
-          !hasDiff && "cursor-default",
+          TOOL_CELL_ROW_CLASS,
+          hasDiff ? "cursor-pointer" : "cursor-default",
         )}
         aria-expanded={hasDiff ? expanded : undefined}
       >
-        <span className="shrink-0">
+        <span className="flex shrink-0">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-4 animate-spin motion-reduce:animate-none" />
           ) : (
-            <IconFileDiff className="h-3 w-3 text-amber-500" />
+            <IconFileDiff className="size-4 text-muted-foreground/70" />
           )}
         </span>
-
-        <IconFile className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono text-foreground">
           {meta.filePath}
         </span>
 
         {stats && !isRunning && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <span className="ms-auto flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
             {stats.added > 0 && (
-              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                +{stats.added}
-              </span>
+              <span className="agent-kit-tone-positive">+{stats.added}</span>
             )}
             {stats.removed > 0 && (
-              <span className="text-[10px] font-semibold text-destructive">
-                -{stats.removed}
+              <span className="text-destructive">
+                {"\u2212"}
+                {stats.removed}
               </span>
             )}
-            {meta.truncated && (
-              <span className="text-[10px] text-muted-foreground">
-                (partial)
-              </span>
-            )}
+            {meta.truncated && <span>{t("agentChat.toolCells.partial")}</span>}
           </span>
         )}
 
         {hasDiff && (
           <IconChevronDown
+            aria-hidden="true"
             className={cn(
-              "ml-1 h-3 w-3 shrink-0 opacity-40",
+              "size-4 shrink-0 opacity-60 transition-transform duration-150 motion-reduce:transition-none",
               expanded && "rotate-180",
             )}
           />
         )}
       </button>
 
-      {/* Diff body */}
-      <AnimatedCollapse open={expanded && hasDiff}>
-        {hasDiff && (
-          <div className="border-t border-border/40 bg-background">
-            <DiffView lines={diff} maxLines={maxCollapsed} />
-            {hiddenLines > 0 && (
-              <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
-                <button
-                  type="button"
-                  className="cursor-pointer underline hover:text-foreground"
-                  onClick={() => setShowAll(true)}
-                >
-                  Show {hiddenLines} more lines
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </AnimatedCollapse>
+      <AnimatedCollapse open={expanded && hasDiff}>{body}</AnimatedCollapse>
     </div>
   );
 }
