@@ -384,12 +384,16 @@ export default defineAction({
         // The write can commit before it throws. Only a reread showing some
         // other value proves it didn't, leaving the new Gmail draft with no
         // Mail draft pointing at it. If the reread fails too, keep the Gmail
-        // draft rather than delete one Mail may still point at.
+        // draft rather than delete one Mail may still point at, and say so,
+        // so a caller checks before creating a duplicate.
         let stored: Record<string, unknown> | null;
         try {
           stored = await readAppState(`compose-${id}`);
         } catch {
-          throw error;
+          throw new Error(
+            `Mail couldn't confirm whether draft "${id}" was stored, so it kept the Gmail draft it saved (${savedGmailDraft.draftId}). Check for draft "${id}" before creating it again.`,
+            { cause: error },
+          );
         }
         if (stored?.savedDraftId !== savedGmailDraft.draftId) {
           await discardUnstoredGmailDraft(ownerEmail, savedGmailDraft);

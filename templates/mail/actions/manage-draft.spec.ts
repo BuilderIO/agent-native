@@ -867,16 +867,22 @@ describe("manage-draft create when the draft write throws", () => {
     expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
   });
 
-  it("keeps the Gmail draft and rethrows when the outcome can't be read", async () => {
+  it("keeps the Gmail draft and says so when the outcome can't be read", async () => {
     mocks.compareAndSetAppState.mockImplementationOnce(async () => {
       mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
       throw writeError;
     });
 
-    await expect(
-      action.run({ action: "create", id: "fresh", body: "New draft" }),
-    ).rejects.toBe(writeError);
+    const error = await action
+      .run({ action: "create", id: "fresh", body: "New draft" })
+      .catch((thrown: unknown) => thrown);
 
+    expect(error).toMatchObject({
+      message: expect.stringContaining(
+        "kept the Gmail draft it saved (gmail-new)",
+      ),
+      cause: writeError,
+    });
     expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
   });
 
