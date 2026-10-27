@@ -9,7 +9,10 @@ import {
   preparedCallArguments,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
-import { filesystemActionEntry } from "./filesystem-action-entry.js";
+import {
+  actionDefinition,
+  filesystemActionEntry,
+} from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
@@ -184,5 +187,35 @@ describe("filesystemActionEntry", () => {
       destructiveHint: true,
       openWorldHint: true,
     });
+  });
+});
+
+describe("actionDefinition", () => {
+  const tool = { description: "Send", parameters: { type: "object" } };
+  const run = async () => ({});
+
+  it("takes named tool and run before a default action, as the built registry does", () => {
+    const mod = {
+      tool,
+      run,
+      needsApproval: true,
+      default: { tool, run, needsApproval: false },
+    };
+
+    expect(actionDefinition(mod)).toBe(mod);
+    expect(filesystemActionEntry(mod).needsApproval).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ send: mod }).send!.needsApproval,
+    ).toBe(true);
+  });
+
+  it("takes a default action when the module names none", () => {
+    const action = { tool, run };
+    expect(actionDefinition({ default: action })).toBe(action);
+  });
+
+  it("finds no action in a CLI script", () => {
+    expect(actionDefinition({ default: async () => {} })).toBeUndefined();
+    expect(actionDefinition({ tool })).toBeUndefined();
   });
 });

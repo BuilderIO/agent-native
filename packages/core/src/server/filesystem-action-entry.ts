@@ -170,6 +170,26 @@ export function preserveActionFlags(
   return out;
 }
 
+function definesAction(value: unknown): value is Record<string, unknown> {
+  if (!isPlainObject(value)) return false;
+  const def = value as Record<string, unknown>;
+  return !!def.tool && typeof def.run === "function";
+}
+
+/**
+ * The object a loaded action module defines its action on. Named `tool` and
+ * `run` exports come first, as the built registry and the directory loader
+ * take them, so the dev scan registers the same action production does.
+ * Otherwise it's the default-exported object, if that's an action.
+ */
+export function actionDefinition(
+  mod: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const { default: defaultExport } = mod;
+  if (definesAction(mod)) return mod;
+  return definesAction(defaultExport) ? defaultExport : undefined;
+}
+
 /**
  * The entry the dev filesystem scan registers for a loaded action module: the
  * real `run` plus the same flags a built registry keeps, and conservative MCP

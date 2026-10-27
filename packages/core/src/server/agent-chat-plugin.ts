@@ -319,6 +319,7 @@ import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
 import {
+  actionDefinition,
   discoveredActionMcpAnnotations,
   filesystemActionEntry,
 } from "./filesystem-action-entry.js";
@@ -1898,11 +1899,8 @@ export function createAgentChatPlugin(
               const filePath = pathMod.join(actionsDir, file);
               try {
                 const mod = await import(/* @vite-ignore */ filePath);
-                const def =
-                  mod.default && typeof mod.default === "object"
-                    ? mod.default
-                    : mod;
-                if (def?.tool && typeof def.run === "function") {
+                const def = actionDefinition(mod);
+                if (def) {
                   discoveredActionsAll[name] = filesystemActionEntry(def);
                   continue;
                 }
