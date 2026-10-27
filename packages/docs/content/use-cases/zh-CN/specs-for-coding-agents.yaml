@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: 写出编码 agent 读得懂的规格文档
+seo_title: 写给 Claude Code、Codex 和 Cursor 的规格文档
+meta_description: Agent-Native Content 把规格文档放在同一个页面上，Claude Code、Codex 或 Cursor 通过 MCP 读取，让 agent 按团队正在编辑的版本来构建。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Content 把你的笔记变成规格文档，你、团队和编码 agent 都在同一个页面上协作。Claude Code、Codex 或 Cursor 读取实时页面，并提出由你来接受的修改建议。
+  button:
+    label: 写一份规格文档
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Content 中打开的一份名为“Team invites”的规格文档，包含 Goals、Non-goals、Decisions 和 Open questions 几个部分，左侧是页面树。右侧的 agent 聊天添加了一条关于邀请链接有效期的决定。
+how_to:
+  heading: 如何为编码 agent 写规格文档
+  steps:
+    - title: 和 agent 一起写规格文档
+      body: 点击侧边栏中的 **+**，选择 **页面** 并粘贴你的笔记，或者让 [Content 内置的 agent](https://www.agent-native.com/docs/template-content/) 根据笔记“为新功能起草一份 PRD”。你可以手动编辑，也可以选中某个部分让它重写。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: agent 聊天中请求根据会议笔记写一份团队邀请功能的规格文档。agent 的回复列出了它写好的各个部分，旁边是新页面。
+    - title: 在编码 agent 中打开
+      body: 在 **分享** 中打开 **Agent**，选择 **在 Claude Code 中打开** 或 **在 Codex 中打开**。agent 会读取页面，或者先请你连接 Content。如果用 Cursor 或 VS Code，先添加 Content，再点击 **复制 agent 提示词** 并粘贴。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: Share 菜单中 Agents 标签页的特写：Copy agent prompt、Open in Claude、Open in Claude Code 和 Open in Codex。下方的 Connect Content 提供 Add to Cursor、Add to VS Code 和 Other agents。
+    - title: 让规格文档保持最新
+      body: 构建过程中某个待定问题有了结论时，让编码 agent 在页面上提出修改建议。每条建议都会写明 agent 的理由。点击对勾接受，点击 X 拒绝。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: 规格文档 Open questions 部分的特写，其中有一条来自编码 agent 的修改建议，标为 Agent，附有理由以及接受（对勾）和拒绝（X）按钮。
+features:
+  heading: 为编码 agent 写规格文档所需的一切
+  items:
+    - title: 以评论形式给反馈
+      body: 让 agent 审阅你的规格文档，它会在薄弱的地方留下评论，而不是重写你的文字。
+    - title: 每个功能一个页面
+      body: 把调研、API 笔记和过往决定都嵌套在对应的规格文档下，按标题和正文搜索就能找到。
+    - title: 规格文档看板
+      body: 把规格文档放进带负责人和状态字段的集合，以表格或看板查看，每一行背后都是完整页面。
+    - title: 写给 agent 的说明
+      body: 在页面描述里写明哪些部分已经定了，读取这份规格文档的每个 agent 也都会读到。
+    - title: 读取未保存的编辑
+      body: 编码 agent 能看到编辑器里尚未保存的修改，所以它始终基于页面此刻的样子工作。
+    - title: 和团队一起审阅
+      body: 对任意段落发表评论，@提及同事并在评论串中回复。版本历史可以恢复早先的规格文档。
+integrations:
+  heading: 把 Content 连接到你已经在用的工具
+  cards:
+    - title: 适配你的编码 agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 从分享菜单在 Claude Code 或 Codex 中打开页面，或一键把 Content 添加到 Cursor 或 VS Code 中的 GitHub Copilot。
+    - title: 带上你已有的规格文档
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: 让页面与 Notion 双向同步，或把 GitHub 上存放 Markdown 规格文档的文件夹变成一个集合。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Content 免费吗？
+      a: 是的，Agent-Native Content 免费且开源。编码 agent 用它自己的模型读取和编辑规格文档，所以会计入 agent 的用量。Content 内置的 agent 使用 Builder.io 额度或你自己的模型密钥运行。Content 目前处于 alpha 阶段，后续还会有变化。
+    - q: 哪些编码 agent 能读取我的规格文档？
+      a: Claude Code 和 Codex 可以从 **分享** 中打开页面，只需连接一次。Cursor 和 VS Code 中的 GitHub Copilot 可以一键添加 Content。Claude Cowork、Goose 和 OpenCode 从终端连接，任何支持登录的 MCP 客户端都可以[通过 URL 连接 Content](https://www.agent-native.com/docs/external-agents/#private-content-links)。每个 agent 只能看到你的账号能看到的内容。
+    - q: 这和代码仓库里的规格文件有什么不同？
+      a: 仓库里的规格文件是一份副本，通常只有写代码的人会去编辑。在 Content 中，团队在编码 agent 读取的同一个页面上撰写和评论，agent 的修改以建议的形式出现。如果你也想在仓库里保留 Markdown，Content 可以[与本地文件夹同步](https://www.agent-native.com/docs/template-content-sync/)。
+    - q: 编码 agent 能修改规格文档吗？
+      a: 可以，权限与你的账号一致。让它提出修改建议，在你逐条接受之前，页面保持不变。它也可以直接编辑页面，但如果页面在 agent 读取后又被改过，Content 会拒绝这次编辑。[版本历史](https://www.agent-native.com/docs/template-content-editing/)会保留早先的版本。
+    - q: 我可以把规格文档保存在自己的仓库里吗？
+      a: 可以。在 Content 中连接一个[本地 Markdown 或 MDX 文件夹](https://www.agent-native.com/docs/template-content-local-files/)，然后拉取、检查或推送修改，也可以用一条命令从仓库启动 Content。冲突会列出来供你审阅。浏览器本身无法读取本地文件，所以这需要本地 Content 应用或 Agent-Native Desktop。

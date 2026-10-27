@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
+  queryString: "",
+  locationHash: "",
+  locationKey: "initial",
+  navigationType: "POP",
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -389,8 +393,13 @@ vi.mock("@agent-native/creative-context/client", () => ({
 }));
 
 vi.mock("react-router", () => ({
+  useLocation: () => ({ hash: mocks.locationHash, key: mocks.locationKey }),
   useNavigate: () => mocks.navigate,
-  useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
+  useNavigationType: () => mocks.navigationType,
+  useSearchParams: () => [
+    new URLSearchParams(mocks.queryString),
+    mocks.setSearchParams,
+  ],
   Link: ({ children, to, ...props }: Record<string, any>) => (
     <a href={to} {...props}>
       {children}
@@ -527,6 +536,10 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.queryString = "";
+  mocks.locationHash = "";
+  mocks.locationKey = "initial";
+  mocks.navigationType = "POP";
   mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
@@ -1596,6 +1609,71 @@ describe("home library", () => {
     expect(window.localStorage.getItem("design-home-has-recents")).toBe("true");
   });
 
+  it("switches back to Templates when the last accessible design is removed", async () => {
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+
+    mocks.ownCount = 0;
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
+  it("resets a manually selected Recent tab when the last design is removed", async () => {
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    const templates = tabs.find(
+      (tab) => tab.textContent === "navigation.templates",
+    );
+    const recent = tabs.find((tab) => tab.textContent === "home.recent");
+    if (!templates || !recent) throw new Error("Missing home library tabs");
+
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    await act(async () =>
+      recent.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+
+    mocks.ownCount = 0;
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+
+    mocks.ownCount = 1;
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
   it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",
@@ -1606,6 +1684,144 @@ describe("home library", () => {
     expect(renderToString(<Index />)).toContain(
       'aria-label="home.suggestedPrompts"',
     );
+  });
+
+  it("keeps Recent selected for the save-template checklist destination", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 0;
+    mocks.ownStatus = "success";
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
+  it("preserves a tab choice after the save-template destination query resolves", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.ownCount = 0;
+    mocks.ownStatus = "pending";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    const templates = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "navigation.templates");
+    if (!templates) throw new Error("Missing Templates tab");
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    expect(templates.getAttribute("aria-selected")).toBe("true");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
+  it("reapplies a checklist destination when the same URL is opened again", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.locationHash = "#design-home-library";
+    mocks.locationKey = "checklist-open-1";
+    mocks.ownCount = 1;
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    const templates = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "navigation.templates");
+    if (!templates) throw new Error("Missing Templates tab");
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    expect(templates.getAttribute("aria-selected")).toBe("true");
+
+    mocks.locationKey = "checklist-open-2";
+    mocks.navigationType = "REPLACE";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("home.recent");
+  });
+
+  it("preserves the selected tab during checklist query replacements", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template";
+    mocks.locationHash = "#design-home-library";
+    mocks.locationKey = "checklist-open";
+    mocks.ownCount = 1;
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+
+    const templates = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ).find((tab) => tab.textContent === "navigation.templates");
+    if (!templates) throw new Error("Missing Templates tab");
+    await act(async () =>
+      templates.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    expect(templates.getAttribute("aria-selected")).toBe("true");
+
+    mocks.queryString = "gettingStarted=save-template&templateId=selected";
+    mocks.locationKey = "template-selection";
+    mocks.navigationType = "REPLACE";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+
+    mocks.queryString =
+      "gettingStarted=save-template&templateId=selected&previewTemplateId=preview";
+    mocks.locationKey = "template-preview";
+    await act(async () => root.render(<Index />));
+
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("navigation.templates");
+  });
+
+  it("does not replace the checklist location when the selected template is unchanged", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "gettingStarted=save-template&templateId=selected";
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+    mocks.setSearchParams.mockClear();
+
+    await act(async () => mocks.promptProps?.onTemplateChange("selected"));
+
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
   it("preserves an explicit Templates choice made while the summary is pending", async () => {

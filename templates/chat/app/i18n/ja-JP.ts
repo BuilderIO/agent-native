@@ -50,17 +50,12 @@ const messages = {
     untitledChat: "無題のチャット",
   },
   home: {
-    composerPlaceholder: "Alex に対して hello アクションを呼び出して",
     communityTitle: "コミュニティ",
     docsAddAction: "アクションを追加",
     docsAddPage: "ページを追加",
     docsGettingStarted: "はじめに",
     docsKeyConcepts: "主要な概念",
     docsTitle: "ドキュメント",
-    editHint:
-      "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
-    lead: "アプリの UI とエージェントは同じアクションを共有しています。",
-    leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
     title: "はじめに",
   },
   navigation: {

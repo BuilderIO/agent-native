@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: Monte um dashboard de KPIs para sua startup
+seo_title: Dashboard de KPIs com IA para startups
+meta_description: Descreva as métricas que você acompanha, e o Agent-Native Analytics monta o dashboard de KPIs da sua startup com Stripe, HubSpot e produto, e diz o que mudou.
+updated: 2026-10-27
+hero:
+  body: O Agent-Native Analytics reúne MRR, churn e cadastros num dashboard, com dados do Stripe, HubSpot e do produto. Diga o que você acompanha, e o agente monta tudo e explica cada variação.
+  button:
+    label: Monte seu dashboard
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: O dashboard de KPIs de uma startup no Analytics, com cards de MRR, churn, novos cadastros e ativação acima de gráficos mensais de MRR e de cadastros. A barra lateral do agente responde qual plano puxou o crescimento do MRR neste trimestre, com uma tabela por plano.
+how_to:
+  heading: Como montar um dashboard de KPIs com IA
+  steps:
+    - title: Conecte seus dados de receita e de produto
+      body: Na página **Fontes de dados**, cole sua chave secreta do Stripe e depois adicione o HubSpot e a ferramenta de analytics de produto que você usa. Escolha **Testar conexão** no menu de uma fonte para confirmar que o Analytics consegue lê-la.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: Detalhe do Stripe na página Fontes de dados, marcado como conectado, com a chave secreta configurada e "Connection successful" depois do teste de conexão.
+    - title: Descreva o dashboard que você quer
+      body: Clique em **Novo painel** e descreva as [métricas de SaaS que você acompanha](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/), por exemplo "MRR e churn do Stripe, novos cadastros e ativação do PostHog, mês a mês". O agente pode fazer perguntas antes, depois monta cada painel e abre o dashboard.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: Detalhe da caixa de novo dashboard, aberta pela lista de dashboards da barra lateral, com a descrição de um dashboard de KPIs de startup já digitada.
+    - title: Pergunte por que um número mudou
+      body: Escolha **Conversar sobre o painel** no menu de um gráfico e faça uma pergunta, como "Por que o churn subiu em setembro?". O agente responde com seus dados conectados e adiciona um painel ao dashboard quando você pede.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "O painel de churn por mês com o chat do agente ao lado. Perguntado por que o churn subiu em setembro, o agente detalha a alta por plano: o churn do Starter quase dobrou."
+features:
+  heading: Tudo o que você precisa para acompanhar os KPIs da sua startup
+  items:
+    - title: Receita, pipeline e uso juntos
+      body: O MRR do Stripe, os negócios do HubSpot e os cadastros do PostHog ou do Mixpanel ficam lado a lado em um só dashboard.
+    - title: Edite à mão ou peça
+      body: Mude um filtro você mesmo ou peça um novo painel ao agente. Os dois vão para o mesmo dashboard, e o histórico restaura qualquer versão anterior.
+    - title: A consulta por trás de cada número
+      body: Clique em qualquer ponto de um gráfico para ver os registros por trás dele, o SQL que os encontrou e um download em CSV.
+    - title: Sua definição de MRR
+      body: Escreva como sua empresa conta o MRR ou um usuário ativo na página **Camada semântica**. O agente confere isso antes de escrever uma consulta.
+    - title: Privado até você compartilhar
+      body: Um dashboard novo é só seu. Compartilhe com um cofundador ou com a empresa toda quando estiver pronto, para ver ou para editar.
+    - title: Seus KPIs por e-mail
+      body: "Os números chegam até você: receba o dashboard por e-mail toda manhã, no horário que você escolher, para até cinco pessoas."
+integrations:
+  heading: Conecte o Analytics às ferramentas que você já usa
+  cards:
+    - title: Sua receita e seu pipeline
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: O Analytics lê assinaturas e pagamentos do Stripe e negócios do HubSpot, então os números de receita vêm direto da fonte.
+    - title: O uso do seu produto
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: Cadastros, usuários ativos e ativação vêm da ferramenta de analytics de produto ou do data warehouse que você já usa.
+    - title: Conecte qualquer coisa via MCP
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: Conecte as ferramentas que sua equipe usa via MCP, ou adicione qualquer servidor MCP pela URL dele.
+other_uses:
+  heading: Outras coisas que você pode fazer com o Agent-Native Analytics
+  cards:
+    - title: Faça perguntas aos seus dados em português
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Faça uma pergunta sobre seus dados no BigQuery e receba a resposta sem escrever SQL.
+    - title: Descubra onde os novos usuários desistem
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: Veja onde os novos usuários param nas etapas de cadastro e de onboarding.
+    - title: Faça seu relatório semanal de marketing sem planilhas
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Monte seu relatório semanal de marketing uma vez e pare de refazê-lo à mão.
+faqs:
+  heading: Dúvidas? Temos respostas
+  items:
+    - q: O Agent-Native Analytics é gratuito?
+      a: Sim, o Agent-Native Analytics é gratuito e open source. O agente roda com créditos de IA do Builder.io ou com sua própria chave de modelo, e cada fonte de dados precisa das próprias credenciais, como uma chave secreta do Stripe. O Analytics está em alfa, então telas e recursos ainda podem mudar.
+    - q: De quais ferramentas o Analytics consegue puxar meus KPIs?
+      a: O Analytics se conecta ao Stripe, ao HubSpot, ao PostHog, ao Mixpanel, ao Amplitude, ao Google Analytics (GA4), ao BigQuery e a mais de uma dúzia de outras fontes. Você adiciona cada uma na [página Fontes de dados](https://www.agent-native.com/docs/template-analytics-connectors/) com sua própria chave, e um dashboard pode misturar várias fontes.
+    - q: Preciso saber SQL para montar um dashboard de KPIs?
+      a: Não. Você descreve o dashboard ou faz uma pergunta em português, e o agente escreve o SQL. A consulta fica visível por trás de cada gráfico, então alguém que conhece seus dados pode conferir ou editar.
+    - q: Como sei que os números estão certos?
+      a: Cada número do dashboard vem de uma consulta que o agente rodou nos seus dados conectados, e você pode abrir a consulta e os registros por trás de qualquer gráfico. Quando o agente não consegue rodar uma consulta, ele marca o número como "Não verificado". Confira alguns números com o Stripe antes de confiar no dashboard.
+    - q: Quem pode ver meu dashboard de KPIs?
+      a: Só você, até compartilhar. Você pode [compartilhar um dashboard](https://www.agent-native.com/docs/sharing/) com um colega ou com toda a organização como leitor, editor ou administrador. Os filtros que você muda valem só para você; salve uma visualização ou envie o link para compartilhá-los.
+    - q: Qual a diferença entre o Analytics e a IA da minha ferramenta de analytics?
+      a: "Um assistente de IA dentro de uma ferramenta de analytics trabalha com os dados daquela ferramenta. O Analytics trabalha com o Stripe, seu CRM e seus dados de produto, e o agente monta e edita o dashboard que você vê, então as respostas viram painéis que você guarda. É isso que faz do Analytics um [app agêntico](https://www.agent-native.com/articles/what-is-an-agent-native-app/): o cérebro de um agente, a intuitividade de um app."

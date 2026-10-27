@@ -276,13 +276,13 @@ function embedTokenTargetStorageKey(token: string): string | null {
     return null;
   }
   const claims = decodedClaims as {
-    targetMount?: unknown;
+    audienceBasePath?: unknown;
     targetPath?: unknown;
   };
-  if (typeof claims.targetMount === "string") {
-    return embedTokenStorageKey(claims.targetMount, true);
+  if (typeof claims.audienceBasePath === "string") {
+    return embedTokenStorageKey(claims.audienceBasePath, true);
   }
-  if (claims.targetMount !== undefined) return null;
+  if (claims.audienceBasePath !== undefined) return null;
   if (typeof claims.targetPath !== "string") return null;
   const basePath = resolveExternalEmbedTargetAppBasePath(claims.targetPath);
   return basePath === undefined ? null : embedTokenStorageKey(basePath, true);

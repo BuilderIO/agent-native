@@ -33,7 +33,7 @@ interface ActiveAiRequestSession {
   updatedAt?: string;
 }
 
-async function listQueuedRequests(): Promise<{
+async function listQueuedRequests(requesterEmail?: string | null): Promise<{
   requests: QueuedAiRequest[];
   activeSessions: ActiveAiRequestSession[];
 }> {
@@ -49,6 +49,12 @@ async function listQueuedRequests(): Promise<{
       entry.value,
     ]),
   );
+  const workflowByRecordingId = new Map(
+    workflowEntries.map((entry) => [
+      entry.key.slice(WORKFLOW_PREFIX.length),
+      entry.value as Record<string, unknown> | null,
+    ]),
+  );
   const requests = entries
     .map((e) => e.value as Record<string, unknown>)
     .filter(
@@ -56,6 +62,19 @@ async function listQueuedRequests(): Promise<{
         !!v && typeof v.recordingId === "string" && v.recordingId.length > 0,
     )
     .filter((request) => {
+      if (request.kind === "generate-workflow") {
+        const requestedBy = workflowByRecordingId.get(
+          request.recordingId,
+        )?.requestedBy;
+        if (
+          !requesterEmail ||
+          typeof requestedBy !== "string" ||
+          requestedBy.trim().toLowerCase() !==
+            requesterEmail.trim().toLowerCase()
+        ) {
+          return false;
+        }
+      }
       const status = statusByRecordingId.get(request.recordingId);
       if (!status) return true;
       if (
@@ -171,7 +190,7 @@ export default defineAction({
   run: async () => {
     const email = getRequestUserEmail();
     const [{ requests, activeSessions }, titleCandidates] = await Promise.all([
-      listQueuedRequests(),
+      listQueuedRequests(email),
       email ? listAutoTitleCandidates(email) : [],
     ]);
     return { requests, activeSessions, titleCandidates };

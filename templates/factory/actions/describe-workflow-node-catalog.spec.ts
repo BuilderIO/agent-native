@@ -131,11 +131,53 @@ describe("describe-workflow-node-catalog", () => {
           target: true,
         }),
       ]),
+      outputs: expect.arrayContaining([
+        expect.objectContaining({ name: "ts", type: "string" }),
+        expect.objectContaining({ name: "externalRef" }),
+      ]),
     });
     for (const operation of result.operations) {
       expect(operation).not.toHaveProperty("implementation");
       expect(operation).not.toHaveProperty("credential");
     }
+  });
+
+  it("tells the agent what a Builder check returns, so it never invents a field name", async () => {
+    const named = await run(
+      { view: "index", operationIds: ["builder.check"] },
+      kit.context,
+    );
+    const [check] = named.operations as {
+      outputs: { name: string; nullable?: boolean; description?: string }[];
+      fields: { name: string; description?: string }[];
+    }[];
+    const names = check.outputs.map((output) => output.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "state",
+        "reason",
+        "hasPullRequest",
+        "prNumber",
+        "prUrl",
+      ]),
+    );
+    expect(names).not.toContain("status");
+    expect(
+      check.outputs.find((output) => output.name === "prNumber"),
+    ).toMatchObject({
+      nullable: true,
+    });
+    expect(
+      check.outputs.find((output) => output.name === "state")?.description,
+    ).toContain("not_found");
+    expect(
+      check.fields.find((field) => field.name === "branchName")?.description,
+    ).toContain("nodes.<start step>.externalRef");
+    const lookupOnly = await run(
+      { view: "index", operationIds: ["slack.readThread"] },
+      kit.context,
+    );
+    expect(lookupOnly.operations[0]).not.toHaveProperty("outputs");
   });
 
   it("asks for connection status once per provider the operations use", async () => {
@@ -212,6 +254,7 @@ describe("describe-workflow-node-catalog", () => {
       nodeKinds: ["action"],
       effect: "write",
       fields: ["to:string!", "text:text!", "allowMentions:boolean"],
+      outputs: expect.arrayContaining(["ts", "threadTs?", "externalRef"]),
     });
     for (const entry of result.nodeKinds as Kind[]) {
       expect(entry).not.toHaveProperty("settings");

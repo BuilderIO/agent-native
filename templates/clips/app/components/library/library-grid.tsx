@@ -78,12 +78,26 @@ import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  view:
+    | "library"
+    | "shared"
+    | "space"
+    | "archive"
+    | "trash"
+    | "all"
+    | "from-content";
   /** "image" narrows the same list to screenshots; defaults to everything. */
   kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
+  emptyKind?:
+    | "library"
+    | "shared"
+    | "folder"
+    | "space"
+    | "archive"
+    | "trash"
+    | "fromContent";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;

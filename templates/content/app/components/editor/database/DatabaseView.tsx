@@ -8617,7 +8617,7 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
   {
     mode: "stage_only",
     labelKey: "stageOnly",
-    descriptionKey: "savesDraftsNeverPublishes",
+    descriptionKey: "savesChangesNeverPublishes",
   },
   {
     mode: "publish_updates",
@@ -8675,6 +8675,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };

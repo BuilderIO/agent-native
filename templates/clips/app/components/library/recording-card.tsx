@@ -703,6 +703,18 @@ export function RecordingCard({
               </div>
             </div>
 
+            {recording.contentPageUrl ? (
+              <a
+                href={recording.contentPageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pointer-events-auto relative z-10 inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <IconExternalLink className="h-3.5 w-3.5" />
+                {t("clipsFinalRaw.openContentPage")}
+              </a>
+            ) : null}
+
             {recording.tags.length > 0 && (
               <div className="flex items-center gap-1 truncate">
                 {recording.tags.slice(0, 2).map((t) => (
@@ -730,6 +742,18 @@ export function RecordingCard({
             {t("clipsFinalRaw.view")}
           </Link>
         </ContextMenuItem>
+        {recording.contentPageUrl ? (
+          <ContextMenuItem asChild>
+            <a
+              href={recording.contentPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <IconExternalLink className="h-4 w-4 me-2" />
+              {t("clipsFinalRaw.openContentPage")}
+            </a>
+          </ContextMenuItem>
+        ) : null}
         {onShare && (
           <ContextMenuItem onSelect={() => onShare(recording)}>
             <IconShare className="h-4 w-4 me-2" />

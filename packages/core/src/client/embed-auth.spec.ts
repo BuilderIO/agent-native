@@ -16,11 +16,14 @@ const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 type EmbedAuthModule = typeof import("./embed-auth.js");
 let lastEmbedAuthModule: EmbedAuthModule | undefined;
 
-function embedTokenForTarget(targetPath: string, targetMount?: string): string {
+function embedTokenForTarget(
+  targetPath: string,
+  audienceBasePath?: string,
+): string {
   const payload = btoa(
     JSON.stringify({
       targetPath,
-      ...(targetMount !== undefined ? { targetMount } : {}),
+      ...(audienceBasePath !== undefined ? { audienceBasePath } : {}),
     }),
   )
     .replace(/\+/g, "-")

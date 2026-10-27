@@ -161,6 +161,7 @@ const messages = {
     spaces: "Spaces",
     meetings: "Meetings",
     dictate: "Dictate",
+    fromContent: "From Content",
     archive: "Archive",
     trash: "Trash",
     agent: "Agent",
@@ -215,6 +216,10 @@ const messages = {
     archive: {
       title: "No archived recordings",
       body: "Archived Clips stay here until you’re ready to bring them back.",
+    },
+    fromContent: {
+      title: "No uploads from Content yet",
+      body: "Videos you upload to a Content page are saved here as Clips.",
     },
     trash: {
       title: "Trash is empty",
@@ -280,6 +285,8 @@ const messages = {
     fillerCompleted: "Filler-word removal complete",
     workflowReady: "Workflow ready",
     workflowFailed: "Workflow generation failed",
+    workflowCancelled: "Workflow generation cancelled",
+    workflowTimedOut: "Workflow generation timed out",
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
@@ -298,6 +305,8 @@ const messages = {
     silenceEditsUnreadable:
       "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
+    workflowStillGenerating: "Still generating workflow…",
+    workflowTakingLonger: "This is taking longer than usual…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
     finalizeFailed: "Finalize failed ({{status}})",
@@ -2278,6 +2287,8 @@ const messages = {
     goHome: "Go home",
     testMic: "Test mic",
     archivePageTitle: "Archive · Clips",
+    fromContentPageTitle: "From Content · Clips",
+    openContentPage: "Open page",
     insightsPageTitle: "Insights · Clips",
     folderPageTitle: "Folder · Clips",
     spacePageTitle: "Space · Clips",

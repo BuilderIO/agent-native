@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +7,7 @@ import { NodeInspector } from "@/components/workflow-canvas/inspector/NodeInspec
 import type { WorkflowEditor, WorkflowNode } from "@/lib/workflow-editor";
 
 import { NodeAuditPanel } from "../NodeAuditPanel";
+import { PickerScope } from "../pickers/picker-scope";
 import { TestStepButton } from "../TestStepButton";
 import { openingTab } from "../workflow-run-overlay";
 import { useWorkflowStrings } from "../workflow-strings";
@@ -80,6 +81,7 @@ export function NodeDetailsParameters({
   onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
 }) {
   const ws = useWorkflowStrings();
+  const pickerScope = useMemo(() => ({ factoryId }), [factoryId]);
 
   // A step whose run failed opens on its history. Another run can change that, so the tab follows it.
   const opening: ParametersTab =
@@ -143,7 +145,9 @@ export function NodeDetailsParameters({
           className="mt-0 flex min-h-0 flex-1 flex-col"
           onBlur={onEngage}
         >
-          <NodeInspector editor={editor} node={node} quiet={quiet} />
+          <PickerScope.Provider value={pickerScope}>
+            <NodeInspector editor={editor} node={node} quiet={quiet} />
+          </PickerScope.Provider>
         </TabsContent>
         <TabsContent
           value="history"

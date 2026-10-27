@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => false,
 }));
 
 vi.mock("@agent-native/core/client/uploads", () => ({
@@ -108,9 +113,13 @@ describe("media node suggestion policy", () => {
       act(() =>
         root.render(
           createElement(
-            TooltipProvider,
-            null,
-            createElement(VideoBlock, props),
+            QueryClientProvider,
+            { client: new QueryClient() },
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(VideoBlock, props),
+            ),
           ),
         ),
       );

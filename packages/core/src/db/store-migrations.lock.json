@@ -141,6 +141,10 @@
     {
       "name": "agent-run-admission-order",
       "checksum": "b4cd3c0f84735807"
+    },
+    {
+      "name": "execution-leases-and-steps",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -524,6 +528,10 @@
   "embed_sessions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "ticket-audience",
       "checksum": null
     }
   ],

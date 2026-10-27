@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useVoiceProviderStatus } from "@agent-native/core/client/agent-chat";
 import { SIDEBAR_STATE_CHANGE_EVENT } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   appPath,
   frameworkRoutePrefix,
@@ -103,6 +104,7 @@ export const coreComposerAdapters: CoreComposerRuntimeAdapters = {
       }),
     subscribeSidebarState,
     applyContextReplacements: applyVoiceContextReplacements,
+    trackEvent,
   },
 };
 

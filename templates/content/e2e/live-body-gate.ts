@@ -83,7 +83,10 @@ interface FlagRules {
  * outlives the run, so a later gate-off run signed in as the same account
  * would find the flags on. Other entries in the rules stay as they are.
  */
-export async function leaveGateArm(page: Page): Promise<void> {
+export async function leaveGateArm(
+  page: Page,
+  baseURL?: string,
+): Promise<void> {
   if (GATE_ARM !== "on") return;
   const session = await page.request.get("/_agent-native/auth/session", {
     headers: { Accept: "application/json" },
@@ -113,16 +116,22 @@ export async function leaveGateArm(page: Page): Promise<void> {
     if (flag.key !== SHADOW_FLAG && flag.key !== WRITER_FLAG) continue;
     if (!flag.rules.emails.includes(email)) continue;
     const { mode, emails, orgIds, percentage } = flag.rules;
-    await postAction(page, "set-feature-flag", {
-      operation: "replace-rules",
-      key: flag.key,
-      rules: {
-        mode,
-        emails: emails.filter((entry) => entry !== email),
-        orgIds,
-        percentage,
+    await postAction(
+      page,
+      "set-feature-flag",
+      {
+        operation: "replace-rules",
+        key: flag.key,
+        rules: {
+          mode,
+          emails: emails.filter((entry) => entry !== email),
+          orgIds,
+          percentage,
+        },
       },
-    });
+      ACTION_HEADERS,
+      baseURL,
+    );
   }
   const left = await flagValues(page);
   for (const key of [SHADOW_FLAG, WRITER_FLAG])

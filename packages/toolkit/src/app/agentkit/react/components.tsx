@@ -108,6 +108,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
+import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
@@ -2563,9 +2564,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         event.type === "run.failed" ||
         event.type === "run.cancelled"),
   );
+  // A local run, such as voice chat's, never starts on the server, so it
+  // stays queued while it works; its own events show it is working.
+  const localRunWorking =
+    run?.status === "queued" && runEvents.length > 0 && !hasTerminalRunEvent;
   const activelyWorking =
     isCurrentSegment &&
-    (run ? run.status === "running" : running && !hasTerminalRunEvent);
+    (run
+      ? run.status === "running" || localRunWorking
+      : running && !hasTerminalRunEvent);
   const waitingLabel =
     isCurrentSegment && run?.status === "awaiting_approval"
       ? labels.waitingForApproval
@@ -6191,6 +6198,7 @@ export interface AgentKitComposerProps extends Omit<
     | "modelStatusChecksEnabled"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
+    | "onModelConnectionRequiredChange"
     | "contextUsageSlot"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
@@ -6292,6 +6300,7 @@ export function AgentKitComposer({
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
+  onModelConnectionRequiredChange,
   contextUsageSlot,
   attachmentsEnabled,
   onAttachmentRequest,
@@ -6426,13 +6435,14 @@ export function AgentKitComposer({
     };
   }, []);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerTranslate = useComposerRuntimeAdapters().translate;
   useEffect(() => {
     setAttachmentError(null);
     setStopError(null);
   }, [threadId]);
   const composerAttachmentAdapter = useMemo(
-    () => attachmentAdapter ?? createChatAttachmentAdapter(),
-    [attachmentAdapter],
+    () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
+    [attachmentAdapter, composerTranslate],
   );
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
@@ -7009,6 +7019,7 @@ export function AgentKitComposer({
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
+            onModelConnectionRequiredChange,
             contextUsageSlot,
             layoutVariant,
             toolbarSlot,
