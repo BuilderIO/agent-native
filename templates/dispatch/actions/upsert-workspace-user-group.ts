@@ -19,9 +19,13 @@ export default defineAction({
   run: async (args, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     return upsertWorkspaceUserGroup({
-      ...args,
-      orgId: ctx?.orgId,
-      createdByEmail: ctx?.userEmail,
+      ...(args.id === undefined ? {} : { id: args.id }),
+      name: args.name,
+      memberEmails: args.memberEmails,
+      ...(ctx?.orgId === undefined ? {} : { orgId: ctx.orgId }),
+      ...(ctx?.userEmail === undefined
+        ? {}
+        : { createdByEmail: ctx.userEmail }),
     });
   },
 });

@@ -4,38 +4,27 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatRunningThreads,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 import {
   ownDraftRows,
   OwnershipChatHistoryRail,
   useOwnershipChatHistory,
-  type OwnDraftRow,
 } from "@agent-native/toolkit/app/chat/ownership-history";
 import { OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
-  IconApps,
-  IconClock,
   IconEdit,
   IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLoader2,
-  IconMessages,
-  IconPin,
   IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import {
   Tooltip,
   TooltipContent,
@@ -54,53 +43,10 @@ interface SidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-function threadUpdatedAt(
-  thread: Pick<ChatThreadSummary, "createdAt" | "updatedAt">,
-) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function formatRelativeTime(timestamp: number) {
-  const elapsed = timestamp - Date.now();
-  const intervals = [
-    { limit: 60, divisor: 1, unit: "second" },
-    { limit: 60, divisor: 60, unit: "minute" },
-    { limit: 24, divisor: 60 * 60, unit: "hour" },
-    { limit: 7, divisor: 60 * 60 * 24, unit: "day" },
-    { limit: 5, divisor: 60 * 60 * 24 * 7, unit: "week" },
-    { limit: 12, divisor: 60 * 60 * 24 * 30, unit: "month" },
-  ] as const;
-  const elapsedSeconds = elapsed / 1000;
-
-  for (const interval of intervals) {
-    const value = elapsedSeconds / interval.divisor;
-    if (Math.abs(value) < interval.limit) {
-      return new Intl.RelativeTimeFormat(undefined, {
-        numeric: "auto",
-        style: "narrow",
-      }).format(Math.round(value), interval.unit);
-    }
-  }
-
-  return new Intl.RelativeTimeFormat(undefined, {
-    numeric: "auto",
-    style: "narrow",
-  }).format(Math.round(elapsedSeconds / (60 * 60 * 24 * 365)), "year");
-}
-
 function ThreadHistoryTitle({
-  thread,
   title,
   running,
 }: {
-  thread: OwnDraftRow &
-    Partial<
-      Pick<ChatThreadSummary, "preview" | "scope" | "source" | "pinnedAt">
-    >;
   title: string;
   running: boolean;
 }) {
@@ -108,17 +54,6 @@ function ThreadHistoryTitle({
   const viewportRef = useRef<HTMLSpanElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [isOverflowing, setIsOverflowing] = useState(false);
-  const updatedAt = threadUpdatedAt(thread);
-  const contextLabels = Array.from(
-    new Set(
-      [
-        thread.scope?.label,
-        thread.scope?.type !== "general" ? thread.scope?.type : null,
-        thread.source?.appId,
-        thread.source?.platform,
-      ].filter((value): value is string => Boolean(value)),
-    ),
-  );
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -143,79 +78,28 @@ function ThreadHistoryTitle({
   }, [title]);
 
   return (
-    <HoverCard openDelay={500} closeDelay={120}>
-      <HoverCardTrigger asChild>
-        <span className="chat-sidebar-thread-title-shell">
-          <span
-            ref={viewportRef}
-            className="chat-sidebar-thread-title"
-            data-overflow={isOverflowing ? "true" : "false"}
-          >
-            <span
-              ref={contentRef}
-              className="chat-sidebar-thread-title__content"
-            >
-              {title}
-            </span>
-          </span>
-          {running ? (
-            <IconLoader2
-              className="chat-sidebar-thread-running size-3.5 shrink-0 motion-safe:animate-spin"
-              strokeWidth={1.8}
-              role="status"
-              aria-label={t(
-                // i18n-key-ignore shared framework catalog
-                "agentChat.status.working",
-              )}
-            />
-          ) : null}
-        </span>
-      </HoverCardTrigger>
-      <HoverCardContent
-        side="right"
-        align="start"
-        sideOffset={8}
-        className="chat-sidebar-thread-details w-80 rounded-xl p-3"
+    <span className="chat-sidebar-thread-title-shell">
+      <span
+        ref={viewportRef}
+        className="chat-sidebar-thread-title"
+        data-overflow={isOverflowing ? "true" : "false"}
       >
-        <div className="line-clamp-3 text-sm font-medium leading-snug">
+        <span ref={contentRef} className="chat-sidebar-thread-title__content">
           {title}
-        </div>
-        {thread.preview && thread.preview !== title ? (
-          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {thread.preview}
-          </p>
-        ) : null}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
-          {updatedAt ? (
-            <span className="inline-flex items-center gap-1.5">
-              <IconClock className="size-3.5" strokeWidth={1.8} />
-              <time dateTime={new Date(updatedAt).toISOString()}>
-                {formatRelativeTime(updatedAt)}
-              </time>
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1.5">
-            <IconMessages className="size-3.5" strokeWidth={1.8} />
-            <span>{thread.messageCount.toLocaleString()}</span>
-            <span className="sr-only">{t("chat.chats")}</span>
-          </span>
-          {thread.pinnedAt ? (
-            <span className="inline-flex items-center gap-1.5">
-              <IconPin className="size-3.5" strokeWidth={1.8} />
-              {t("chat.pinned")}
-            </span>
-          ) : null}
-        </div>
-        {contextLabels.length > 0 ? (
-          <div className="mt-2.5 flex items-start gap-1.5 border-t border-border pt-2.5 text-xs text-muted-foreground">
-            <IconApps className="mt-0.5 size-3.5 shrink-0" strokeWidth={1.8} />
-            <span className="min-w-0 break-words">
-              {contextLabels.join(" · ")}
-            </span>
-          </div>
-        ) : null}
-      </HoverCardContent>
-    </HoverCard>
+        </span>
+      </span>
+      {running ? (
+        <IconLoader2
+          className="chat-sidebar-thread-running size-4 shrink-0 motion-safe:animate-spin"
+          strokeWidth={1.8}
+          role="status"
+          aria-label={t(
+            // i18n-key-ignore shared framework catalog
+            "agentChat.status.working",
+          )}
+        />
+      ) : null}
+    </span>
   );
 }
 
@@ -246,8 +130,8 @@ function HomeNavLink({ collapsed }: { collapsed: boolean }) {
         "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         active && "bg-sidebar-accent",
         collapsed
-          ? "size-10 justify-center rounded-md"
-          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+          ? "size-8 justify-center rounded-md"
+          : "h-8 w-full gap-3 rounded-lg px-3 text-sm font-medium",
       )}
     >
       <IconHome className="size-4 shrink-0" strokeWidth={1.8} />
@@ -317,7 +201,6 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
         ...item,
         title: (
           <ThreadHistoryTitle
-            thread={row}
             title={title}
             running={workingThreadIds.has(row.id)}
           />
@@ -363,8 +246,8 @@ function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
       className={cn(
         "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
         collapsed
-          ? "size-10 justify-center rounded-md"
-          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+          ? "size-8 justify-center rounded-md"
+          : "h-8 w-full gap-3 rounded-lg px-3 text-sm font-medium",
       )}
       aria-label={collapsed ? t("chat.newChat") : undefined}
     >

@@ -9517,6 +9517,64 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("preserves verified organization-member assurance for action calls", async () => {
+    const actions = {
+      "whoami-scope": {
+        tool: {
+          description: "Return the request identity assurance",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: async () => {
+          const { getRequestContext } =
+            await import("../server/request-context.js");
+          const context = getRequestContext();
+          return {
+            userEmail: context?.userEmail,
+            orgId: context?.orgId,
+            assurance: context?.a2aIdentityAssurance,
+          };
+        },
+      },
+    };
+    const memberConfig = {
+      ...config,
+      actions,
+      productionActions: actions,
+    };
+    const server = await createMCPServerForRequest(
+      memberConfig as any,
+      {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "org-from-domain",
+        orgDomain: "example.test",
+      },
+      { transport: "http", fullCatalog: true, fullSurface: true },
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+
+    try {
+      const result = await client.callTool({
+        name: "whoami-scope",
+        arguments: {},
+      });
+      expect(result.structuredContent).toEqual({
+        userEmail: "member@example.test",
+        orgId: "org-from-domain",
+        assurance: "org-member",
+      });
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  });
+
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const scopedConfig = {

@@ -42,6 +42,8 @@ import { StorageSettingsForm } from "./StorageSettingsForm.js";
 const savedStatus: FileStorageStatus = {
   canManage: true,
   configured: true,
+  configurationUnavailable: false,
+  unreadableFields: [],
   provider: "cloudflare-r2",
   endpoint: "https://abc.r2.cloudflarestorage.com",
   bucket: "uploads-example",
@@ -57,6 +59,7 @@ const savedStatus: FileStorageStatus = {
   },
   publicUrlRequired: true,
   activeProvider: { id: "s3", name: "S3-compatible object storage" },
+  activeProviderUnavailable: false,
   builderUploadConfigured: false,
 };
 
@@ -227,6 +230,56 @@ describe("StorageSettingsForm", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("preserves unreadable optional values when saving an unrelated field", () => {
+    queryState.data = {
+      ...savedStatus,
+      configurationUnavailable: true,
+      unreadableFields: ["region", "publicBaseUrl"],
+      region: null,
+      publicBaseUrl: null,
+      publicUrlRequired: false,
+    };
+    render();
+    typeInto(inputByLabel("Bucket"), "renamed-bucket");
+    act(() => buttonByText("Save").click());
+    const [input] = mutateMock.mock.calls[0]!;
+    expect(input).toMatchObject({
+      operation: "save",
+      bucket: "renamed-bucket",
+    });
+    expect(input).not.toHaveProperty("region");
+    expect(input).not.toHaveProperty("publicBaseUrl");
+  });
+
+  it("requires unreadable credentials to be replaced and clears unreadable optional values only when requested", () => {
+    queryState.data = {
+      ...savedStatus,
+      configured: false,
+      configurationUnavailable: true,
+      unreadableFields: ["accessKeyId", "region", "publicBaseUrl"],
+      region: null,
+      publicBaseUrl: null,
+      publicUrlRequired: false,
+      saved: { ...savedStatus.saved, accessKeyId: true },
+    };
+    render();
+    expect(container.textContent).toContain(
+      "Some saved storage settings could not be checked.",
+    );
+    expect(buttonByText("Save").disabled).toBe(true);
+    act(() => buttonByText("Clear unreadable Public URL").click());
+    act(() => buttonByText("Clear unreadable Region").click());
+    typeInto(inputByLabel("Access key ID"), "replacement-key");
+    expect(buttonByText("Save").disabled).toBe(false);
+    act(() => buttonByText("Save").click());
+    const [input] = mutateMock.mock.calls[0]!;
+    expect(input).toMatchObject({
+      operation: "save",
+      accessKeyId: "replacement-key",
+    });
+    expect(input).toMatchObject({ region: "", publicBaseUrl: "" });
   });
 
   it("keeps saved keys by leaving them out of the save", () => {

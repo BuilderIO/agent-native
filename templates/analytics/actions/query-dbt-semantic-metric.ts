@@ -1102,7 +1102,7 @@ export default defineAction({
     groupBy,
     timeRange,
     allTime,
-  }) => {
+  }): Promise<z.input<typeof queryMetricOutputSchema>> => {
     const hasRequestedMetricQueryScope =
       (groupBy?.length ?? 0) > 0 || Boolean(timeRange) || Boolean(allTime);
     const requestedMetadataQuerySpec = hasRequestedMetricQueryScope

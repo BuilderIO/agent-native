@@ -27,10 +27,11 @@ const MAX_KEYS = 100;
 const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
 const MARKER_SLACK = 32;
+const GOOGLE_API_KEY = /AIzaSy[A-Za-z0-9_-]{20,}/g;
 
-function looksSecret(value: string): boolean {
+function looksCredential(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
-  if (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value)) return true;
+  if (/^AIzaSy[A-Za-z0-9_-]{20,}$/i.test(value)) return true;
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
@@ -44,12 +45,35 @@ function looksSecret(value: string): boolean {
   return false;
 }
 
-function redactString(value: string, maxString: number): string {
-  if (looksSecret(value)) return REDACTED;
+function looksSecret(value: string): boolean {
+  return (
+    looksCredential(value) ||
+    (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value))
+  );
+}
+
+function redactString(
+  value: string,
+  limits: Required<Pick<RedactLimits, "maxString" | "overflow">> &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
+): string {
+  if (
+    limits.redactGenericOpaqueStrings === false
+      ? looksCredential(value)
+      : looksSecret(value)
+  ) {
+    return REDACTED;
+  }
+  if (value.length > limits.maxString && limits.overflow === "throw") {
+    throw new Error("Redacted value exceeds the configured string limit.");
+  }
   // A credential can sit inside ordinary text: `Authorization: Bearer …`.
-  const scrubbed = redactEmbeddedSecrets(value);
-  if (scrubbed.length > maxString) {
-    return `${scrubbed.slice(0, maxString)}…(${scrubbed.length - maxString} more chars)`;
+  const scrubbed =
+    limits.redactEmbeddedSecrets === false
+      ? value
+      : redactEmbeddedSecrets(value);
+  if (scrubbed.length > limits.maxString) {
+    return `${scrubbed.slice(0, limits.maxString)}…(${scrubbed.length - limits.maxString} more chars)`;
   }
   return scrubbed;
 }
@@ -61,6 +85,9 @@ const EMBEDDED_BEARER = new RegExp(
 );
 // A line that opens another field, such as `Body: visible`.
 const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
+// A field left empty takes its value from the next line, unless that line
+// opens another field.
+const VALUE_START = String.raw`(?:[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[ \t]*`;
 // What can follow a scheme as its credentials (RFC 7235): one token alone on
 // its line, quoted or not, or `name=value` parameters.
 const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
@@ -70,11 +97,11 @@ const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|
 // another field, is content a reviewer must still see. Only that one line is
 // taken, so a quote it leaves open can't carry the match into later fields.
 const EMBEDDED_AUTHORIZATION = new RegExp(
-  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]\s*)(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]${VALUE_START})(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
   "gi",
 );
 const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
-  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]\s*)((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]${VALUE_START})((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
   "gi",
 );
 
@@ -93,36 +120,59 @@ function redactEmbeddedSecrets(value: string): string {
   return value
     .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
     .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
-    .replace(EMBEDDED_BEARER, `$1${REDACTED}`);
+    .replace(EMBEDDED_BEARER, `$1${REDACTED}`)
+    .replace(GOOGLE_API_KEY, REDACTED);
 }
 
-function redact(value: unknown, depth: number, maxString: number): unknown {
+function redact(
+  value: unknown,
+  depth: number,
+  limits: Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
+): unknown {
   if (value == null) return value;
-  if (typeof value === "string") return redactString(value, maxString);
+  if (typeof value === "string") return redactString(value, limits);
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth >= MAX_DEPTH) return DEPTH_CUT;
+  if (depth >= limits.maxDepth) {
+    if (limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured depth limit.");
+    }
+    return DEPTH_CUT;
+  }
   if (Array.isArray(value)) {
+    if (value.length > limits.maxArray && limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured array limit.");
+    }
     const out = value
-      .slice(0, MAX_ARRAY)
-      .map((v) => redact(v, depth + 1, maxString));
-    if (value.length > MAX_ARRAY)
-      out.push(`…(${value.length - MAX_ARRAY} more)`);
+      .slice(0, limits.maxArray)
+      .map((v) => redact(v, depth + 1, limits));
+    if (value.length > limits.maxArray)
+      out.push(`…(${value.length - limits.maxArray} more)`);
     return out;
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     let n = 0;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (n >= MAX_KEYS) {
+      if (n >= limits.maxKeys) {
+        if (limits.overflow === "throw") {
+          throw new Error("Redacted value exceeds the configured key limit.");
+        }
         out[KEYS_CUT_KEY] = KEYS_CUT;
         break;
       }
       n += 1;
-      out[k] = SENSITIVE_KEY.test(k)
-        ? REDACTED
-        : redact(v, depth + 1, maxString);
+      out[k] = SENSITIVE_KEY.test(k) ? REDACTED : redact(v, depth + 1, limits);
     }
     return out;
+  }
+  if (limits.overflow === "throw") {
+    throw new Error("Redacted value contains a non-JSON value.");
   }
   return undefined;
 }
@@ -130,6 +180,12 @@ function redact(value: unknown, depth: number, maxString: number): unknown {
 export interface RedactLimits {
   maxJson?: number;
   maxString?: number;
+  maxDepth?: number;
+  maxKeys?: number;
+  maxArray?: number;
+  overflow?: "truncate" | "throw";
+  redactEmbeddedSecrets?: boolean;
+  redactGenericOpaqueStrings?: boolean;
 }
 
 export function redactArgsToJson(
@@ -137,14 +193,31 @@ export function redactArgsToJson(
   limits?: RedactLimits,
 ): string | null {
   const maxJson = Math.max(MARKER_SLACK * 4, limits?.maxJson ?? MAX_JSON);
-  const maxString = limits?.maxString ?? MAX_STRING;
+  const normalizedLimits = {
+    maxString: limits?.maxString ?? MAX_STRING,
+    maxDepth: limits?.maxDepth ?? MAX_DEPTH,
+    maxKeys: limits?.maxKeys ?? MAX_KEYS,
+    maxArray: limits?.maxArray ?? MAX_ARRAY,
+    overflow: limits?.overflow ?? "truncate",
+    redactEmbeddedSecrets: limits?.redactEmbeddedSecrets,
+    redactGenericOpaqueStrings: limits?.redactGenericOpaqueStrings,
+  } satisfies Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">;
   try {
     if (args == null) return null;
-    const redacted = redact(args, 0, maxString);
+    const redacted = redact(args, 0, normalizedLimits);
     if (redacted === undefined) return null;
     const json = JSON.stringify(redacted);
     if (json == null) return null;
     if (json.length <= maxJson) return json;
+    if (normalizedLimits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured JSON limit.");
+    }
     const envelope = (preview: string) =>
       JSON.stringify({
         _auditTruncated: true,
@@ -158,7 +231,8 @@ export function redactArgsToJson(
       out = envelope(json.slice(0, take));
     }
     return out;
-  } catch {
+  } catch (error) {
+    if (normalizedLimits.overflow === "throw") throw error;
     return null;
   }
 }

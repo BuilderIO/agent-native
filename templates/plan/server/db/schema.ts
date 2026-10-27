@@ -5,7 +5,7 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { boolean } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean } from "drizzle-orm/pg-core";
 
 import {
   PLAN_AUTHORS,
@@ -112,7 +112,9 @@ export const planComments = table("plan_comments", {
   planId: text("plan_id")
     .notNull()
     .references(() => plans.id),
-  parentCommentId: text("parent_comment_id").references(() => planComments.id),
+  parentCommentId: text("parent_comment_id").references(
+    (): AnyPgColumn => planComments.id,
+  ),
   sectionId: text("section_id").references(() => planSections.id),
   kind: text("kind", { enum: PLAN_COMMENT_KINDS }).notNull().default("comment"),
   status: text("status", { enum: PLAN_COMMENT_STATUSES })

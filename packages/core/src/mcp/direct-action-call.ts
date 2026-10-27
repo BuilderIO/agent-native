@@ -334,7 +334,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           outcome.review,
           ctx,
         );
-      } catch (err: any) {
+      } catch (err) {
         return actionError(err);
       }
     }
@@ -346,7 +346,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           requestMeta,
           effectiveIdentity?.userEmail,
         );
-      } catch (err: any) {
+      } catch (err) {
         return actionError(err);
       }
     }

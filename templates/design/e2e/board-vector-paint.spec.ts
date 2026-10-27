@@ -239,9 +239,7 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -291,9 +289,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -408,9 +404,7 @@ test("vector stroke gradient is visible, persisted, undoable, and reloadable", a
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -532,9 +526,7 @@ test("vector fill gradient renders in the inspector, source, SVG and PNG exports
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -809,9 +801,7 @@ test("converting a vector fill gradient to solid clears source metadata and roun
       waitUntil: "domcontentloaded",
     });
     await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
+      .poll(async () => page.locator("[data-screen-shell]").count())
       .toBeGreaterThan(1);
     await expect
       .poll(() => boardVectorPaint(page), { timeout: 40_000 })

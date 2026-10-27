@@ -26,6 +26,7 @@
 
 import { fail } from "../action.js";
 import type { ProviderApiRequestArgs } from "./index.js";
+import { setBodyValueAtPath } from "./request-body.js";
 import { rejectFailedProviderResult } from "./result-outcome.js";
 import {
   upsertStagedDataset,
@@ -138,28 +139,6 @@ function extractNextCursor(body: unknown, path: string): string | null {
   return String(val);
 }
 
-function setAtPath(base: unknown, path: string, value: unknown): unknown {
-  const root =
-    base && typeof base === "object" && !Array.isArray(base)
-      ? { ...(base as Record<string, unknown>) }
-      : {};
-  const parts = path.split(".").filter(Boolean);
-  if (!parts.length) return root;
-
-  let current: Record<string, unknown> = root;
-  for (const part of parts.slice(0, -1)) {
-    const existing = current[part];
-    const next =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    current[part] = next;
-    current = next;
-  }
-  current[parts[parts.length - 1]!] = value;
-  return root;
-}
-
 async function sleepMs(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
@@ -251,7 +230,7 @@ export async function stagingExecuteRequest(
         extraQuery[pagination.cursorParam] = lastCursor;
       }
       if (pagination.cursorBodyPath && lastCursor !== null) {
-        nextBody = setAtPath(
+        nextBody = setBodyValueAtPath(
           baseArgs.body,
           pagination.cursorBodyPath,
           lastCursor,

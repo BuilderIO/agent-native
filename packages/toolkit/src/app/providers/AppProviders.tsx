@@ -406,6 +406,20 @@ function AgentEngineReadinessBootstrap() {
 
 const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
 
+const LazyAgentRunAwareness = React.lazy(() =>
+  import("../chat/run-awareness/AgentRunAwareness.js").then((module) => ({
+    default: module.AgentRunAwareness,
+  })),
+);
+
+function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
+  return (
+    <React.Suspense fallback={null}>
+      <LazyAgentRunAwareness persistUnread={persistUnread} />
+    </React.Suspense>
+  );
+}
+
 /**
  * An MCP approval review the URL names replaces the app. It sits outside the
  * device gate, so a phone can decide, and outside first-run onboarding, so a
@@ -589,9 +603,13 @@ export function AppProviders({
   const sessionGated = (
     <RequireSession bypass={sessionBypass} fallback={fallback}>
       {sessionBypass ? (
-        children
+        <>
+          {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
+          {children}
+        </>
       ) : (
         <>
+          {ownsDocument ? <AgentRunAwareness /> : null}
           {ownsDocument && enableThemeFamily ? (
             <React.Suspense fallback={null}>
               <ThemeFamilySync />

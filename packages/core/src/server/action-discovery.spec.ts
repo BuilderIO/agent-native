@@ -773,6 +773,8 @@ describe("action discovery", () => {
     expect(registry["search-automation-accounts"].frameworkGroup).toBe(
       "automation",
     );
+    expect(registry.decide?.readOnly).toBe(true);
+    expect(registry["decisions-status"]?.readOnly).toBe(true);
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });

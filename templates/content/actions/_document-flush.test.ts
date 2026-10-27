@@ -230,6 +230,21 @@ describe("flushOpenDocumentEditorToSql", () => {
     expect(store.size).toBe(0);
   });
 
+  it("ignores cleared awareness tombstones while discovering open editors", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.awareness.mockResolvedValue([
+      { ...editorRow(122), state: "", cleared: true },
+      editorRow(123),
+    ]);
+
+    expect(await settle()).toHaveProperty("value.status", "flushed");
+    expect(warning).not.toHaveBeenCalledWith(
+      "Skipping malformed document editor awareness",
+      { clientId: 122 },
+    );
+    warning.mockRestore();
+  });
+
   it("returns at once for a switched page's body, whose tabs already wrote SQL", async () => {
     mocks.isLiveBodyWriterPage.mockResolvedValue(true);
 

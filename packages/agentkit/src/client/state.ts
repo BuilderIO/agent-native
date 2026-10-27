@@ -99,7 +99,7 @@ export interface AgentKitSnapshot {
   capabilityDiscovery?: AgentCapabilitiesDiscovery;
   capabilitiesStatus: "unknown" | "loading" | "ready" | "error";
   threads: Record<ThreadId, AgentThreadState>;
-  error?: AgentError;
+  error?: AgentError | undefined;
   revision: number;
 }
 

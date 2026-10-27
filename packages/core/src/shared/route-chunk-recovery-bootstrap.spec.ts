@@ -18,7 +18,9 @@ import {
 type BootstrapResourceTarget = {
   getAttribute?: (name: string) => string | null;
   hasAttribute?: (name: string) => boolean;
+  href?: string;
   rel?: string;
+  src?: string;
   tagName: string;
   type?: string;
 };
@@ -210,6 +212,56 @@ describe("route chunk recovery bootstrap", () => {
     expect(stopImmediatePropagation).not.toHaveBeenCalled();
   });
 
+  it("ignores module scripts and preloads that failed on another origin", () => {
+    const { assign, onError } = installBootstrap(
+      "https://example.test/docs/guide",
+    );
+    const stopImmediatePropagation = vi.fn();
+
+    onError({
+      target: {
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation,
+    });
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        href: "https://example.test.cdn.example/docs/assets/guide-1a2b.js",
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation,
+    });
+
+    expect(assign).not.toHaveBeenCalled();
+    expect(stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
+  it("still recovers the app's own module files, including inline module scripts", () => {
+    const ownChunk = installBootstrap("https://example.test/docs/guide");
+    const inlineEntry = installBootstrap("https://example.test/docs/guide");
+
+    ownChunk.onError({
+      target: {
+        src: "https://example.test/docs/assets/guide-1a2b.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+    inlineEntry.onError({
+      target: { src: "", tagName: "SCRIPT", type: "module" },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(ownChunk.assign).toHaveBeenCalledOnce();
+    expect(inlineEntry.assign).toHaveBeenCalledOnce();
+  });
+
   it("leaves desktop and local development failures to their own recovery paths", () => {
     const desktop = installBootstrap(
       "https://example.test/apps",
@@ -262,5 +314,45 @@ describe("route chunk recovery bootstrap", () => {
     const [event] = dispatchEvent.mock.calls[0];
     expect(event.type).toBe(STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT);
     expect(event.detail).toEqual({ reason: "external-embed" });
+  });
+
+  it("in an MCP App embed, reports the app's own failed files but not another site's", () => {
+    const embedUrl =
+      "https://abc123.claudemcpcontent.com/crm/records/1?embedded=1";
+    const beacon = installBootstrap(embedUrl);
+    const ownChunk = installBootstrap(embedUrl);
+    for (const { windowState } of [beacon, ownChunk]) {
+      windowState[EXTERNAL_EMBED_WINDOW_KEY] = {
+        origin: "https://app.example.test",
+      };
+    }
+
+    beacon.onError({
+      target: {
+        src: "https://static.cloudflareinsights.com/beacon.min.js",
+        tagName: "SCRIPT",
+        type: "module",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+    // The transplant points the app's root-relative links at its own origin.
+    ownChunk.onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        href: "https://app.example.test/assets/records-1a2b.js",
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(beacon.windowState[STALE_CHUNK_EXHAUSTED_KEY]).toBeUndefined();
+    expect(beacon.dispatchEvent).not.toHaveBeenCalled();
+    expect(ownChunk.windowState[STALE_CHUNK_EXHAUSTED_KEY]).toEqual({
+      reason: "external-embed",
+    });
+    expect(beacon.assign).not.toHaveBeenCalled();
+    expect(ownChunk.assign).not.toHaveBeenCalled();
   });
 });

@@ -139,8 +139,8 @@ export function declaredLinkOrigin(
     return inbound;
   }
   return (
-    declared[0] ??
-    publicOrigins[0] ??
+    declared.at(0) ??
+    publicOrigins.at(0) ??
     (requestOrigin ? undefined : [...configured][0])
   );
 }

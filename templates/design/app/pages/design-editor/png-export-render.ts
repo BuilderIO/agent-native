@@ -2,6 +2,11 @@ import type { ElementInfo } from "@/components/design/types";
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
 import {
+  copyExportImageSource,
+  prepareExportImageSource,
+  resolveExportImageSource,
+} from "../../../shared/export-image-source";
+import {
   computeExportCropBox,
   EDITOR_CHROME_OVERLAY_SELECTOR,
   resolveRasterExportScale,
@@ -83,30 +88,37 @@ function resolveClonedElement(
   return clonedElement;
 }
 
-function normalizeClonedResponsiveImages(
+async function normalizeClonedResponsiveImages(
   sourceDocument: Document,
   clonedDocument: Document,
-): void {
-  for (const sourceImage of Array.from(
-    sourceDocument.querySelectorAll<HTMLImageElement>("img"),
-  )) {
-    const clonedImage = resolveClonedElement(
-      sourceDocument,
-      clonedDocument,
-      sourceImage,
-    ) as HTMLImageElement | null;
-    if (!clonedImage) continue;
-    if (sourceImage.currentSrc) {
-      clonedImage.setAttribute("src", sourceImage.currentSrc);
-    }
-    clonedImage.removeAttribute("srcset");
-    clonedImage
-      .closest("picture")
-      ?.querySelectorAll("source")
-      .forEach((source) => {
-        source.remove();
-      });
-  }
+): Promise<void> {
+  const signal = AbortSignal.timeout(15_000);
+  await Promise.all(
+    Array.from(sourceDocument.querySelectorAll<HTMLImageElement>("img")).map(
+      async (sourceImage) => {
+        const loadedImage = await prepareExportImageSource(sourceImage, signal);
+        const clonedImage = resolveClonedElement(
+          sourceDocument,
+          clonedDocument,
+          sourceImage,
+        ) as HTMLImageElement | null;
+        if (!clonedImage) return;
+        clonedImage.loading = "eager";
+        copyExportImageSource(loadedImage, clonedImage);
+        await resolveExportImageSource(
+          clonedImage,
+          loadedImage.currentSrc,
+          signal,
+        );
+        clonedImage
+          .closest("picture")
+          ?.querySelectorAll("source")
+          .forEach((source) => {
+            source.remove();
+          });
+      },
+    ),
+  );
 }
 
 export function preserveLiveStylesheets(
@@ -611,8 +623,23 @@ export async function renderExportDocumentCanvas({
   exportScale: number;
   cropRect?: ExportCropRect | null;
   isolateSelectedElements?: readonly Element[];
-}): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
+}): Promise<{
+  canvas: HTMLCanvasElement;
+  scale: number;
+  width: number;
+  height: number;
+}> {
   await waitForExportReady(doc);
+  const clonedDocument = doc.cloneNode(true) as Document;
+  try {
+    await normalizeClonedResponsiveImages(doc, clonedDocument);
+  } catch {
+    throw new NativeExportRenderError(
+      "The export contains an image that could not be loaded.",
+      "export_resources_unavailable",
+    );
+  }
+  preserveLiveStylesheets(doc, clonedDocument);
   const width = Math.max(
     doc.documentElement.scrollWidth,
     doc.body?.scrollWidth ?? 0,
@@ -623,22 +650,20 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
-  const renderCropRect = cropRect
-    ? intersectExportCropRect(cropRect, width, height)
+  const outputCropRect = cropRect ?? null;
+  const renderCropRect = outputCropRect
+    ? intersectExportCropRect(outputCropRect, width, height)
     : null;
   if (cropRect && !renderCropRect) {
     throw new PngCaptureError("selection-unresolved");
   }
-  const renderWidth = renderCropRect?.width ?? width;
-  const renderHeight = renderCropRect?.height ?? height;
+  const renderWidth = outputCropRect?.width ?? width;
+  const renderHeight = outputCropRect?.height ?? height;
   const effectiveScale = resolveRasterExportScale({
     width: renderWidth,
     height: renderHeight,
     requestedScale: exportScale,
   });
-  const clonedDocument = doc.cloneNode(true) as Document;
-  preserveLiveStylesheets(doc, clonedDocument);
-  normalizeClonedResponsiveImages(doc, clonedDocument);
   isolateSelectedExportElements(doc, clonedDocument, isolateSelectedElements);
   removeEditorChromeOverlays(clonedDocument);
   const serializedHtml = `<!doctype html>${clonedDocument.documentElement.outerHTML}`;
@@ -665,25 +690,39 @@ export async function renderExportDocumentCanvas({
   }
   const png = await renderNativeExportPng({
     html: inlinedSnapshot?.html ?? serializedHtml,
-    width,
+    width: Math.max(1, iframe.clientWidth),
     height: Math.max(1, iframe.clientHeight),
     scale: effectiveScale,
     clip: renderCropRect ?? undefined,
   });
   const bitmap = await createImageBitmap(png);
   const canvas = document.createElement("canvas");
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
+  canvas.width = outputCropRect
+    ? Math.max(1, Math.ceil(renderWidth * effectiveScale))
+    : bitmap.width;
+  canvas.height = outputCropRect
+    ? Math.max(1, Math.ceil(renderHeight * effectiveScale))
+    : bitmap.height;
   const context = canvas.getContext("2d");
   if (!context) {
     bitmap.close();
     throw new PngCaptureError("blob-failed");
   }
-  context.drawImage(bitmap, 0, 0);
+  context.drawImage(
+    bitmap,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.x - outputCropRect.x) * effectiveScale
+      : 0,
+    renderCropRect && outputCropRect
+      ? (renderCropRect.y - outputCropRect.y) * effectiveScale
+      : 0,
+  );
   bitmap.close();
   return {
     canvas,
     scale: effectiveScale,
+    width: outputCropRect?.width ?? canvas.width / effectiveScale,
+    height: outputCropRect?.height ?? canvas.height / effectiveScale,
   };
 }
 

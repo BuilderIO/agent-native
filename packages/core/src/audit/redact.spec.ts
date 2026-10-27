@@ -121,8 +121,13 @@ describe("redactArgsToJson", () => {
     ],
     [
       "Authorization:\nContent-Type: application/json\nBody: visible",
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+    ],
+    [
+      "Authorization:\nfake-token\nBody: visible",
       "Authorization:\n[redacted]\nBody: visible",
     ],
+    ["password:\nBody: visible", "password:\nBody: visible"],
     ["password:\nfake-phrase\nvisible", "password:\n[redacted]\nvisible"],
     ["token=\nfake-value next=visible", "token=\n[redacted] next=visible"],
     [
@@ -148,6 +153,47 @@ describe("redactArgsToJson", () => {
   ])("redacts complete embedded credentials in %s", (text, expected) => {
     expect(JSON.parse(redactArgsToJson({ notes: text })!).notes).toBe(expected);
     expect(redactTextToSummary(text)).toBe(expected);
+  });
+
+  it("preserves UUIDs and paths when generic opaque values are disabled", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
+    const values = {
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      path: "/workspace/project/packages/core/src/agent/harness/store.ts",
+      text: `request failed with ${googleApiKey}`,
+    };
+
+    expect(
+      JSON.parse(
+        redactArgsToJson(values, {
+          redactEmbeddedSecrets: true,
+          redactGenericOpaqueStrings: false,
+        })!,
+      ),
+    ).toEqual({
+      ...values,
+      text: "request failed with [redacted]",
+    });
+  });
+
+  it("redacts embedded credentials before truncating oversized strings", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
+    const text = `request failed with ${googleApiKey}; ${"safe output ".repeat(80)}`;
+    const json = redactArgsToJson(
+      { text },
+      {
+        maxJson: 256,
+        maxString: 128,
+        redactEmbeddedSecrets: true,
+        redactGenericOpaqueStrings: false,
+      },
+    )!;
+    const output = JSON.parse(json) as { text: string };
+
+    expect(output.text).not.toContain(googleApiKey);
+    expect(output.text).toContain("[redacted]");
+    expect(output.text).toContain("more chars");
+    expect(json.length).toBeLessThanOrEqual(256);
   });
 
   it("redacts webhook URLs under a generic field, regardless of key", () => {

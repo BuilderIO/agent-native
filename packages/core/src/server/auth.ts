@@ -890,8 +890,7 @@ export function getConfiguredLoginHtml(
   const requestPath = `${rawPath}${search}`;
   const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
   if (setupRequiredHtml) return { html: setupRequiredHtml, status: 503 };
-  const loginHtml =
-    config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
+  const loginHtml = config.getLoginHtml(event, requestPath);
   if (!loginHtml) return null;
 
   const appOriginConfigScript = getAppOriginClientConfigScript();
@@ -2333,8 +2332,7 @@ let warnedMissingBrowserSession = false;
 let trustCustomEmailVerification = false;
 
 interface AuthGuardConfig {
-  loginHtml: string;
-  getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  getLoginHtml: (event: H3Event, rawPath: string) => string;
   /**
    * The page served instead of sign-in, or null when sign-in can work. Set
    * only where the framework's own accounts sign people in; a custom
@@ -2546,24 +2544,22 @@ function getOnboardingLoginHtmlConfig(
   authMode?: OnboardingHtmlOptions["authMode"],
 ): Pick<
   AuthGuardConfig,
-  | "loginHtml"
-  | "getLoginHtml"
-  | "getSetupRequiredHtml"
-  | "authMode"
-  | "rootAuth"
+  "getLoginHtml" | "getSetupRequiredHtml" | "authMode" | "rootAuth"
 > {
-  if (options.loginHtml) {
+  const { loginHtml } = options;
+  if (loginHtml) {
     return {
-      loginHtml: options.loginHtml,
+      getLoginHtml: () => loginHtml,
       getSetupRequiredHtml: getDeploySettingsRequiredPage,
       authMode,
       rootAuth: options.rootAuth ?? true,
     };
   }
+  // Rendered only for a request that shows it: rendering a copy up front cost
+  // every cold instance's first request.
   return {
     authMode,
     rootAuth: options.rootAuth ?? options.marketing !== undefined,
-    loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
     getSetupRequiredHtml: getDeploySettingsRequiredPage,
@@ -3859,7 +3855,7 @@ function loginHtmlResponse(
   if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
   const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
-  let html = config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
+  let html = config.getLoginHtml(event, requestPath);
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
@@ -3926,6 +3922,13 @@ export function getAuthGuardPath(event: H3Event): string | null {
     }
   }
   return stripAppBasePath(canonicalFrameworkPathname(event.url.pathname));
+}
+
+function isBrowserNavigationRequest(event: H3Event): boolean {
+  const fetchDest = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document" || fetchDest === "iframe") return true;
+  const accept = getHeader(event, "accept")?.toLowerCase();
+  return accept !== undefined && accept.includes("text/html");
 }
 
 function createAuthGuardFn(
@@ -4710,6 +4713,12 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
  *    source-code-known credential. After logout the auto-flow won't refire
  *    (dev row exists); use normal signup or reset the local DB to start over.
  *  - **NODE_ENV.** Still gated on development/test.
+ *  - **Browser navigations only.** A probe (curl, a health check, an agent
+ *    polling for the dev server) accepts any content type and sends no
+ *    Sec-Fetch headers. Letting it claim the one-time account would leave
+ *    the first real browser on the sign-in form, so only document
+ *    navigations and requests that ask for HTML create it, and never
+ *    while `AUTH_DISABLED` is on.
  *
  * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
  * (useful for tests that exercise the unauthenticated branch).
@@ -4721,6 +4730,10 @@ async function maybeAutoCreateDevSession(
   if (!isDevEnvironment()) return null;
   if (process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT === "1") return null;
   if (!isLoopbackRequest(event)) return null;
+  if (!isBrowserNavigationRequest(event)) return null;
+  // Every request already runs as the dev account; creating it now would
+  // spend the one-time sign-in before AUTH_DISABLED is removed.
+  if (isAuthDisabled()) return null;
 
   try {
     const db = getDbExec();
@@ -4877,12 +4890,10 @@ async function resolveBrowserCookieSession(
   if (cookie) {
     try {
       const ba = getBetterAuthSync() ?? (await getBetterAuth());
-      if (ba) {
-        const baSession = await ba.api.getSession({
-          headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
-        });
-        if (baSession?.user?.email) return mapBetterAuthSession(baSession);
-      }
+      const baSession = await ba.api.getSession({
+        headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
+      });
+      if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
       (event.context as Record<string, unknown>)[
@@ -5179,7 +5190,7 @@ function matchesPathPattern(path: string, pattern: string): boolean {
     expectedSegments.every((segment, index) => {
       const parameter = /^:[A-Za-z][A-Za-z0-9_]*(\(uuidv4\))?$/.exec(segment);
       if (parameter) {
-        const value = actualSegments[index];
+        const value = actualSegments.at(index);
         return (
           value !== undefined &&
           (parameter[1]
@@ -7361,7 +7372,6 @@ export async function autoMountAuth(
           options,
           _authGuardConfig.authMode,
         );
-        _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
       if (options.rootAuth !== undefined) {
@@ -7462,14 +7472,11 @@ export async function autoMountAuth(
       }),
     );
 
-    const byoaLoginHtml = options.loginHtml ?? getCustomAuthRequiredHtml();
+    const { loginHtml } = options;
     _authGuardConfig = {
-      loginHtml: byoaLoginHtml,
-      ...(options.loginHtml
-        ? {}
-        : {
-            getLoginHtml: () => getCustomAuthRequiredHtml(),
-          }),
+      getLoginHtml: loginHtml
+        ? () => loginHtml
+        : () => getCustomAuthRequiredHtml(),
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
       publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],

@@ -10,6 +10,7 @@ import type {
 import type { JWTPayload } from "jose";
 
 import {
+  A2A_ORG_MEMBER_DELEGATION_TYPE,
   organizationPrincipalClaims,
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
@@ -266,7 +267,7 @@ export interface McpDirectoryWidgetTarget {
 
 export interface MCPCallerIdentity {
   userEmail: string | undefined;
-  identityAssurance?: "user" | "organization" | "service";
+  identityAssurance?: "user" | "org-member" | "organization" | "service";
   /** Issue time, in milliseconds, from a verified app-issued MCP credential. */
   mcpCredentialIssuedAtMs?: number;
   orgId?: string | null;
@@ -1071,6 +1072,8 @@ const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
   "context-evict",
   "context-restore",
   "context-report",
+  "context-compact",
+  "context-compaction-get",
 ]);
 
 const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
@@ -3016,6 +3019,9 @@ export async function createMCPServerForRequest(
     {
       userEmail: effectiveIdentity?.userEmail,
       orgId,
+      ...(effectiveIdentity?.identityAssurance === "org-member"
+        ? { a2aIdentityAssurance: "org-member" as const }
+        : {}),
       ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(effectiveIdentity?.orgId === null
         ? { orgScope: "personal" as const }
@@ -3201,6 +3207,9 @@ export async function createMCPServerForRequest(
         userEmail: effectiveIdentity?.userEmail,
         ...(authUserId ? { authUserId } : {}),
         orgId,
+        ...(effectiveIdentity?.identityAssurance === "org-member"
+          ? { a2aIdentityAssurance: "org-member" as const }
+          : {}),
         ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
         ...(effectiveIdentity?.orgId === null
           ? { orgScope: "personal" as const }
@@ -3243,6 +3252,11 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
+    // Calls reach approval only when `canRequestApproval` saw a codec.
+    const codec = approvalCodec;
+    if (!codec) {
+      throw new Error(`${name} requires approval, but it is not configured.`);
+    }
     const envelope = ctx.mcpReq.envelope as
       | Record<string, ClientCapabilities | undefined>
       | undefined;
@@ -3280,7 +3294,7 @@ export async function createMCPServerForRequest(
       reviewUrl,
     });
     if (mode === "url") {
-      const requestState = await approvalCodec!.mint(
+      const requestState = await codec.mint(
         { ...approvalState, mode: "url" },
         ctx,
       );
@@ -3294,7 +3308,7 @@ export async function createMCPServerForRequest(
         requestState,
       });
     }
-    const requestState = await approvalCodec!.mint(approvalState, ctx);
+    const requestState = await codec.mint(approvalState, ctx);
     return inputRequired({
       inputRequests: {
         [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({
@@ -3963,7 +3977,7 @@ export function getBearerToken(
 }
 
 export class McpIdentityVerificationUnavailableError extends Error {
-  readonly cause: unknown;
+  override readonly cause: unknown;
 
   constructor(cause: unknown) {
     super("MCP identity verification is temporarily unavailable");
@@ -3979,10 +3993,16 @@ export class McpIdentityVerificationRefusedError extends Error {
   }
 }
 
+interface VerifiedMcpA2AIdentity {
+  payload: Record<string, unknown>;
+  identityAssurance?: "org-member";
+}
+
 async function verifyA2AJwtForMcp(
   token: string,
   resourceUrl?: string | string[],
-): Promise<Record<string, unknown> | null> {
+  event?: unknown,
+): Promise<VerifiedMcpA2AIdentity | null> {
   const jose = await import("jose");
   let unverifiedPayload: Record<string, unknown> | null = null;
   try {
@@ -4000,6 +4020,41 @@ async function verifyA2AJwtForMcp(
   const audiences =
     hasAudience || firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
   if ((hasAudience || firstPartyMcp) && !audiences?.length) return null;
+
+  if (unverifiedPayload.typ === "agent-native-org-member-delegation") {
+    if (!hasAudience || !audiences?.length) return null;
+    const { isA2AIdentityVerificationUnavailableError, verifyA2AToken } =
+      await import("../a2a/server.js");
+    let delegatedIdentity;
+    try {
+      delegatedIdentity = await verifyA2AToken(token, event, {
+        expectedAudience: audiences,
+        requireAudience: true,
+      });
+    } catch (error) {
+      if (isA2AIdentityVerificationUnavailableError(error)) {
+        throw new McpIdentityVerificationUnavailableError(error);
+      }
+      throw error;
+    }
+    if (
+      delegatedIdentity.identityAssurance !== "org-member" ||
+      !delegatedIdentity.email ||
+      !delegatedIdentity.orgId
+    ) {
+      return null;
+    }
+    return {
+      payload: {
+        sub: delegatedIdentity.email,
+        org_id: delegatedIdentity.orgId,
+        ...(delegatedIdentity.orgDomain
+          ? { org_domain: delegatedIdentity.orgDomain }
+          : {}),
+      },
+      identityAssurance: "org-member",
+    };
+  }
 
   const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
@@ -4036,10 +4091,11 @@ async function verifyA2AJwtForMcp(
           throw new McpIdentityVerificationUnavailableError(error);
         }
         if (organization?.secret.trim() === globalSecret) {
-          return organizationPrincipalClaims(
+          const claims = organizationPrincipalClaims(
             payload as JWTPayload,
             organization,
           ) as Record<string, unknown> | null;
+          return claims ? { payload: claims } : null;
         }
       }
 
@@ -4055,7 +4111,7 @@ async function verifyA2AJwtForMcp(
         !hasOrganizationClaim &&
         !hasOrganizationDomainClaim
       ) {
-        return payload;
+        return { payload };
       }
 
       let verifiedOrganization:
@@ -4067,13 +4123,15 @@ async function verifyA2AJwtForMcp(
         throw new McpIdentityVerificationUnavailableError(error);
       }
       if (verifiedOrganization === null) return null;
-      return verifiedOrganization
-        ? {
-            ...payload,
-            org_id: verifiedOrganization.orgId,
-            org_domain: verifiedOrganization.orgDomain,
-          }
-        : payload;
+      return {
+        payload: verifiedOrganization
+          ? {
+              ...payload,
+              org_id: verifiedOrganization.orgId,
+              org_domain: verifiedOrganization.orgDomain,
+            }
+          : payload,
+      };
     }
   }
 
@@ -4094,10 +4152,21 @@ async function verifyA2AJwtForMcp(
 
   const payload = await verifyWithSecret(organization.secret);
   if (!payload) return null;
-  return organizationPrincipalClaims(
+  const claims = organizationPrincipalClaims(
     payload as JWTPayload,
     organization,
   ) as Record<string, unknown> | null;
+  return claims ? { payload: claims } : null;
+}
+
+async function isOrgMemberDelegationToken(token: string): Promise<boolean> {
+  const jose = await import("jose");
+  try {
+    return jose.decodeJwt(token).typ === A2A_ORG_MEMBER_DELEGATION_TYPE;
+  } catch (error) {
+    if (error instanceof jose.errors.JWTInvalid) return false;
+    throw error;
+  }
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -4460,6 +4529,7 @@ export async function verifyAuth(
   options: {
     allowDevOpen?: boolean;
     resourceUrl?: string | string[];
+    event?: unknown;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -4467,21 +4537,30 @@ export async function verifyAuth(
   const accessTokens = getAccessTokens();
   const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
+  const orgMemberDelegation = token
+    ? await isOrgMemberDelegationToken(token)
+    : false;
   if (token) {
-    const issued = await verifyIssuedMcpCredential(token, options.resourceUrl);
-    if (issued === "unverified") {
-      return (
-        (await matchStaticAccessToken(
-          token,
-          accessTokens,
-          ownerEmailHeader,
-        )) ?? {
-          authed: false,
-          refusal: "invalid",
-        }
+    if (!orgMemberDelegation) {
+      const issued = await verifyIssuedMcpCredential(
+        token,
+        options.resourceUrl,
       );
+      if (issued === "unverified") {
+        return (
+          (await matchStaticAccessToken(
+            token,
+            accessTokens,
+            ownerEmailHeader,
+          )) ?? {
+            authed: false,
+            refusal: "invalid",
+          }
+        );
+      }
+      if (issued)
+        return admitIssuedMcpCredential(issued, options.requestOrigin);
     }
-    if (issued) return admitIssuedMcpCredential(issued, options.requestOrigin);
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {
     if (options.allowDevOpen === false) {
@@ -4496,9 +4575,13 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  let payload: Record<string, unknown> | null;
+  let verifiedA2AIdentity: VerifiedMcpA2AIdentity | null;
   try {
-    payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+    verifiedA2AIdentity = await verifyA2AJwtForMcp(
+      token,
+      options.resourceUrl,
+      options.event,
+    );
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
       return { authed: false, unavailable: true };
@@ -4508,7 +4591,8 @@ export async function verifyAuth(
     }
     throw error;
   }
-  if (payload) {
+  const payload = verifiedA2AIdentity?.payload ?? null;
+  if (payload && verifiedA2AIdentity) {
     // Connect tokens this app minted never reach here, so a connect-scoped
     // token is a sibling app's per-call first-party MCP token.
     const tokenScope =
@@ -4532,12 +4616,14 @@ export async function verifyAuth(
       authed: true,
       identity: {
         userEmail: typeof payload.sub === "string" ? payload.sub : undefined,
-        ...(typeof payload.sub === "string"
-          ? { identityAssurance: "user" as const }
-          : typeof payload.org_id === "string" ||
-              typeof payload.org_domain === "string"
-            ? { identityAssurance: "organization" as const }
-            : {}),
+        ...(verifiedA2AIdentity.identityAssurance
+          ? { identityAssurance: verifiedA2AIdentity.identityAssurance }
+          : typeof payload.sub === "string"
+            ? { identityAssurance: "user" as const }
+            : typeof payload.org_id === "string" ||
+                typeof payload.org_domain === "string"
+              ? { identityAssurance: "organization" as const }
+              : {}),
         ...(orgId !== undefined ? { orgId } : {}),
         orgDomain:
           typeof payload.org_domain === "string"
@@ -4548,6 +4634,12 @@ export async function verifyAuth(
       fullSurface: true,
       fullCatalog: payload.catalog_scope === "full",
     });
+  }
+
+  // A token that declares the member-delegation type must pass that verifier;
+  // it cannot be reclassified as a shared static bearer after rejection.
+  if (orgMemberDelegation) {
+    return { authed: false, refusal: "invalid" };
   }
 
   // A supplied bearer that failed JWT verification must not fall through to

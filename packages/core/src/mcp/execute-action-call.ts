@@ -1076,13 +1076,19 @@ async function createApprovalGrant(
   const callArguments = preparedCallArguments(prepared);
   const retrySafe = actionCallIsRetrySafe(entry, callArguments);
   const argumentsJson = storedApprovalArguments(callArguments);
+  // Only a verified user identity reaches a grant.
+  const ownerEmail = context.identity?.userEmail;
+  if (!ownerEmail) {
+    throw new Error(
+      `${call.actionName} requires approval from a verified user identity.`,
+    );
+  }
   const priorRun = await findPriorApprovedRun(call, retrySafe);
   await createMcpApprovalGrant({
     ...approval,
     appId: call.appId,
     callerKey: call.callerKey,
-    // Only a verified user identity reaches a grant.
-    ownerEmail: context.identity!.userEmail!,
+    ownerEmail,
     orgId: getRequestOrgId() ?? null,
     argumentsJson,
     oauthClientId: context.identity?.oauthClientId,

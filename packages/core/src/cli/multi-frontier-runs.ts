@@ -1601,40 +1601,6 @@ function metadataKeysForOrchestrationKind(
   return [];
 }
 
-function containsUnsafeOrchestrationValue(
-  value: unknown,
-  depth: number,
-): boolean {
-  if (depth > 8) return true;
-  if (typeof value === "string") return !isSafeOrchestrationText(value);
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    return (
-      value.length > 40 ||
-      value.some((item) => containsUnsafeOrchestrationValue(item, depth + 1))
-    );
-  }
-  if (!value || typeof value !== "object") return true;
-  const entries = Object.entries(value);
-  return (
-    entries.length > 40 ||
-    entries.some(
-      ([key, item]) =>
-        !isBoundedText(key, 160) ||
-        /(token|secret|authorization|credential|password|email|organization|account)/i.test(
-          key,
-        ) ||
-        containsUnsafeOrchestrationValue(item, depth + 1),
-    )
-  );
-}
-
 function cloneOrchestrationArtifact(
   artifact: MultiFrontierOrchestrationArtifact,
 ): MultiFrontierOrchestrationArtifact {
