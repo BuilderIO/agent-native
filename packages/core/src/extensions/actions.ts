@@ -13,6 +13,7 @@ import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { readResource } from "../resources/script-helpers.js";
 import {
   getRequestOrgId,
@@ -169,7 +170,7 @@ const DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS = 1_500;
 const MAX_EXTENSION_CONTENT_CONTEXT_CHARS = 4_000;
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "list-extensions": {
       tool: {
         description:
@@ -1453,7 +1454,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       },
       readOnly: true,
     },
-  };
+  });
 }
 
 async function summarizeExtension(

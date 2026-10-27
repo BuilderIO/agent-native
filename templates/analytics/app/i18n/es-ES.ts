@@ -1486,6 +1486,7 @@ export default {
     columnFormatCurrency: "Moneda",
     columnFormatPercent: "Porcentaje",
     columnFormatDate: "Fecha",
+    columnFormatDuration: "Duración (segundos)",
     columnRename: "Renombrar columna",
     columnHide: "Ocultar columna",
     columnShow: 'Mostrar "{{name}}"',

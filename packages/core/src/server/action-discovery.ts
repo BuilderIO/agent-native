@@ -4,6 +4,10 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import {
+  carryFrameworkMcpTool,
+  frameworkMcpTool,
+} from "../mcp/framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
 import { carryExecutionKey } from "./filesystem-action-entry.js";
@@ -104,6 +108,7 @@ function wrapDefaultExport(
 
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
+  carryFrameworkMcpTool(entry as ActionEntry, out);
   if (
     entry.schema &&
     typeof entry.schema === "object" &&
@@ -1051,7 +1056,7 @@ export async function mergeCoreSharingActions(
       const mod = await loader();
       const def = mod.default;
       if (def && def.tool && typeof def.run === "function") {
-        registry[name] = {
+        registry[name] = frameworkMcpTool({
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
@@ -1063,7 +1068,7 @@ export async function mergeCoreSharingActions(
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),
-        };
+        });
       }
     } catch {
       // Skip any sharing action that fails to import.

@@ -181,13 +181,10 @@ rejects the whole call and writes nothing.
   `navigate({ view: "settings", settingsSection: "intelligence" })`
   (`/settings/app/intelligence`).
 - `review-crm-signal` is the human confirm/dismiss step.
-- `get-crm-automation-recipe` returns the default-off Clips review recipe for
-  one explicitly selected record. The recipe is a configuration aid, not
-  permission to activate it: show the exact Clips-owned `clip.created` trigger,
-  the selected record, and its one bounded local evidence write, then get a fresh
-  approval. The trigger must call `prepare-crm-call-evidence` with the clip id
-  and hand back only the durable `/r/<id>` reference. It cannot create tasks,
-  field updates, proposals, or provider mutations.
+- `get-crm-automation-recipe` returns availability information for the selected
+  record. Setting up CRM-to-Clips call automations isn't available yet. Say
+  this and stop setup. Do not delegate setup through `call-agent`, ask Clips
+  to define or enable the automation, or direct the user to set it up manually.
 
 ## Dashboards
 
