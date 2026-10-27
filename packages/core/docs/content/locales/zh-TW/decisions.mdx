@@ -109,7 +109,7 @@ const urgency = triage.answers["urgency"];
 - **questions**: 具名的 predicate、choice 或 score 問題。
 - **options**: 選用的 signal、timeoutMs、providers 或 cacheKey 設定。
 
-成功時 result.status 為 ok。結果包含 provider、model 與依問題名稱索引的 answers，cached 和 usage 則為選用欄位。not_configured 包含 missing_credentials 原因與 providers 清單。failed 包含具型別的原因，並可能包含 provider 和 questionNames。只有提供 cacheKey 時才會啟用快取。快取鍵的範圍包括 owner、組織、provider、model、cacheKey、input 和 questions。記憶體快取有效期為 60 秒，最多保存 256 個項目。
+成功時 result.status 為 ok。結果包含 provider、model 與依問題名稱索引的 answers，cached 和 usage 則為選用欄位。not_configured 包含 missing_credentials 原因與 providers 清單。failed 包含具型別的原因，並可能包含 provider 和 questionNames。只有提供 cacheKey 時才會啟用快取。快取鍵的範圍包括 owner、組織、provider、model、cacheKey、input 和 questions。記憶體快取有效期為 60 秒，最多保存 256 個項目。 ok 結果也可能包含 questionFailures，標示答案缺漏或無效的問題。呼叫端應將這些問題視為分類失敗，而非否定答案；若所有問題都失敗，answers 可以是空的，而 questionFailures 會列出所有失敗問題。
 
 ## 能力感知的提供者支援
 

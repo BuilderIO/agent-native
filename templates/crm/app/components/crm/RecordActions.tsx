@@ -130,7 +130,7 @@ function DuplicateReviewDialog({ recordId }: { recordId: string }) {
                     percent: Math.round(candidate.confidence * 100),
                   })}
                   {candidate.semanticReview
-                    ? ` · ${t("recordActions.duplicateJevProbability", {
+                    ? ` · ${t("recordActions.duplicateDecisionProbability", {
                         percent: Math.round(
                           candidate.semanticReview.sameEntityProbability * 100,
                         ),

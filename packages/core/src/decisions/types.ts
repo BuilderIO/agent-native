@@ -73,6 +73,10 @@ export type DecisionAnswer =
       levels: Array<{ value: number; label: string; description: string }>;
       probabilities?: DecisionProbability<number>[];
       confidence?: number;
+    }
+  | {
+      type: "refusal";
+      name: string;
     };
 
 export type DecisionFailureReason =
@@ -86,12 +90,15 @@ export type DecisionFailureReason =
   | "invalid_response"
   | "refusal";
 
+export type DecisionQuestionFailureReason = "invalid_response";
+
 export type DecisionResult =
   | {
       status: "ok";
       provider: DecisionProvider;
       model: string;
       answers: Record<string, DecisionAnswer>;
+      questionFailures?: Record<string, DecisionQuestionFailureReason>;
       cached?: boolean;
       usage?: { inputTokens?: number; outputTokens?: number };
     }
