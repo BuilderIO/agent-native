@@ -18,6 +18,7 @@ import {
   parseRadarBigQueryTableParts,
   radarCliExitCode,
   radarRunCliExitCode,
+  recordRadarBigQueryJobUsage,
   radarJsonbParam,
   recordRadarBigQueryDryRunBytes,
   RadarQueryError,
@@ -62,6 +63,22 @@ describe("radar query safety", () => {
       expect(getRadarBigQueryScanBudget()).toMatchObject({
         reservedBytes: 8,
         exceeded: true,
+      });
+    } finally {
+      setRadarBigQueryScanBudget(undefined);
+    }
+  });
+
+  it("tracks reported bytes and jobs that could not be fully accounted", () => {
+    setRadarBigQueryScanBudget(1);
+    try {
+      recordRadarBigQueryJobUsage(2_000_000, true);
+      recordRadarBigQueryJobUsage(3_000_000, false);
+      recordRadarBigQueryJobUsage(null, false);
+      expect(getRadarBigQueryScanBudget()).toMatchObject({
+        actualBytesProcessed: 5_000_000,
+        actualQueryCount: 2,
+        unaccountedQueryCount: 2,
       });
     } finally {
       setRadarBigQueryScanBudget(undefined);

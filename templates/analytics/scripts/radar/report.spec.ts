@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RadarCheckResult } from "./checks.ts";
+import { RadarQueryError } from "./query.ts";
 import {
   acquisitionContextForWeek,
   captureWeeklyPrefetchResult,
@@ -57,9 +58,42 @@ describe("weekly prefetch failure", () => {
   it("keeps the failed prefetch distinct so daily reads can be retried", async () => {
     await expect(
       captureWeeklyPrefetchResult(async () => {
-        throw new Error("warehouse query failed");
+        throw new RadarQueryError("BigQuery request failed (HTTP 500).", 1);
       }),
-    ).resolves.toEqual({ value: undefined, failed: true });
+    ).resolves.toEqual({
+      value: undefined,
+      failed: true,
+      completedQueries: 0,
+      error: "BigQuery request failed (HTTP 500).",
+    });
+  });
+
+  it("counts completed cached reads independently from physical query jobs", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async (queryCompleted) => {
+        queryCompleted();
+        return { cacheHit: true };
+      }),
+    ).resolves.toEqual({
+      value: { cacheHit: true },
+      failed: false,
+      completedQueries: 1,
+      error: null,
+    });
+  });
+
+  it("retains successful prefetch reads and the safe cause after a later failure", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async (queryCompleted) => {
+        queryCompleted();
+        throw new RadarQueryError("BigQuery request failed (HTTP 503).", 1);
+      }),
+    ).resolves.toEqual({
+      value: undefined,
+      failed: true,
+      completedQueries: 1,
+      error: "BigQuery request failed (HTTP 503).",
+    });
   });
 });
 
@@ -143,7 +177,11 @@ describe("weekly funnel cohort reporting", () => {
         abReadout: false,
         replayTriage: false,
         journeySnapshot: "skipped",
-        weeklyPrefetch: { status: "failed_fallback", completedQueries: 2 },
+        weeklyPrefetch: {
+          status: "failed_fallback",
+          completedQueries: 2,
+          error: null,
+        },
         feedbackIngest: "agent_required",
         queryCount: 0,
         bigQueryScan: {
@@ -151,6 +189,7 @@ describe("weekly funnel cohort reporting", () => {
           reservedBytes: 12_340_000_000,
           actualBytesProcessed: 9_876_000_000,
           actualQueryCount: 7,
+          unaccountedQueryCount: 0,
           exceeded: false,
         },
       },
@@ -196,6 +235,28 @@ describe("weekly funnel cohort reporting", () => {
     expect(formatted).toContain(
       "Weekly prefetch: failed_fallback; 2/4 queries completed before any daily fallback.",
     );
+
+    const partialAccounting = formatWeeklyMarkdown({
+      ...report,
+      coverage: {
+        ...report.coverage,
+        weeklyPrefetch: {
+          ...report.coverage.weeklyPrefetch,
+          error: "BigQuery request failed (HTTP 503).",
+        },
+        bigQueryScan: {
+          ...report.coverage.bigQueryScan,
+          unaccountedQueryCount: 1,
+        },
+      },
+    });
+    expect(partialAccounting).toContain(
+      "Cause: BigQuery request failed (HTTP 503).",
+    );
+    expect(partialAccounting).toContain(
+      "BigQuery actual bytes observed: 9.88 GB across 7 jobs with reported bytes; 1 submitted job(s) could not be fully accounted.",
+    );
+    expect(partialAccounting).not.toContain("BigQuery actual bytes processed:");
   });
 });
 

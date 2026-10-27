@@ -92,6 +92,7 @@ export interface RadarWeeklyReport {
     weeklyPrefetch: {
       status: "complete" | "not_applicable" | "failed_fallback";
       completedQueries: number;
+      error: string | null;
     };
     feedbackIngest: "agent_required";
     queryCount: number;
@@ -170,12 +171,33 @@ export function completedReportWeekEnd(
 }
 
 export async function captureWeeklyPrefetchResult<T>(
-  prefetch: () => Promise<T>,
-): Promise<{ value: T | undefined; failed: boolean }> {
+  prefetch: (queryCompleted: () => void) => Promise<T>,
+): Promise<{
+  value: T | undefined;
+  failed: boolean;
+  completedQueries: number;
+  error: string | null;
+}> {
+  let completedQueries = 0;
   try {
-    return { value: await prefetch(), failed: false };
-  } catch {
-    return { value: undefined, failed: true };
+    return {
+      value: await prefetch(() => {
+        completedQueries += 1;
+      }),
+      failed: false,
+      completedQueries,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      value: undefined,
+      failed: true,
+      completedQueries,
+      error:
+        error instanceof RadarQueryError
+          ? error.message
+          : "Weekly prefetch failed with an unexpected error.",
+    };
   }
 }
 
@@ -381,23 +403,18 @@ async function buildWeeklyReportWithinBudget(
 ): Promise<RadarWeeklyReport> {
   const weekEnd = completedReportWeekEnd(week);
   const cutoff = new Date();
-  const queriesBeforePrefetch =
-    getRadarBigQueryScanBudget()?.actualQueryCount ?? 0;
-  const prefetchResult = await captureWeeklyPrefetchResult(() =>
+  const prefetchResult = await captureWeeklyPrefetchResult((queryCompleted) =>
     prefetchWeeklyBigQuery(
       week,
       weekEnd,
       cutoff,
       maxTotalGb,
       options.freshBigQuery ?? false,
+      queryCompleted,
     ),
   );
   const prefetched = prefetchResult.value;
-  const completedPrefetchQueries = Math.max(
-    0,
-    (getRadarBigQueryScanBudget()?.actualQueryCount ?? queriesBeforePrefetch) -
-      queriesBeforePrefetch,
-  );
+  const completedPrefetchQueries = prefetchResult.completedQueries;
   const weeklyPrefetch = {
     status: prefetchResult.failed
       ? ("failed_fallback" as const)
@@ -405,6 +422,7 @@ async function buildWeeklyReportWithinBudget(
         ? ("complete" as const)
         : ("not_applicable" as const),
     completedQueries: completedPrefetchQueries,
+    error: prefetchResult.error,
   };
   const dailyRuns: DailyEntry[] = [];
   let queryCount = completedPrefetchQueries;
@@ -556,6 +574,7 @@ async function prefetchWeeklyBigQuery(
   cutoff: Date,
   maxGb: number,
   fresh: boolean,
+  queryCompleted: () => void,
 ): Promise<RadarWatchPrefetchedQueries | undefined> {
   const backend = await resolveRadarFirstPartyBackend();
   if (backend.sink !== "bigquery") return undefined;
@@ -578,6 +597,7 @@ async function prefetchWeeklyBigQuery(
       { name: "org_id", type: "STRING", value: orgId },
     ],
   });
+  queryCompleted();
 
   const firstCohort = matureFunnelCohortDate(week, cutoff);
   const lastCohort = matureFunnelCohortDate(weekEnd, cutoff);
@@ -592,6 +612,7 @@ async function prefetchWeeklyBigQuery(
       { name: "cutoff", type: "TIMESTAMP", value: cutoff.toISOString() },
     ],
   });
+  queryCompleted();
 
   const sloRows = await runBigQuery(
     buildBigQueryPromptOutputSloByDateSql(table),
@@ -608,6 +629,7 @@ async function prefetchWeeklyBigQuery(
       ],
     },
   );
+  queryCompleted();
 
   const uploadRows = await runBigQuery(buildBigQueryUploadRejectionSql(table), {
     maxGb,
@@ -619,6 +641,7 @@ async function prefetchWeeklyBigQuery(
       { name: "org_id", type: "STRING", value: orgId },
     ],
   });
+  queryCompleted();
 
   return {
     eventRows: eventRows.rows,
@@ -638,8 +661,10 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     "",
     `Exit ${report.exitCode}. Daily runs ${report.coverage.dailyRuns.completed}/${report.coverage.dailyRuns.expected}. Query count ${report.coverage.queryCount}.`,
     `Coverage: campaign ${report.coverage.campaignFollowup ? "ready" : "missing"}; A/B ${report.coverage.abReadout ? "ready" : "missing"}; triage ${report.coverage.replayTriage ? "ready" : "missing"}; journey snapshot ${report.coverage.journeySnapshot}; Slack feedback ${report.coverage.feedbackIngest}.`,
-    `Weekly prefetch: ${report.coverage.weeklyPrefetch.status}; ${report.coverage.weeklyPrefetch.completedQueries}/4 queries completed before any daily fallback.`,
-    `BigQuery actual bytes processed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} executed queries. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,
+    `Weekly prefetch: ${report.coverage.weeklyPrefetch.status}; ${report.coverage.weeklyPrefetch.completedQueries}/4 queries completed before any daily fallback${report.coverage.weeklyPrefetch.error ? `. Cause: ${report.coverage.weeklyPrefetch.error}` : ""}.`,
+    report.coverage.bigQueryScan.unaccountedQueryCount > 0
+      ? `BigQuery actual bytes observed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} jobs with reported bytes; ${report.coverage.bigQueryScan.unaccountedQueryCount} submitted job(s) could not be fully accounted. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`
+      : `BigQuery actual bytes processed: ${actualBigQueryScanGb.toFixed(2)} GB across ${report.coverage.bigQueryScan.actualQueryCount} executed queries. Dry-run estimate: ${bigQueryScanGb.toFixed(2)} GB / ${report.coverage.bigQueryScan.maxGb} GB${report.coverage.bigQueryScan.exceeded ? " (budget reached)" : ""}.`,
     "",
     "## Daily watch",
     "",

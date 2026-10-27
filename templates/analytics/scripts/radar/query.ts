@@ -830,6 +830,7 @@ export interface RadarBigQueryScanBudget {
   reservedBytes: number;
   actualBytesProcessed: number;
   actualQueryCount: number;
+  unaccountedQueryCount: number;
   exceeded: boolean;
 }
 
@@ -847,6 +848,7 @@ export function setRadarBigQueryScanBudget(maxGb: number | undefined): void {
     reservedBytes: 0,
     actualBytesProcessed: 0,
     actualQueryCount: 0,
+    unaccountedQueryCount: 0,
     exceeded: false,
   };
 }
@@ -893,6 +895,20 @@ function recordRadarBigQueryActualBytes(bytes: number): void {
   }
   budget.actualBytesProcessed = next;
   budget.actualQueryCount += 1;
+}
+
+export function recordRadarBigQueryJobUsage(
+  actualBytesProcessed: number | null,
+  complete: boolean,
+): void {
+  const budget = activeBigQueryScanBudget;
+  if (!budget) return;
+  if (actualBytesProcessed === null) {
+    budget.unaccountedQueryCount += 1;
+    return;
+  }
+  recordRadarBigQueryActualBytes(actualBytesProcessed);
+  if (!complete) budget.unaccountedQueryCount += 1;
 }
 
 export function parseActualBigQueryBytes(value: unknown): number | null {
@@ -1537,82 +1553,97 @@ export async function runBigQuery(
   recordRadarBigQueryDryRunBytes(bytesProcessed);
 
   const startedAt = Date.now();
-  const first = await bqRequest(postUrl, token, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      ...payload,
-      maximumBytesBilled: Math.floor(maxBytes),
-      maxResults: MAX_BQ_PAGE_SIZE,
-    }),
-  });
-  const jobId = first.jobReference?.jobId;
-  if (!jobId) {
-    throw new RadarQueryError("BigQuery did not return a query job id.", 1);
-  }
-
-  const fields = first.schema?.fields ?? [];
-  const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
-  appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
-  const rows = accumulator.rows;
-  let actualBytesProcessed = parseActualBigQueryBytes(
-    first.totalBytesProcessed,
-  );
-  let pageToken = first.pageToken as string | undefined;
-  let jobComplete = first.jobComplete === true;
-  let location = first.jobReference?.location as string | undefined;
-
-  while (!jobComplete || pageToken) {
-    if (Date.now() - startedAt > 180_000) {
-      throw new RadarQueryError(
-        "BigQuery query did not finish within 180 seconds.",
-        1,
-      );
-    }
-    if (rows.length >= MAX_BQ_ROWS) {
-      throw new RadarQueryError(
-        `BigQuery result exceeded the ${MAX_BQ_ROWS}-row safety cap; aggregate in SQL.`,
-        1,
-      );
-    }
-    const queryParams = new URLSearchParams({
-      maxResults: String(Math.min(MAX_BQ_PAGE_SIZE, MAX_BQ_ROWS - rows.length)),
-      timeoutMs: "10000",
+  let submitted = false;
+  let actualBytesProcessed: number | null = null;
+  let jobComplete = false;
+  try {
+    const first = await bqRequest(postUrl, token, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...payload,
+        maximumBytesBilled: Math.floor(maxBytes),
+        maxResults: MAX_BQ_PAGE_SIZE,
+      }),
     });
-    if (pageToken) queryParams.set("pageToken", pageToken);
-    if (location) queryParams.set("location", location);
-    const page = await bqRequest(
-      `${baseUrl}/queries/${encodeURIComponent(jobId)}?${queryParams.toString()}`,
-      token,
-    );
-    if (page.schema?.fields) {
-      fields.splice(0, fields.length, ...page.schema.fields);
+    const jobId = first.jobReference?.jobId;
+    actualBytesProcessed = parseActualBigQueryBytes(first.totalBytesProcessed);
+    jobComplete = first.jobComplete === true;
+    if (!jobId) {
+      throw new RadarQueryError("BigQuery did not return a query job id.", 1);
     }
-    appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
-    actualBytesProcessed =
-      parseActualBigQueryBytes(page.totalBytesProcessed) ??
-      actualBytesProcessed;
-    pageToken = page.pageToken as string | undefined;
-    jobComplete = page.jobComplete === true;
-    location = page.jobReference?.location ?? location;
-  }
+    submitted = true;
 
-  if (actualBytesProcessed === null) {
-    throw new RadarQueryError(
-      "BigQuery query completed without actual bytes processed.",
-      1,
-    );
-  }
-  recordRadarBigQueryActualBytes(actualBytesProcessed);
+    const fields = first.schema?.fields ?? [];
+    const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
+    appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
+    const rows = accumulator.rows;
+    let pageToken = first.pageToken as string | undefined;
+    let location = first.jobReference?.location as string | undefined;
 
-  const result: RadarQueryResult = {
-    rows,
-    bytesProcessed,
-    actualBytesProcessed,
-    cacheHit: false,
-  };
-  if (cacheEnabled) writeCache(key, result);
-  return result;
+    while (!jobComplete || pageToken) {
+      if (Date.now() - startedAt > 180_000) {
+        throw new RadarQueryError(
+          "BigQuery query did not finish within 180 seconds.",
+          1,
+        );
+      }
+      if (rows.length >= MAX_BQ_ROWS) {
+        throw new RadarQueryError(
+          `BigQuery result exceeded the ${MAX_BQ_ROWS}-row safety cap; aggregate in SQL.`,
+          1,
+        );
+      }
+      const queryParams = new URLSearchParams({
+        maxResults: String(
+          Math.min(MAX_BQ_PAGE_SIZE, MAX_BQ_ROWS - rows.length),
+        ),
+        timeoutMs: "10000",
+      });
+      if (pageToken) queryParams.set("pageToken", pageToken);
+      if (location) queryParams.set("location", location);
+      const page = await bqRequest(
+        `${baseUrl}/queries/${encodeURIComponent(jobId)}?${queryParams.toString()}`,
+        token,
+      );
+      if (page.schema?.fields) {
+        fields.splice(0, fields.length, ...page.schema.fields);
+      }
+      const pageBytesProcessed = parseActualBigQueryBytes(
+        page.totalBytesProcessed,
+      );
+      if (pageBytesProcessed !== null) {
+        actualBytesProcessed = Math.max(
+          actualBytesProcessed ?? 0,
+          pageBytesProcessed,
+        );
+      }
+      pageToken = page.pageToken as string | undefined;
+      jobComplete = page.jobComplete === true;
+      location = page.jobReference?.location ?? location;
+      appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
+    }
+
+    if (actualBytesProcessed === null) {
+      throw new RadarQueryError(
+        "BigQuery query completed without actual bytes processed.",
+        1,
+      );
+    }
+
+    const result: RadarQueryResult = {
+      rows,
+      bytesProcessed,
+      actualBytesProcessed,
+      cacheHit: false,
+    };
+    if (cacheEnabled) writeCache(key, result);
+    return result;
+  } finally {
+    if (submitted || actualBytesProcessed !== null) {
+      recordRadarBigQueryJobUsage(actualBytesProcessed, jobComplete);
+    }
+  }
 }
 
 export function buildBigQueryQueryPayload(
