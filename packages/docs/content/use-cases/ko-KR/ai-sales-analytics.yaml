@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: HubSpot과 Gong 데이터로 영업 파이프라인을 검토하세요
 seo_title: HubSpot과 Gong을 위한 AI 영업 분석
 meta_description: "파이프라인 리뷰 전에 어떤 딜이 왜 멈췄는지 확인하세요. Agent-Native Analytics에 HubSpot과 Gong에 대해 평소 말로 묻고, 답을 대시보드로 남기세요."

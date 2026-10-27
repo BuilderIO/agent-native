@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: 用 HubSpot 和 Gong 資料檢視銷售管道
 seo_title: 適用於 HubSpot 和 Gong 的 AI 銷售分析
 meta_description: 在銷售管道檢討會前，先掌握哪些交易停滯、原因為何。用日常語言詢問 Agent-Native Analytics 關於 HubSpot 和 Gong 的問題，再把答案存成儀表板。

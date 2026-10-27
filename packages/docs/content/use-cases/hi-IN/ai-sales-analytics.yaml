@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: "HubSpot और Gong डेटा से अपनी सेल्स पाइपलाइन रिव्यू करें"
 seo_title: "HubSpot और Gong के लिए AI सेल्स एनालिटिक्स"
 meta_description: "पाइपलाइन रिव्यू से पहले देखें कि कौन-सी डील्स अटकीं और क्यों। Agent-Native Analytics से HubSpot और Gong के बारे में आसान भाषा में पूछें, और जवाब डैशबोर्ड में रखें।"

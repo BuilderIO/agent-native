@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: Ihre Sales-Pipeline mit HubSpot und Gong prüfen
 seo_title: KI-Vertriebsanalyse für HubSpot und Gong
 meta_description: Welche Deals stocken und warum? Fragen Sie Agent-Native Analytics vor dem Pipeline-Review zu HubSpot und Gong und behalten Sie die Antworten als Dashboard.

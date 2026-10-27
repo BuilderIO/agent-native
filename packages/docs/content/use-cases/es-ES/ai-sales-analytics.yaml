@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: Revisa tu pipeline de ventas con datos de HubSpot y Gong
 seo_title: Analítica de ventas con IA para HubSpot y Gong
 meta_description: Mira qué oportunidades se estancaron y por qué antes de revisar el pipeline. Pregunta a Agent-Native Analytics por HubSpot y Gong y guárdalo en un panel.

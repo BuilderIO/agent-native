@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: "راجع مسار مبيعاتك ببيانات HubSpot وGong"
 seo_title: "تحليل المبيعات بالذكاء الاصطناعي لـ HubSpot وGong"
 meta_description: "اعرف الصفقات المتعثرة وسبب تعثرها قبل مراجعة المسار. اسأل Agent-Native Analytics عن HubSpot وGong بلغة عادية، واحفظ الإجابات كلوحة تحكم."

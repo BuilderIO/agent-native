@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: HubSpotとGongのデータで営業パイプラインを確認
 seo_title: HubSpotとGong向けのAI営業分析
 meta_description: パイプラインレビューの前に、どの取引がなぜ停滞したのかを把握できます。Agent-Native AnalyticsにHubSpotとGongについて普段の言葉で質問し、回答をダッシュボードに残せます。

@@ -1,6 +1,9 @@
 template: v2
 slug: ai-sales-analytics
 app: analytics
+roles:
+  - revops
+  - sales
 title: 用 HubSpot 和 Gong 数据复盘销售管道
 seo_title: 基于 HubSpot 和 Gong 的 AI 销售分析
 meta_description: 管道复盘会之前，先看清哪些商机停滞了、原因是什么。用日常语言向 Agent-Native Analytics 询问 HubSpot 和 Gong 的数据，再把答案保存成仪表板。
