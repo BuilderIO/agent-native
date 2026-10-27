@@ -763,6 +763,51 @@ describe("snapshot-changed", () => {
     );
   });
 
+  it("flags a removed snapshot when a test file is renamed out of the test pattern", () => {
+    const oldSpec = "templates/mail/actions/send.spec.ts";
+    const renamedFile = "templates/mail/actions/send.ts";
+    const base = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace)",
+      '    .toMatchInlineSnapshot(`"before"`);',
+      "});",
+    ].join("\n");
+    const source = [
+      `import { expect } from "${VITEST}";`,
+      'it("pins the output", () => {',
+      "  expect(trace)",
+      "});",
+    ].join("\n");
+    const diff = [
+      `diff --git a/${oldSpec} b/${renamedFile}`,
+      "similarity index 85%",
+      `rename from ${oldSpec}`,
+      `rename to ${renamedFile}`,
+      `--- a/${oldSpec}`,
+      `+++ b/${renamedFile}`,
+      "@@ -4 +3,0 @@",
+      '-    .toMatchInlineSnapshot(`"before"`);',
+    ].join("\n");
+    const removed = parseRemovedLines(diff, ROOT);
+    if (removed === null) throw new Error("fixture diff could not be parsed");
+    const abs = at(renamedFile);
+    const sources = { base, next: source };
+
+    const violations = findOracleLoosening({
+      root: ROOT,
+      added: new Map(),
+      removed,
+      assertionSources: new Map([[abs, sources]]),
+      snapshotSources: new Map([[abs, sources]]),
+    });
+
+    assert.deepEqual(
+      violations.map(({ file, line, rule }) => `${file}:${line}: ${rule}`),
+      [`${renamedFile}:3: snapshot-changed`],
+    );
+  });
+
   it("does not mistake an inserted same-key snapshot for the existing one", () => {
     const base = [
       `import { expect } from "${VITEST}";`,

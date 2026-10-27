@@ -1125,7 +1125,7 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
         removedLines,
         report,
       );
-    if (SNAPSHOT_FILE.test(rel))
+    if (SNAPSHOT_FILE.test(rel) || SNAPSHOT_FILE.test(oldPath))
       checkExternalSnapshots(
         file,
         changes.snapshotSources.get(abs),
@@ -1141,8 +1141,9 @@ export function findOracleLoosening(changes: OracleChanges): OracleViolation[] {
   for (const [abs, changed] of changes.removed) {
     if (changes.added.has(abs)) continue;
     const rel = relOf(abs);
-    const isTest = isTestFile(rel);
-    const isSnapshot = SNAPSHOT_FILE.test(rel);
+    const isTest = isTestFile(rel) || isTestFile(changed.oldPath);
+    const isSnapshot =
+      SNAPSHOT_FILE.test(rel) || SNAPSHOT_FILE.test(changed.oldPath);
     if (!isTest && !isSnapshot) continue;
 
     const sources = isTest
