@@ -103,16 +103,21 @@ describe("Figma sync Labs surface", () => {
   });
 
   it("adds sync guidance to internal agent context only when enabled", () => {
-    expect(
-      prepareFigmaSyncAgentRequest(
-        { message: "Update the design", displayMessage: "Update it" },
-        true,
-      ),
-    ).toEqual({
+    const prepared = prepareFigmaSyncAgentRequest(
+      { message: "Update the design", displayMessage: "Update it" },
+      true,
+    );
+    expect(prepared).toEqual({
       message: expect.stringMatching(
         /^Update the design\n\nWhen Design sync is enabled,/,
       ),
       displayMessage: "Update it",
     });
+    expect(prepared?.message).toContain(
+      'use_figma tool with skillNames="figma-use"',
+    );
+    expect(prepared?.message).toContain(
+      "never replace the whole frame with a flat SVG",
+    );
   });
 });
