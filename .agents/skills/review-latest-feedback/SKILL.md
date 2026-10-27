@@ -61,7 +61,8 @@ that adds nothing new.
   (`C0AJ5QV0J03`), or the narrower set the invocation names. Never react or
   reply anywhere else.
 - **Leave a report alone** when:
-  - Steve (`U0GCV21HC`) put `:mag:` on it;
+  - Steve (`U0GCV21HC`) put `:mag:` on it, or put 👀 on it himself (see
+    "Open items first" for how to tell);
   - someone in the thread asked a specific person to look, a teammate says
     they're handling it, or Steve asked for a human on it;
   - another person's 👀 sits on it and they've been active in the last 3
