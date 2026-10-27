@@ -1111,9 +1111,12 @@ export function useCollabReconcile({
           collab && ydoc && contentRevision && requestSnapshotAdoption
             ? requestSnapshotAdoption
             : null;
-        // `onTaken` runs once the server takes the proposal in, even when a
-        // newer snapshot has cancelled this one; `settle` runs only when
-        // nothing has.
+        // `onTaken` runs once the server adopts this editor's proposal, even
+        // when a newer snapshot has cancelled it; `settle` runs only when
+        // nothing has. Not for `already-adopted`: that is usually another
+        // editor's proposal, which that editor counts. An answer lost after
+        // the server took this one's comes back that way too, and goes
+        // uncounted.
         const adoptThroughServer = (
           target: ProseMirrorNode,
           settle: () => void,
@@ -1222,7 +1225,7 @@ export function useCollabReconcile({
                 const taken =
                   result.status === "adopted" ||
                   result.status === "already-adopted";
-                if (taken) onTaken?.();
+                if (result.status === "adopted") onTaken?.();
                 // For `rebase`, a marker past the one this proposal held is
                 // another editor's adoption, whose body is the new base. With
                 // the marker unchanged, the server held live edits the
@@ -1396,8 +1399,8 @@ export function useCollabReconcile({
             settleMerged();
             return;
           }
-          // The server can send a proposal back to plan again, or call it
-          // stale; only the one it takes in is counted.
+          // The server can send a proposal back to plan again, call it stale,
+          // or adopt another editor's; only the one it adopts is counted.
           adoptThroughServer(plan.mergedDoc, settleMerged, () =>
             countMerge(plan.setAside),
           );

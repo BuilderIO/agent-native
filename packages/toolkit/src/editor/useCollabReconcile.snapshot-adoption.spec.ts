@@ -424,6 +424,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
       vi.useFakeTimers();
       if (!visible) setVisibility("hidden");
       const tabs = makeTabs(2, { visible, adoption: "server" });
+      const merges: Array<{ setAside: number }> = [];
+      tabs.setOptions({ onBaseAwareMerge: (outcome) => merges.push(outcome) });
       try {
         tabs.render(FIRST);
         await act(async () => vi.advanceTimersByTimeAsync(30));
@@ -443,6 +445,8 @@ describe("useCollabReconcile — snapshot adoption", () => {
 
         expect(tabs.markdown()).toEqual([OUTSIDE, OUTSIDE]);
         expect(tabs.serverMarkdown()).toBe(OUTSIDE);
+        // One merge, counted by the tab whose proposal the server adopted.
+        expect(merges).toEqual([{ setAside: 0 }]);
       } finally {
         tabs.dispose();
       }
