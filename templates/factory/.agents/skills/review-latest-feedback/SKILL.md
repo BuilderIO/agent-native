@@ -265,8 +265,11 @@ Run it once per thread: if a reply in the thread already links this PR, just mak
 there and move on.
 
 Write only as the connected Slack profile (Steve), only in the feedback
-channels, and in the reply format from the contract above. Re-read each thread
-before writing. If Steve has since added `:mag:` or a person has taken it over,
+channels, and in the reply format from the contract above. First re-read
+the contract and this step from fresh `origin/main` (`git show
+origin/main:.agents/skills/review-latest-feedback/SKILL.md`): a run that
+started hours ago may be holding older rules. Re-read each thread before
+writing. If Steve has since added `:mag:` or a person has taken it over,
 leave it. If a newer human reply says it's still broken, leave the 👀 for the
 next sweep. Otherwise:
 
