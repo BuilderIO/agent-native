@@ -54,12 +54,19 @@ export function canReceiveRecordingActivity(input: {
   recipientEmail: string;
   hasPassword: boolean;
   expiresAt?: string | null;
+  trashedAt?: string | null;
   now?: number;
 }): boolean {
-  if (isRecordingExpired(input.expiresAt, input.now)) return false;
-  if (!input.hasPassword) return true;
-  return (
+  const viewerIsOwner =
+    Boolean(input.ownerEmail && input.recipientEmail) &&
     input.ownerEmail.trim().toLowerCase() ===
-    input.recipientEmail.trim().toLowerCase()
+      input.recipientEmail.trim().toLowerCase();
+  return (
+    !isRecordingExpired(input.expiresAt, input.now) &&
+    !isRecordingTrashedForViewer({
+      trashedAt: input.trashedAt,
+      viewerIsOwner,
+    }) &&
+    (!input.hasPassword || viewerIsOwner)
   );
 }
