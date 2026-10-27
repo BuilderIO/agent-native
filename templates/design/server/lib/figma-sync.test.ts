@@ -119,5 +119,8 @@ describe("Figma sync Labs surface", () => {
     expect(prepared?.message).toContain(
       "never replace the whole frame with a flat SVG",
     );
+    expect(prepared?.message).toContain(
+      "do not substitute SVG or code-layer export",
+    );
   });
 });
