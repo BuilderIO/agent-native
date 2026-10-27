@@ -11,6 +11,7 @@ import {
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { readEditsRecord } from "../server/lib/pending-redactions.js";
+import { isTranscriptReady } from "../shared/transcript-status.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 import { findSilenceTrimRanges } from "./lib/silence-trim-ranges.js";
 
@@ -123,16 +124,25 @@ export default defineAction({
     await assertAccess("recording", args.recordingId, "editor");
 
     const db = getDb();
-    const [transcript] = await db
+    const transcripts = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
+    const transcript = transcripts.length > 0 ? transcripts[0] : undefined;
 
-    if (!transcript || transcript.status !== "ready") {
+    if (!transcript || !isTranscriptReady(transcript.status)) {
+      const transcriptPending = transcript?.status === "pending";
       fail(
-        "Transcript must be ready before removing silences. Call request-transcript first.",
-        { errorCode: "transcript_not_ready", statusCode: 409 },
+        transcriptPending
+          ? "Transcript is still being generated. Try removing silences after it finishes."
+          : "Transcript must be ready before removing silences. Call request-transcript first.",
+        {
+          errorCode: transcriptPending
+            ? "transcript_pending"
+            : "transcript_not_ready",
+          statusCode: 409,
+        },
       );
     }
 

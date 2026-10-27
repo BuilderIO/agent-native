@@ -167,7 +167,7 @@ import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
-import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
+import { transcriptRecoveryForError } from "@/lib/background-ai-error";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
@@ -185,7 +185,10 @@ import { cn } from "@/lib/utils";
 import { parseRedactions } from "@/lib/video-redactions";
 
 import { buildAgentApiUrls } from "../../shared/agent-context";
-import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
+import {
+  isTranscriptReady,
+  STALE_PENDING_TRANSCRIPT_REASON,
+} from "../../shared/transcript-status";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
@@ -1717,37 +1720,45 @@ export default function RecordingPage() {
     const errorCode = (err as Error & { errorCode?: unknown }).errorCode;
     activeAiRequestRef.current = null;
     cancelCompletionCue();
-    const transcriptNeedsRegeneration = shouldOfferTranscriptRegeneration(
+    const transcriptRecovery = transcriptRecoveryForError(
       retryKind,
       errorCode,
       recording?.id,
     );
     failAiRequestToast(
-      transcriptNeedsRegeneration
-        ? t("recordingPage.silenceTranscriptUnavailableTitle")
-        : t("recordingPage.aiRequestFailed"),
+      transcriptRecovery === "wait"
+        ? t("recordingPage.transcriptNotReady")
+        : transcriptRecovery === "regenerate"
+          ? t("recordingPage.silenceTranscriptUnavailableTitle")
+          : t("recordingPage.aiRequestFailed"),
       {
-        description: transcriptNeedsRegeneration
-          ? t("recordingPage.silenceTranscriptUnavailableDescription")
-          : errorCode === "edits_unreadable"
-            ? t("recordingPage.silenceEditsUnreadable")
-            : (actionErrorMessage(err) ?? t("recordingPage.tryAgainMoment")),
-        ...(transcriptNeedsRegeneration
+        description:
+          transcriptRecovery === "wait"
+            ? t("recordingPage.tryAfterTranscription")
+            : transcriptRecovery === "regenerate"
+              ? t("recordingPage.silenceTranscriptUnavailableDescription")
+              : errorCode === "edits_unreadable"
+                ? t("recordingPage.silenceEditsUnreadable")
+                : (actionErrorMessage(err) ??
+                  t("recordingPage.tryAgainMoment")),
+        ...(transcriptRecovery === "regenerate"
           ? {
               action: {
                 label: t("transcriptPanel.regenerate"),
                 onClick: () => regenerateTranscript(recording!.id),
               },
             }
-          : retryKind === "remove-filler-words" ||
-              retryKind === "remove-silences"
-            ? {
-                action: {
-                  label: t("agentChat.common.retry"),
-                  onClick: () => retryAiRequestRef.current?.(retryKind),
-                },
-              }
-            : {}),
+          : transcriptRecovery === "wait"
+            ? {}
+            : retryKind === "remove-filler-words" ||
+                retryKind === "remove-silences"
+              ? {
+                  action: {
+                    label: t("agentChat.common.retry"),
+                    onClick: () => retryAiRequestRef.current?.(retryKind),
+                  },
+                }
+              : {}),
       },
     );
   };
@@ -2844,7 +2855,7 @@ export default function RecordingPage() {
                   <>
                     <DropdownMenuItem
                       disabled={
-                        backgroundAiBusy || transcriptStatus !== "ready"
+                        backgroundAiBusy || !isTranscriptReady(transcriptStatus)
                       }
                       onSelect={() => {
                         beginAiRequest("remove-filler-words");
@@ -2857,7 +2868,7 @@ export default function RecordingPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={
-                        backgroundAiBusy || transcriptStatus !== "ready"
+                        backgroundAiBusy || !isTranscriptReady(transcriptStatus)
                       }
                       onSelect={() => {
                         beginAiRequest("remove-silences");

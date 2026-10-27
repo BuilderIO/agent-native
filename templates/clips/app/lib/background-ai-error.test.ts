@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldOfferTranscriptRegeneration } from "./background-ai-error.js";
+import { transcriptRecoveryForError } from "./background-ai-error.js";
 
-describe("shouldOfferTranscriptRegeneration", () => {
+describe("transcriptRecoveryForError", () => {
   it.each([
     "transcript_not_ready",
     "transcript_unreadable",
     "timestamped_transcript_required",
   ])("offers regeneration for silence errors: %s", (errorCode) => {
     expect(
-      shouldOfferTranscriptRegeneration("remove-silences", errorCode, "rec_1"),
-    ).toBe(true);
+      transcriptRecoveryForError("remove-silences", errorCode, "rec_1"),
+    ).toBe("regenerate");
   });
 
   it.each([
@@ -20,9 +20,19 @@ describe("shouldOfferTranscriptRegeneration", () => {
   ] as const)(
     "does not offer regeneration for %s / %s / %s",
     (kind, errorCode, recordingId) => {
-      expect(
-        shouldOfferTranscriptRegeneration(kind, errorCode, recordingId),
-      ).toBe(false);
+      expect(transcriptRecoveryForError(kind, errorCode, recordingId)).toBe(
+        null,
+      );
     },
   );
+
+  it("waits when silence cleanup finds a transcript already in progress", () => {
+    expect(
+      transcriptRecoveryForError(
+        "remove-silences",
+        "transcript_pending",
+        "rec_1",
+      ),
+    ).toBe("wait");
+  });
 });

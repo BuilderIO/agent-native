@@ -1,10 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isTranscriptReady,
   resolveTranscriptPresentation,
   STALE_PENDING_TRANSCRIPT_MS,
   STALE_PENDING_TRANSCRIPT_REASON,
 } from "./transcript-status";
+
+describe("isTranscriptReady", () => {
+  it.each(["pending", "failed", null, undefined])(
+    "keeps cleanup unavailable for %s transcripts",
+    (status) => {
+      expect(isTranscriptReady(status)).toBe(false);
+    },
+  );
+
+  it("allows cleanup only for a ready transcript", () => {
+    expect(isTranscriptReady("ready")).toBe(true);
+  });
+});
 
 describe("resolveTranscriptPresentation", () => {
   const now = Date.parse("2026-07-10T16:30:00.000Z");

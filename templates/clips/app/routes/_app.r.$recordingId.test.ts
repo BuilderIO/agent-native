@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { shouldOfferTranscriptRegeneration } from "@/lib/background-ai-error";
+import { transcriptRecoveryForError } from "@/lib/background-ai-error";
+
+import { isTranscriptReady } from "../../shared/transcript-status";
 
 function readRoute(name: string): string {
   return readFileSync(resolve(process.cwd(), "app/routes", name), "utf8");
@@ -132,7 +134,9 @@ describe("direct recording route shell cue", () => {
     expect(menuStart).toBeGreaterThan(-1);
     expect(menu).toContain('t("recordingPage.removeFillerWords")');
     expect(menu).toContain('t("recordingPage.removeSilences")');
-    expect(menu.match(/transcriptStatus !== "ready"/g)).toHaveLength(2);
+    expect(menu).toContain("isTranscriptReady(transcriptStatus)");
+    expect(isTranscriptReady("pending")).toBe(false);
+    expect(isTranscriptReady("ready")).toBe(true);
     expect(menu).toContain("<DropdownMenuSub>");
     expect(menu).toContain('t("recordingPage.enhanceRecording")');
     expect(menu).toContain('t("recordingPage.createFromClip")');
@@ -168,12 +172,12 @@ describe("direct recording route shell cue", () => {
 
   it("offers transcript regeneration when silence removal needs timestamps", () => {
     expect(
-      shouldOfferTranscriptRegeneration(
+      transcriptRecoveryForError(
         "remove-silences",
         "timestamped_transcript_required",
         "rec_1",
       ),
-    ).toBe(true);
+    ).toBe("regenerate");
   });
 
   it("keeps Share primary and unifies mobile viewer panels", () => {
