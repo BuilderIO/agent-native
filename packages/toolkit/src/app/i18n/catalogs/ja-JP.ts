@@ -431,6 +431,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.openDesktop":
     "このチャットを使用するにはデスクトップ版を開いてください。",
   "composer.removeAttachment": "{{name}} を削除",
+  "composer.attachmentReadFailed": "このファイルを読み込めませんでした",
+  "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
+  "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",

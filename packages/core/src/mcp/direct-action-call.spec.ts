@@ -1145,6 +1145,8 @@ describe("direct tools/call embed credential redaction", () => {
   // An embed start URL inside another URL, where its own path is never the
   // embed route.
   const nestedEmbedStarts = [
+    "embed/start?ticket=leaked-ticket",
+    "embed/./start?ticket=leaked-ticket",
     `https://redirect.example/?next=${EMBED_START}`,
     `https://redirect.example/?next=${encodeURIComponent(EMBED_START)}`,
     `https://redirect.example/?next=${encodeURIComponent(encodeURIComponent(EMBED_START))}`,
@@ -1158,6 +1160,8 @@ describe("direct tools/call embed credential redaction", () => {
       ? "[image #1 dropped: it carried an embed credential]"
       : `[image ${name} dropped: url must be a public https:// URL]`;
   const ordinary = {
+    content:
+      "# Synthetic task\n\n<details><summary>Next step</summary>\n\nCheck the embed start behavior before continuing. Read the Agent-Native embed start guide.\n\n</details>",
     source: "embed",
     start: "2026-10-01",
     next: `https://redirect.example/?next=${encodeURIComponent(`${ORIGIN}/inbox`)}`,

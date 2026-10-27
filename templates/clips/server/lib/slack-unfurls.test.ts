@@ -184,6 +184,44 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
+  it.each([
+    { expiresAt: "not-a-date", playable: false },
+    { expiresAt: "2099-02-30T12:00:00Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00.1234567Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00+23:00", playable: false },
+    { expiresAt: "2000-01-01T00:00:00Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00.123456Z", playable: true },
+    { expiresAt: "", playable: true },
+  ])(
+    "applies expiry $expiresAt to the emitted Slack payload",
+    async ({ expiresAt, playable }) => {
+      const url = "https://clips.example.com/share/rec-1";
+      const payload = await buildChatUnfurlPayload(
+        {
+          type: "event_callback",
+          event: {
+            type: "link_shared",
+            channel: "C123",
+            message_ts: "1782136451.918049",
+            links: [{ url }],
+          },
+        },
+        async () =>
+          buildSlackVideoBlock({
+            recording: recording({ expiresAt }),
+            origin: "https://clips.example.com",
+          }),
+      );
+      if (playable) {
+        expect(payload).toMatchObject({
+          unfurls: { [url]: { blocks: [{ type: "video", title_url: url }] } },
+        });
+      } else {
+        expect(payload).toBeNull();
+      }
+    },
+  );
+
   it("does not build playable unfurls for password-protected clips", () => {
     expect(
       buildSlackVideoBlock({
