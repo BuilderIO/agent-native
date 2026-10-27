@@ -41,6 +41,8 @@ function FirstRunOnboarding({
 
 const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
+  recordCreditsV2Exposure: vi.fn(),
+  useActionMutation: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
   useActualRouter: false,
@@ -70,6 +72,13 @@ vi.mock("react-router", async (importOriginal) => {
 
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
   useFeatureFlagState: () => ({ status: "ready", enabled: true }),
+}));
+
+vi.mock("@agent-native/core/client/use-action", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-action")
+  >()),
+  useActionMutation: mocks.useActionMutation,
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
@@ -107,6 +116,12 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.recordCreditsV2Exposure.mockReset().mockResolvedValue({
+      assignment: null,
+    });
+    mocks.useActionMutation.mockReset().mockReturnValue({
+      mutateAsync: mocks.recordCreditsV2Exposure,
+    });
     mocks.routePathname = "/";
     mocks.useActualRouter = false;
     mocks.navigate.mockReset();
@@ -1684,6 +1699,11 @@ describe("FirstRunOnboarding", () => {
       customKeysAction: "Open AI key settings",
       skip: "Skip for now",
     });
+    expect(mocks.useActionMutation).toHaveBeenCalledWith(
+      "record-first-run-builder-credits-v2-exposure",
+      { uiOnly: true, skipActionQueryInvalidation: true },
+    );
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
   });
 
   it("opens the app directly after a configured Builder connection", () => {

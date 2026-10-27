@@ -18,6 +18,7 @@ import {
   useOnboardingPreviewMode,
   useOnboardingPreviewStep,
 } from "@agent-native/core/client/onboarding/use-preview-mode";
+import { useActionMutation } from "@agent-native/core/client/use-action";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   buildSettingsRoute,
@@ -27,6 +28,7 @@ import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "@agent-native/core/onboarding/types";
+import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY } from "@agent-native/core/shared";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -289,6 +291,22 @@ export function FirstRunOnboarding({
     ((currentStepIndex + 1) / totalOnboardingStepCount) * 100,
   )}%`;
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const creditsV2Flag = useFeatureFlagState(
+    FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  );
+  const creditsV2Exposure = useActionMutation<
+    {
+      assignment: {
+        experiment_id: string;
+        experiment_variant: string;
+      } | null;
+    },
+    Record<string, never>
+  >("record-first-run-builder-credits-v2-exposure" as never, {
+    uiOnly: true,
+    skipActionQueryInvalidation: true,
+  });
+  const creditsV2ExposureStartedRef = useRef(false);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
   const skipGoBackRef = useRef<HTMLButtonElement>(null);
@@ -609,6 +627,36 @@ export function FirstRunOnboarding({
     setupStatusSettled &&
     canActivateBuilderFreeCredits &&
     !connectFlow.configured;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      screen !== "choice" ||
+      profile?.appId !== "clips" ||
+      creditsV2Flag.status !== "ready" ||
+      !creditsV2Flag.enabled ||
+      !setupExperimentEligible ||
+      creditsV2ExposureStartedRef.current
+    ) {
+      return;
+    }
+    creditsV2ExposureStartedRef.current = true;
+    void creditsV2Exposure.mutateAsync({}).catch((error) => {
+      const errorType = error instanceof Error ? error.name : "unknown_error";
+      console.warn(
+        `[onboarding] Could not record Clips credits v2 exposure (${errorType}).`,
+      );
+    });
+  }, [
+    creditsV2Exposure.mutateAsync,
+    creditsV2Flag.enabled,
+    creditsV2Flag.status,
+    firstRun,
+    previewMode,
+    profile?.appId,
+    screen,
+    setupExperimentEligible,
+  ]);
   useEffect(() => {
     if (
       previewMode ||
