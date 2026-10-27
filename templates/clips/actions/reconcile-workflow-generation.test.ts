@@ -686,13 +686,13 @@ describe("reconcile-workflow-generation", () => {
     ).resolves.toEqual({ reconciled: false, reason: "stale" });
   });
 
-  it("does not fail a different agent run", async () => {
+  it("lets canonical editor cancellation ignore a stale session claim", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
-      tabId: "clips-workflow:rec_123:request:chat-newer",
+      tabId: "arbitrary-thread",
     });
 
     await expect(
@@ -702,8 +702,17 @@ describe("reconcile-workflow-generation", () => {
         requestedAt,
         tabId,
       }),
-    ).resolves.toEqual({ reconciled: false, reason: "different-run" });
-    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    ).resolves.toEqual({ reconciled: true });
+    expect(mocks.abortTurnByRefDurably).toHaveBeenCalledWith(
+      tabId,
+      backgroundAgentTurnIdForReceipt(tabId, tabId),
+      "workflow-session-ended",
+    );
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ tabId: "arbitrary-thread" }),
+      expect.objectContaining({ status: "failed" }),
+    );
   });
   it("consumes the matching request when tracking a finished workflow", async () => {
     const request = {

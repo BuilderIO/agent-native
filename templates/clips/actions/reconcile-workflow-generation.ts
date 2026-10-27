@@ -303,10 +303,7 @@ export default defineAction({
         ? { reconciled: false, tracked: true }
         : { reconciled: false, tracked: false, reason: "stale" as const };
     }
-    if (
-      state.tabId !== tabId &&
-      !(operation === "stop" && !state.tabId && !state.claimedAt)
-    ) {
+    if (operation !== "stop" && state.tabId !== tabId) {
       return operation === "release"
         ? {
             reconciled: false,
@@ -316,6 +313,7 @@ export default defineAction({
         : { reconciled: false, reason: "different-run" as const };
     }
     if (operation === "stop") {
+      // Persisted claims can be stale; the canonical ID above scopes this abort.
       await abortTurnByRefDurably(
         tabId,
         backgroundAgentTurnIdForReceipt(tabId, tabId),
