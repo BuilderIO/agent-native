@@ -28,7 +28,6 @@ export default defineAction({
       FIRST_RUN_BUILDER_CREDITS_V2_FLAG,
       {
         ...(context.userEmail ? { userEmail: context.userEmail } : {}),
-        userKey: context.authUserId,
         ...(context.orgId ? { orgId: context.orgId } : {}),
       },
     );

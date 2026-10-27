@@ -14,7 +14,10 @@ vi.mock("@agent-native/core/action", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (action: unknown) => action,
 }));
-vi.mock("@agent-native/core/feature-flags", () => ({
+vi.mock("@agent-native/core/feature-flags", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/feature-flags")
+  >()),
   isFeatureFlagEnabled: (...args: unknown[]) => mocks.isEnabled(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
@@ -22,6 +25,12 @@ vi.mock("@agent-native/core/server", () => ({
   recordFirstRunBuilderCreditsV2Exposure: (...args: unknown[]) =>
     mocks.recordExposure(...args),
 }));
+
+import {
+  evaluateFeatureFlagRules,
+  normalizeFeatureFlagRules,
+  type FeatureFlagScope,
+} from "@agent-native/core/feature-flags";
 
 import action from "./record-first-run-builder-credits-v2-exposure.js";
 
@@ -45,11 +54,50 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
       expect.objectContaining({ key: "clips-first-run-credits-v2" }),
       {
         userEmail: "person@example.test",
-        userKey: "auth-user-1",
         orgId: "org-1",
       },
     );
     expect(mocks.recordExposure).not.toHaveBeenCalled();
+  });
+
+  it("uses the client email bucket for percentage rollout exposure", async () => {
+    const flag = "clips-first-run-credits-v2";
+    const rules = normalizeFeatureFlagRules({
+      mode: "rules",
+      percentage: 30,
+    });
+    const clientScope = {
+      userEmail: "person@example.test",
+      orgId: "org-1",
+    };
+    expect(evaluateFeatureFlagRules(flag, rules, clientScope)).toBe(true);
+    expect(
+      evaluateFeatureFlagRules(flag, rules, {
+        ...clientScope,
+        userKey: "auth-user-1",
+      }),
+    ).toBe(false);
+    mocks.isEnabled.mockImplementation(
+      (definition: { key: string }, scope: FeatureFlagScope) =>
+        evaluateFeatureFlagRules(definition.key, rules, scope),
+    );
+    mocks.recordExposure.mockResolvedValue({
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "control",
+    });
+
+    await expect(action.run({})).resolves.toEqual({
+      assignment: {
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "control",
+      },
+    });
+
+    expect(mocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: flag }),
+      clientScope,
+    );
+    expect(mocks.recordExposure).toHaveBeenCalledWith({ flagEnabled: true });
   });
 
   it("persists only an authenticated user's assignment after exposure", async () => {
