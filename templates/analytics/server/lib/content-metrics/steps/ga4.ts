@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-
 import { runFullReport } from "../../google-analytics.js";
+import { ga4ConfigFingerprint } from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
 import { lastSucceededContentRun, listContentItems } from "../store.js";
 import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
@@ -33,9 +32,7 @@ export const ga4Step: ContentStep = {
           "Set ga4PropertyId with configure-content-collection to the GA4 property that measures the blog. The collection does not use the shared GA4_PROPERTY_ID.",
       });
     }
-    const configFingerprint = createHash("sha256")
-      .update(propertyId)
-      .digest("hex");
+    const configFingerprint = ga4ConfigFingerprint(propertyId);
     const previous = await lastSucceededContentRun(collection, "ga4");
     const articles = await listContentItems(collection, "builder_blog");
     if (articles.length === 0) {

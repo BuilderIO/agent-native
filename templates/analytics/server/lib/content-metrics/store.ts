@@ -5,6 +5,7 @@ import { and, desc, eq, gt, lt, sql } from "drizzle-orm";
 import { getDb, schema } from "../../db/index.js";
 import {
   contentCollectionConfigSchema,
+  contentStepConfigFingerprint,
   contentTenantKey,
   defaultContentCollectionConfig,
   type ContentCollectionConfig,
@@ -410,6 +411,16 @@ export async function completeContentRun(
   const snapshots = data.snapshots ?? [];
 
   await db.transaction(async (tx: any) => {
+    // Lock in startContentRun's order, collection before run. The share lock
+    // makes a settings change wait until these results are saved.
+    const [saved] = await tx
+      .select()
+      .from(schema.analyticsContentCollections)
+      .where(
+        eq(schema.analyticsContentCollections.tenantKey, collection.tenantKey),
+      )
+      .limit(1)
+      .for("share");
     // Hold this lock through writes so stale-run cleanup cannot transfer ownership mid-save.
     const [active] = await tx
       .select({ id: schema.analyticsContentCollectionRuns.id })
@@ -435,6 +446,21 @@ export async function completeContentRun(
         {
           errorCode: "content_run_not_active",
         },
+      );
+    }
+    if (
+      outcome.configFingerprint &&
+      (!saved ||
+        contentStepConfigFingerprint(step, toCollection(saved).config) !==
+          outcome.configFingerprint)
+    ) {
+      // Failed, unlike succeeded, lets the next scheduled pass collect for the
+      // new settings the same day.
+      throw Object.assign(
+        new Error(
+          "The collection settings changed during this run; its results were not saved.",
+        ),
+        { errorCode: "content_config_changed" },
       );
     }
     if (data.replaceSnapshots) {

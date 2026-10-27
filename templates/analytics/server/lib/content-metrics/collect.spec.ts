@@ -586,6 +586,50 @@ describe("content collection", () => {
     );
   });
 
+  it("saves nothing from a GA4 run whose property changed mid-request, and collects the new one that day", async () => {
+    const collection = await onlySteps({ builderBlog: true, ga4: true });
+    feed(article("a1"));
+    mocks.runFullReport.mockImplementationOnce(async () => {
+      await writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...collection.config,
+          ga4: { enabled: true, propertyId: "987654321" },
+        },
+      });
+      return [ga4Row("20261014", "/blog/post-a1", 4)];
+    });
+
+    const first = await collectContentForAllTenants({
+      now: new Date("2026-10-15T07:00:00Z"),
+    });
+
+    expect(ran(first)[1]).toMatchObject({
+      step: "ga4",
+      status: "failed",
+      reason: "content_config_changed",
+    });
+    expect(await snapshots("ga4_pageviews")).toEqual([]);
+
+    mocks.runFullReport.mockResolvedValueOnce([
+      ga4Row("20261014", "/blog/post-a1", 7),
+    ]);
+    const second = await collectContentForAllTenants({
+      now: new Date("2026-10-15T08:00:00Z"),
+    });
+
+    expect(ran(second)[1]).toMatchObject({ step: "ga4", status: "succeeded" });
+    expect(mocks.runFullReport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ propertyId: "987654321" }),
+    );
+    expect(await snapshots("ga4_pageviews")).toContainEqual({
+      external_id: "a1",
+      metric_date: "2026-10-14",
+      value: 7,
+      source: "ga4",
+    });
+  });
+
   it.each(["empty", "unmatched", "provider_error", "save_error"])(
     "keeps the old GA4 series when a property replacement ends in %s",
     async (failure) => {

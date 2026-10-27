@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
 import {
@@ -151,6 +153,48 @@ export function stepEnabled(
       return config.searchConsole.enabled;
     case "signups":
       return config.signups.enabled;
+  }
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function ga4ConfigFingerprint(propertyId: string): string {
+  return sha256(propertyId);
+}
+
+export function searchConsoleConfigFingerprint(
+  sites: Array<{ siteUrl: string; pathPrefix?: string }>,
+): string {
+  return sha256(
+    JSON.stringify(
+      sites.map((site) => [
+        normalizeSearchConsoleProperty(site.siteUrl),
+        site.pathPrefix?.trim() ?? "",
+      ]),
+    ),
+  );
+}
+
+/**
+ * The settings a step's saved data depends on, or null when nothing it saves
+ * depends on them. A run's results are saved only while this still matches.
+ */
+export function contentStepConfigFingerprint(
+  step: ContentCollectionStepId,
+  config: ContentCollectionConfig,
+): string | null {
+  switch (step) {
+    case "ga4":
+      return config.ga4.propertyId
+        ? ga4ConfigFingerprint(config.ga4.propertyId)
+        : null;
+    case "search_console":
+      return searchConsoleConfigFingerprint(config.searchConsole.sites);
+    case "builder_blog":
+    case "signups":
+      return null;
   }
 }
 
