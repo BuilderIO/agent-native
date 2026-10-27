@@ -1396,7 +1396,7 @@ describe("toPostgresParams", () => {
   it("converts fragment bind markers after escaped quotes in PostgreSQL E strings", async () => {
     const { toPostgresParams } = await import("./client.js");
     const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
-    const fragment = sql`SELECT E'it\\'s' WHERE id = ${sql.value("member-1")}`;
+    const fragment = sql`SELECT E'it\'s' WHERE id = ${sql.value("member-1")}`;
 
     expect(
       toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),

@@ -2255,130 +2255,186 @@ function executeWrapperArgumentIndexes(
   call: ts.CallExpression,
   analysis: SqlAnalysis,
 ): number[] {
-  const indexes = new Set<number>();
-  const activeFunctions = new Set<ts.Node>();
-  const tracedFunctions = new Map<ts.Node, ReadonlySet<number>>();
+  interface WrapperSummary {
+    declaration: ts.FunctionLikeDeclaration;
+    analysis: SqlAnalysis;
+    indexes: Set<number>;
+    dependencies: WrapperDependency[];
+  }
 
-  const traceWrapper = (
+  interface WrapperDependency {
+    target: WrapperSummary;
+    argumentIndexes: Map<number, Set<number>>;
+  }
+
+  interface WrapperFlow {
+    summary: WrapperSummary;
+    index: number;
+  }
+
+  const summaries = new Map<ts.Node, WrapperSummary>();
+  const pending: WrapperSummary[] = [];
+  const ensureSummary = (
     declaration: ts.FunctionLikeDeclaration,
     wrapperAnalysis: SqlAnalysis,
-  ): Set<number> => {
-    const cached = tracedFunctions.get(declaration);
-    if (cached) return new Set(cached);
-    if (!declaration.body || activeFunctions.has(declaration)) {
-      return new Set();
-    }
-    activeFunctions.add(declaration);
-
-    try {
-      const parameterIndexes = new Map<ts.Node, number>();
-      declaration.parameters.forEach((parameter, index) => {
-        if (!ts.isIdentifier(parameter.name)) return;
-        const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
-          parameter.name,
-        );
-        if (parameterSymbol?.valueDeclaration) {
-          parameterIndexes.set(parameterSymbol.valueDeclaration, index);
-        }
-      });
-      if (parameterIndexes.size === 0) {
-        tracedFunctions.set(declaration, new Set());
-        return new Set();
-      }
-
-      const indexesForExpression = (expression: ts.Expression): Set<number> => {
-        const indexes = new Set<number>();
-        const current = ts.isSpreadElement(expression)
-          ? expression.expression
-          : unwrapExecuteExpression(expression);
-        if (ts.isIdentifier(current)) {
-          const symbol = wrapperAnalysis.checker.getSymbolAtLocation(current);
-          const declaration = symbol?.valueDeclaration;
-          const index = declaration && parameterIndexes.get(declaration);
-          if (index !== undefined) indexes.add(index);
-        }
-        for (const source of findUnsafeSqlSources(
-          current,
-          wrapperAnalysis,
-          new Set(),
-          new Set(),
-          true,
-        )) {
-          const index = parameterIndexes.get(source);
-          if (index !== undefined) indexes.add(index);
-        }
-        return indexes;
-      };
-
-      const forwarded = new Set<number>();
-      const visit = (node: ts.Node) => {
-        if (ts.isCallExpression(node)) {
-          if (
-            isExecuteCall(
-              node.expression,
-              wrapperAnalysis.checker,
-              node.getSourceFile(),
-              wrapperAnalysis.executeAliases,
-            )
-          ) {
-            const argument = executeArgument(
-              node,
-              wrapperAnalysis.checker,
-              node.getSourceFile(),
-            );
-            if (argument) {
-              for (const index of indexesForExpression(argument)) {
-                forwarded.add(index);
-              }
-            }
-          } else {
-            const nestedDeclarations = callableDeclarations(
-              node,
-              wrapperAnalysis,
-            );
-            for (const nestedDeclaration of nestedDeclarations) {
-              const nestedAnalysis =
-                wrapperAnalysis.relatedAnalyses?.get(
-                  nestedDeclaration.getSourceFile(),
-                ) ?? wrapperAnalysis;
-              for (const nestedIndex of traceWrapper(
-                nestedDeclaration,
-                nestedAnalysis,
-              )) {
-                const nestedParameter =
-                  nestedDeclaration.parameters[nestedIndex];
-                const nestedArgumentIndexes = nestedParameter?.dotDotDotToken
-                  ? node.arguments.flatMap((_, index) =>
-                      index >= nestedIndex ? [index] : [],
-                    )
-                  : [nestedIndex];
-                for (const argumentIndex of nestedArgumentIndexes) {
-                  const argument = node.arguments[argumentIndex];
-                  if (!argument) continue;
-                  for (const index of indexesForExpression(argument)) {
-                    forwarded.add(index);
-                  }
-                }
-              }
-            }
-          }
-        }
-        ts.forEachChild(node, visit);
-      };
-      visit(declaration.body);
-      tracedFunctions.set(declaration, new Set(forwarded));
-      return forwarded;
-    } finally {
-      activeFunctions.delete(declaration);
-    }
+  ): WrapperSummary => {
+    const existing = summaries.get(declaration);
+    if (existing) return existing;
+    const summary: WrapperSummary = {
+      declaration,
+      analysis: wrapperAnalysis,
+      indexes: new Set(),
+      dependencies: [],
+    };
+    summaries.set(declaration, summary);
+    pending.push(summary);
+    return summary;
   };
 
-  for (const declaration of callableDeclarations(call, analysis)) {
-    if (!declaration.body) continue;
-    const wrapperAnalysis =
-      analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis;
-    for (const index of traceWrapper(declaration, wrapperAnalysis)) {
-      const parameter = declaration.parameters[index];
+  const rootSummaries = callableDeclarations(call, analysis)
+    .filter((declaration) => declaration.body !== undefined)
+    .map((declaration) =>
+      ensureSummary(
+        declaration,
+        analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis,
+      ),
+    );
+
+  while (pending.length > 0) {
+    const summary = pending.pop();
+    if (!summary?.declaration.body) continue;
+    const { declaration, analysis: wrapperAnalysis } = summary;
+    const parameterIndexes = new Map<ts.Node, number>();
+    declaration.parameters.forEach((parameter, index) => {
+      if (!ts.isIdentifier(parameter.name)) return;
+      const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
+        parameter.name,
+      );
+      if (parameterSymbol?.valueDeclaration) {
+        parameterIndexes.set(parameterSymbol.valueDeclaration, index);
+      }
+    });
+    if (parameterIndexes.size === 0) continue;
+
+    const indexesForExpression = (expression: ts.Expression): Set<number> => {
+      const indexes = new Set<number>();
+      const current = ts.isSpreadElement(expression)
+        ? expression.expression
+        : unwrapExecuteExpression(expression);
+      if (ts.isIdentifier(current)) {
+        const symbol = wrapperAnalysis.checker.getSymbolAtLocation(current);
+        const parameterDeclaration = symbol?.valueDeclaration;
+        const index =
+          parameterDeclaration && parameterIndexes.get(parameterDeclaration);
+        if (index !== undefined) indexes.add(index);
+      }
+      for (const source of findUnsafeSqlSources(
+        current,
+        wrapperAnalysis,
+        new Set(),
+        new Set(),
+        true,
+      )) {
+        const index = parameterIndexes.get(source);
+        if (index !== undefined) indexes.add(index);
+      }
+      return indexes;
+    };
+
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node)) {
+        if (
+          isExecuteCall(
+            node.expression,
+            wrapperAnalysis.checker,
+            node.getSourceFile(),
+            wrapperAnalysis.executeAliases,
+          )
+        ) {
+          const argument = executeArgument(
+            node,
+            wrapperAnalysis.checker,
+            node.getSourceFile(),
+          );
+          if (argument) {
+            for (const index of indexesForExpression(argument)) {
+              summary.indexes.add(index);
+            }
+          }
+        } else {
+          for (const nestedDeclaration of callableDeclarations(
+            node,
+            wrapperAnalysis,
+          )) {
+            if (!nestedDeclaration.body) continue;
+            const nestedAnalysis =
+              wrapperAnalysis.relatedAnalyses?.get(
+                nestedDeclaration.getSourceFile(),
+              ) ?? wrapperAnalysis;
+            const argumentIndexes = new Map<number, Set<number>>();
+            nestedDeclaration.parameters.forEach((parameter, nestedIndex) => {
+              const nestedArgumentIndexes = parameter?.dotDotDotToken
+                ? node.arguments.flatMap((_, index) =>
+                    index >= nestedIndex ? [index] : [],
+                  )
+                : [nestedIndex];
+              const indexes = new Set<number>();
+              for (const argumentIndex of nestedArgumentIndexes) {
+                const argument = node.arguments[argumentIndex];
+                if (!argument) continue;
+                for (const index of indexesForExpression(argument)) {
+                  indexes.add(index);
+                }
+              }
+              if (indexes.size > 0) argumentIndexes.set(nestedIndex, indexes);
+            });
+            if (argumentIndexes.size === 0) continue;
+            const target = ensureSummary(nestedDeclaration, nestedAnalysis);
+            summary.dependencies.push({ target, argumentIndexes });
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(declaration.body);
+  }
+
+  const dependents = new Map<WrapperSummary, Map<number, WrapperFlow[]>>();
+  for (const summary of summaries.values()) {
+    for (const dependency of summary.dependencies) {
+      for (const [targetIndex, parentIndexes] of dependency.argumentIndexes) {
+        const byIndex = dependents.get(dependency.target) ?? new Map();
+        const flows = byIndex.get(targetIndex) ?? [];
+        parentIndexes.forEach((index) => {
+          flows.push({ summary, index });
+        });
+        byIndex.set(targetIndex, flows);
+        dependents.set(dependency.target, byIndex);
+      }
+    }
+  }
+
+  const flows: WrapperFlow[] = [];
+  for (const summary of summaries.values()) {
+    summary.indexes.forEach((index) => flows.push({ summary, index }));
+  }
+  while (flows.length > 0) {
+    const flow = flows.pop();
+    if (!flow) continue;
+    const dependentsByIndex = dependents.get(flow.summary)?.get(flow.index);
+    if (!dependentsByIndex) continue;
+    for (const dependent of dependentsByIndex) {
+      if (!dependent.summary.indexes.has(dependent.index)) {
+        dependent.summary.indexes.add(dependent.index);
+        flows.push(dependent);
+      }
+    }
+  }
+
+  const indexes = new Set<number>();
+  for (const summary of rootSummaries) {
+    for (const index of summary.indexes) {
+      const parameter = summary.declaration.parameters[index];
       const callArgumentIndexes = parameter?.dotDotDotToken
         ? call.arguments.flatMap((_, argumentIndex) =>
             argumentIndex >= index ? [argumentIndex] : [],
@@ -2432,6 +2488,18 @@ export interface RawSqlGuardSource {
   source: string;
   addedLines: ReadonlySet<number>;
   removedPragmaLines?: ReadonlySet<number>;
+}
+
+export function removedPragmaAffectedLines(
+  lines: readonly { line: number; text: string }[],
+): Set<number> {
+  const affectedLines = new Set<number>();
+  for (const line of lines) {
+    if (!pragma.test(line.text)) continue;
+    affectedLines.add(line.line);
+    affectedLines.add(line.line + 1);
+  }
+  return affectedLines;
 }
 
 interface ImportedSqlCallTarget {
@@ -3595,12 +3663,7 @@ function main() {
     ) {
       continue;
     }
-    const removedPragmaLines = new Set<number>();
-    for (const line of entry.lines) {
-      if (!pragma.test(line.text)) continue;
-      removedPragmaLines.add(line.line);
-      if (line.line > 1) removedPragmaLines.add(line.line - 1);
-    }
+    const removedPragmaLines = removedPragmaAffectedLines(entry.lines);
     if (removedPragmaLines.size === 0) continue;
 
     let source = sources.get(absolutePath)?.source;

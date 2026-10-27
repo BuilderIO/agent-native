@@ -182,10 +182,6 @@ function appendInterpolation(
   );
 }
 
-function sqlTemplateText(value: string): string {
-  return value.replace(/\\\\/g, "\\");
-}
-
 const tag = (
   strings: TemplateStringsArray,
   ...values: SqlInterpolation[]
@@ -198,7 +194,7 @@ const tag = (
     "SQL template must contain an initial string.",
   );
   const builder = createBuilder();
-  appendText(builder, sqlTemplateText(first));
+  appendText(builder, first);
   for (let index = 0; index < values.length; index += 1) {
     const value = requirePresent(
       values[index],
@@ -209,7 +205,7 @@ const tag = (
       strings.raw[index + 1],
       "SQL template must end with a string.",
     );
-    appendText(builder, sqlTemplateText(followingString));
+    appendText(builder, followingString);
   }
   return makeFragment(
     builder.sqlParts.join(""),

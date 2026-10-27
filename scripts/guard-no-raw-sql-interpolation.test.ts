@@ -8,9 +8,11 @@ import {
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
   findChangedSqlHelperExports,
+  removedPragmaAffectedLines,
   resolveImportedSourceFile,
   type RawSqlGuardSource,
 } from "./guard-no-raw-sql-interpolation.js";
+import { parseRemovedLines } from "./lib/changed-lines.mjs";
 
 const FILE = "packages/core/src/example.ts";
 
@@ -841,6 +843,44 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
+  it("traces unsafe SQL through mutually recursive wrappers", () => {
+    const wrapperFile = "packages/core/src/sql-helpers.ts";
+    const storeFile = "packages/core/src/store.ts";
+    const wrapper = [
+      'import { getDbExec } from "./db/client.js";',
+      "function first(query: string) {",
+      "  second(query);",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+      "function second(query: string) {",
+      "  first(query);",
+      "}",
+      "export function runQuery(query: string) {",
+      '  first("fixed SQL");',
+      "  second(query);",
+      "}",
+    ].join("\n");
+    const store = [
+      'import { runQuery } from "./sql-helpers.js";',
+      "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+    ].join("\n");
+
+    expect(
+      findRawSqlInterpolationViolationsInSources(
+        new Map([
+          [wrapperFile, { source: wrapper, addedLines: new Set<number>() }],
+          [storeFile, { source: store, addedLines: new Set([2]) }],
+        ]),
+      ),
+    ).toEqual([
+      {
+        file: storeFile,
+        line: 2,
+        snippet: "runQuery(`SELECT * FROM records WHERE id = ${recordId}`);",
+      },
+    ]);
+  });
+
   it("traces namespace element calls through re-exported wrappers", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
     const executorFile = "packages/core/src/query-executor.ts";
@@ -1151,11 +1191,25 @@ describe("raw SQL interpolation guard", () => {
     );
   });
 
-  it("rechecks a sink when its raw-sql pragma was removed", () => {
+  it("rechecks the following sink after a preceding pragma was removed", () => {
+    const diff = [
+      `diff --git a/${FILE} b/${FILE}`,
+      "index 1111111..2222222 100644",
+      `--- a/${FILE}`,
+      `+++ b/${FILE}`,
+      "@@ -2 +1,0 @@",
+      "-// raw-sql-ok: old exception",
+    ].join("\n");
+    const removed = parseRemovedLines(diff, process.cwd());
+    const entry = removed?.get(resolve(FILE));
+    if (!entry) throw new Error("Expected the removed pragma diff entry.");
+    const removedPragmaLines = removedPragmaAffectedLines(entry.lines);
     const text = source([
+      "const unchanged = true;",
       "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
     ]);
 
+    expect([...removedPragmaLines]).toEqual([1, 2]);
     expect(
       findRawSqlInterpolationViolationsInSources(
         new Map([
@@ -1164,7 +1218,7 @@ describe("raw SQL interpolation guard", () => {
             {
               source: text,
               addedLines: new Set<number>(),
-              removedPragmaLines: new Set([1]),
+              removedPragmaLines,
             },
           ],
         ]),
@@ -1172,7 +1226,7 @@ describe("raw SQL interpolation guard", () => {
     ).toEqual([
       {
         file: FILE,
-        line: 1,
+        line: 2,
         snippet:
           "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
       },

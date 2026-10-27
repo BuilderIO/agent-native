@@ -29,6 +29,12 @@ describe("sql", () => {
     expect(query.sql).toBe(String.raw`SELECT '\d+'`);
   });
 
+  it("preserves doubled backslashes in raw SQL template text", () => {
+    const query = sql`SELECT '\\'`;
+
+    expect(query.sql).toBe(String.raw`SELECT '\\'`);
+  });
+
   it("keeps fragment arguments immutable", () => {
     const query = sql`SELECT ${sql.value("thread-1")}`;
 
