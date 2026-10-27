@@ -1,0 +1,103 @@
+template: v2
+slug: ui-planning
+app: plans
+title: Neue Screens mit Ihrem Coding-Agenten planen
+seo_title: UI-Planung für Claude Code, Codex und Cursor
+meta_description: Mit Agent-Native Plan entwirft Ihr Coding-Agent einen Screen als Wireframes in Ihrem App-Layout, Zustand für Zustand. Sie kommentieren, er überarbeitet und baut.
+updated: 2026-10-27
+hero:
+  body: Mit Agent-Native Plan plant Ihr Coding-Agent neue Screens als Wireframes jedes Zustands, im echten Layout Ihrer App. Sie kommentieren, was sich ändern soll, und er zeichnet den Plan vor dem Bauen neu.
+  button:
+    label: Screen planen
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: "Ein Plan für einen neuen Rechnungen-Screen in Plan. Drei skizzierte Frames stehen nebeneinander: die Rechnungsliste, ihr leerer Zustand und ein Fehler bei fehlgeschlagener Zahlung, jeweils in Seitenleiste und Symbolleiste der Abrechnungs-App. Am Statusfilter der Liste hängt ein Kommentar, darunter beginnt der schriftliche Plan."
+how_to:
+  heading: So erstellen Sie Wireframes, bevor Ihr Coding-Agent baut
+  steps:
+    - title: Den Agenten um den Screen bitten
+      body: Fügen Sie Plan mit [einem Installationsbefehl](https://www.agent-native.com/docs/plan-plugin/) zu Claude Code, Codex, Cursor, OpenCode oder GitHub Copilot hinzu, geben Sie `/visual-plan` ein und beschreiben Sie den Screen. Ihr Coding-Agent liest Ihre App, erstellt Wireframes und antwortet mit dem Link zum Plan.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: "Nahaufnahme des Chats eines Coding-Agenten: die /visual-plan-Anfrage für einen Rechnungen-Screen mit Statusfilter, leerem Zustand und einem Fehler bei fehlgeschlagener Zahlung. Der Agent liest fünf Layout- und Komponentendateien der App, erstellt den Plan und antwortet mit dem Link zur Prüfung."
+    - title: Kommentieren, was sich ändern soll
+      body: Öffnen Sie den Plan, klicken Sie auf die fehlerhafte Stelle im Screen und notieren Sie die Änderung. Stellen Sie den Kommentar auf **Agent** für Ihren Coding-Agenten oder auf **Mensch** für ein Teammitglied.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: "Nahaufnahme des Frames mit der Rechnungsliste und einem Kommentar am Statusfilter. Das Kommentarfeld steht auf „Agent“ und lautet: Mach den Statusfilter zu einem Segmented Control mit Alle, Bezahlt und Überfällig."
+    - title: Kommentare an den Agenten senden
+      body: Klicken Sie auf **An den Agenten senden**, wählen Sie **Für Ihren Agenten kopieren** und fügen Sie den Prompt im Chat Ihres Agenten ein. Er aktualisiert den Plan und schließt die erledigten Kommentare. Stimmt der Screen, bitten Sie den Agenten, ihn zu bauen.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: "Nahaufnahme der Schaltfläche „An den Agenten senden“ mit 3 offenen Kommentaren. Ihr Menü ist geöffnet und bietet zwei Optionen: „Für Ihren Agenten kopieren“ und „An den Inline-Agenten senden“."
+features:
+  heading: Alles, um den Screen gleich richtig zu machen
+  items:
+    - title: In Ihrer echten App gezeichnet
+      body: Ihr Coding-Agent liest Ihre Screens und Komponenten vor dem Zeichnen, sodass Seitenleiste, Symbolleiste und Menüs bleiben, wo sie sind.
+    - title: Jeder Zustand des Screens
+      body: Ihr Agent zeichnet einen Frame für jeden wichtigen Zustand, etwa Laden, leer, Fehler oder offenes Menü, und zeigt, was ein Prompt auslässt.
+    - title: Kommentare am genauen Element
+      body: Ihr Coding-Agent erhält den Button, die Zeile oder Karte, an der ein Kommentar hängt, also reicht eine kurze Notiz wie „mach das zum Segmented Control“.
+    - title: Offene Kommentare bleiben offen
+      body: Ihr Coding-Agent prüft, ob jede Änderung angekommen ist, bevor er einen Kommentar schließt. Was er übersehen hat, wartet weiter auf Sie.
+    - title: Prototyp für mehrstufige Abläufe
+      body: Für einen Ablauf wie Onboarding oder Checkout ergänzt Ihr Agent einen klickbaren Prototyp im Tab **Prototyp**, neben den Screens.
+    - title: Mit dem Team prüfen
+      body: Teilen Sie den Plan per Link, damit Ihr Team die Screens im Browser öffnen kann. Jeder mit einem Agent-Native-Konto kann kommentieren.
+integrations:
+  heading: Verbinden Sie Plan mit den Tools, die Sie schon nutzen
+  cards:
+    - title: Als Plugin installieren
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Installieren Sie Plan als Plugin in Claude Code oder Codex und fordern Sie mit `/visual-plan` einen Screen in Ihrem gewohnten Chat an.
+    - title: Ein Befehl für andere Agenten
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Ein Installationsbefehl richtet Plan in Cursor, OpenCode oder GitHub Copilot ein, jeder andere MCP-fähige Agent verbindet sich über die URL von Plan.
+    - title: Alles per MCP verbinden
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
+other_uses:
+  heading: Was Sie sonst noch mit Agent-Native Plan tun können
+  cards:
+    - title: Den Plan Ihres Coding-Agenten vor dem Coden prüfen
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: Prüfen Sie den ganzen Plan Ihres Coding-Agenten mit Diagrammen und kommentiertem Code, bevor er etwas schreibt.
+    - title: Änderungen Ihres Coding-Agenten visuell nachvollziehen
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: Sehen Sie die Screens, Daten und Dateien, die Ihr Coding-Agent geändert hat, in einem kommentierbaren Rückblick.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Agent-Native Plan kostenlos?
+      a: Ja, [Agent-Native Plan](https://www.agent-native.com/docs/template-plan/) ist kostenlos und Open Source. Ihr eigener Coding-Agent zeichnet die Screens, also läuft jeder Plan auf dem Modell Ihres Agenten und zählt zu dessen Nutzung, und ein längerer Plan verbraucht mehr. Plan ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Welche Coding-Agenten funktionieren mit Plan?
+      a: Agent-Native Plan hat Plugins für Claude Code und Codex. Der Installationsbefehl richtet Cursor, OpenCode und GitHub Copilot genauso ein und fügt `/visual-plan` mit einer einmaligen Anmeldung hinzu. Cline, Goose und andere MCP-fähige Agenten verbinden sich, indem sie die URL von Plan hinzufügen.
+    - q: Wie ändere ich, was der Plan zeigt?
+      a: "Sie ändern einen Screen, indem Sie [ihn kommentieren](https://www.agent-native.com/docs/template-plan-review-workflow/), und Ihr Coding-Agent zeichnet ihn neu. In Plan können Sie Teile eines Screens nicht von Hand verschieben oder in der Größe ändern. Beim schriftlichen Plan unter den Screens ist das anders: Seinen Text können Sie direkt bearbeiten."
+    - q: Passen die Screens zu meiner bestehenden App?
+      a: Ja, wenn der Screen Teil einer App ist, die Sie schon haben. Vor dem Zeichnen liest Ihr Coding-Agent den Code, das Layout und die Komponenten Ihrer App, sodass der Plan Ihre echte Seitenleiste, Symbolleiste und Menüs zeigt. Eine ganz neue App erhält Screens nach Ihrer Beschreibung.
+    - q: Worin unterscheidet sich Plan vom Planmodus meines Coding-Agenten?
+      a: Plan arbeitet mit dem Planmodus Ihres Agenten zusammen und zeigt dessen Plan als Screens. Geben Sie `/visual-plan` einen Plan aus Claude Code, Codex oder Markdown, den Ihr Agent schon geschrieben hat, und Plan macht daraus die beschriebenen Screens, bereit für Kommentare an genau der richtigen Stelle.

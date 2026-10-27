@@ -1,0 +1,103 @@
+template: v2
+slug: ui-planning
+app: plans
+title: "خطّط للشاشات الجديدة مع وكيل البرمجة"
+seo_title: "تخطيط الواجهات لـ Claude Code وCodex وCursor"
+meta_description: "مع Agent-Native Plan تخطّط أنت ووكيل البرمجة لشاشة كمخططات أولية في تخطيط تطبيقك الحقيقي، حالةً بحالة. علّق فيعدّل الوكيل، ثم يبني."
+updated: 2026-10-27
+hero:
+  body: "مع Agent-Native Plan، يخطّط وكيل البرمجة لشاشة جديدة كمخططات أولية لكل حالة، داخل تخطيط تطبيقك الحقيقي. علّق على ما يجب تغييره، فيعيد الوكيل رسم الخطة قبل البناء."
+  button:
+    label: "خطّط لشاشة"
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: "خطة لشاشة Invoices جديدة في Plan. ثلاثة إطارات مرسومة جنبًا إلى جنب: قائمة الفواتير، وحالتها الفارغة، وخطأ فشل الدفع، وكل منها داخل الشريط الجانبي وشريط الأدوات الخاصين بتطبيق الفوترة. وتعليق مثبّت على فلتر الحالة في القائمة، وتبدأ الخطة المكتوبة تحتها."
+how_to:
+  heading: "كيف ترسم مخططًا أوليًا لشاشة قبل أن يبنيها وكيل البرمجة"
+  steps:
+    - title: "اطلب الشاشة من وكيلك"
+      body: "أضف Plan إلى Claude Code أو Codex أو Cursor أو OpenCode أو GitHub Copilot [بأمر تثبيت واحد](https://www.agent-native.com/docs/plan-plugin/)، ثم اكتب `/visual-plan` وصِف الشاشة التي تريدها. يقرأ وكيل البرمجة تطبيقك، ويرسم الشاشة، ويرد برابط الخطة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: "لقطة مقرّبة لمحادثة وكيل برمجة: طلب /visual-plan لشاشة Invoices فيها فلتر حالة وحالة فارغة وخطأ فشل الدفع. يقرأ الوكيل خمسة من ملفات التخطيط والمكوّنات في التطبيق، وينشئ الخطة، ويرد برابط مراجعتها."
+    - title: "علّق على ما يجب تغييره"
+      body: "افتح الخطة، وانقر على الموضع الخاطئ في الشاشة تحديدًا، واكتب ما يجب تغييره. اضبط التعليق على **الوكيل** ليعمل عليه وكيل البرمجة، أو على **بشري** ليعالجه زميل."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: "لقطة مقرّبة لإطار قائمة الفواتير مع تعليق مثبّت على فلتر الحالة. مربع التعليق مضبوط على Agent ونصه: اجعل فلتر الحالة أزرارًا مقسّمة فيها All وPaid وOverdue."
+    - title: "أرسل تعليقاتك إلى الوكيل"
+      body: "انقر على **إرسال إلى الوكيل**، واختر **نسخ لوكيلك**، والصق المطالبة في محادثة وكيلك. يحدّث وكيل البرمجة الخطة ويغلق التعليقات التي عالجها. وعندما تبدو الشاشة صحيحة، اطلب من الوكيل بناءها."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: "لقطة مقرّبة لزر Send to agent مع 3 تعليقات مفتوحة. قائمته مفتوحة وفيها خياران: Copy for your agent وSend to inline agent."
+features:
+  heading: "كل ما تحتاجه لتضبط الشاشة من البداية"
+  items:
+    - title: "مرسومة داخل تطبيقك الحقيقي"
+      body: "يقرأ وكيل البرمجة شاشاتك ومكوّناتك الحالية قبل أن يرسم، فتحافظ الشاشة الجديدة على الشريط الجانبي وشريط الأدوات والقوائم في أماكنها."
+    - title: "كل حالات الشاشة"
+      body: "يرسم وكيلك إطارًا لكل حالة مهمة، مثل التحميل أو الفراغ أو الخطأ أو قائمة مفتوحة، فترى ما تُغفله المطالبة."
+    - title: "تعليقات على العنصر نفسه"
+      body: "يتلقى وكيل البرمجة الزر أو الصف أو البطاقة المثبّت عليها كل تعليق، فتكفي ملاحظة قصيرة مثل «اجعلها أزرارًا مقسّمة»."
+    - title: "التعليقات المفتوحة تبقى مفتوحة"
+      body: "يتأكد وكيل البرمجة من تطبيق كل تغيير قبل أن يغلق التعليق، فيبقى أي شيء فاته بانتظارك."
+    - title: "نموذج أولي للمسارات متعددة الخطوات"
+      body: "لمسار مثل التهيئة أو الدفع، يضيف وكيلك نموذجًا أوليًا قابلًا للنقر في تبويب **نموذج أولي**، بجانب الشاشات."
+    - title: "راجعها مع فريقك"
+      body: "شارك الخطة برابط ليفتح زملاؤك الشاشات في متصفحهم. ويمكن لأي شخص لديه حساب Agent-Native إضافة تعليقات."
+integrations:
+  heading: "اربط Plan بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "ثبّته كإضافة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "ثبّت Plan كإضافة في Claude Code أو Codex، ثم اطلب شاشة باستخدام `/visual-plan` في المحادثة التي تستخدمها أصلًا."
+    - title: "أمر واحد للوكلاء الآخرين"
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "أمر تثبيت واحد يجهّز Plan في Cursor أو OpenCode أو GitHub Copilot، وأي وكيل آخر يدعم MCP يتصل بعنوان URL الخاص بـ Plan."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Plan"
+  cards:
+    - title: "راجع خطة وكيل البرمجة قبل أن يكتب الكود"
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: "راجع خطة وكيل البرمجة كاملة، بمخططاتها وكودها المشروح، قبل أن يكتب أي شيء."
+    - title: "احصل على ملخص مرئي لتغييرات وكيل البرمجة"
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: "شاهد الشاشات والبيانات والملفات التي غيّرها وكيل البرمجة، في ملخص واحد يمكنك التعليق عليه."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Plan مجاني؟"
+      a: "نعم، [Agent-Native Plan](https://www.agent-native.com/docs/template-plan/) مجاني ومفتوح المصدر. وكيل البرمجة لديك هو من يرسم الشاشات، فتعمل كل خطة على نموذج وكيلك وتُحتسب من استخدامه، والخطة الأطول تستهلك أكثر. لا يزال Plan في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "ما وكلاء البرمجة التي تعمل مع Plan؟"
+      a: "لدى Agent-Native Plan إضافات لـ Claude Code وCodex. ويجهّز أمر التثبيت Cursor وOpenCode وGitHub Copilot بالطريقة نفسها، فيضيف `/visual-plan` مع تسجيل دخول لمرة واحدة. أما Cline وGoose والوكلاء الآخرون الذين يدعمون MCP فيتصلون بإضافة عنوان URL الخاص بـ Plan."
+    - q: "كيف أغيّر ما تعرضه الخطة؟"
+      a: "تغيّر الشاشة [بالتعليق عليها](https://www.agent-native.com/docs/template-plan-review-workflow/)، فيعيد وكيل البرمجة رسمها. لا يتيح Plan سحب أجزاء الشاشة أو تغيير حجمها يدويًا. أما الخطة المكتوبة تحت الشاشات فمختلفة: يمكنك تعديل نصها مباشرة."
+    - q: "هل ستطابق الشاشات تطبيقي الحالي؟"
+      a: "نعم، عندما تكون الشاشة جزءًا من تطبيق لديك بالفعل. قبل الرسم، يقرأ وكيل البرمجة كود تطبيقك وتخطيطه ومكوّناته، فتعرض الخطة الشريط الجانبي وشريط الأدوات والقوائم الحقيقية. أما التطبيق الجديد كليًا فتُرسم شاشاته من وصفك."
+    - q: "كيف يختلف Plan عن وضع التخطيط في وكيل البرمجة لديّ؟"
+      a: "يعمل Plan مع وضع التخطيط في وكيلك ويعرض خطته كشاشات. أعطِ `/visual-plan` خطة من Claude Code أو Codex أو Markdown كتبها وكيلك بالفعل، فيحوّلها Plan إلى الشاشات التي تصفها، جاهزة لتعليقات مثبّتة على الموضع المحدد."

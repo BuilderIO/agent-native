@@ -1,0 +1,103 @@
+template: v2
+slug: ui-planning
+app: plans
+title: Planifica pantallas nuevas con tu agente de código
+seo_title: Planifica la UI con Claude Code, Codex y Cursor
+meta_description: Con Agent-Native Plan, tu agente de código planifica una pantalla en wireframes, estado a estado y con el diseño de tu app. Comenta y la corrige antes de crearla.
+updated: 2026-10-27
+hero:
+  body: Con Agent-Native Plan, tu agente de código planifica una pantalla nueva con wireframes de cada estado, en el diseño real de tu app. Comenta qué cambiar y el agente redibuja el plan antes de desarrollar.
+  button:
+    label: Planifica una pantalla
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: "Un plan para una nueva pantalla de Facturas en Plan. Tres bocetos aparecen uno al lado del otro: la lista de facturas, su estado vacío y un error de pago fallido, cada uno dentro de la barra lateral y la barra de herramientas de la propia app de facturación. Hay un comentario fijado en el filtro de estado de la lista, y debajo empieza el plan escrito."
+how_to:
+  heading: Cómo hacer el wireframe de una pantalla antes de que tu agente la desarrolle
+  steps:
+    - title: Pide la pantalla a tu agente
+      body: Añade Plan a Claude Code, Codex, Cursor, OpenCode o GitHub Copilot con [un solo comando de instalación](https://www.agent-native.com/docs/plan-plugin/), escribe `/visual-plan` y describe la pantalla que quieres. Tu agente de código lee tu app, hace el wireframe de la pantalla y responde con el enlace del plan.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: "Primer plano del chat de un agente de código: la petición /visual-plan para una pantalla de Facturas con un filtro de estado, un estado vacío y un error de pago fallido. El agente lee cinco archivos de diseño y componentes de la app, crea el plan y responde con el enlace para revisarlo."
+    - title: Comenta lo que debe cambiar
+      body: Abre el plan, haz clic en el punto exacto de la pantalla que está mal y escribe qué debe cambiar. Asigna el comentario a **Agente** para que tu agente de código se encargue, o a **Humano** para un compañero.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: "Primer plano del boceto de la lista de facturas con un comentario fijado en el filtro de estado. El cuadro del comentario está en Agent y dice: convierte el filtro de estado en un control segmentado con All, Paid y Overdue."
+    - title: Envía tus comentarios al agente
+      body: Haz clic en **Enviar al agente**, elige **Copiar para tu agente** y pega el prompt en el chat de tu agente. Tu agente de código actualiza el plan y resuelve los comentarios que ha corregido. Cuando la pantalla esté bien, pídele al agente que la desarrolle.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: "Primer plano del botón Send to agent con 3 comentarios abiertos. Su menú está abierto con dos opciones: Copy for your agent y Send to inline agent."
+features:
+  heading: Todo lo que necesitas para acertar con la pantalla a la primera
+  items:
+    - title: Dibujada dentro de tu app real
+      body: Tu agente de código lee tus pantallas y componentes antes de dibujar, así que la pantalla nueva mantiene la barra lateral, la barra de herramientas y los menús en su sitio.
+    - title: Cada estado de la pantalla
+      body: Tu agente dibuja un boceto por cada estado importante, como carga, vacío, error o un menú abierto, para que veas lo que un prompt deja fuera.
+    - title: Comentarios en el elemento exacto
+      body: Tu agente de código recibe el botón, la fila o la tarjeta exacta donde está fijado cada comentario, así que basta con una nota como «haz esto un control segmentado».
+    - title: Los comentarios abiertos siguen abiertos
+      body: Tu agente de código confirma que cada cambio se ha aplicado antes de resolver un comentario, así que lo que se le escape te sigue esperando.
+    - title: Un prototipo para flujos de varios pasos
+      body: Para un flujo como el onboarding o el pago, tu agente añade un prototipo clicable en la pestaña **Prototipo**, junto a las pantallas.
+    - title: Revísalo con tu equipo
+      body: Comparte el plan por enlace para que tus compañeros abran las pantallas en su navegador. Cualquiera con una cuenta de Agent-Native puede comentar.
+integrations:
+  heading: Conecta Plan con las herramientas que ya usas
+  cards:
+    - title: Instálalo como plugin
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Instala Plan como plugin en Claude Code o Codex y pide una pantalla con `/visual-plan` en el chat que ya usas.
+    - title: Un comando para otros agentes
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Un solo comando instala Plan en Cursor, OpenCode o GitHub Copilot, y cualquier otro agente compatible con MCP se conecta con la URL de Plan.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+other_uses:
+  heading: Otras cosas que puedes hacer con Agent-Native Plan
+  cards:
+    - title: Revisa el plan de tu agente de código antes de que programe
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: Revisa todo el plan de tu agente de código, con diagramas y código comentado, antes de que escriba nada.
+    - title: Obtén un resumen visual de los cambios de tu agente de código
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: Ve las pantallas, los datos y los archivos que ha cambiado tu agente de código en un solo resumen que puedes comentar.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Plan es gratis?
+      a: Sí, [Agent-Native Plan](https://www.agent-native.com/docs/template-plan/) es gratuito y de código abierto. Tu propio agente de código dibuja las pantallas, así que cada plan usa el modelo de tu agente y cuenta para su uso, y un plan más largo consume más. Plan está en alfa, así que espera cambios.
+    - q: ¿Qué agentes de código funcionan con Plan?
+      a: Agent-Native Plan tiene plugins para Claude Code y Codex. El comando de instalación configura Cursor, OpenCode y GitHub Copilot de la misma forma, y añade `/visual-plan` con un único inicio de sesión. Cline, Goose y otros agentes compatibles con MCP se conectan añadiendo la URL de Plan.
+    - q: ¿Cómo cambio lo que muestra el plan?
+      a: "Cambias una pantalla [comentándola](https://www.agent-native.com/docs/template-plan-review-workflow/), y tu agente de código la vuelve a dibujar. Plan no permite arrastrar ni redimensionar partes de una pantalla a mano. El plan escrito, debajo de las pantallas, es distinto: puedes editar su texto directamente."
+    - q: ¿Las pantallas se parecerán a mi app actual?
+      a: Sí, cuando la pantalla forma parte de una app que ya tienes. Antes de dibujar, tu agente de código lee el código de tu app, su diseño y sus componentes, así que el plan muestra tu barra lateral, tu barra de herramientas y tus menús reales. Una app totalmente nueva recibe pantallas dibujadas a partir de tu descripción.
+    - q: ¿En qué se diferencia Plan del modo plan de mi agente de código?
+      a: Plan funciona con el modo plan de tu agente y muestra su plan como pantallas. Pasa a `/visual-plan` un plan de Claude Code, Codex o Markdown que tu agente ya haya escrito, y Plan lo convierte en las pantallas que describe, listas para comentarios fijados en el punto exacto.

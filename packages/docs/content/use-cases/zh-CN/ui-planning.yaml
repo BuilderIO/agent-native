@@ -1,0 +1,103 @@
+template: v2
+slug: ui-planning
+app: plans
+title: 和编码 agent 一起规划新界面
+seo_title: 面向 Claude Code、Codex 和 Cursor 的 UI 规划
+meta_description: 借助 Agent-Native Plan，你和编码 agent 在应用的真实布局里，以线框图逐个状态规划界面。你来评论，它来修改，然后再构建。
+updated: 2026-10-27
+hero:
+  body: 借助 Agent-Native Plan，编码 agent 会在应用的真实布局里，把新界面的每种状态画成线框图。评论需要修改的地方，agent 会先重画计划，再动手构建。
+  button:
+    label: 规划一个界面
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: Plan 中一份新 Invoices 界面的计划。三个草图画框并排：发票列表、它的空状态和付款失败报错，每个都位于账单应用自己的侧边栏和工具栏中。列表的状态筛选器上固定着一条评论，下方是文字版计划的开头。
+how_to:
+  heading: 如何在编码 agent 构建前为界面画线框图
+  steps:
+    - title: 让 agent 画出这个界面
+      body: 用[一条安装命令](https://www.agent-native.com/docs/plan-plugin/)把 Plan 添加到 Claude Code、Codex、Cursor、OpenCode 或 GitHub Copilot，然后输入 `/visual-plan` 并描述你想要的界面。编码 agent 会读取你的应用，画出界面线框图，并回复计划的链接。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: 编码 agent 聊天界面的特写：/visual-plan 请求一个带状态筛选、空状态和付款失败报错的 Invoices 界面。agent 读取了应用的五个布局和组件文件，创建计划，并回复审阅链接。
+    - title: 评论需要修改的地方
+      body: 打开计划，点击界面上出问题的那个具体位置，写下需要怎么改。把评论设为 **Agent**，让编码 agent 处理；或设为 **人工**，交给同事。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: 发票列表画框的特写，状态筛选器上固定着一条评论。评论框设为 Agent，内容是：把状态筛选器改成包含 All、Paid 和 Overdue 的分段控件。
+    - title: 把评论发给 agent
+      body: 点击 **发送给 agent**，选择 **复制给你的 agent**，把提示词粘贴到 agent 的聊天里。编码 agent 会更新计划，并解决它已修好的评论。界面看起来没问题后，让 agent 开始构建。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: Send to agent 按钮的特写，显示 3 条未解决的评论。菜单已展开，有两个选项：Copy for your agent 和 Send to inline agent。
+features:
+  heading: 一次就把界面做对所需的一切
+  items:
+    - title: 画在你真实的应用里
+      body: 编码 agent 动笔前会先读取现有界面和组件，所以新界面的侧边栏、工具栏和菜单都保持原位。
+    - title: 界面的每种状态
+      body: agent 会为每种重要状态画一个画框，比如加载中、空状态、报错或展开的菜单，让你看到提示词漏掉的部分。
+    - title: 评论精确到元素
+      body: 编码 agent 能拿到每条评论所固定的具体按钮、行或卡片，所以一句“改成分段控件”就够了。
+    - title: 未解决的评论会保留
+      body: 编码 agent 会先确认每处修改已经生效，再解决评论，所以它漏掉的地方仍然在等你处理。
+    - title: 多步骤流程的原型
+      body: 对于注册引导或结账这样的流程，agent 会在界面旁边的 **原型** 标签页里加一个可点击的原型。
+    - title: 和团队一起审阅
+      body: 通过链接分享计划，同事在浏览器里就能打开这些界面。有 Agent-Native 账号的人都可以添加评论。
+integrations:
+  heading: 把 Plan 连接到你已经在用的工具
+  cards:
+    - title: 以插件形式安装
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: 在 Claude Code 或 Codex 中把 Plan 安装为插件，然后在你平时用的聊天里用 `/visual-plan` 请它画界面。
+    - title: 其他 agent 只需一条命令
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: 一条安装命令即可在 Cursor、OpenCode 或 GitHub Copilot 中装好 Plan，其他支持 MCP 的 agent 用 Plan 的 URL 即可连接。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Plan 还能做的其他事
+  cards:
+    - title: 在编码 agent 写代码前审阅它的计划
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: 在编码 agent 写任何代码之前，审阅它的完整计划，包括图表和带注释的代码。
+    - title: 用可视化回顾看懂编码 agent 的改动
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: 在一份可以评论的回顾里，查看编码 agent 改动的界面、数据和文件。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Plan 免费吗？
+      a: 是的，[Agent-Native Plan](https://www.agent-native.com/docs/template-plan/) 免费且开源。界面由你自己的编码 agent 绘制，所以每份计划都运行在 agent 的模型上，计入它的用量，计划越长，消耗越多。Plan 目前处于 alpha 阶段，后续还会有变化。
+    - q: 哪些编码 agent 能和 Plan 一起用？
+      a: Agent-Native Plan 提供 Claude Code 和 Codex 插件。安装命令也会以同样的方式为 Cursor、OpenCode 和 GitHub Copilot 添加 `/visual-plan`，只需登录一次。Cline、Goose 和其他支持 MCP 的 agent 添加 Plan 的 URL 即可连接。
+    - q: 怎样修改计划里显示的内容？
+      a: 要修改界面，就[在上面评论](https://www.agent-native.com/docs/template-plan-review-workflow/)，编码 agent 会重新绘制。Plan 不支持手动拖动或缩放界面的某个部分。界面下方的文字计划则不同：你可以直接编辑它的文字。
+    - q: 画出来的界面会和我现有的应用一致吗？
+      a: 会，只要这个界面属于你已有的应用。动笔之前，编码 agent 会读取应用的代码、布局和组件，所以计划里显示的是你真实的侧边栏、工具栏和菜单。全新的应用则会根据你的描述来画界面。
+    - q: Plan 和编码 agent 自带的计划模式有什么不同？
+      a: Plan 与 agent 的计划模式配合使用，把它的计划呈现为界面。把 agent 已经写好的 Claude Code、Codex 或 Markdown 计划交给 `/visual-plan`，Plan 就会把它变成计划中描述的界面，供你在具体位置固定评论。
