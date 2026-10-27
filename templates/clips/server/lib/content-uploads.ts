@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { createError } from "h3";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -52,6 +53,35 @@ export function activeUploadFromContent() {
  */
 export function uploadFromTrashedPage() {
   return sql`(${uploadedFromContent()} AND NOT ${activeUploadFromContent()})`;
+}
+
+/**
+ * Refuses a chunk for an upload from a Content page on any route but
+ * Content's own chunk route, which alone checks the page's binding and
+ * claims the final chunk. Its ticket is an ordinary upload ticket, so the
+ * agent chunk route would otherwise take it.
+ */
+export async function refuseContentUploadChunk(
+  recordingId: string,
+): Promise<void> {
+  const bindings = schema.recordingContentBindings;
+  const uploads = await getDb()
+    .select({ id: bindings.id })
+    .from(bindings)
+    .where(
+      and(
+        eq(bindings.recordingId, recordingId),
+        eq(bindings.origin, ACTIVE_UPLOAD.origin),
+      ),
+    )
+    .limit(1);
+  if (uploads.length > 0) {
+    throw createError({
+      statusCode: 409,
+      message:
+        "This upload came from a Content page. Send its chunks to the chunk URL its start returned.",
+    });
+  }
 }
 
 /**
