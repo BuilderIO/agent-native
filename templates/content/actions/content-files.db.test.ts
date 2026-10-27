@@ -310,10 +310,16 @@ describe("Content Files membership reconciliation", () => {
     expect(values.get("files_source")).toEqual(["system-property-source"]);
     // Projected from the page, not stored, so neither has a generation or a
     // change ID that could go stale.
+    const { propertyGenerations, propertyChangeIds } = child;
+    if (!propertyGenerations || !propertyChangeIds) {
+      throw new Error("The row read has no generation maps.");
+    }
     for (const role of ["files_parent", "files_source"] as const) {
-      const propertyId = definitions.get(role)!.definition.id;
-      expect(Object.keys(child.propertyGenerations!)).not.toContain(propertyId);
-      expect(Object.keys(child.propertyChangeIds!)).not.toContain(propertyId);
+      const definition = definitions.get(role);
+      if (!definition) throw new Error(`No ${role} property.`);
+      const propertyId = definition.definition.id;
+      expect(Object.keys(propertyGenerations)).not.toContain(propertyId);
+      expect(Object.keys(propertyChangeIds)).not.toContain(propertyId);
     }
     expect(
       definitions

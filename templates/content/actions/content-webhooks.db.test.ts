@@ -83,9 +83,13 @@ vi.mock("./_property-generations.js", async (importOriginal) => {
   };
 });
 
+type LockTx = Parameters<
+  (typeof import("./_content-database-mutation-lock.js"))["lockContentDatabaseMutation"]
+>[0];
+
 const lockHook = vi.hoisted(() => ({
   /** Runs once inside the next collection lock call, just before the lock. */
-  beforeNext: null as null | ((tx: any) => Promise<unknown>),
+  beforeNext: null as null | ((tx: LockTx) => Promise<unknown>),
 }));
 
 // Lets a test land a write between a source writer's unlocked scan and the
@@ -123,6 +127,29 @@ function found<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`${what} not found.`);
   return value;
 }
+
+/** One property's generation in a read; throws when the read has none. */
+function generationOf(
+  read: { propertyGenerations?: Record<string, number> },
+  propertyId: string,
+): number {
+  return found(
+    read.propertyGenerations?.[propertyId],
+    `Generation of ${propertyId}`,
+  );
+}
+
+/** One property's change ID in a read, null when empty; throws when the read has none. */
+function changeIdOf(
+  read: { propertyChangeIds?: Record<string, number | null> },
+  propertyId: string,
+): number | null {
+  return found(
+    read.propertyChangeIds?.[propertyId],
+    `Change ID of ${propertyId}`,
+  );
+}
+
 let getDb: (typeof import("../server/db/index.js"))["getDb"];
 let schema: Schema;
 let hooks: typeof import("./_content-webhooks.js");
@@ -1395,7 +1422,10 @@ describe("property generations", () => {
       getDatabase.run({ databaseId, limit: 500 }),
     );
     if (!("items" in response)) throw new Error("Collection has no rows.");
-    return response.items.find((item) => item.id === itemId)!;
+    return found(
+      response.items.find((item) => item.id === itemId),
+      `Row ${itemId}`,
+    );
   }
 
   function valueRow(documentId: string, propertyId: string) {
@@ -1445,12 +1475,14 @@ describe("property generations", () => {
       }),
     );
     const before = await readItem(ids.databaseId, row.itemId);
-    const start = before.propertyGenerations![ids.properties.turn];
+    const start = generationOf(before, ids.properties.turn);
     expect(start).toBeGreaterThan(0);
-    expect(Object.keys(before.propertyGenerations!)).toEqual(
-      expect.arrayContaining(Object.values(ids.properties)),
-    );
-    expect(Object.keys(before.propertyGenerations!)).toHaveLength(3);
+    expect(
+      Object.keys(found(before.propertyGenerations, "Generations")),
+    ).toEqual(expect.arrayContaining(Object.values(ids.properties)));
+    expect(
+      Object.keys(found(before.propertyGenerations, "Generations")),
+    ).toHaveLength(3);
     const page = await asOwner(() =>
       getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
     );
@@ -1466,11 +1498,11 @@ describe("property generations", () => {
     // The row revision hashes values, so it can't tell A from A → B → A.
     const after = await readItem(ids.databaseId, row.itemId);
     expect(after.rowRevision).toBe(before.rowRevision);
-    expect(after.propertyGenerations![ids.properties.turn]).toBe(
+    expect(generationOf(after, ids.properties.turn)).toBe(
       backToAlice.generation,
     );
-    expect(after.propertyGenerations![ids.properties.notes]).toBe(
-      before.propertyGenerations![ids.properties.notes],
+    expect(generationOf(after, ids.properties.notes)).toBe(
+      generationOf(before, ids.properties.notes),
     );
 
     await settled(webhook.id, 2);
@@ -1488,8 +1520,10 @@ describe("property generations", () => {
   it("set-document-property with a stale expectedGeneration writes nothing", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
-    const read = (await readItem(ids.databaseId, row.itemId))
-      .propertyGenerations![ids.properties.turn];
+    const read = generationOf(
+      await readItem(ids.databaseId, row.itemId),
+      ids.properties.turn,
+    );
     await setTurn(ids, "agent");
     const current = (await setTurn(ids, "alice")).generation;
 
@@ -1526,12 +1560,15 @@ describe("property generations", () => {
         type: "text",
       }),
     );
-    const owner = configured.properties.find(
-      (candidate) => candidate.definition.name === "Owner",
-    )!.definition.id;
+    const owner = found(
+      configured.properties.find(
+        (candidate) => candidate.definition.name === "Owner",
+      ),
+      "Property Owner",
+    ).definition.id;
     const empty = await readItem(ids.databaseId, row.itemId);
-    expect(empty.propertyGenerations![owner]).toBe(0);
-    const notesBefore = empty.propertyGenerations![ids.properties.notes];
+    expect(generationOf(empty, owner)).toBe(0);
+    const notesBefore = generationOf(empty, ids.properties.notes);
 
     const filled = await asOwner(() =>
       setProperty.run({
@@ -1554,13 +1591,9 @@ describe("property generations", () => {
 
     const cleared = await readItem(ids.databaseId, row.itemId);
     expect(await storedValue(row.documentId, owner)).toBeUndefined();
-    expect(cleared.propertyGenerations![owner]).toBeGreaterThan(
-      filled.generation,
-    );
+    expect(generationOf(cleared, owner)).toBeGreaterThan(filled.generation);
     // The tombstone is this property's alone; the page's others keep theirs.
-    expect(cleared.propertyGenerations![ids.properties.notes]).toBe(
-      notesBefore,
-    );
+    expect(generationOf(cleared, ids.properties.notes)).toBe(notesBefore);
     await expect(
       asOwner(() =>
         setProperty.run({
@@ -1580,14 +1613,12 @@ describe("property generations", () => {
         databaseId: ids.databaseId,
         propertyId: owner,
         value: "Grace",
-        expectedGeneration: cleared.propertyGenerations![owner],
+        expectedGeneration: generationOf(cleared, owner),
       }),
     );
-    expect(written.generation).toBeGreaterThan(
-      cleared.propertyGenerations![owner],
-    );
+    expect(written.generation).toBeGreaterThan(generationOf(cleared, owner));
     expect(
-      (await readItem(ids.databaseId, row.itemId)).propertyGenerations![owner],
+      generationOf(await readItem(ids.databaseId, row.itemId), owner),
     ).toBe(written.generation);
   });
 
@@ -1602,9 +1633,12 @@ describe("property generations", () => {
         type: "text",
       }),
     );
-    const owner = configured.properties.find(
-      (candidate) => candidate.definition.name === "Owner",
-    )!.definition.id;
+    const owner = found(
+      configured.properties.find(
+        (candidate) => candidate.definition.name === "Owner",
+      ),
+      "Property Owner",
+    ).definition.id;
     await asOwner(() =>
       setProperty.run({
         documentId: row.documentId,
@@ -1623,7 +1657,7 @@ describe("property generations", () => {
         ),
       );
     const cleared = await readItem(ids.databaseId, row.itemId);
-    const tombstone = cleared.propertyGenerations![owner];
+    const tombstone = generationOf(cleared, owner);
     expect(tombstone).toBeGreaterThan(0);
 
     const discovered = await contract(ids.databaseId);
@@ -1632,7 +1666,7 @@ describe("property generations", () => {
         ...envelope(discovered, "cleared-receipt"),
         itemId: row.itemId,
         documentId: row.documentId,
-        expectedRowRevision: cleared.rowRevision!,
+        expectedRowRevision: found(cleared.rowRevision, "Row revision"),
         propertyValues: { [ids.properties.notes]: "done" },
       }),
     );
@@ -1643,10 +1677,8 @@ describe("property generations", () => {
     expect(updated.receipt.readback.propertyChangeIds).toEqual(
       afterUpdate.propertyChangeIds,
     );
-    expect(updated.receipt.readback.propertyGenerations![owner]).toBe(
-      tombstone,
-    );
-    expect(updated.receipt.readback.propertyChangeIds![owner]).toBeNull();
+    expect(generationOf(updated.receipt.readback, owner)).toBe(tombstone);
+    expect(changeIdOf(updated.receipt.readback, owner)).toBeNull();
 
     const patchContract = await contract(ids.databaseId);
     const patched = await asOwner(() =>
@@ -1656,7 +1688,7 @@ describe("property generations", () => {
           {
             itemId: row.itemId,
             documentId: row.documentId,
-            expectedRowRevision: afterUpdate.rowRevision!,
+            expectedRowRevision: found(afterUpdate.rowRevision, "Row revision"),
             propertyEntries: [
               {
                 propertyId: ids.properties.rank,
@@ -1675,7 +1707,7 @@ describe("property generations", () => {
     expect(patched.receipt.rows[0].readback.propertyChangeIds).toEqual(
       afterPatch.propertyChangeIds,
     );
-    expect(patched.receipt.rows[0].readback.propertyGenerations![owner]).toBe(
+    expect(generationOf(patched.receipt.rows[0].readback, owner)).toBe(
       tombstone,
     );
 
@@ -1687,11 +1719,9 @@ describe("property generations", () => {
         value: "later",
       }),
     );
-    expect(written.propertyGenerations![owner]).toBe(tombstone);
-    expect(written.propertyChangeIds![owner]).toBeNull();
-    expect(written.propertyChangeIds![ids.properties.notes]).toBe(
-      written.changeId,
-    );
+    expect(generationOf(written, owner)).toBe(tombstone);
+    expect(changeIdOf(written, owner)).toBeNull();
+    expect(changeIdOf(written, ids.properties.notes)).toBe(written.changeId);
     expect(written.propertyGenerations).toEqual(
       (await readItem(ids.databaseId, row.itemId)).propertyGenerations,
     );
@@ -1712,15 +1742,14 @@ describe("property generations", () => {
           ...envelope(discovered, key),
           itemId: first.itemId,
           documentId: first.documentId,
-          expectedRowRevision: firstRead.rowRevision!,
+          expectedRowRevision: found(firstRead.rowRevision, "Row revision"),
           expectedPropertyGenerations: generations,
           propertyValues: { [ids.properties.notes]: "done" },
         }),
       );
     await expect(
       update("stale-update", {
-        [ids.properties.turn]:
-          firstRead.propertyGenerations![ids.properties.turn],
+        [ids.properties.turn]: generationOf(firstRead, ids.properties.turn),
       }),
     ).rejects.toMatchObject({
       errorCode: "PROPERTY_GENERATION_CONFLICT",
@@ -1733,8 +1762,10 @@ describe("property generations", () => {
       "first",
     );
 
-    const fresh = (await readItem(ids.databaseId, first.itemId))
-      .propertyGenerations!;
+    const fresh = found(
+      (await readItem(ids.databaseId, first.itemId)).propertyGenerations,
+      "Generations",
+    );
     const updated = await update("fresh-update", {
       [ids.properties.turn]: fresh[ids.properties.turn],
     });
@@ -1742,7 +1773,7 @@ describe("property generations", () => {
       [ids.properties.notes]: "done",
     });
     expect(
-      updated.receipt.readback.propertyGenerations![ids.properties.notes],
+      generationOf(updated.receipt.readback, ids.properties.notes),
     ).toBeGreaterThan(fresh[ids.properties.notes]);
 
     const firstNow = await readItem(ids.databaseId, first.itemId);
@@ -1754,10 +1785,12 @@ describe("property generations", () => {
             {
               itemId: first.itemId,
               documentId: first.documentId,
-              expectedRowRevision: firstNow.rowRevision!,
+              expectedRowRevision: found(firstNow.rowRevision, "Row revision"),
               expectedPropertyGenerations: {
-                [ids.properties.turn]:
-                  firstNow.propertyGenerations![ids.properties.turn],
+                [ids.properties.turn]: generationOf(
+                  firstNow,
+                  ids.properties.turn,
+                ),
               },
               propertyEntries: [
                 {
@@ -1770,7 +1803,10 @@ describe("property generations", () => {
             {
               itemId: second.itemId,
               documentId: second.documentId,
-              expectedRowRevision: secondRead.rowRevision!,
+              expectedRowRevision: found(
+                secondRead.rowRevision,
+                "Row revision",
+              ),
               expectedPropertyGenerations: {
                 [ids.properties.turn]: secondTurn,
               },
@@ -1786,10 +1822,7 @@ describe("property generations", () => {
         }),
       );
     await expect(
-      patch(
-        "stale-patch",
-        secondRead.propertyGenerations![ids.properties.turn] + 1,
-      ),
+      patch("stale-patch", generationOf(secondRead, ids.properties.turn) + 1),
     ).rejects.toMatchObject({
       errorCode: "PROPERTY_GENERATION_CONFLICT",
       details: {
@@ -1807,7 +1840,7 @@ describe("property generations", () => {
 
     const patched = await patch(
       "fresh-patch",
-      secondRead.propertyGenerations![ids.properties.turn],
+      generationOf(secondRead, ids.properties.turn),
     );
     expect(await storedValue(first.documentId, ids.properties.rank)).toBe(20);
     // Both maps cover the whole row, not just the patched property.
@@ -1826,17 +1859,19 @@ describe("property generations", () => {
     const ids = await fixture();
     const [row] = ids.rows;
     const addProperty = async (name: string, type: "blocks" | "created_time") =>
-      (
-        await asOwner(() =>
-          configureProperty.run({
-            documentId: ids.databaseDocumentId,
-            databaseId: ids.databaseId,
-            name,
-            type,
-          }),
-        )
-      ).properties.find((candidate) => candidate.definition.name === name)!
-        .definition.id;
+      found(
+        (
+          await asOwner(() =>
+            configureProperty.run({
+              documentId: ids.databaseDocumentId,
+              databaseId: ids.databaseId,
+              name,
+              type,
+            }),
+          )
+        ).properties.find((candidate) => candidate.definition.name === name),
+        `Property ${name}`,
+      ).definition.id;
     const blocks = await addProperty("Brief", "blocks");
     const createdTime = await addProperty("Created", "created_time");
     const read = await readItem(ids.databaseId, row.itemId);
@@ -1847,7 +1882,7 @@ describe("property generations", () => {
     // Each would read 0 forever, so a guard of 0 used to pass unchecked.
     for (const propertyId of ["no-such-property", blocks, createdTime]) {
       const generations = {
-        [ids.properties.turn]: read.propertyGenerations![ids.properties.turn],
+        [ids.properties.turn]: generationOf(read, ids.properties.turn),
         [propertyId]: 0,
       };
       await expect(
@@ -1856,7 +1891,7 @@ describe("property generations", () => {
             ...envelope(discovered, `unguardable-update-${propertyId}`),
             itemId: row.itemId,
             documentId: row.documentId,
-            expectedRowRevision: read.rowRevision!,
+            expectedRowRevision: found(read.rowRevision, "Row revision"),
             expectedPropertyGenerations: generations,
             propertyValues: { [ids.properties.notes]: "done" },
           }),
@@ -1877,7 +1912,7 @@ describe("property generations", () => {
               {
                 itemId: row.itemId,
                 documentId: row.documentId,
-                expectedRowRevision: read.rowRevision!,
+                expectedRowRevision: found(read.rowRevision, "Row revision"),
                 expectedPropertyGenerations: generations,
                 propertyEntries: [
                   {
@@ -1932,9 +1967,7 @@ describe("property generations", () => {
 
     const toAgent = await setTurn(ids, "agent");
     const before = await readChangeIds();
-    expect(before.propertyChangeIds![ids.properties.turn]).toBe(
-      toAgent.changeId,
-    );
+    expect(changeIdOf(before, ids.properties.turn)).toBe(toAgent.changeId);
 
     // Clearing another field moves that field's generation and leaves this
     // property's generation and change ID as they were.
@@ -1942,11 +1975,11 @@ describe("property generations", () => {
       .delete(schema.documentPropertyValues)
       .where(valueRow(row.documentId, ids.properties.notes));
     const cleared = await readChangeIds();
-    expect(cleared.propertyGenerations![ids.properties.turn]).toBe(
-      before.propertyGenerations![ids.properties.turn],
+    expect(generationOf(cleared, ids.properties.turn)).toBe(
+      generationOf(before, ids.properties.turn),
     );
-    expect(cleared.propertyGenerations![ids.properties.notes]).not.toBe(
-      before.propertyGenerations![ids.properties.notes],
+    expect(generationOf(cleared, ids.properties.notes)).not.toBe(
+      generationOf(before, ids.properties.notes),
     );
     expect(cleared.propertyChangeIds).toMatchObject({
       [ids.properties.turn]: toAgent.changeId,
@@ -1963,9 +1996,7 @@ describe("property generations", () => {
     ).toBe(3);
     expect(unchanged.changeId).toBe(backToAgent.changeId);
     const after = await readChangeIds();
-    expect(after.propertyChangeIds![ids.properties.turn]).toBe(
-      backToAgent.changeId,
-    );
+    expect(changeIdOf(after, ids.properties.turn)).toBe(backToAgent.changeId);
 
     await settled(webhook.id, 3);
     expect(
@@ -1984,16 +2015,18 @@ describe("property generations", () => {
         ...envelope(await contract(ids.databaseId), "change-id-update"),
         itemId: row.itemId,
         documentId: row.documentId,
-        expectedRowRevision: after.rowRevision!,
+        expectedRowRevision: found(after.rowRevision, "Row revision"),
         propertyValues: { [ids.properties.turn]: "alice" },
       }),
     );
-    const updatedTurn =
-      updated.receipt.readback.propertyChangeIds![ids.properties.turn];
+    const updatedTurn = changeIdOf(
+      updated.receipt.readback,
+      ids.properties.turn,
+    );
     expect(updatedTurn).not.toBe(backToAgent.changeId);
-    expect(
-      (await readChangeIds()).propertyChangeIds![ids.properties.turn],
-    ).toBe(updatedTurn);
+    expect(changeIdOf(await readChangeIds(), ids.properties.turn)).toBe(
+      updatedTurn,
+    );
   });
 
   it("a read takes each value and its change ID from one row", async () => {
@@ -2022,25 +2055,31 @@ describe("property generations", () => {
       getDocument.run({ id: row.documentId, databaseId: ids.databaseId }),
     );
     expect(
-      page.properties.find(
-        (property) => property.definition.id === ids.properties.turn,
-      )!.value,
+      found(
+        page.properties.find(
+          (property) => property.definition.id === ids.properties.turn,
+        ),
+        "Turn",
+      ).value,
     ).toBe("alice");
     const aliceChangeId = await storedChangeId();
     expect(aliceChangeId).not.toBe(toAgent.changeId);
-    expect(page.propertyChangeIds![ids.properties.turn]).toBe(aliceChangeId);
-    expect(page.propertyGenerations![ids.properties.turn]).toBe(aliceChangeId);
+    expect(changeIdOf(page, ids.properties.turn)).toBe(aliceChangeId);
+    expect(generationOf(page, ids.properties.turn)).toBe(aliceChangeId);
 
     tombstoneReads.thenWrite = writeTurn("agent");
     const item = await readItem(ids.databaseId, row.itemId);
     expect(
-      item.properties.find(
-        (property) => property.definition.id === ids.properties.turn,
-      )!.value,
+      found(
+        item.properties.find(
+          (property) => property.definition.id === ids.properties.turn,
+        ),
+        "Turn",
+      ).value,
     ).toBe("agent");
     const agentChangeId = await storedChangeId();
-    expect(item.propertyChangeIds![ids.properties.turn]).toBe(agentChangeId);
-    expect(item.propertyGenerations![ids.properties.turn]).toBe(agentChangeId);
+    expect(changeIdOf(item, ids.properties.turn)).toBe(agentChangeId);
+    expect(generationOf(item, ids.properties.turn)).toBe(agentChangeId);
 
     // A deletion lands in the same gap. The read shows no value and the
     // generation from before the deletion, so a write guarded on it conflicts
@@ -2051,8 +2090,8 @@ describe("property generations", () => {
         .where(valueRow(row.documentId, ids.properties.turn));
     };
     const emptied = await readItem(ids.databaseId, row.itemId);
-    expect(emptied.propertyChangeIds![ids.properties.turn]).toBeNull();
-    const staleGeneration = emptied.propertyGenerations![ids.properties.turn];
+    expect(changeIdOf(emptied, ids.properties.turn)).toBeNull();
+    const staleGeneration = generationOf(emptied, ids.properties.turn);
     await expect(setTurn(ids, "alice", staleGeneration)).rejects.toMatchObject({
       errorCode: "PROPERTY_GENERATION_CONFLICT",
     });
@@ -2060,14 +2099,8 @@ describe("property generations", () => {
       undefined,
     );
     const reread = await readItem(ids.databaseId, row.itemId);
-    expect(reread.propertyGenerations![ids.properties.turn]).not.toBe(
-      staleGeneration,
-    );
-    await setTurn(
-      ids,
-      "alice",
-      reread.propertyGenerations![ids.properties.turn],
-    );
+    expect(generationOf(reread, ids.properties.turn)).not.toBe(staleGeneration);
+    await setTurn(ids, "alice", generationOf(reread, ids.properties.turn));
     expect(await storedValue(row.documentId, ids.properties.turn)).toBe(
       "alice",
     );
@@ -2090,19 +2123,17 @@ describe("property generations", () => {
         .delete(schema.documentPropertyValues)
         .where(valueRow(row.documentId, ids.properties.notes));
       const read = await readItem(ids.databaseId, row.itemId);
-      expect(read.propertyGenerations![ids.properties.turn]).toBe(
-        toAgent.generation,
-      );
+      expect(generationOf(read, ids.properties.turn)).toBe(toAgent.generation);
       await setSequence(toAgent.generation);
       const toAlice = await setTurn(ids, "alice");
       expect(toAlice.generation).toBeLessThan(
-        read.propertyGenerations![ids.properties.notes],
+        generationOf(read, ids.properties.notes),
       );
 
       // The agent's finish, computed from the read, must not land on Alice's
       // turn.
       await expect(
-        setTurn(ids, "agent", read.propertyGenerations![ids.properties.turn]),
+        setTurn(ids, "agent", generationOf(read, ids.properties.turn)),
       ).rejects.toMatchObject({
         errorCode: "PROPERTY_GENERATION_CONFLICT",
         details: {
@@ -2169,10 +2200,13 @@ describe("property generations", () => {
         .from(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, definition.id));
       return ids.rows.map((row) => {
-        const value = values.find(
-          (candidate: { documentId: string }) =>
-            candidate.documentId === row.documentId,
-        )!;
+        const value = found(
+          values.find(
+            (candidate: { documentId: string }) =>
+              candidate.documentId === row.documentId,
+          ),
+          `Value of ${row.documentId}`,
+        );
         return {
           source: JSON.parse(value.valueJson),
           generation: value.generation,

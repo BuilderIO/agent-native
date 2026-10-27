@@ -337,8 +337,10 @@ export async function propertyGenerationConflicts(
   tx: Db,
   expectations: Array<{ documentId: string; expected?: PropertyGenerations }>,
 ): Promise<Map<string, PropertyGenerationConflict[]>> {
-  const guarded = expectations.filter(
-    (entry) => entry.expected && Object.keys(entry.expected).length > 0,
+  const guarded = expectations.flatMap(({ documentId, expected }) =>
+    expected && Object.keys(expected).length > 0
+      ? [{ documentId, expected }]
+      : [],
   );
   const conflicts = new Map<string, PropertyGenerationConflict[]>();
   if (!guarded.length) return conflicts;
@@ -346,12 +348,12 @@ export async function propertyGenerationConflicts(
     tx,
     guarded.map((entry) => entry.documentId),
     {
-      propertyIds: guarded.flatMap((entry) => Object.keys(entry.expected!)),
+      propertyIds: guarded.flatMap((entry) => Object.keys(entry.expected)),
       lock: true,
     },
   );
   for (const { documentId, expected } of guarded) {
-    const found = Object.entries(expected!)
+    const found = Object.entries(expected)
       .map(([propertyId, generation]) => ({
         propertyId,
         expected: generation,
