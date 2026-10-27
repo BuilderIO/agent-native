@@ -27,7 +27,12 @@ vi.mock("@agent-native/core/db", () => ({
   }),
 }));
 
-import { claimLease, countAttempt, releaseLease } from "./recording-leases.js";
+import {
+  claimLease,
+  countAttempt,
+  isLeaseHeld,
+  releaseLease,
+} from "./recording-leases.js";
 
 beforeAll(async () => {
   client = await PGlite.create("memory://");
@@ -124,5 +129,24 @@ describe("recording leases", () => {
     expect(counts.sort()).toEqual([1, 2, 3]);
     expect(await countAttempt("thumbnail-sweeper-attempts:a")).toBe(4);
     expect(await countAttempt("thumbnail-sweeper-attempts:b")).toBe(1);
+  });
+
+  describe("isLeaseHeld", () => {
+    it("is true only while a live lease exists", async () => {
+      expect(await isLeaseHeld("k")).toBe(false);
+
+      const lease = await claimLease("k", 60_000);
+      if (!lease) throw new Error("expected the lease to be free");
+      expect(await isLeaseHeld("k")).toBe(true);
+
+      await releaseLease(lease);
+      expect(await isLeaseHeld("k")).toBe(false);
+    });
+
+    it("treats an expired lease as not held", async () => {
+      await claimLease("k", -1);
+
+      expect(await isLeaseHeld("k")).toBe(false);
+    });
   });
 });

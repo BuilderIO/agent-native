@@ -42,6 +42,15 @@ export async function releaseLease(lease: RecordingLease): Promise<void> {
   });
 }
 
+/** Whether anyone holds the lease right now; an expired lease is not held. */
+export async function isLeaseHeld(key: string): Promise<boolean> {
+  const result = await getDbExec().execute({
+    sql: `SELECT 1 FROM ${TABLE} WHERE lease_key = $1 AND expires_at > $2`,
+    args: [key, Date.now()],
+  });
+  return result.rows.length > 0;
+}
+
 /** Durable per-key attempt counter (keeps the count in `holder`). */
 export async function countAttempt(key: string): Promise<number> {
   const result = await getDbExec().execute({

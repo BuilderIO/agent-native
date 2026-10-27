@@ -12,6 +12,12 @@ import {
   parseAgentChapters,
   type PublicAgentRecording,
 } from "./public-agent-context.js";
+import {
+  claimLease,
+  isLeaseHeld,
+  releaseLease,
+  type RecordingLease,
+} from "./recording-leases.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
 import { uploadRecordingMedia } from "./upload-recording-media.js";
@@ -118,6 +124,16 @@ function loadFrameRows(recordingId: string) {
 
 const fillsInFlight = new Map<string, Promise<void>>();
 
+// A clip's fill is also held as a SQL lease, so requests on other server
+// instances see it: the Map above only knows this process. Longer than a fill
+// should take; one that outlives it is duplicated, never wrong, because every
+// write is checked under the recording lock.
+const FILL_LEASE_MS = 3 * 60 * 1000;
+// How long a request waits for another instance's fill before it serves on
+// demand, and how often it looks.
+const OTHER_FILL_WAIT_MS = 10_000;
+const OTHER_FILL_POLL_MS = 300;
+
 function fillKey(recordingId: string, mediaKey: string): string {
   return `${recordingId}:${mediaKey}`;
 }
@@ -194,7 +210,7 @@ export type AgentFrameClaim = {
     known?: { atMs: number; frame: Uint8Array },
   ): Promise<void>;
   /** Gives the claim up without filling; safe to call after `fill`. */
-  release(): void;
+  release(): Promise<void>;
 };
 
 export type StoredAgentFrameLookup =
@@ -204,14 +220,14 @@ export type StoredAgentFrameLookup =
 
 /**
  * The stored frame for `atMs`, or the claim to fill the clip's frames. A miss
- * for a recommended timestamp while another request holds the claim waits for
- * it once and reads again, so a burst of cold requests shares one video
- * download. No claim means the store cannot help and the request is served on
- * demand: the timestamp is not one a fill stores, so waiting would only queue
- * it behind a download that cannot answer it; the fill it waited for did not
- * store its frame, so taking over would repeat that whole fill once per
- * waiter; or the store could not be read, which is logged and must not turn
- * into a queue of video downloads.
+ * for a recommended timestamp while another request, here or on another
+ * instance, is filling waits for that fill once and reads again, so a burst of
+ * cold requests shares one video download. No claim means the store cannot
+ * help and the request is served on demand: the timestamp is not one a fill
+ * stores, so waiting would only queue it behind a download that cannot answer
+ * it; the fill it waited for did not store its frame, so taking over would
+ * repeat that whole fill once per waiter; or the store could not be read,
+ * which is logged and must not turn into a queue of video downloads.
  */
 export async function loadStoredAgentFrame(
   recording: PublicAgentRecording,
@@ -223,7 +239,8 @@ export async function loadStoredAgentFrame(
     const frame = await readStoredFrame(recording, atMs, mediaKey);
     if (frame) return { frame };
     const held = fillsInFlight.get(key);
-    if (!held) return { claim: claimFill(recording, key, mediaKey) };
+    if (!held)
+      return await claimOrWaitForOtherFill(recording, atMs, key, mediaKey);
     if (!(await recommendedAgentFrameTimes(recording)).includes(atMs)) {
       return { claim: null };
     }
@@ -237,6 +254,67 @@ export async function loadStoredAgentFrame(
       error: error instanceof Error ? error.message : String(error),
     });
     return { claim: null };
+  }
+}
+
+function fillLeaseKey(recordingId: string, mediaKey: string): string {
+  return `agent-frames:${fillKey(recordingId, mediaKey)}`;
+}
+
+/**
+ * Waits for the instance that holds the clip's fill lease to store `atMs`.
+ * Null when it never does: the lease was released or expired without the
+ * frame, or the wait ran out.
+ */
+async function waitForOtherFill(
+  recording: FrameRecording,
+  atMs: number,
+  mediaKey: string,
+): Promise<Uint8Array | null> {
+  const leaseKey = fillLeaseKey(recording.id, mediaKey);
+  const deadline = Date.now() + OTHER_FILL_WAIT_MS;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, OTHER_FILL_POLL_MS));
+    // The lease is read before the frame: a fill stores its frames before it
+    // releases, so a lease seen free means the frame is already there to read.
+    const held = await isLeaseHeld(leaseKey);
+    const frame = await readStoredFrame(recording, atMs, mediaKey);
+    if (frame) return frame;
+    if (!held || Date.now() >= deadline) return null;
+  }
+}
+
+/**
+ * Takes the fill for a clip nobody here is filling: this process first, then
+ * the SQL lease, so another instance's fill is seen too. Losing the lease
+ * means another instance is filling, and this request waits for it as it
+ * would for a fill here.
+ */
+async function claimOrWaitForOtherFill(
+  recording: PublicAgentRecording,
+  atMs: number,
+  key: string,
+  mediaKey: string,
+): Promise<StoredAgentFrameLookup> {
+  const { claim, holdLease } = claimFill(recording, key, mediaKey);
+  try {
+    const lease = await claimLease(
+      fillLeaseKey(recording.id, mediaKey),
+      FILL_LEASE_MS,
+    );
+    if (lease) {
+      holdLease(lease);
+      return { claim };
+    }
+    const wanted = (await recommendedAgentFrameTimes(recording)).includes(atMs);
+    const frame = wanted
+      ? await waitForOtherFill(recording, atMs, mediaKey)
+      : null;
+    await claim.release();
+    return frame ? { frame } : { claim: null };
+  } catch (error) {
+    await claim.release();
+    throw error;
   }
 }
 
@@ -470,25 +548,43 @@ function claimFill(
   recording: PublicAgentRecording,
   key: string,
   mediaKey: string,
-): AgentFrameClaim {
+): { claim: AgentFrameClaim; holdLease: (lease: RecordingLease) => void } {
   let resolveHeld: () => void = () => {};
   const held = new Promise<void>((resolve) => {
     resolveHeld = resolve;
   });
   fillsInFlight.set(key, held);
-  const release = () => {
+  let lease: RecordingLease | null = null;
+  const release = async () => {
     if (fillsInFlight.get(key) === held) fillsInFlight.delete(key);
     resolveHeld();
+    const taken = lease;
+    lease = null;
+    if (!taken) return;
+    try {
+      await releaseLease(taken);
+    } catch (error) {
+      // Expires on its own, so other instances wait out the TTL at worst.
+      console.warn("[agent-frame-store] fill lease not released", {
+        recordingId: recording.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
   return {
-    fill: async (extract, known) => {
-      try {
-        await runFill(recording, mediaKey, extract, known);
-      } finally {
-        release();
-      }
+    claim: {
+      fill: async (extract, known) => {
+        try {
+          await runFill(recording, mediaKey, extract, known);
+        } finally {
+          await release();
+        }
+      },
+      release,
     },
-    release,
+    holdLease: (taken) => {
+      lease = taken;
+    },
   };
 }
 

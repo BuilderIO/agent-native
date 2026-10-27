@@ -147,6 +147,7 @@ describe("agent-frame.jpg route", () => {
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
     mockClaimFill.mockResolvedValue(undefined);
+    mockClaimRelease.mockResolvedValue(undefined);
     mockLoadStoredAgentFrame.mockResolvedValue({
       claim: { fill: mockClaimFill, release: mockClaimRelease },
     });

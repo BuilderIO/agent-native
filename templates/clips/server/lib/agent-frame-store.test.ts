@@ -1,5 +1,5 @@
 import { RECORDING_THUMBNAIL_AT_MS as OPENING_MS } from "@shared/agent-context";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRows = vi.hoisted(() => ({ value: [] as Array<unknown> }));
 const mockDeleted = vi.hoisted(() => [] as unknown[]);
@@ -29,6 +29,9 @@ const mockDeleteStoredMediaUrl = vi.hoisted(() => vi.fn());
 const mockDeleteUploadedFile = vi.hoisted(() => vi.fn());
 const mockTxFrameRows = vi.hoisted(() => ({ value: [] as Array<unknown> }));
 const mockUploadRecordingMedia = vi.hoisted(() => vi.fn());
+const mockClaimLease = vi.hoisted(() => vi.fn());
+const mockReleaseLease = vi.hoisted(() => vi.fn());
+const mockIsLeaseHeld = vi.hoisted(() => vi.fn());
 
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn((_context: unknown, callback: () => unknown) => callback()),
@@ -106,6 +109,11 @@ vi.mock("./public-agent-context.js", () => ({
   loadAgentTranscript: async () => ({ agentSegments: [] }),
   parseAgentChapters: () => [],
 }));
+vi.mock("./recording-leases.js", () => ({
+  claimLease: (...args: unknown[]) => mockClaimLease(...args),
+  releaseLease: (...args: unknown[]) => mockReleaseLease(...args),
+  isLeaseHeld: (...args: unknown[]) => mockIsLeaseHeld(...args),
+}));
 vi.mock("./recording-media-cleanup.js", () => ({
   deleteStoredMediaUrl: (...args: unknown[]) =>
     mockDeleteStoredMediaUrl(...args),
@@ -128,7 +136,7 @@ type TestClip = Parameters<typeof loadStoredAgentFrame>[0];
 function releaseIfClaim(
   lookup: Awaited<ReturnType<typeof loadStoredAgentFrame>>,
 ) {
-  if ("claim" in lookup) lookup.claim?.release();
+  if ("claim" in lookup) void lookup.claim?.release();
 }
 
 /** Claims the clip's fill the way the route does, then runs it. */
@@ -164,6 +172,13 @@ describe("agent frame store", () => {
     mockCurrentRecording.value = mockLockedRecording.value;
     mockDeleteStoredMediaUrl.mockResolvedValue(true);
     mockDeleteUploadedFile.mockResolvedValue(true);
+    mockClaimLease.mockResolvedValue({
+      key: "lease",
+      token: "mine",
+      expiresAt: Date.now() + 60_000,
+    });
+    mockReleaseLease.mockResolvedValue(undefined);
+    mockIsLeaseHeld.mockResolvedValue(false);
     mockTxFrameRows.value = [];
   });
 
@@ -714,7 +729,7 @@ describe("agent frame store", () => {
 
       expect(await loadStoredAgentFrame(clip, 12_345)).toEqual({ claim: null });
 
-      first.claim.release();
+      await first.claim.release();
     });
 
     it("gives a cold burst one claim, and the waiter serves on demand if the fill left its frame out", async () => {
@@ -735,7 +750,7 @@ describe("agent frame store", () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
       expect(secondSettled).toBe(false);
 
-      firstResult.claim.release();
+      await firstResult.claim.release();
       expect(await second).toEqual({ claim: null });
     });
 
@@ -747,13 +762,134 @@ describe("agent frame store", () => {
 
       const waiter = loadStoredAgentFrame(clip, 25_000);
       await new Promise((resolve) => setTimeout(resolve, 5));
-      first.claim.release();
+      await first.claim.release();
 
       expect(await waiter).toEqual({ claim: null });
       // The next request, with nothing held, claims as usual.
       const next = await loadStoredAgentFrame(clip, 25_000);
       expect(next).toHaveProperty("claim");
       releaseIfClaim(next);
+    });
+
+    describe("across server instances", () => {
+      const otherInstance = () => {
+        mockClaimLease.mockResolvedValue(null);
+        mockIsLeaseHeld.mockResolvedValue(true);
+      };
+      const frameRow = {
+        atMs: 25_000,
+        mediaKey: agentFrameMediaKey(recording),
+        storageUrl: "https://cdn.example.com/f.jpg",
+        storageProvider: "s3",
+        storageId: null,
+      };
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("holds a lease on the clip's media for the fill and frees it with the claim", async () => {
+        mockUploadRecordingMedia.mockResolvedValue(null);
+        const lookup = await loadStoredAgentFrame(clip, 25_000);
+        if (!("claim" in lookup) || !lookup.claim) throw new Error("claim");
+
+        expect(mockClaimLease).toHaveBeenCalledWith(
+          `agent-frames:rec-1:${agentFrameMediaKey(recording)}`,
+          expect.any(Number),
+        );
+        expect(mockReleaseLease).not.toHaveBeenCalled();
+
+        await lookup.claim.fill(async () => new Uint8Array([4]));
+        await lookup.claim.release();
+
+        expect(mockReleaseLease).toHaveBeenCalledTimes(1);
+      });
+
+      it("serves the frame another instance stores while this one waits", async () => {
+        otherInstance();
+        mockRows.value = [];
+        const lookup = loadStoredAgentFrame(clip, 25_000);
+        await vi.advanceTimersByTimeAsync(300);
+        mockRows.value = [frameRow];
+        mockFetchMedia.mockResolvedValue(new Response(new Uint8Array([7])));
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(await lookup).toEqual({ frame: new Uint8Array([7]) });
+        expect(mockClaimLease).toHaveBeenCalledTimes(1);
+      });
+
+      it("serves on demand, and does not take over, when that fill ends without the frame", async () => {
+        otherInstance();
+        mockRows.value = [];
+        const lookup = loadStoredAgentFrame(clip, 25_000);
+        await vi.advanceTimersByTimeAsync(300);
+        mockIsLeaseHeld.mockResolvedValue(false);
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(await lookup).toEqual({ claim: null });
+        expect(mockClaimLease).toHaveBeenCalledTimes(1);
+      });
+
+      it("stops waiting for a fill that outlasts the wait", async () => {
+        otherInstance();
+        mockRows.value = [];
+        const lookup = loadStoredAgentFrame(clip, 25_000);
+        await vi.advanceTimersByTimeAsync(11_000);
+
+        expect(await lookup).toEqual({ claim: null });
+      });
+
+      it("does not wait on another instance for a timestamp no fill stores", async () => {
+        otherInstance();
+        mockRows.value = [];
+
+        expect(await loadStoredAgentFrame(clip, 12_345)).toEqual({
+          claim: null,
+        });
+        expect(mockIsLeaseHeld).not.toHaveBeenCalled();
+      });
+
+      it("lets same-instance requests wait on the one waiting for another instance", async () => {
+        otherInstance();
+        mockRows.value = [];
+        const first = loadStoredAgentFrame(clip, 25_000);
+        await vi.advanceTimersByTimeAsync(0);
+        const second = loadStoredAgentFrame(clip, 25_000);
+        await vi.advanceTimersByTimeAsync(300);
+        mockRows.value = [frameRow];
+        mockFetchMedia.mockImplementation(
+          async () => new Response(new Uint8Array([7])),
+        );
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(await first).toEqual({ frame: new Uint8Array([7]) });
+        expect(await second).toEqual({ frame: new Uint8Array([7]) });
+        expect(mockClaimLease).toHaveBeenCalledTimes(1);
+      });
+
+      it("serves on demand, and frees the in-process claim, when the lease cannot be read", async () => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        mockClaimLease.mockRejectedValueOnce(new Error("db down"));
+
+        expect(await loadStoredAgentFrame(clip, 25_000)).toEqual({
+          claim: null,
+        });
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining("stored frames unavailable"),
+          expect.objectContaining({ error: "db down" }),
+        );
+
+        // The next request is not left waiting on a claim nobody holds.
+        const next = await loadStoredAgentFrame(clip, 25_000);
+        expect(next).toHaveProperty("claim");
+        releaseIfClaim(next);
+        consoleError.mockRestore();
+      });
     });
   });
 });

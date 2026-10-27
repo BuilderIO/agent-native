@@ -315,6 +315,6 @@ export default defineEventHandler(async (event: H3Event) => {
   } finally {
     // Whatever ended the request, requests waiting on this clip's frames must
     // not wait on it any longer.
-    claim?.release();
+    await claim?.release();
   }
 });
