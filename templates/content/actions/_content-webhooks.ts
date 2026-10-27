@@ -419,10 +419,13 @@ export async function enqueueCommentWebhooks(
 ): Promise<number> {
   // A page can sit in several collections at once, its space's Files among
   // them; a page-level event names the one other collection, if there is one.
+  // A collection in Trash still gets its events, which wait there like
+  // property events do.
   const memberships = await db
     .select({
       databaseId: schema.contentDatabaseItems.databaseId,
       filesOfSpace: schema.contentSpaces.id,
+      trashed: schema.contentDatabases.deletedAt,
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
@@ -433,15 +436,10 @@ export async function enqueueCommentWebhooks(
       schema.contentSpaces,
       eq(schema.contentSpaces.filesDatabaseId, schema.contentDatabases.id),
     )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.documentId, args.comment.documentId),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
+    .where(eq(schema.contentDatabaseItems.documentId, args.comment.documentId));
   const databaseIds = memberships.map((membership) => membership.databaseId);
   const collections = memberships.filter(
-    (membership) => !membership.filesOfSpace,
+    (membership) => !membership.filesOfSpace && !membership.trashed,
   );
   const onlyCollection = collections.length === 1 ? collections[0] : undefined;
   const webhooks = await webhooksForDocuments(
@@ -573,8 +571,9 @@ export function contentWebhookBody(delivery: DeliveryRow): string {
 /**
  * The oldest due deliveries, at most PER_WEBHOOK_BATCH of any one webhook's,
  * grouped by webhook in sequence order. Skips the webhooks in `busy`, and any
- * webhook with a delivery in flight from another drain, so each receiver gets
- * one request at a time however many drains run.
+ * webhook with a delivery in flight from another drain; the claim makes that
+ * certain, so each receiver gets one request at a time however many drains
+ * run.
  */
 async function dueDeliveriesByWebhook(
   db: Db,
@@ -628,34 +627,55 @@ async function dueDeliveriesByWebhook(
   return [...byWebhook.entries()];
 }
 
-/** Leases one due delivery right before sending it; null if another drain has it. */
-async function claimDelivery(db: Db, id: string) {
+/**
+ * Leases one due delivery right before sending it; null if another drain has
+ * it or is sending another of the webhook's events. Under the webhook's lock,
+ * the in-flight check and the lease are one step: two drains that each picked
+ * a different event of one webhook before either leased it can't both send.
+ */
+export async function claimContentWebhookDelivery(
+  db: Db,
+  webhookId: string,
+  id: string,
+) {
   const deliveries = schema.contentWebhookDeliveries;
-  const now = new Date().toISOString();
-  const leaseToken = randomUUID();
-  const delivery = firstRow(
-    await db
-      .update(deliveries)
-      .set({
-        leaseToken,
-        leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
-        attempts: sql`${deliveries.attempts} + 1`,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(deliveries.id, id),
-          eq(deliveries.status, "pending"),
-          lte(deliveries.nextAttemptAt, now),
-          or(
-            isNull(deliveries.leaseExpiresAt),
-            lt(deliveries.leaseExpiresAt, now),
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-webhook-send:${webhookId}`}, 0::bigint))`,
+    );
+    const now = new Date().toISOString();
+    const leaseToken = randomUUID();
+    const delivery = firstRow(
+      await tx
+        .update(deliveries)
+        .set({
+          leaseToken,
+          leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
+          attempts: sql`${deliveries.attempts} + 1`,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(deliveries.id, id),
+            eq(deliveries.webhookId, webhookId),
+            eq(deliveries.status, "pending"),
+            lte(deliveries.nextAttemptAt, now),
+            or(
+              isNull(deliveries.leaseExpiresAt),
+              lt(deliveries.leaseExpiresAt, now),
+            ),
+            sql`NOT EXISTS (
+              SELECT 1 FROM content_webhook_deliveries AS in_flight
+              WHERE in_flight.webhook_id = ${webhookId}
+                AND in_flight.status = 'pending'
+                AND in_flight.lease_expires_at >= ${now}
+            )`,
           ),
-        ),
-      )
-      .returning(),
-  );
-  return delivery ? { delivery, leaseToken } : null;
+        )
+        .returning(),
+    );
+    return delivery ? { delivery, leaseToken } : null;
+  });
 }
 
 async function settleDelivery(
@@ -856,11 +876,11 @@ export async function drainContentWebhookDeliveries(
   const deadlineAt = options.deadlineAt ?? Date.now() + 60_000;
   const counts = { delivered: 0, failed: 0, retrying: 0 };
   const expired = () => Date.now() >= deadlineAt || options.signal?.aborted;
-  const sendInOrder = async (ids: string[]) => {
+  const sendInOrder = async (webhookId: string, ids: string[]) => {
     let claimedAny = false;
     for (const id of ids) {
       if (expired()) break;
-      const claim = await claimDelivery(db, id);
+      const claim = await claimContentWebhookDelivery(db, webhookId, id);
       // Another drain took it, so it's sending this webhook now; leave the
       // rest to it rather than sending alongside.
       if (!claim) break;
@@ -893,7 +913,7 @@ export async function drainContentWebhookDeliveries(
     for (const [webhookId, ids] of groups) {
       workers.set(
         webhookId,
-        sendInOrder(ids).finally(() => workers.delete(webhookId)),
+        sendInOrder(webhookId, ids).finally(() => workers.delete(webhookId)),
       );
     }
     if (!workers.size) break;

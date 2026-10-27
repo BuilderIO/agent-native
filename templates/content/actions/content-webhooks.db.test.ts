@@ -774,6 +774,48 @@ describe("content webhooks", () => {
     expect(restored.webhooks).toEqual([]);
   });
 
+  it("W2-2: a comment on a row while its collection is in Trash waits, then goes out on restore", async () => {
+    const ids = await fixture();
+    const row = found(ids.rows[0], "Row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        databaseId: ids.databaseId,
+        events: ["comment.created"],
+      }),
+    );
+    await asOwner(() => trashDatabase.run({ databaseId: ids.databaseId }));
+    receiver.status = 200;
+    receiver.requests.length = 0;
+
+    await asOwner(() =>
+      addComment.run({ documentId: row.documentId, content: "While in Trash" }),
+    );
+    await vi.waitFor(
+      async () => {
+        expect(await deliveries(webhook.id)).toEqual([
+          expect.objectContaining({
+            eventType: "comment.created",
+            status: "pending",
+            leaseToken: null,
+            lastError: expect.stringContaining("Trash"),
+          }),
+        ]);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    expect(eventsFor(webhook.id)).toHaveLength(0);
+
+    await asOwner(() => restoreDatabase.run({ databaseId: ids.databaseId }));
+    await makeDue(webhook.id);
+    expect(await hooks.drainContentWebhookDeliveries()).toMatchObject({
+      delivered: 1,
+    });
+    expect(eventsFor(webhook.id).map((request) => request.event.type)).toEqual([
+      "comment.created",
+    ]);
+  });
+
   it("W2-3: stops sending in the same run once the creator loses access", async () => {
     const ids = await fixture();
     const [row] = ids.rows;
@@ -1026,6 +1068,39 @@ describe("content webhooks", () => {
     expect((await first).delivered).toBe(4);
     expect(mostInFlight).toBe(1);
     expect(calls).toBe(4);
+  });
+
+  it("W2-3: two drains that each picked a different event of one webhook lease only one", async () => {
+    const ids = await fixture();
+    const row = found(ids.rows[0], "Row");
+    const { webhook } = await asOwner(() =>
+      createWebhook.run({
+        url: RECEIVER_URL,
+        documentId: row.documentId,
+        events: ["property.changed"],
+      }),
+    );
+    receiver.status = 500;
+    for (const value of ["agent", "alice"]) {
+      await asOwner(() =>
+        setProperty.run({
+          documentId: row.documentId,
+          databaseId: ids.databaseId,
+          propertyId: ids.properties.turn,
+          value,
+        }),
+      );
+    }
+    const queued = await settled(webhook.id, 2);
+    await makeDue(webhook.id);
+
+    // Each drain read its event as free before either leased it.
+    const claims = await Promise.all(
+      queued.map((delivery) =>
+        hooks.claimContentWebhookDelivery(getDb(), webhook.id, delivery.id),
+      ),
+    );
+    expect(claims.filter((claim) => claim !== null)).toHaveLength(1);
   });
 
   it("W2-1: marks a long value or comment as cut short", async () => {
