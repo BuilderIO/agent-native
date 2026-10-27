@@ -285,9 +285,9 @@ can change within minutes, so re-check before every actionable push.
 ## Latest-feedback handoff
 
 If the PR body has a `Reports` section (from `/review-latest-feedback`),
-`/ship` closes out those Slack threads after the merge. While babysitting, a
-new reply on one of those threads saying the fix didn't work is a review item:
-fix it in this PR before merging.
+`/ship` closes out those Slack threads after the merge. Babysitting doesn't
+read Slack: a reply saying the fix didn't work is picked up by the next sweep,
+which handles open items first.
 
 **Then proceed with PR checks:**
 
