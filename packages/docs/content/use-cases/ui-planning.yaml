@@ -1,0 +1,103 @@
+template: v2
+slug: ui-planning
+app: plan
+title: Plan new screens with your coding agent
+seo_title: UI planning for Claude Code, Codex and Cursor
+meta_description: With Agent-Native Plan, you and your coding agent plan a screen as wireframes in your app's real layout, state by state. Comment, and it revises, then builds.
+updated: 2026-10-27
+hero:
+  body: With Agent-Native Plan, your coding agent plans a new screen as wireframes of each state, in your app's real layout. Comment on what should change, and the agent redraws the plan before building.
+  button:
+    label: Plan a screen
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4f78a2d9f380427bb3da0723b14fcbe4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8547890f69d44a0bb7e9d9d05246850a
+    alt: "A plan for a new Invoices screen in Plan. Three sketched frames sit side by side: the invoice list, its empty state and a failed-payment error, each inside the billing app's own sidebar and toolbar. A comment is pinned on the list's status filter, and the written plan starts below."
+how_to:
+  heading: How to wireframe a screen before your coding agent builds it
+  steps:
+    - title: Ask your agent for the screen
+      body: Add Plan to Claude Code, Codex, Cursor, OpenCode or GitHub Copilot with [one install command](https://www.agent-native.com/docs/plan-plugin/), then type `/visual-plan` and describe the screen you want. Your coding agent reads your app, wireframes the screen and replies with the plan's link.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F96c7a6d6f73a42ed96a551c112cb269a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F60c66f4f9b2442a290e2a258cc70b3f2
+        alt: "Close-up of a coding agent's chat: the /visual-plan request for an Invoices screen with a status filter, an empty state and a failed-payment error. The agent reads five of the app's layout and component files, creates the plan, and replies with the link to review it."
+    - title: Comment on what should change
+      body: Open the plan, click the exact spot on the screen that's wrong and write what should change. Set the comment to **Agent** so your coding agent acts on it, or to **Human** for a teammate.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb9adb0ff68324479a0c18c8124a77b2e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F765ae87885404c408e1f4ee46d15711d
+        alt: "Close-up of the invoice list frame with a comment pinned on the status filter. The comment box is set to Agent and reads: make the status filter a segmented control with All, Paid and Overdue."
+    - title: Send your comments to the agent
+      body: Click **Send to agent**, choose **Copy for your agent** and paste the prompt into your agent's chat. Your coding agent updates the plan and resolves the comments it fixed. When the screen looks right, ask the agent to build it.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9263e46c4be445389bfc97bee3a78e74
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5910f3c944e9443aafe166a356c27bff
+        alt: "Close-up of the Send to agent button with 3 open comments. Its menu is open with two choices: Copy for your agent and Send to inline agent."
+features:
+  heading: Everything you need to get the screen right first
+  items:
+    - title: Drawn inside your real app
+      body: Your coding agent reads your current screens and components before it draws, so the new screen keeps your sidebar, toolbar and menus where they are.
+    - title: Every state of the screen
+      body: Your agent draws a frame for each state that matters, such as loading, empty, error or an open menu, so you see what a prompt leaves out.
+    - title: Comments on the exact element
+      body: Your coding agent gets the exact button, row or card each comment is pinned to, so a short note like "make this a segmented control" is enough.
+    - title: Open comments stay open
+      body: Your coding agent confirms each change landed before it resolves a comment, so anything it missed is still waiting for you.
+    - title: A prototype for multi-step flows
+      body: For a flow such as onboarding or checkout, your agent adds a clickable prototype in the **Prototype** tab, next to the screens.
+    - title: Review with your team
+      body: Share the plan by link so teammates can open the screens in their browser. Anyone with an Agent-Native account can add comments.
+integrations:
+  heading: Connect Plan to the tools you already use
+  cards:
+    - title: Install as a plugin
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Install Plan as a plugin in Claude Code or Codex, then ask for a screen with `/visual-plan` in the chat you already use.
+    - title: One command for other agents
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: One install command sets up Plan in Cursor, OpenCode or GitHub Copilot, and any other agent that supports MCP connects with Plan's URL.
+    - title: Connect anything through MCP
+      logos:
+        - name: Linear
+        - name: Notion
+        - name: Supabase
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Plan
+  cards:
+    - title: Review your coding agent's plan before it writes code
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: Review your coding agent's whole plan, with diagrams and annotated code, before it writes anything.
+    - title: Get a visual recap of your coding agent's changes
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: See the screens, data and files your coding agent changed, in one recap you can comment on.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Plan free?
+      a: Yes, [Agent-Native Plan](https://www.agent-native.com/docs/template-plan/) is free and open source. Your own coding agent draws the screens, so each plan runs on your agent's model and counts toward its usage, and a longer plan uses more. Plan is in alpha, so expect changes.
+    - q: Which coding agents work with Plan?
+      a: Agent-Native Plan has plugins for Claude Code and Codex. The install command sets up Cursor, OpenCode and GitHub Copilot the same way, adding `/visual-plan` with a one-time sign-in. Cline, Goose and other agents that support MCP connect by adding Plan's URL.
+    - q: How do I change what the plan shows?
+      a: "You change a screen by [commenting on it](https://www.agent-native.com/docs/template-plan-review-workflow/), and your coding agent redraws it. Plan doesn't let you drag or resize parts of a screen by hand. The written plan below the screens is different: you can edit its text directly."
+    - q: Will the screens match my existing app?
+      a: Yes, when the screen is part of an app you already have. Before it draws, your coding agent reads your app's code, its layout and its components, so the plan shows your real sidebar, toolbar and menus. A brand-new app gets screens drawn from your description.
+    - q: How is Plan different from my coding agent's plan mode?
+      a: Plan works with your agent's plan mode and shows its plan as screens. Give `/visual-plan` a Claude Code, Codex or Markdown plan your agent already wrote, and Plan turns it into the screens it describes, ready for comments pinned on the exact spot.
