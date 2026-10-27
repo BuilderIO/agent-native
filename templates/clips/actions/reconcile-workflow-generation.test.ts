@@ -532,12 +532,14 @@ describe("reconcile-workflow-generation", () => {
   });
 
   it("does not settle terminal evidence from a different workflow thread", async () => {
+    const recentRequestedAt = new Date().toISOString();
+    const recentTabId = workflowSessionTabId("rec_123", recentRequestedAt);
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
-      requestedAt,
-      tabId,
+      requestedAt: recentRequestedAt,
+      tabId: recentTabId,
     });
     mocks.getRunTurnRef.mockResolvedValue({
       threadId: "another-thread",
@@ -549,8 +551,8 @@ describe("reconcile-workflow-generation", () => {
       action.run({
         operation: "settle-terminal",
         recordingId: "rec_123",
-        requestedAt,
-        tabId,
+        requestedAt: recentRequestedAt,
+        tabId: recentTabId,
         terminalRunId: "run-1",
       }),
     ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
@@ -558,18 +560,49 @@ describe("reconcile-workflow-generation", () => {
   });
 
   it("does not settle terminal evidence from another turn on the workflow thread", async () => {
+    const recentRequestedAt = new Date().toISOString();
+    const recentTabId = workflowSessionTabId("rec_123", recentRequestedAt);
     mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt: recentRequestedAt,
+      tabId: recentTabId,
+    });
+    mocks.getRunTurnRef.mockResolvedValue({
+      threadId: recentTabId,
+      turnId: "another-turn",
+    });
+    mocks.getRunStatus.mockResolvedValue("errored");
+
+    await expect(
+      action.run({
+        operation: "settle-terminal",
+        recordingId: "rec_123",
+        requestedAt: recentRequestedAt,
+        tabId: recentTabId,
+        terminalRunId: "run-1",
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("expires an unavailable session when terminal evidence has no durable reference", async () => {
+    const state = {
       kind: "email",
       status: "generating",
       recordingId: "rec_123",
       requestedAt,
       tabId,
-    });
-    mocks.getRunTurnRef.mockResolvedValue({
-      threadId: tabId,
-      turnId: "another-turn",
-    });
-    mocks.getRunStatus.mockResolvedValue("errored");
+    };
+    const request = {
+      kind: "generate-workflow",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(state)
+      .mockResolvedValueOnce(request);
 
     await expect(
       action.run({
@@ -579,8 +612,23 @@ describe("reconcile-workflow-generation", () => {
         tabId,
         terminalRunId: "run-1",
       }),
-    ).resolves.toEqual({ reconciled: false, reason: "run-not-found" });
-    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    ).resolves.toEqual({ reconciled: true, expired: true });
+
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-workflow-rec_123",
+        expectedValue: state,
+        nextValue: expect.objectContaining({
+          status: "failed",
+          failureReason: "session-expired",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_123",
+        expectedValue: request,
+        nextValue: null,
+      },
+    ]);
   });
 
   it("fails and consumes a matching request after confirmed dispatch rejection", async () => {
