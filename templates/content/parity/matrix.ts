@@ -383,6 +383,35 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.clip-uploads",
+    surface: "editor",
+    label: "Upload a video into a page as a Clip while Clips in pages is on",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoBlock.tsx",
+      "app/components/editor/clip-embed/ClipUploadGate.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/components/editor/VisualEditor.tsx",
+    ],
+    durableEffect:
+      "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
+    uiImplementation:
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+    status: "action-backed",
+    actions: ["get-clip-upload-status", "create-clip-upload"],
+    exception:
+      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-upload-actions.test.ts",
+      "server/lib/clips-peer.test.ts",
+      "app/components/editor/extensions/video-block-clip-upload.test.tsx",
+      "app/components/editor/clip-embed/clip-uploads.test.ts",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
