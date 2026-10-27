@@ -1817,6 +1817,11 @@ describe("browser analytics pageviews", () => {
     analyticsCalls.length = 0;
 
     trackEvent("web_vitals", { route: "/decks/:id", lcp_ms: 1200 });
+    trackEvent("agent_chat_page_left", {
+      active_run: true,
+      route_template: "/decks/:id",
+      bfcache_persisted: false,
+    });
     trackEvent("deck_opened", { deck_count: 1 });
     await tick();
 
@@ -1839,6 +1844,18 @@ describe("browser analytics pageviews", () => {
     );
     expect(gtagVitals?.[2]).toMatchObject({ route: "/decks/:id" });
     expect(JSON.stringify(gtagVitals?.[2])).not.toContain("jane");
+    const pageLeft = bodies.find(
+      (body) => body.event === "agent_chat_page_left",
+    );
+    expect(pageLeft?.properties).toMatchObject({
+      app: "slides",
+      active_run: true,
+      route_template: "/decks/:id",
+      bfcache_persisted: false,
+    });
+    expect(pageLeft?.properties).not.toHaveProperty("url");
+    expect(pageLeft?.properties).not.toHaveProperty("path");
+    expect(JSON.stringify(pageLeft?.properties)).not.toContain("jane");
     // Every other event keeps the page it happened on.
     expect(
       bodies.find((body) => body.event === "deck_opened")?.properties,

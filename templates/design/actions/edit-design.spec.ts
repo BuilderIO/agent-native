@@ -1,6 +1,28 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/action", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/action")>();
+  return {
+    ...actual,
+    NoWriteError: class NoWriteError extends actual.ActionContractError {
+      readonly noWrite = true;
+
+      constructor(
+        message: string,
+        options: { errorCode?: string; statusCode?: number } = {},
+      ) {
+        super(message, {
+          errorCode: options.errorCode ?? "action_failed",
+          statusCode: options.statusCode ?? 400,
+        });
+        this.name = "NoWriteError";
+      }
+    },
+  };
+});
 
 import action, { applySearchReplaceEdits } from "./edit-design.js";
 
@@ -91,5 +113,32 @@ describe("edit-design action schema", () => {
 
     expect(applied).toBe(1);
     expect(content).toBe(`<main><button>Start</button></main>`);
+  });
+
+  it("returns a typed no-write conflict instead of applying a fuzzy match", () => {
+    let error: unknown;
+    try {
+      applySearchReplaceEdits(`<div>\n  <span>label</span>\n</div>`, [
+        {
+          search: `<div> <span>label</span> </div>`,
+          replace: `<div><b>label</b></div>`,
+        },
+      ]);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "design_edit_conflict",
+      statusCode: 409,
+    });
+    expect(error).toHaveProperty(
+      "message",
+      expect.stringContaining(
+        "Refresh it with get-design-snapshot and re-plan",
+      ),
+    );
   });
 });

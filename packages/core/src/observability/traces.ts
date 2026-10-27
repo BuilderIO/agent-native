@@ -581,6 +581,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -596,6 +597,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -710,6 +712,7 @@ export async function instrumentAgentLoop(opts: {
     spanId: string;
     start: number;
     end: number;
+    dispatchStarted: boolean;
     usage?: AgentLoopUsage;
     stopReason?: string;
     errorCode?: string;
@@ -717,7 +720,17 @@ export async function instrumentAgentLoop(opts: {
     input?: unknown[];
     assistantText: BoundedAssistantText;
   }> = [];
+  let modelDispatchCount = 0;
+  let pendingModelInputDispatched = false;
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  const inferModelDispatchFromOutput = () => {
+    if (pendingModelInputDispatched) return;
+    if (pendingModelInputStartedAt === undefined && modelDispatchCount > 0) {
+      return;
+    }
+    modelDispatchCount += 1;
+    pendingModelInputDispatched = true;
+  };
   let pendingModelInput: unknown[] | undefined;
   let pendingModelInputStartedAt: number | undefined;
   type CostCalculator = (
@@ -839,6 +852,7 @@ export async function instrumentAgentLoop(opts: {
       spanId: spanId(),
       start,
       end,
+      dispatchStarted: true,
       stopReason: "error",
       errorMessage,
       ...(input !== undefined ? { input } : {}),
@@ -938,6 +952,9 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
+      if (event.type === "text" || event.type === "tool_start") {
+        inferModelDispatchFromOutput();
+      }
       if (config.capturePrompts && event.type === "text") {
         appendBoundedAssistantText(assistantTextCapture, event.text);
         const roundTrip = currentRoundTrip();
@@ -984,11 +1001,14 @@ export async function instrumentAgentLoop(opts: {
               spanId: spanId(),
               start: modelStreamOpenedAt,
               end: modelStreamOpenedAt,
+              dispatchStarted: true,
               ...(pendingModelInput ? { input: pendingModelInput } : {}),
               assistantText: createBoundedAssistantText(),
             });
+            if (!pendingModelInputDispatched) modelDispatchCount += 1;
             pendingModelInput = undefined;
             pendingModelInputStartedAt = undefined;
+            pendingModelInputDispatched = true;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -1005,6 +1025,7 @@ export async function instrumentAgentLoop(opts: {
             modelSpansAwaitingFinalError.add(tripIndex);
           }
           modelStreamOpenedAt = null;
+          pendingModelInputDispatched = false;
         }
       }
 
@@ -1224,7 +1245,10 @@ export async function instrumentAgentLoop(opts: {
         onOutcome: instrumentedOutcome,
         onModelInput: (messages: readonly unknown[]) => {
           const attemptStartedAt = Date.now();
-          if (pendingModelInputStartedAt !== undefined) {
+          if (
+            pendingModelInputStartedAt !== undefined &&
+            pendingModelInputDispatched
+          ) {
             recordPreStreamModelFailure(
               pendingModelInputStartedAt,
               attemptStartedAt,
@@ -1239,9 +1263,21 @@ export async function instrumentAgentLoop(opts: {
             ? capturedMessages
             : undefined;
           pendingModelInputStartedAt = attemptStartedAt;
+          pendingModelInputDispatched = false;
           return loopOpts.onModelInput?.(messages);
         },
+        onModelDispatchStarted: () => {
+          modelDispatchCount += 1;
+          pendingModelInputDispatched = true;
+          try {
+            loopOpts.onModelDispatchStarted?.();
+          } catch {
+            // coercion-ok: telemetry observers cannot change model dispatch.
+            // A telemetry observer cannot alter whether a model request runs.
+          }
+        },
         onUsage: (callUsage: AgentLoopUsage) => {
+          inferModelDispatchFromOutput();
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;
           loopOpts.onUsage?.(callUsage);
@@ -1267,6 +1303,10 @@ export async function instrumentAgentLoop(opts: {
   } finally {
     try {
       const runEnd = Date.now();
+      modelDispatchCount = Math.max(
+        modelDispatchCount,
+        usage?.llmCalls ?? (usage?.usageReported === true ? 1 : 0),
+      );
       const totalDurationMs = runEnd - runStart;
 
       const failedInsideModelCall = modelStreamOpenedAt !== null;
@@ -1287,7 +1327,9 @@ export async function instrumentAgentLoop(opts: {
       }
       finishAwaitingOtelModelSpans(errorMessage);
       const pendingModelCallFailed =
-        runStatus === "error" && pendingModelInputStartedAt !== undefined;
+        runStatus === "error" &&
+        pendingModelInputStartedAt !== undefined &&
+        pendingModelInputDispatched;
       if (pendingModelCallFailed) {
         recordPreStreamModelFailure(
           pendingModelInputStartedAt!,
@@ -1297,6 +1339,7 @@ export async function instrumentAgentLoop(opts: {
         );
         pendingModelInput = undefined;
         pendingModelInputStartedAt = undefined;
+        pendingModelInputDispatched = false;
       }
       const measuredModelDurationMs = modelStreamIntervals.length
         ? coveredDurationMs(modelStreamIntervals)
@@ -1423,13 +1466,14 @@ export async function instrumentAgentLoop(opts: {
       const modelCallFailed =
         failedInsideModelCall ||
         pendingModelCallFailed ||
-        (modelRoundTrips.length === 0 &&
+        (modelDispatchCount > 0 &&
+          modelRoundTrips.length === 0 &&
           cutOffReason === null &&
           reportedToolFailures === 0);
 
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
-        llmCallCount = usage?.llmCalls ?? Math.max(1, modelRoundTrips.length);
+        llmCallCount = usage?.llmCalls ?? modelDispatchCount;
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1451,9 +1495,12 @@ export async function instrumentAgentLoop(opts: {
               coveredDurationMs(spanIntervals(emittedToolSpans)),
           );
 
+        const dispatchedRoundTrips = modelRoundTrips
+          .map((trip, index) => ({ trip, index }))
+          .filter(({ trip }) => trip.dispatchStarted);
         const generations =
-          modelRoundTrips.length > 0
-            ? modelRoundTrips.map((trip, index) => ({
+          dispatchedRoundTrips.length > 0
+            ? dispatchedRoundTrips.map(({ trip, index }, generationIndex) => ({
                 spanId: trip.spanId,
                 model: trip.usage?.model ?? runUsage.model,
                 createdAt: trip.start,
@@ -1475,35 +1522,37 @@ export async function instrumentAgentLoop(opts: {
                   )
                   .sort(([a], [b]) => a - b)
                   .map(([, detail]) => detail),
-                isFirst: index === 0,
-                isLast: index === modelRoundTrips.length - 1,
+                isFirst: generationIndex === 0,
+                isLast: generationIndex === dispatchedRoundTrips.length - 1,
               }))
-            : [
-                {
-                  spanId: spanId(),
-                  model: runUsage.model,
-                  createdAt: runStart,
-                  endedAt: runStart + derivedLlmDurationMs,
-                  latencyMs: derivedLlmDurationMs,
-                  callUsage: usage,
-                  stopReason: undefined as string | undefined,
-                  tokensKnown: usageReported,
-                  input:
-                    pendingModelInput ??
-                    (config.capturePrompts
-                      ? prepareCapturedModelInput(requestMessages)
-                      : requestMessages),
-                  assistantText: assistantTextCapture.parts.join(""),
-                  assistantTextTruncated: assistantTextCapture.truncated,
-                  errorMessage: undefined,
-                  toolSpans: collectedToolSpans,
-                  toolDetails: [...generationToolCalls.entries()]
-                    .sort(([a], [b]) => a - b)
-                    .map(([, detail]) => detail),
-                  isFirst: true,
-                  isLast: true,
-                },
-              ];
+            : modelDispatchCount > 0
+              ? [
+                  {
+                    spanId: spanId(),
+                    model: runUsage.model,
+                    createdAt: runStart,
+                    endedAt: runStart + derivedLlmDurationMs,
+                    latencyMs: derivedLlmDurationMs,
+                    callUsage: usage,
+                    stopReason: undefined as string | undefined,
+                    tokensKnown: usageReported,
+                    input:
+                      pendingModelInput ??
+                      (config.capturePrompts
+                        ? prepareCapturedModelInput(requestMessages)
+                        : requestMessages),
+                    assistantText: assistantTextCapture.parts.join(""),
+                    assistantTextTruncated: assistantTextCapture.truncated,
+                    errorMessage: undefined,
+                    toolSpans: collectedToolSpans,
+                    toolDetails: [...generationToolCalls.entries()]
+                      .sort(([a], [b]) => a - b)
+                      .map(([, detail]) => detail),
+                    isFirst: true,
+                    isLast: true,
+                  },
+                ]
+              : [];
 
         for (const generation of generations) {
           const callUsage = generation.callUsage;
@@ -1738,7 +1787,7 @@ export async function instrumentAgentLoop(opts: {
             run_id: runId,
             thread_id: threadId,
             turn_id: turnId,
-            llm_calls: llmCallCount || undefined,
+            llm_calls: llmCallCount,
             follow_up_ms: usage?.followUpMs,
             follow_up_input_tokens: usage?.followUpInputTokens,
             receipt_unverified_count: usage?.receiptUnverifiedCount,

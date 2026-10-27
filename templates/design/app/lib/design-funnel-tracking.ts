@@ -6,7 +6,10 @@ import {
 import { promptLengthBucket } from "@shared/prompt-length-bucket";
 import { useEffect, useMemo, useRef } from "react";
 
-import { readAgentRunStatus } from "@/lib/agent-run-status";
+import {
+  readAgentRunStatus,
+  type AgentRunStatusRead,
+} from "@/lib/agent-run-status";
 import {
   SYSTEM_CONTEXT_KEY,
   TEMPLATE_CONTEXT_KEY,
@@ -133,6 +136,7 @@ function readUrlGenerationAttemptId(): string | null {
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 const RUN_STATUS_ATTEMPTS = 3;
 const RUN_STATUS_RETRY_MS = 1500;
+type CompletedAgentRun = Extract<AgentRunStatusRead, { ok: true }>;
 
 /**
  * Whether the server reports this exact run as completed. The chat's own
@@ -141,32 +145,32 @@ const RUN_STATUS_RETRY_MS = 1500;
  * also reports a truncated run as `completed` for older clients; only the
  * terminal reason `done` marks a run that actually finished.
  */
-async function runCompleted(threadId: string, runId: string): Promise<boolean> {
+async function completedRunStatus(
+  threadId: string,
+  runId: string,
+): Promise<CompletedAgentRun | null> {
   for (let attempt = 0; attempt < RUN_STATUS_ATTEMPTS; attempt += 1) {
-    const run = await readAgentRunStatus(threadId);
-    if (!run.ok || (run.runId && run.runId !== runId)) return false;
-    if (!run.active) {
-      if (run.status !== "completed") return false;
-      if (run.terminalReason) return run.terminalReason === "done";
+    const run = await readAgentRunStatus(threadId, runId);
+    if (run.ok && !run.active) {
+      if (run.status !== "completed") return null;
+      if (run.terminalReason) return run.terminalReason === "done" ? run : null;
       // The reason is written just after the status; read again.
     }
-    await new Promise((resolve) => setTimeout(resolve, RUN_STATUS_RETRY_MS));
+    if (attempt < RUN_STATUS_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, RUN_STATUS_RETRY_MS));
+    }
   }
-  return false;
+  return null;
 }
 
 /**
  * `design_ready_viewed`: the owner has the design open with its screens when
  * an agent run on it completes.
  *
- * Every agent run in the page announces itself with its run id, whoever
- * started it (the home prompt, the editor, or a chat message), and counts once
- * the server reports that exact run completed; an errored, aborted or
- * truncated run never does. Whether the run produced output is the server's
- * record, not the browser's: the event carries `run_id`, which
- * `generation_completed` and `design_edited` also carry, so the warehouse
- * keeps the runs that wrote screens. A page opened from a `generate-design`
- * link reports that link's attempt once when it loads already finished.
+ * The server resolves a known run to the latest run in its turn, so event
+ * joins use the terminal run id and turn id when a continuation wrote screens.
+ * An unfinished run is never reported as ready. A page opened from a
+ * `generate-design` link reports that link's attempt once when it loads.
  */
 export function useDesignReadyViewTracking({
   designId,
@@ -189,6 +193,9 @@ export function useDesignReadyViewTracking({
   );
   const latest = useRef({ designId, isOwner, designLoaded, files });
   latest.current = { designId, isOwner, designLoaded, files };
+  const runsRef = useRef(
+    new Map<string, { threadId: string; designId?: string; ending: boolean }>(),
+  );
   const cancelSendsRef = useRef(new Set<() => void>());
 
   const send = useRef((properties: Record<string, unknown>) => {
@@ -203,9 +210,8 @@ export function useDesignReadyViewTracking({
   }).current;
 
   useEffect(() => {
-    // Runs seen starting while this design was open, by run id. A run is
-    // confirmed at most once.
-    const runs = new Map<string, { threadId: string; ending: boolean }>();
+    // Keep starts that arrive before the first generated design has loaded.
+    const runs = runsRef.current;
     const cancelSends = cancelSendsRef.current;
     let disposed = false;
     const onRunning = (event: Event) => {
@@ -226,27 +232,39 @@ export function useDesignReadyViewTracking({
         if (!runId || !threadId) return;
         const run = runs.get(runId);
         if (detail?.isRunning === true) {
-          if (!run && latest.current.designLoaded) {
-            runs.set(runId, { threadId, ending: false });
+          if (!run) {
+            runs.set(runId, {
+              threadId,
+              ...(latest.current.designId
+                ? { designId: latest.current.designId }
+                : {}),
+              ending: false,
+            });
           }
           return;
         }
         if (detail?.isRunning !== false || !run || run.ending) return;
         run.ending = true;
-        void runCompleted(run.threadId, runId)
+        void completedRunStatus(run.threadId, runId)
           .then((completed) => {
             if (disposed || !completed) return;
-            const { designId, isOwner, files } = latest.current;
+            const current = latest.current;
+            const outputId = run.designId ?? current.designId;
+            if (run.designId && current.designId !== run.designId) return;
+            const { isOwner, files } = current;
             const screenCount = generationOutputFiles(files).length;
-            if (!designId || !isOwner || screenCount === 0) return;
-            if (reportedReadyViewRuns.has(runId)) return;
-            reportedReadyViewRuns.add(runId);
+            if (!outputId || !isOwner || screenCount === 0) return;
+            const terminalRunId = completed.runId ?? runId;
+            const turnKey = completed.turnId ?? terminalRunId;
+            if (reportedReadyViewRuns.has(turnKey)) return;
+            reportedReadyViewRuns.add(turnKey);
             send({
-              output_id: designId,
+              output_id: outputId,
               output_type: "design",
               screen_count: screenCount,
               is_owner: true,
-              run_id: runId,
+              run_id: terminalRunId,
+              ...(completed.turnId ? { turn_id: completed.turnId } : {}),
             });
           })
           .catch(() => {
@@ -263,7 +281,14 @@ export function useDesignReadyViewTracking({
       for (const cancel of cancelSends) cancel();
       cancelSends.clear();
     };
-  }, [designId, send]);
+  }, [send]);
+
+  useEffect(() => {
+    if (!designId || !designLoaded) return;
+    for (const run of runsRef.current.values()) {
+      if (!run.designId) run.designId = designId;
+    }
+  }, [designId, designLoaded]);
 
   useEffect(() => {
     try {

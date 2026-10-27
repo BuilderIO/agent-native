@@ -334,6 +334,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      opts.onModelDispatchStarted?.();
       if (attempts === 1) {
         opts.send({ type: "text", text: "Here are the first three items: " });
         throw new EngineError("Builder gateway timed out after 45s", {
@@ -797,6 +798,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       let attempts = 0;
       mockRunAgentLoop.mockImplementation(async (opts) => {
         attempts++;
+        opts.onModelDispatchStarted?.();
         return new Promise((resolve) => {
           opts.signal.addEventListener("abort", () =>
             resolve({
@@ -818,16 +820,15 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         ),
         10_000,
       );
-
-      await vi.advanceTimersByTimeAsync(10_000);
-      await usagePromise;
-
-      expect(attempts).toBe(1);
-      const terminal = sentEvents.find((e) => e.type === "error");
-      expect(terminal).toMatchObject({
-        type: "error",
+      const rejection = expect(usagePromise).rejects.toMatchObject({
         errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
       });
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await rejection;
+
+      expect(attempts).toBe(1);
+      expect(sentEvents.some((event) => event.type === "error")).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -835,18 +836,21 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
   it("still allows the full MAX_RUN_LOOP_CONTINUATIONS rounds when rounds finish fast (plenty of budget left each time)", async () => {
     let attempts = 0;
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      opts.onModelDispatchStarted?.();
       throw new Error("socket hang up");
     });
 
-    await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(
-        [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        new AbortController().signal,
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
       ),
-      60_000,
-    );
+    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
@@ -1217,51 +1221,45 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       throw new Error("socket hang up");
     });
 
-    const usage = await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(
-        [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        new AbortController().signal,
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
       ),
-      60_000,
-    );
+    ).rejects.toMatchObject({ errorCode: "agent_run_no_output" });
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
-    expect(usage.inputTokens).toBe(0);
   });
 
-  it("emits a loud give-up terminal error when the continuation budget is exhausted mid-step", async () => {
+  it("throws a loud typed error when the continuation budget is exhausted mid-step", async () => {
     const sentEvents: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
     let attempts = 0;
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      opts.onModelDispatchStarted?.();
       throw new Error("socket hang up");
     });
 
-    await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(
-        [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        new AbortController().signal,
-        (event) => sentEvents.push(event),
-        undefined,
-        outcomes,
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          (event) => sentEvents.push(event),
+          undefined,
+          outcomes,
+        ),
+        60_000,
       ),
-      60_000,
-    );
+    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
-    const terminal = sentEvents.find((e) => e.type === "error");
-    expect(terminal).toBeDefined();
-    const err = terminal as Extract<AgentChatEvent, { type: "error" }>;
-    expect(err.errorCode).toBe(RUN_BUDGET_EXHAUSTED_ERROR_CODE);
-    expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
-    expect(err.error).toContain("stopped");
-    expect(err.error).toContain("Check any completed tool cards");
-    expect(err.recoverable).toBe(false);
-    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
-    const errorIndex = sentEvents.findIndex((e) => e.type === "error");
-    expect(clearIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeLessThan(errorIndex);
+    expect(sentEvents.some((event) => event.type === "error")).toBe(false);
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(true);
     expect(outcomes).toEqual([
       {
         state: "failed",
@@ -1287,6 +1285,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
     mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      opts.onModelDispatchStarted?.();
       if (attempts === 1) {
         opts.send({
           type: "tool_start",
@@ -1304,22 +1303,20 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       throw new Error("socket hang up");
     });
 
-    await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(
-        [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        new AbortController().signal,
-        (event) => sentEvents.push(event),
-        "thread-1",
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          (event) => sentEvents.push(event),
+          "thread-1",
+        ),
+        60_000,
       ),
-      60_000,
-    );
+    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
-    const terminal = sentEvents.find((e) => e.type === "error");
-    expect(terminal).toMatchObject({
-      type: "error",
-      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-    });
+    expect(sentEvents.some((event) => event.type === "error")).toBe(false);
     expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
     expect(sentEvents).toEqual(
       expect.arrayContaining([
@@ -1352,6 +1349,42 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(sentEvents.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("throws when a direct run returns an unfinished internal continuation", async () => {
+    const outcomes: AgentLoopOutcome[] = [];
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      opts.onModelDispatchStarted?.();
+      opts.send({ type: "auto_continue", reason: "stream_ended" });
+      return {
+        inputTokens: 1,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        0,
+      ),
+    ).rejects.toMatchObject({ errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE });
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+        retryable: false,
+        message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      },
+    ]);
   });
 
   it("does NOT emit a give-up terminal when the user aborts mid-loop", async () => {
@@ -1461,23 +1494,25 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       };
     });
 
-    await runAgentLoopDirectWithSoftTimeout(
-      makeOpts(
-        [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        new AbortController().signal,
-        undefined,
-        undefined,
-        outcomes,
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        0,
       ),
-      0,
-    );
+    ).rejects.toMatchObject({ errorCode: "agent_run_no_output" });
 
     expect(outcomes).toEqual([
       {
         state: "failed",
-        code: "stream_ended",
+        code: "agent_run_no_output",
         retryable: false,
-        message: "Agent stopped before finishing (stream_ended).",
+        message: "The agent run ended without producing a response.",
       },
     ]);
   });

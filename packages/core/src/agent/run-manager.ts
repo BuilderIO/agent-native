@@ -1783,12 +1783,11 @@ export function startRun(
           }
         })
         .catch((error) => {
-          if (
-            options?.executionLease &&
-            error?.code === "stale_execution_fence" &&
-            !completionInProgress
-          ) {
-            abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+          if (error instanceof StaleExecutionFenceError) {
+            if (!completionInProgress) {
+              abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+            }
+            return;
           }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {

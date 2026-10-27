@@ -11021,7 +11021,7 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("bounds repeated partial action-input continuations", async () => {
+  it("fails repeated partial action-input continuations instead of completing", async () => {
     const events: AgentChatEvent[] = [];
     const run = vi.fn(async () => "should not execute");
     let streamCalls = 0;
@@ -11052,31 +11052,36 @@ describe("runAgentLoop", () => {
       },
     };
 
-    await runAgentLoopWithMainChatInternalContinuations({
-      engine,
-      model: "test-model",
-      systemPrompt: "system",
-      tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: {
-        "edit-design": {
-          ...actionEntry({ readOnly: false }),
-          run,
+    await expect(
+      runAgentLoopWithMainChatInternalContinuations({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {
+          "edit-design": {
+            ...actionEntry({ readOnly: false }),
+            run,
+          },
         },
-      },
-      send: (event) => events.push(event),
-      signal: new AbortController().signal,
-      maxContinuations: 3,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+        maxContinuations: 3,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "agent_run_no_output",
+      providerRetryable: false,
     });
 
     expect(streamCalls).toBe(3);
     expect(run).not.toHaveBeenCalled();
-    expect(events.at(-1)).toEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "run_budget_exhausted",
-        recoverable: false,
-      }),
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
   });
 

@@ -241,6 +241,34 @@ describe("Builder gateway error retryability", () => {
         expectedErrorCode: "invalid_request",
       },
       {
+        label: "in-stream generic error with invalid_request code",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code: "invalid_request",
+              error: "Internal Server Error",
+            },
+          ]),
+        retryable: true,
+        expectedErrorCode: "builder_gateway_internal_error",
+      },
+      {
+        label: "in-stream invalid_request reason with generic server error",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "invalid_request",
+              code: "invalid_request",
+              error: "Internal Server Error",
+            },
+          ]),
+        retryable: true,
+        expectedErrorCode: "builder_gateway_internal_error",
+      },
+      {
         label: "in-stream invalid_request with transient wording",
         response: () =>
           jsonlResponse([
@@ -266,6 +294,15 @@ describe("Builder gateway error retryability", () => {
             },
           ]),
         retryable: true,
+      },
+      {
+        label: "in-stream generic Internal Server Error",
+        response: () =>
+          jsonlResponse([
+            { type: "stop", reason: "error", error: "Internal Server Error" },
+          ]),
+        retryable: true,
+        expectedErrorCode: "builder_gateway_internal_error",
       },
       {
         label: "http 500 gateway internal error envelope",

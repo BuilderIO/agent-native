@@ -36,6 +36,7 @@ const oauthState = vi.hoisted(() => ({
   scope: undefined as "user" | "org" | undefined,
   stored: false,
   resolveAccess: vi.fn(),
+  resolveAccessState: vi.fn(),
   hasSession: vi.fn(),
   markReconnect: vi.fn(async () => {}),
 }));
@@ -85,8 +86,7 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
 
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-  resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
-  hasBuilderOAuthSession: oauthState.hasSession,
+  resolveBuilderOAuthRequestAccessState: oauthState.resolveAccessState,
   markBuilderOAuthReconnectRequired: oauthState.markReconnect,
 }));
 
@@ -175,6 +175,13 @@ describe("createBuilderEngine", () => {
           }
         : null,
     );
+    oauthState.resolveAccessState
+      .mockReset()
+      .mockImplementation(async (input) => {
+        if (!oauthState.stored) return { kind: "not_connected" };
+        const access = await oauthState.resolveAccess(input);
+        return access ? { kind: "available", access } : { kind: "unusable" };
+      });
     oauthState.hasSession
       .mockReset()
       .mockImplementation(async () => oauthState.stored);
@@ -317,7 +324,8 @@ describe("createBuilderEngine", () => {
 
     await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(oauthState.resolveAccess).toHaveBeenCalledWith({
+    // oracle-change: a single resolver now combines custody and access lookup.
+    expect(oauthState.resolveAccessState).toHaveBeenCalledWith({
       ownerEmail: "person@example.com",
       requiredScope: "builder:ai:invoke",
       orgId: null,
@@ -1124,12 +1132,11 @@ describe("createBuilderEngine", () => {
 
     await collectEvents(createBuilderEngine().stream(BASE_OPTS));
 
-    expect(oauthState.hasSession).toHaveBeenCalledWith(
-      "person@example.com",
-      "org-request",
-    );
-    expect(oauthState.resolveAccess).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: "org-request" }),
+    expect(oauthState.resolveAccessState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "person@example.com",
+        orgId: "org-request",
+      }),
     );
     expect(oauthState.markReconnect).toHaveBeenCalledWith(
       "person@example.com",

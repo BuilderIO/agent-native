@@ -1,4 +1,8 @@
-import { defineAction, NoWriteError } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  NoWriteError,
+} from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -25,7 +29,6 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
-  applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
@@ -130,7 +133,7 @@ function applyOneEditWithStableIdFallback(
   index: number,
 ): string {
   try {
-    return applyOneEdit(content, edit, index);
+    return applyExactEdit(content, edit, index);
   } catch (error) {
     const span = findUniqueStableIdAgnosticSpan(content, edit.search);
     if (!span) throw error;
@@ -138,14 +141,63 @@ function applyOneEditWithStableIdFallback(
   }
 }
 
+class DesignEditSearchConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DesignEditSearchConflictError";
+  }
+}
+
+function applyExactEdit(
+  content: string,
+  edit: DesignEdit,
+  index: number,
+): string {
+  if (!edit.search) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${index + 1}: "search" must be a non-empty string.`,
+    );
+  }
+
+  const start = content.indexOf(edit.search);
+  if (start === -1) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${index + 1}: search text was not found.`,
+    );
+  }
+  if (content.indexOf(edit.search, start + 1) !== -1) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${index + 1}: search text matched more than one place.`,
+    );
+  }
+
+  return `${content.slice(0, start)}${edit.replace}${content.slice(start + edit.search.length)}`;
+}
+
+function designEditConflictMessage(): string {
+  return "The design changed since the snapshot used for this edit. Refresh it with get-design-snapshot and re-plan the search/replace edits.";
+}
+
+function designEditConflictOptions() {
+  return { errorCode: "design_edit_conflict", statusCode: 409 } as const;
+}
+
 export function applySearchReplaceEdits(
   content: string,
   edits: DesignEdit[],
 ): ApplyEditsResult {
   let next = content;
-  edits.forEach((edit, index) => {
-    next = applyOneEditWithStableIdFallback(next, edit, index);
-  });
+  try {
+    edits.forEach((edit, index) => {
+      next = applyOneEditWithStableIdFallback(next, edit, index);
+    });
+  } catch (error) {
+    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    throw new NoWriteError(
+      designEditConflictMessage(),
+      designEditConflictOptions(),
+    );
+  }
   return { content: next, applied: edits.length };
 }
 
@@ -393,9 +445,17 @@ export default defineAction({
             edits ?? [],
           ));
         } catch (error) {
+          if (checkpointed && error instanceof NoWriteError) {
+            throw new ActionContractError(error.message, {
+              errorCode: error.errorCode,
+              statusCode: error.statusCode,
+            });
+          }
+          if (error instanceof NoWriteError) throw error;
           if (checkpointed) throw error;
           throw new NoWriteError(
-            error instanceof Error ? error.message : "Design edit failed",
+            designEditConflictMessage(),
+            designEditConflictOptions(),
           );
         }
       }

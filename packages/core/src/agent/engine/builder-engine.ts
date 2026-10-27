@@ -1,9 +1,8 @@
 import { isTransientDatabaseError } from "../../db/client.js";
 import {
   BUILDER_OAUTH_SCOPE,
-  hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
-  resolveBuilderOAuthRequestAccess,
+  resolveBuilderOAuthRequestAccessState,
 } from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
 import {
@@ -39,6 +38,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
@@ -48,6 +48,7 @@ import {
   isContextOverflowCode,
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
+  isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -200,44 +201,49 @@ class BuilderEngine implements AgentEngine {
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
     const orgId = getRequestOrgId() ?? null;
-    let oauthAccess: Awaited<
-      ReturnType<typeof resolveBuilderOAuthRequestAccess>
-    > = null;
+    let oauthAccess:
+      | Extract<
+          Awaited<ReturnType<typeof resolveBuilderOAuthRequestAccessState>>,
+          { kind: "available" }
+        >["access"]
+      | null = null;
     let hasStoredOAuth = false;
     if (ownerEmail) {
-      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail, orgId);
-      if (hasStoredOAuth) {
-        try {
-          oauthAccess = await resolveBuilderOAuthRequestAccess({
-            ownerEmail,
-            requiredScope: BUILDER_OAUTH_SCOPE,
-            orgId,
-          });
-        } catch (error) {
-          if (isTransientDatabaseError(error)) {
-            const unavailable = new CredentialStoreUnavailableError(error);
-            yield gatewayErrorStop(
-              { error: unavailable.message, errorCode: unavailable.errorCode },
-              false,
-            );
-            return;
-          }
-          // coercion-ok: an unusable grant falls through to the reconnect stop below, never to legacy keys.
-          oauthAccess = null;
-        }
-        // Custody exists but cannot run (expired, revoked, or short of the AI
-        // scope). Reporting it as "no provider connected" sends the reader to
-        // a Connect button that changes nothing.
-        if (!oauthAccess) {
+      let accessState: Awaited<
+        ReturnType<typeof resolveBuilderOAuthRequestAccessState>
+      >;
+      try {
+        accessState = await resolveBuilderOAuthRequestAccessState({
+          ownerEmail,
+          requiredScope: BUILDER_OAUTH_SCOPE,
+          orgId,
+        });
+      } catch (error) {
+        if (isTransientDatabaseError(error)) {
+          const unavailable = new CredentialStoreUnavailableError(error);
           yield gatewayErrorStop(
-            {
-              error: BUILDER_RECONNECT_MESSAGE,
-              errorCode: "builder_auth_error",
-            },
+            { error: unavailable.message, errorCode: unavailable.errorCode },
             false,
           );
           return;
         }
+        throw error;
+      }
+      hasStoredOAuth = accessState.kind !== "not_connected";
+      if (accessState.kind === "available") {
+        oauthAccess = accessState.access;
+      } else if (hasStoredOAuth) {
+        // Custody exists but cannot run (expired, revoked, or short of the AI
+        // scope). Reporting it as "no provider connected" sends the reader to
+        // a Connect button that changes nothing.
+        yield gatewayErrorStop(
+          {
+            error: BUILDER_RECONNECT_MESSAGE,
+            errorCode: "builder_auth_error",
+          },
+          false,
+        );
+        return;
       }
     }
     const authHeader = oauthAccess
@@ -547,6 +553,7 @@ function isTransientGatewayFailure(
     return true;
   }
   if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
+  if (isGenericInternalServerErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
@@ -969,12 +976,15 @@ async function* parseJsonlStream(
               event.error ||
               event.message ||
               "Builder gateway rejected the request as malformed.";
-            const errCode =
+            const rawErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
                 : typeof event.code === "string"
                   ? event.code
                   : "invalid_request";
+            const errCode =
+              canonicalizeBuilderGatewayErrorCode(rawErrCode, String(errMsg)) ??
+              rawErrCode;
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
             );
@@ -984,7 +994,8 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
-              providerRetryable: false,
+              providerRetryable:
+                errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
