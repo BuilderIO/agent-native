@@ -145,7 +145,6 @@ import { cn } from "@/lib/utils";
 import {
   clearDesignHomeLibraryTabSelection,
   readDesignHomeLibraryInitialState,
-  readHomeLibraryHasRecents,
   subscribeToDesignHomeLibraryTab,
   writeHomeLibraryHasRecents,
 } from "../home-library-state";
