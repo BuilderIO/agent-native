@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+
 const oauthMocks = vi.hoisted(() => ({
   delete: vi.fn(),
   revoke: vi.fn(),
@@ -9,6 +11,11 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 const mutateUserSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
 const deleteUserSettingMock = vi.hoisted(() => vi.fn());
+const appSecretMocks = vi.hoisted(() => ({
+  delete: vi.fn(),
+  read: vi.fn(),
+  write: vi.fn(),
+}));
 
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
@@ -24,11 +31,20 @@ vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: putUserSettingMock,
 }));
 
+vi.mock("../secrets/storage.js", () => ({
+  deleteAppSecret: appSecretMocks.delete,
+  readAppSecret: appSecretMocks.read,
+  writeAppSecret: appSecretMocks.write,
+}));
+
 import {
   addFirstPartyRemoteServer,
   addOAuthRemoteServer,
   addRemoteServer,
+  InvalidMcpHeaderConfigurationError,
   isFirstPartyRemoteEndpointTrusted,
+  McpHeaderSecretUnavailableError,
+  materializeHeaders,
   removeRemoteServer,
   replaceOAuthRemoteServer,
   toHttpServerConfig,
@@ -44,6 +60,9 @@ vi.mock("../mcp/org-directory.js", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  appSecretMocks.delete.mockResolvedValue(true);
+  appSecretMocks.read.mockResolvedValue(null);
+  appSecretMocks.write.mockResolvedValue("secret-id");
   getUserSettingMock.mockResolvedValue(null);
   mutateUserSettingMock.mockImplementation(
     async (
@@ -546,4 +565,110 @@ describe("first-party remote MCP metadata", () => {
       firstPartyOrgId: "org-1",
     });
   });
+});
+
+describe("stored remote MCP headers", () => {
+  it("rejects a missing saved header secret reference instead of dropping auth", async () => {
+    appSecretMocks.read.mockResolvedValue(null);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headers: { Accept: "application/json" },
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+      name: "InvalidMcpHeaderConfigurationError",
+      code: "invalid_mcp_header_configuration",
+      reason: "missing-secret",
+    });
+  });
+
+  it("propagates an unreadable saved header secret instead of treating it as invalid configuration", async () => {
+    const error = new AppSecretDecryptionError({
+      scope: "workspace",
+      scopeId: "org-1",
+    });
+    appSecretMocks.read.mockRejectedValue(error);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toBe(error);
+  });
+
+  it("fails when a stored header reference no longer has a secret row", async () => {
+    appSecretMocks.read.mockResolvedValue(null);
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:missing",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+      name: "InvalidMcpHeaderConfigurationError",
+      code: "invalid_mcp_header_configuration",
+      reason: "missing-secret",
+    });
+  });
+
+  it("wraps transient header-secret store errors without exposing the cause", async () => {
+    appSecretMocks.read.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      toHttpServerConfigAsync("org", "org-1", {
+        id: "mcps_headers",
+        name: "example",
+        url: "https://mcp.example.com/",
+        headerSecretKey: "mcp_headers:example",
+        createdAt: 1,
+      }),
+    ).rejects.toMatchObject<McpHeaderSecretUnavailableError>({
+      name: "McpHeaderSecretUnavailableError",
+      code: "mcp_header_secret_unavailable",
+      message:
+        "Could not read the saved MCP header credential. Retry after the settings store is available.",
+    });
+  });
+
+  it.each([
+    ["malformed JSON", "not-json", "invalid-json"],
+    ["a non-object JSON value", "[]", "invalid-shape"],
+    [
+      "a non-string header value",
+      '{"Authorization":"Bearer token","Retry-After":5}',
+      "invalid-shape",
+    ],
+  ] as const)(
+    "rejects %s saved header configuration without returning clear headers",
+    async (_description, value, reason) => {
+      appSecretMocks.read.mockResolvedValue({ value });
+
+      await expect(
+        toHttpServerConfigAsync("org", "org-1", {
+          id: "mcps_headers",
+          name: "example",
+          url: "https://mcp.example.com/",
+          headers: { Accept: "application/json" },
+          headerSecretKey: "mcp_headers:example",
+          createdAt: 1,
+        }),
+      ).rejects.toMatchObject<InvalidMcpHeaderConfigurationError>({
+        name: "InvalidMcpHeaderConfigurationError",
+        code: "invalid_mcp_header_configuration",
+        reason,
+      });
+    },
+  );
 });

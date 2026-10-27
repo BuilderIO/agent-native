@@ -32,6 +32,7 @@ export default defineAction({
         ownerEmail: schema.recordings.ownerEmail,
         password: schema.recordings.password,
         expiresAt: schema.recordings.expiresAt,
+        trashedAt: schema.recordings.trashedAt,
       })
       .from(schema.recordings)
       .where(accessFilter(schema.recordings, schema.recordingShares));
@@ -41,6 +42,7 @@ export default defineAction({
         recipientEmail: me,
         hasPassword: Boolean(recording.password),
         expiresAt: recording.expiresAt,
+        trashedAt: recording.trashedAt,
       }),
     );
     if (accessibleRecordings.length === 0) {

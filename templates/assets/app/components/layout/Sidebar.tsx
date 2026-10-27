@@ -19,12 +19,12 @@ import {
   AppSidebar,
   AppSidebarNavItem,
 } from "@agent-native/toolkit/app/shared";
+import { ChatHistoryMenuItem } from "@agent-native/toolkit/chat-history";
 import {
   IconClipboardList,
   IconLayoutGrid,
   IconPhotoPlus,
   IconSearch,
-  IconShare3,
   IconTemplate,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -197,20 +197,13 @@ function AssetsChatsSection({ open }: { open: boolean }) {
           }}
           renameMaxLength={160}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
-          renderAdditionalRowActions={(item, closeMenu) =>
+          renderAdditionalRowActions={(item) =>
             item.readOnly ? null : (
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
-                  void handleCopyShareLink(item.id);
-                }}
+              <ChatHistoryMenuItem
+                onSelect={() => void handleCopyShareLink(item.id)}
               >
-                <IconShare3 size={13} strokeWidth={1.8} />
-                <span>{t("chat.copyShareLink")}</span>
-              </button>
+                {t("chat.copyShareLink")}
+              </ChatHistoryMenuItem>
             )
           }
           labels={{

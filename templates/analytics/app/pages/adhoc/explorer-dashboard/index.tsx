@@ -251,13 +251,14 @@ export default function ExplorerDashboardPage() {
     setDashboardActionsOpen(false);
   }, []);
 
-  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
-    id: dashboardId,
-    kind: "explorer",
-    title: dashboard?.name,
-    panelCount: dashboard?.charts.length,
-    canEdit,
-  });
+  const { selectedPanelIds, selectPanelForChat, panelSelectionTarget } =
+    useDashboardChatContext({
+      id: dashboardId,
+      kind: "explorer",
+      title: dashboard?.name,
+      panelCount: dashboard?.charts.length,
+      canEdit,
+    });
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
@@ -852,8 +853,9 @@ export default function ExplorerDashboardPage() {
                     navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
-                  selectedForChat={selectedPanelId === chart.id}
+                  selectedForChat={selectedPanelIds.includes(chart.id)}
                   selectPanelForChat={selectPanelForChat}
+                  panelSelectionTarget={panelSelectionTarget}
                 />
               ))}
             </div>

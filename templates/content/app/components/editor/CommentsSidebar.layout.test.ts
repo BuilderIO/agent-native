@@ -12,6 +12,7 @@ import {
   findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
+  highlightedQuote,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -204,6 +205,19 @@ describe("comments sidebar layout", () => {
       documentTop: 116,
       layoutTop: 76,
     });
+  });
+
+  it("reads a quote across blocks with a space where its highlight crosses", () => {
+    document.body.innerHTML =
+      '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
+    const marked = document.querySelectorAll('[data-comment-thread="t"]');
+
+    expect(highlightedQuote(marked, "ends here.Bravo")).toBe(
+      "ends here. Bravo",
+    );
+    // One block reads as stored, and text edited since no longer matches.
+    expect(highlightedQuote([marked[0]!], "ends here.")).toBeNull();
+    expect(highlightedQuote(marked, "ends there.Bravo")).toBeNull();
   });
 
   it("positions pending comments from the pending highlight rect", () => {
@@ -546,10 +560,9 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain('target?.closest("[data-comment-thread]")');
-    expect(source).toContain("onPointerOverCapture");
-    expect(source).toContain("onPointerOutCapture");
-    expect(source).toContain("setHoveredThreadId(threadId)");
+    expect(source).toContain("commentThreadAt(");
+    // oracle-change: the pointer lookup and hover capture moved into commentThreadAt and commentThreadHoverHandlers, whose behaviour comment-block-anchors.test.ts covers
+    expect(source).toContain("commentThreadHoverHandlers(");
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("commentLaneRef");

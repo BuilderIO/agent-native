@@ -5,6 +5,7 @@ import {
   type AgentChatAttachment,
   type MentionItemMedia,
 } from "../agent/types.js";
+import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
@@ -167,7 +168,6 @@ export interface AgentChatContextRemoveOptions extends AgentChatContextMutationO
 
 const AGENT_CHAT_MESSAGE_TYPE = "agentNative.submitChat";
 export const AGENT_CHAT_CONTEXT_STATE_KEY = "agent-chat-context";
-const AGENT_CHAT_EXEC_MODE_KEY = "agent-native-exec-mode";
 export const AGENT_CHAT_CONTEXT_CHANGED_EVENT =
   "agentNative.chatContextChanged";
 export const AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE = "agentNative.setChatContext";
@@ -574,11 +574,14 @@ export async function refreshAgentChatContext(): Promise<AgentChatContextState> 
 export function formatAgentChatContextItemsForPrompt(
   items: readonly AgentChatContextItem[],
 ): string {
-  return items
+  const normalized = items
     .map(normalizeAgentChatContextItem)
-    .filter((item): item is AgentChatContextItem => item !== null)
-    .map((item) => [`## ${item.title}`, item.context].join("\n"))
-    .join("\n\n");
+    .filter((item): item is AgentChatContextItem => item !== null);
+  const preamble = formatAgentSelectionPreamble(normalized);
+  return [
+    ...(preamble ? [preamble] : []),
+    ...normalized.map((item) => [`## ${item.title}`, item.context].join("\n")),
+  ].join("\n\n");
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {
@@ -1196,36 +1199,6 @@ export function parseSubmitChatMessage(
   };
 }
 
-function normalizeStoredAgentChatExecMode(
-  value: string | null,
-): AgentChatRequestMode | undefined {
-  if (value === "plan") return "plan";
-  if (value === "build" || value === "act") return "act";
-  return undefined;
-}
-
-function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const storage = window.localStorage;
-    const saved = normalizeStoredAgentChatExecMode(
-      storage.getItem(AGENT_CHAT_EXEC_MODE_KEY),
-    );
-    if (saved) return saved;
-    const scopedModes: AgentChatRequestMode[] = [];
-    for (let index = 0; index < storage.length; index += 1) {
-      const key = storage.key(index);
-      if (!key?.startsWith(`${AGENT_CHAT_EXEC_MODE_KEY}:`)) continue;
-      const scopedSaved = normalizeStoredAgentChatExecMode(
-        storage.getItem(key),
-      );
-      if (scopedSaved) scopedModes.push(scopedSaved);
-    }
-    if (scopedModes.length === 1) return scopedModes[0];
-  } catch {}
-  return undefined;
-}
-
 function keepsApprovalInAppChat(
   opts: Pick<AgentChatMessage, "approvedToolCalls">,
 ): boolean {
@@ -1286,9 +1259,9 @@ function sendToAgentChatInternal(
     (opts.chatTarget === "local" && !routesLocalToChatGpt) ||
     keepsApprovalInAppChat(opts) ||
     (mcpAppLocalPayload && !routesLocalToChatGpt);
-  const requestMode =
-    normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
-    readStoredAgentChatRequestMode();
+  const requestMode = normalizeAgentChatRequestMode(
+    opts.requestMode ?? opts.mode,
+  );
   if (submitsMessage(opts)) {
     trackEvent("app.first_action", {
       action: "chat_submit",
@@ -1489,9 +1462,9 @@ export function sendToAgentChatAndConfirm(
   }
 
   if (routesForcedLocalChatToOpenAiHost(opts)) {
-    const requestMode =
-      normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
-      readStoredAgentChatRequestMode();
+    const requestMode = normalizeAgentChatRequestMode(
+      opts.requestMode ?? opts.mode,
+    );
     const hostContent = mcpAppHostContent(opts);
     const hostDelivery = sendMcpAppHostMessage({
       message: opts.message,

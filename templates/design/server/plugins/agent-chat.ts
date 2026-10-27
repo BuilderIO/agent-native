@@ -299,6 +299,7 @@ export default createAgentChatPlugin({
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     keyToolNames: ["get-visual-edit-pending"],
     instructions:
@@ -333,6 +334,8 @@ For HubSpot email creation, alignment, token edits, conversion or HTML handoff, 
 App and website UI is responsive by default when the user does not specify exact pixel dimensions. Use mobile-first CSS, a viewport meta tag, and responsive layout changes for narrow widths; never ship a fixed-width desktop shell. Static artwork such as ads, banners, social posts, thumbnails, email headers, flyers, and posters uses one fixed canvas with no mobile or tablet frames, including on follow-up edits and resizes; each additional size or version is its own exact-size call. Honor exact pixel dimensions and platform presets in the original request. Desktop is the default primary artboard for responsive UI; use a 1440×1024 canvas frame (or primaryViewport "desktop") unless the user explicitly asks for a mobile- or tablet-primary design. Keep each generation action prompt to one distinct exact size; make separate calls scoped to each screen when a request includes different sizes. For responsive UI, inspect desktop and mobile screenshots and correct overflow or broken reflow. For fixed artwork, inspect one screenshot at the requested canvas size.
 
 Treat explicit visual direction, requested content, named pages, and page counts as acceptance criteria. When the user asks for multiple distinct pages or states, call generate-screens with every requested page before generating their files; do not substitute responsive breakpoint frames for requested pages. Verify the saved design contains each requested page before reporting completion.
+
+Build layers the way a designer would, because every element becomes a layer the user has to work with. Give each visual group one flex or grid container and put its content directly inside; never add a wrapper that has one child and no layout, paint, or spacing of its own, and space things with gap and padding rather than extra containers. Keep sections shallow, usually three or four levels deep. Write every px length (position, size, padding, gap, radius, font size) as a whole number.
 
 Generated controls that look interactive must work in the prototype. Give links valid destinations and wire buttons to the requested navigation or state change; if no behavior is intended, render the element as non-interactive content instead of a dead control. Exercise the primary links and buttons before reporting completion.
 

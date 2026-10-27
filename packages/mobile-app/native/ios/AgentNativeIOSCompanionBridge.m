@@ -23,6 +23,13 @@ RCT_EXTERN_METHOD(endCaptureActivity:(NSString *)captureId
 RCT_EXTERN_METHOD(endStaleCaptureActivities:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(peekPendingQuickAction:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(acknowledgeQuickAction:(NSString *)actionId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end
 
 @interface RCT_EXTERN_MODULE(AgentNativeBroadcastPickerManager, RCTViewManager)

@@ -432,6 +432,21 @@ describe("action discovery", () => {
     expect(registry["send-email"].allowPersistentApproval).toBe(false);
   });
 
+  it("preserves the zone an approval summary gives zoneless times", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "create-event": {
+        default: {
+          tool: { description: "Create an event", parameters: {} },
+          needsApproval: true,
+          zonelessTimes: "calendar",
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["create-event"].zonelessTimes).toBe("calendar");
+  });
+
   it("threads the http config through named and default static entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-get": {
@@ -758,6 +773,8 @@ describe("action discovery", () => {
     expect(registry["search-automation-accounts"].frameworkGroup).toBe(
       "automation",
     );
+    expect(registry.decide?.readOnly).toBe(true);
+    expect(registry["decisions-status"]?.readOnly).toBe(true);
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
   });

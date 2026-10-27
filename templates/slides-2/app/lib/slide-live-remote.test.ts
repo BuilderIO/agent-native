@@ -248,17 +248,17 @@ describe("applyRemoteHtmlUnderEdit", () => {
     const prev = slide(
       box(1, "a", "Alpha"),
       box(2, "b", "Beta"),
-      box(3, "c", "Gamma"),
+      box(3, "c", "Three"),
     );
     const next = slide(
       box(1, "a", "Alpha"),
       box(2, "b", "Beta by remote"),
-      box(3, "c", "Gamma by remote"),
+      box(3, "c", "Three by remote"),
     );
     const root = mount(prev);
     const edited = startEditing(root, "a");
     root.querySelector('[data-slide-object-id="c"]')!.firstChild!.nodeValue =
-      "Gamma locally";
+      "Three locally";
 
     expect(applyRemoteHtmlUnderEdit(root, edited, prev, next)).toBe(
       "unsupported",

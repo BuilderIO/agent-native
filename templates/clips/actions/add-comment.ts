@@ -4,14 +4,13 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -58,15 +57,7 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    const access = await assertAccess("recording", args.recordingId, "viewer");
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentAccess(args.recordingId);
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

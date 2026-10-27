@@ -331,6 +331,7 @@ describe("useBlockFieldComments", () => {
       pendingComment,
       showCommentIndicators: true,
       onComment,
+      onBlockComment: undefined,
       onActivateThread,
       scrollContainerRef,
     });

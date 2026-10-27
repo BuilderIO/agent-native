@@ -1,0 +1,121 @@
+---
+title: "Entscheidungen"
+description: "Fähigkeitsbewusste Klassifizierung und Bewertung mit @agent-native/core/decisions."
+---
+
+# Entscheidungen
+
+Das Paket `@agent-native/core/decisions` exportiert `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`, einen fähigkeitsbewussten Klassifizierer und Bewerter für strukturierte Fragen. Der Aufrufer erhält ein Ergebnis zur Prüfung. Die Funktion führt keine Folgeaktion aus und autorisiert sie auch nicht.
+
+## Eingaben und Fragen
+
+decide() akzeptiert eine ownerEmail, ein Array von Eingabeteilen, benannte Fragen und optionale Ausführungseinstellungen. Eingaben können Text, strukturiertes JSON oder eine Bild-URL enthalten:
+
+Als input kann auch direkt eine Zeichenfolge übergeben werden.
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+Die gemeinsam serialisierte JSON-Größe von `input` und `questions` darf 256 KiB nicht überschreiten.
+
+Fragen haben einen Namen und Anweisungen. Der Fragetyp legt die zusätzlichen Felder fest:
+
+| Typ         | Zusätzliche Felder                                                   | Zweck                                              |
+| ----------- | -------------------------------------------------------------------- | -------------------------------------------------- |
+| `predicate` | Keine                                                                | Eine angegebene Aussage bewerten                   |
+| `choice`    | `choices`: Zeichenfolgenwerte mit Beschreibungen                     | Einen der angegebenen Werte auswählen              |
+| `score`     | `levels`: 2–10 geordnete Stufen mit Bezeichnungen und Beschreibungen | Die Eingabe auf einer vorgegebenen Skala einordnen |
+
+Einträge in choices haben die Form `{ value: string, description: string }`. score-Stufen haben die Form `{ label: string, description: string }`.
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+Dieses Beispiel kombiniert eine Auswahlfrage und eine Bewertungsfrage in einem Aufruf. Die Bewertung verwendet fünf geordnete Stufen und liegt damit im unterstützten Bereich von 2 bis 10.
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+Das Argumentobjekt enthält diese Felder:
+
+- **ownerEmail**: Die E-Mail-Adresse des Workspace-Eigentümers für die Entscheidungskonfiguration.
+- **input**: Zu bewertende Text-, JSON- oder Bild-URL-Teile.
+- **questions**: Benannte Fragen vom Typ predicate, choice oder score.
+- **options**: Optionale Einstellungen für signal, timeoutMs, providers oder cacheKey.
+
+Bei Erfolg ist result.status gleich ok. Das Ergebnis enthält provider, model und nach Fragennamen indizierte answers sowie optional cached und usage. not_configured enthält den Grund missing_credentials und eine Liste von providers. failed enthält einen typisierten Grund und kann provider sowie questionNames enthalten. Caching wird nur aktiviert, wenn cacheKey angegeben ist. Der Cache-Schlüssel berücksichtigt Eigentümer, Organisation, Provider, Modell, cacheKey, input und questions. Der In-Memory-Cache läuft nach 60 Sekunden ab und ist auf 256 Einträge begrenzt.
+
+## Fähigkeitsbewusste Provider-Unterstützung
+
+Die Unterstützung von Fragen kann je nach Provider und Modell variieren. decide() berücksichtigt Fähigkeiten. Gehe daher nicht davon aus, dass jeder Provider jeden Fragetyp unterstützt. Bewirb eine Provider-, Modell- und Fragetyp-Kombination erst nach erfolgreicher Prüfung. Das erfolgreiche Ergebnis nennt Provider und Modell der Antwort.
+
+Die Standardreihenfolge der Provider stammt aus der gemeinsamen App-Konfiguration des Deployments und ist nicht pro Workspace konfigurierbar. Alle Workspaces dieses Deployments verwenden dieselbe Reihenfolge, sofern ein Aufruf sie nicht mit `options.providers` überschreibt. Standardmäßig werden Builder Jev, ein persönlicher Jev-Schlüssel und dann OpenAI versucht. Wenn kein Provider konfiguriert ist, gibt `decide()` den Status `not_configured` zurück. Das gemeinsame App-Konfigurationsfeld `decisions.providerOrder` steuert die Standardreihenfolge von Jev und OpenAI. `decisions.timeoutMs` legt das Gesamtzeitbudget für eine Entscheidung fest. Es umfasst die Ermittlung der Zugangsdaten und die Ausführung des Providers. Alle Providerversuche teilen sich dieses Zeitbudget. Die Umgebungsvariablen-Aliase sind `DECISIONS_PROVIDER_ORDER` (kommagetrennt) und `DECISIONS_TIMEOUT_MS`. Ein Schlüssel für Provider-spezifische Schwellenwerte oder Caches muss Provider und Modell enthalten, damit Kalibrierung oder Ergebnisse eines Modells nicht für ein anderes wiederverwendet werden.
+Die Provider-Fähigkeiten hängen von der Route ab. Der Builder-Jev-Proxy ist für die Fragetypen `predicate`, `choice` und `score` verifiziert. Jev-Score-Antworten verwenden die `legend`- und `probabilities`-Records des Proxys, um wie bei OpenAI den erwarteten, wahrscheinlichkeitsgewichteten Stufenindex ab null zu berechnen. `getDecisionsStatus()` gibt die Verifizierungszustände der Fähigkeiten und deren Aktivierungsstatus zurück. Die Statusabfrage berücksichtigt Abbrüche und verwendet das konfigurierte Budget von `decisions.timeoutMs` für Bereitschaftsprüfungen; beim Ablauf werden noch laufende Providerprüfungen als `unknown` gemeldet. Die OpenAI Decisions API unterstützt Score-Fragen mit 2–10 geordneten Stufen; Fixtures im dokumentierten Format decken die Anfrage- und Antwortzuordnung ab.
+
+decide() gibt Klassifizierungen oder Bewertungen zurück, die der Aufrufer interpretiert. Verwende für nachfolgende Änderungen an Anwendungsdaten eine separate, autorisierte Aktion.

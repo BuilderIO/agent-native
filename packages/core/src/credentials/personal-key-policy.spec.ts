@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   readAppSecret: vi.fn(),
+  isMissingAppSecretsTableError: vi.fn(() => false),
   isRestricted: vi.fn(),
   settings: new Map<string, { value: unknown }>(),
 }));
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: mocks.readAppSecret,
+  isMissingAppSecretsTableError: mocks.isMissingAppSecretsTableError,
 }));
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),

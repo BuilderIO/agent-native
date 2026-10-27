@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import type { AgentRunSummary } from "../agent/run-store.js";
 import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
@@ -47,6 +49,44 @@ describe("agent chat run lifecycle tracking", () => {
       thread_id: "thread-started-1",
       attempt_id: "run-started-1",
       turn_id: "turn-started-1",
+    });
+  });
+
+  it("adds the resolved connection and credential source to run events", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-llm-connection-test",
+      track(event) {
+        if (event.name === "run_started") events.push(event);
+      },
+    });
+    const engine = { name: "ai-sdk:openai" } as AgentEngine;
+    tagEngineLlmConnectionSource(engine, "app_secrets");
+
+    try {
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          authUserId: "auth-user-1",
+          run: { engine },
+        },
+        () =>
+          trackAgentChatRunStarted(
+            "thread-llm",
+            "run-llm",
+            "turn-llm",
+            "owner@example.com",
+            "slides",
+          ),
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-llm-connection-test");
+    }
+
+    expect(events[0]?.properties).toMatchObject({
+      llm_connection: "openai",
+      llm_engine: "ai-sdk:openai",
+      llm_connection_source: "app_secrets",
     });
   });
 
@@ -851,11 +891,10 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });
 
-  it("leaves the run untouched when the claim read fails transiently", async () => {
+  it("propagates transient claim read failures to the caller", async () => {
     const d = deps("background-processing");
-    d.readBackgroundRunClaim.mockRejectedValueOnce(
-      new Error("database connection reset"),
-    );
+    const readError = new Error("database connection reset");
+    d.readBackgroundRunClaim.mockRejectedValueOnce(readError);
 
     await expect(
       finalizeClaimedAgentChatProcessRunFailure(
@@ -863,7 +902,7 @@ describe("agent chat process-run failure finalization", () => {
         new Error("payload read failed"),
         d,
       ),
-    ).resolves.toBe(false);
+    ).rejects.toBe(readError);
 
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });

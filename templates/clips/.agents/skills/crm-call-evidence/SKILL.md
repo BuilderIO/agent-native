@@ -1,8 +1,8 @@
 ---
 name: crm-call-evidence
 description: >-
-  The narrow `prepare-crm-call-evidence` contract and the approved CRM A2A
-  recipe boundary.
+  The narrow `prepare-crm-call-evidence` contract and CRM call automation
+  availability.
   Use when a CRM, sales, or A2A workflow asks for call evidence, a clip link
   for a deal, or a `clip.created` automation trigger.
 ---
@@ -12,7 +12,7 @@ description: >-
 ## Rule
 
 Use `prepare-crm-call-evidence` only for a viewer-accessible recording that is
-explicitly identified by a user action or by the exact approved CRM A2A recipe.
+explicitly identified by a user action.
 Never call it to fish for a plausible clip.
 
 ## What it returns
@@ -29,9 +29,9 @@ rather than widening the payload.
 
 ## Automation triggers
 
-A CRM recipe may install a Clips-owned `clip.created` trigger only through an
-exact, user-approved A2A automation definition. Do not synthesize a trigger,
-broaden its filter, or reuse it for another recipe.
+Setting up CRM-to-Clips call automations isn't available yet. If CRM or a user
+asks for setup, say this and stop. Do not define or enable the automation,
+delegate setup back to CRM, or direct the user to set it up manually.
 
 ## Related skills
 

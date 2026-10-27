@@ -21,11 +21,34 @@ const props = {
   initialRole: "owner" as const,
   hasPassword: false,
 };
+const tabs = () =>
+  Array.from(document.querySelectorAll('[role="tab"]')).map(
+    (tab) => tab.textContent,
+  );
+
 describe("recording sharing adoption", () => {
   const harness = shareTestHarness();
   const render = (
     extra: Partial<React.ComponentProps<typeof ShareRecordingDialog>> = {},
   ) => harness.render(<ShareRecordingDialog {...props} {...extra} />);
+
+  it("orders the owner's tabs People, Agents, Embed, Social", async () => {
+    await render();
+    expect(tabs()).toEqual([
+      "shareDialog.people",
+      "shareDialog.agents",
+      "shareDialog.embed",
+      "shareDialog.social",
+    ]);
+  });
+
+  it("summarizes password and expiry beside Advanced", async () => {
+    await render({ hasPassword: true, expiresAt: "2030-01-02T12:30:00.000Z" });
+    expect(button("shareDialog.advanced").disabled).toBe(false);
+    const summary = button("shareDialog.advanced").parentElement!.textContent;
+    expect(summary).toContain("shareDialog.passwordSet");
+    expect(summary).toContain("shareDialog.expiresOn");
+  });
 
   it("holds private to organization, cancels, then retries a failed confirmation", async () => {
     await render();
@@ -138,14 +161,7 @@ describe("recording sharing adoption", () => {
       { id: "clip-test", password: "fake-test-password" },
       expect.any(Object),
     );
-    await click(
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (el) => el.textContent?.includes("playerSettings.expiry"),
-      )!,
-    );
-    const expiry = document.querySelector<HTMLInputElement>(
-      'input[type="datetime-local"]',
-    )!;
+    const expiry = document.getElementById("share-expiry") as HTMLInputElement;
     await input(expiry, "2030-01-02T12:30");
     const saveButtons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
@@ -160,15 +176,34 @@ describe("recording sharing adoption", () => {
     expect(mocks.visibility).not.toHaveBeenCalled();
   });
 
-  it("uses the controller for embed publication and preserves timestamp/autoplay code", async () => {
+  it("points a private clip's embed back to General access", async () => {
     await render();
     await click(button("shareDialog.embed"));
-    await click(button("shareDialog.makePublic"));
-    expect(mocks.visibility).toHaveBeenCalledWith({
-      resourceType: "recording",
-      resourceId: "clip-test",
-      visibility: "public",
-    });
+    expect(button("shareDialog.copyEmbedCode").disabled).toBe(true);
+    await click(button("shareDialog.changeGeneralAccess"));
+    expect(
+      document.querySelector('[role="tab"][data-state="active"]')?.textContent,
+    ).toBe("shareDialog.people");
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    expect(mocks.visibility).not.toHaveBeenCalled();
+  });
+
+  it("asks an editor to have the owner open access instead", async () => {
+    mocks.data!.role = "editor";
+    await render({ initialRole: "editor" });
+    await click(button("shareDialog.embed"));
+    expect(document.body.textContent).toContain("shareDialog.askOwnerPublic");
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (el) => el.textContent === "shareDialog.changeGeneralAccess",
+      ),
+    ).toBe(false);
+  });
+
+  it("copies a public clip's embed code with its timestamp and autoplay", async () => {
+    mocks.data!.visibility = "public";
+    await render({ initialVisibility: "public" });
+    await click(button("shareDialog.embed"));
     await click(button("shareDialog.customizeEmbed"));
     await click(document.querySelector<HTMLElement>('[role="switch"]')!);
     await input(
@@ -179,20 +214,6 @@ describe("recording sharing adoption", () => {
     expect(
       mocks.clipboard.mock.calls[mocks.clipboard.mock.calls.length - 1]?.[0],
     ).toContain("?autoplay=1&t=42");
-  });
-
-  it("shows a failed embed publication and allows retry without changing recording options", async () => {
-    await render();
-    await click(button("shareDialog.embed"));
-    mocks.visibility.mockRejectedValueOnce(new Error("publication denied"));
-    await click(button("shareDialog.makePublic"));
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
-      "publication denied",
-    );
-    expect(button("shareDialog.makePublic").disabled).toBe(false);
-    expect(mocks.update).not.toHaveBeenCalled();
-    await click(button("shareDialog.makePublic"));
-    expect(mocks.visibility).toHaveBeenCalledTimes(2);
   });
 
   it("shows known recording access while share details load without granting manage rights", async () => {
@@ -213,7 +234,7 @@ describe("recording sharing adoption", () => {
       initialVisibility: "public",
       hasPassword: true,
     });
-    expect(document.querySelector('[role="tab"]')).toBeNull();
+    expect(tabs()).toEqual(["shareDialog.embed", "shareDialog.social"]);
     expect(mocks.createLink).not.toHaveBeenCalled();
     expect(mocks.visibility).not.toHaveBeenCalled();
   });

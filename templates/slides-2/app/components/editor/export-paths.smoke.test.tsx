@@ -16,6 +16,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import messages from "@/i18n/en-US";
+
 const { getDeckMock, flushDeckSaveMock, googleDocsStatusMock } = vi.hoisted(
   () => ({
     getDeckMock: vi.fn(),
@@ -64,8 +66,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "Google Slides export is unavailable right now.",
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint": "Created in your Drive.",
-        "editorExport.googleSlidesGoTo": "Go to Google Slides",
-        "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesGoTo": messages.editorExport.googleSlidesGoTo,
+        "editorExport.googleSlidesDownloaded":
+          messages.editorExport.googleSlidesDownloaded,
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides yourself.",
         "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
@@ -263,7 +266,7 @@ describe("export paths smoke test", () => {
     await clickExport("Export to Google Slides");
 
     const open = await screen.findByRole("button", {
-      name: /Go to Google Slides/,
+      name: messages.editorExport.googleSlidesGoTo,
     });
     fireEvent.click(open);
     expect(harness.opened).toContain(
@@ -305,10 +308,14 @@ describe("export paths smoke test", () => {
     await clickExport("Export to Google Slides");
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("Downloaded for Google Slides");
+    expect(dialog.textContent).toContain(
+      messages.editorExport.googleSlidesDownloaded,
+    );
 
     const cta = Array.from(dialog.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Google Slides"),
+      button.textContent.includes(
+        messages.editorExport.googleSlidesOpenImporter,
+      ),
     );
     expect(cta?.textContent).toBe("Open Google Slides import");
     expect(cta?.textContent).not.toBe("Export to Google Slides");

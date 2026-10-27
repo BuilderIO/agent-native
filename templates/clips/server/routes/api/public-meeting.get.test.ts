@@ -304,23 +304,27 @@ describe("/api/public-meeting route", () => {
     expect(db.select).toHaveBeenCalledTimes(3);
   });
 
-  it("omits the transcript when shareTranscript is disabled", async () => {
-    mockResolveAccess.mockResolvedValue({
-      role: "viewer",
-      resource: makeMeeting({ shareTranscript: false }),
-    });
-    const db = createDbWithSelectResults([[], []]);
-    mockGetDb.mockReturnValue(db);
+  // Meetings created before transcripts defaulted on must not start showing them.
+  it.each([false, null, undefined])(
+    "omits the transcript when shareTranscript is %s",
+    async (shareTranscript) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeMeeting({ shareTranscript }),
+      });
+      const db = createDbWithSelectResults([[], []]);
+      mockGetDb.mockReturnValue(db);
 
-    const result = await handler({} as any);
+      const result = await handler({} as any);
 
-    expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
-    expect(result).toHaveProperty("meeting");
-    expect(
-      (result as { meeting: Record<string, unknown> }).meeting,
-    ).not.toHaveProperty("transcript");
-    expect(db.select).toHaveBeenCalledTimes(2);
-  });
+      expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
+      expect(result).toHaveProperty("meeting");
+      expect(
+        (result as { meeting: Record<string, unknown> }).meeting,
+      ).not.toHaveProperty("transcript");
+      expect(db.select).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("passes the signed-in viewer context to meeting access resolution", async () => {
     mockGetSession.mockResolvedValue({

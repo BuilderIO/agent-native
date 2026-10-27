@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import type { DbExec } from "../db/client.js";
 import {
   getCurrentRequestDbPoolScope,
   retainRequestDbPoolScope,
@@ -12,6 +13,11 @@ import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import { isNonProgressEventType } from "../shared/progress-events.js";
+import {
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+  isRequestedStopAbortReason,
+} from "./abort-reasons.js";
 import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -42,6 +48,7 @@ import {
   updateRunStatusIfRunning,
   markRunAborted,
   markRunAbortedAtSafeBoundary,
+  markRunThreadProjectionPending,
   getRunAbortState,
   getRunStatus,
   getRunEventsSince,
@@ -80,7 +87,12 @@ import {
 } from "./run-store.js";
 import { trackRunTerminal } from "./run-terminal-tracking.js";
 import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
+import type {
+  AgentChatEvent,
+  RunEvent,
+  RunStatus,
+  UnknownWriteCause,
+} from "./types.js";
 
 export interface ActiveRun {
   runId: string;
@@ -108,6 +120,7 @@ export interface ActiveRun {
 
 export interface StartedRun extends ActiveRun {
   finalized: Promise<void>;
+  livenessReady: Promise<boolean>;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -208,6 +221,8 @@ export function resolveRunNoProgressTimeoutMs(params: {
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
+
+const MAX_CONSECUTIVE_EMPTY_MODEL_CALLS = 3;
 
 function inFlightWorkDelta(event: AgentChatEvent): -1 | 0 | 1 {
   switch (event.type) {
@@ -397,6 +412,7 @@ function shouldCaptureRunError(err: unknown): boolean {
 export interface StartRunOptions {
   waitUntil?: (promise: Promise<unknown>) => void;
   softTimeoutMs?: number;
+  softTimeoutDeadlineAt?: number;
   useHostedSoftTimeoutDefault?: boolean;
   turnId?: string;
   agentKitApprovalContinuation?: boolean;
@@ -407,6 +423,8 @@ export interface StartRunOptions {
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
+  /** Serialized with the run insert before the run driver starts. */
+  afterRunInsert?: (tx: DbExec) => Promise<void>;
   executionLease?: boolean;
   model?: string;
   engineName?: string;
@@ -722,6 +740,8 @@ function emitRunTerminalTrackingEvent(args: {
   engineName?: string;
   userId?: string;
   attemptCount?: number;
+  blockedTool?: string;
+  blockedBy?: UnknownWriteCause;
 }): void {
   try {
     recordAgentRun({
@@ -754,6 +774,8 @@ function emitRunTerminalTrackingEvent(args: {
       model: args.model,
       engineName: args.engineName,
       attemptCount: args.attemptCount,
+      blockedTool: args.blockedTool,
+      blockedBy: args.blockedBy,
     },
     { userId: args.userId },
   );
@@ -821,6 +843,15 @@ export function startRun(
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
 ): StartedRun {
+  if (options?.runRowAlreadyInserted && options.afterRunInsert) {
+    throw new Error("Run admission checks require a new run row.");
+  }
+  if (
+    options?.softTimeoutDeadlineAt !== undefined &&
+    !Number.isFinite(options.softTimeoutDeadlineAt)
+  ) {
+    throw new Error("Run soft-timeout deadline must be a finite timestamp.");
+  }
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
     if (existingRunId === runId) {
@@ -891,6 +922,7 @@ export function startRun(
       chunkAbort = new AbortController();
       armChunkSoftTimeout();
       lastRealProgressAt = Date.now();
+      consecutiveEmptyModelCalls = 0;
       return chunkAbort.signal;
     },
   };
@@ -898,9 +930,13 @@ export function startRun(
   let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
+  let resolveLivenessReady: (ready: boolean) => void = () => {};
   const finalized = new Promise<void>((resolve, reject) => {
     resolveFinalized = resolve;
     rejectFinalized = reject;
+  });
+  const livenessReady = new Promise<boolean>((resolve) => {
+    resolveLivenessReady = resolve;
   });
   void finalized.catch(() => {});
   const run: StartedRun = {
@@ -918,6 +954,7 @@ export function startRun(
     nextEventSeq: 0,
     startedAt: Date.now(),
     finalized,
+    livenessReady,
   };
 
   activeRuns.set(runId, run);
@@ -960,13 +997,16 @@ export function startRun(
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
   const insertOptions =
-    options?.dispatchMode || options?.turnInitiator
+    options?.dispatchMode || options?.turnInitiator || options?.afterRunInsert
       ? {
           ...(options?.dispatchMode
             ? { dispatchMode: options.dispatchMode }
             : {}),
           ...(options?.turnInitiator
             ? { turnInitiator: options.turnInitiator }
+            : {}),
+          ...(options.afterRunInsert
+            ? { afterInsert: options.afterRunInsert }
             : {}),
         }
       : undefined;
@@ -992,6 +1032,13 @@ export function startRun(
     )
       throw error;
   });
+  const waitForRunInsert = async (): Promise<void> => {
+    try {
+      await insertRunPromise;
+    } catch (error) {
+      if (!servicePrincipalStartRefused) throw error;
+    }
+  };
 
   let executionLeaseClaimFailed = false;
   const executionFencePromise: Promise<ExecutionFence | undefined> =
@@ -1022,12 +1069,18 @@ export function startRun(
             return undefined;
           })
       : Promise.resolve(undefined);
-  const withWorkerFence = async <T>(work: () => Promise<T>): Promise<T> => {
+  const withWorkerFence = async <T>(
+    work: () => Promise<T>,
+    fenceOptions?: { outlivesStop?: boolean },
+  ): Promise<T> => {
     if (!options?.executionLease) return work();
     return withExecutionLeaseRequested(async () => {
       const fence = await executionFencePromise;
       if (!fence) throw new MissingExecutionFenceError();
-      return withExecutionFence(fence, work);
+      return withExecutionFence(
+        fenceOptions?.outlivesStop ? { ...fence, outlivesStop: true } : fence,
+        work,
+      );
     });
   };
 
@@ -1237,7 +1290,6 @@ export function startRun(
     scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
-    if (event.type === "stream_keepalive") return false;
     if (event.type === "clear") {
       for (const [key, bytes] of preparingActivityBytes) {
         const toolKey = preparingActivityTools.get(key) ?? key;
@@ -1248,8 +1300,8 @@ export function startRun(
       }
       preparingActivityBytes.clear();
       preparingActivityTools.clear();
-      return false;
     }
+    if (isNonProgressEventType(event.type)) return false;
     if (event.type === "activity" && isPreparingActionActivityEvent(event)) {
       const toolKey = event.tool?.trim() || event.label.trim();
       const activityKey = `${toolKey}:${event.id?.trim() || "no-id"}`;
@@ -1326,6 +1378,11 @@ export function startRun(
   };
 
   let lastRealProgressAt = Date.now();
+  // Every completed model call refreshes the silence clock (its result is still
+  // being processed), so a loop of calls that produce no text, tool call or
+  // result is caught by counting consecutive empty calls instead.
+  let consecutiveEmptyModelCalls = 0;
+  let modelCallHadProgress = false;
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
   let inFlightMarkerWrite = Promise.resolve();
@@ -1600,7 +1657,9 @@ export function startRun(
     if (run.status !== "running" || abort.signal.aborted) return;
     if (inFlightWorkCount > 0) return;
     const silentForMs = Date.now() - lastRealProgressAt;
-    if (silentForMs < noProgressTimeoutMs) return;
+    const emptyCallLoop =
+      consecutiveEmptyModelCalls > MAX_CONSECUTIVE_EMPTY_MODEL_CALLS;
+    if (!emptyCallLoop && silentForMs < noProgressTimeoutMs) return;
     const lastEventType = run.events.at(-1)?.event.type;
     if (!chunkAbort) {
       console.error(
@@ -1704,17 +1763,24 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
+  let livenessResolved = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
       (options?.executionLease
-        ? executionFencePromise.then((fence) =>
-            fence ? renewTurnExecutionLease(fence) : Promise.resolve(),
-          )
-        : updateRunHeartbeat(runId)
+        ? executionFencePromise.then(async (fence) => {
+            if (!fence) return false;
+            await renewTurnExecutionLease(fence);
+            return true;
+          })
+        : updateRunHeartbeat(runId).then(() => true)
       )
-        .then(() => {
+        .then((livenessConfirmed) => {
           consecutiveHeartbeatFailures = 0;
+          if (livenessConfirmed && !livenessResolved) {
+            livenessResolved = true;
+            resolveLivenessReady(true);
+          }
         })
         .catch((error) => {
           if (
@@ -1722,7 +1788,7 @@ export function startRun(
             error?.code === "stale_execution_fence" &&
             !completionInProgress
           ) {
-            abortInMemoryRun(run, "execution-lease-lost");
+            abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
           }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {
@@ -1749,6 +1815,16 @@ export function startRun(
     useHostedDefault: options?.useHostedSoftTimeoutDefault === true,
     backgroundFunction: options?.backgroundFunction === true,
   });
+  const hasSoftTimeout =
+    softTimeoutMs > 0 || options?.softTimeoutDeadlineAt !== undefined;
+  const runDeadlineAt = hasSoftTimeout
+    ? Math.min(
+        softTimeoutMs > 0
+          ? Date.now() + softTimeoutMs
+          : Number.POSITIVE_INFINITY,
+        options?.softTimeoutDeadlineAt ?? Number.POSITIVE_INFINITY,
+      )
+    : null;
   const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({
     softTimeoutMs,
     backgroundFunction: options?.backgroundFunction === true,
@@ -1756,15 +1832,18 @@ export function startRun(
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
   const softTimeoutTimer =
-    softTimeoutMs > 0 && !recoverChunkBoundaries
-      ? setTimeout(() => {
-          reachRunBoundary("run_timeout", {
-            lastEventType: run.events.at(-1)?.event.type,
-          });
-        }, softTimeoutMs)
+    hasSoftTimeout && !recoverChunkBoundaries
+      ? setTimeout(
+          () => {
+            const lastEventType = run.events.at(-1)?.event.type;
+            reachRunBoundary("run_timeout", {
+              ...(lastEventType === undefined ? {} : { lastEventType }),
+            });
+          },
+          Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
+        )
       : null;
-  if (recoverChunkBoundaries && softTimeoutMs > 0) {
-    const runDeadlineAt = Date.now() + softTimeoutMs;
+  if (recoverChunkBoundaries && hasSoftTimeout) {
     recoverableRunDeadlineAt = runDeadlineAt;
     armChunkSoftTimeout = () => {
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
@@ -1776,7 +1855,7 @@ export function startRun(
             lastEventType: run.events.at(-1)?.event.type,
           });
         },
-        Math.max(0, runDeadlineAt - Date.now()),
+        Math.max(0, (runDeadlineAt ?? Date.now()) - Date.now()),
       );
     };
     armChunkSoftTimeout();
@@ -1831,11 +1910,8 @@ export function startRun(
     eventData: string,
     eventAt: number,
   ): Promise<void> => {
-    const terminal = isTerminalRunEvent(runEvent.event);
-    const requireInserted =
-      runEvent.event.type === "tool_start" ||
-      (terminal && !servicePrincipalStartRefused);
-    if (requireInserted) await insertRunPromise;
+    await waitForRunInsert();
+    const requireInserted = !servicePrincipalStartRefused;
     const write = () =>
       insertRunEvent(runId, runEvent.seq, eventData, {
         eventAt,
@@ -1872,7 +1948,16 @@ export function startRun(
     trackInFlightWork(runEvent.event);
     if (shouldBumpProgressForEvent(runEvent.event)) {
       lastRealProgressAt = Date.now();
+      consecutiveEmptyModelCalls = 0;
+      modelCallHadProgress = true;
       bumpProgressIfDue();
+    } else if (runEvent.event.type === "model_stream") {
+      if (runEvent.event.status === "start") {
+        modelCallHadProgress = false;
+      } else {
+        lastRealProgressAt = Date.now();
+        if (!modelCallHadProgress) consecutiveEmptyModelCalls++;
+      }
     }
   };
 
@@ -1936,9 +2021,13 @@ export function startRun(
             publications: [],
             write: () => {
               if (openEventBatch === batch) openEventBatch = null;
-              return retryOnce(() =>
-                withWorkerFence(() => insertRunEvents(runId, batch.events)),
-              );
+              return (async () => {
+                await waitForRunInsert();
+                if (servicePrincipalStartRefused) return;
+                await retryOnce(() =>
+                  withWorkerFence(() => insertRunEvents(runId, batch.events)),
+                );
+              })();
             },
           },
         };
@@ -2081,6 +2170,8 @@ export function startRun(
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
+      let runTerminalBlockedTool: string | undefined;
+      let runTerminalBlockedBy: UnknownWriteCause | undefined;
       let terminalPersistenceEstablished = false;
       let continuationStatusPersistedBeforeEvent = false;
       let suppressContinuationEvent = false;
@@ -2154,6 +2245,9 @@ export function startRun(
           ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
           : null;
       };
+      const stoppedByRequest = () =>
+        run.status === "aborted" &&
+        isRequestedStopAbortReason(run.abortReason ?? "");
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
       if (
@@ -2178,7 +2272,9 @@ export function startRun(
                 }
               : run;
           if (!executionLeaseClaimFailed) {
-            await withWorkerFence(async () => onComplete(completionRun));
+            await withWorkerFence(async () => onComplete(completionRun), {
+              outlivesStop: stoppedByRequest(),
+            });
           }
           run.continuationTerminalEvent ??=
             completionRun.continuationTerminalEvent;
@@ -2449,7 +2545,7 @@ export function startRun(
         } else if (
           !executionLeaseClaimFailed &&
           (run.abortReason === "superseded" ||
-            run.abortReason === "execution_lease_lost")
+            run.abortReason === EXECUTION_LEASE_LOST_ABORT_REASON)
         ) {
           terminalPersistenceEstablished = false;
         } else {
@@ -2470,6 +2566,20 @@ export function startRun(
             terminalPersistenceEstablished = false;
             reportTerminalStatusPersistenceError(error);
             throw error;
+          }
+        }
+        if (
+          completionError &&
+          !executionLeaseClaimFailed &&
+          stoppedByRequest()
+        ) {
+          // The abort already made the run terminal, so no later status write
+          // carries the projection retry, and the reply it wrote would never
+          // reach the thread.
+          try {
+            await markRunThreadProjectionPending(runId);
+          } catch (error) {
+            reportTerminalStatusPersistenceError(error);
           }
         }
       } else {
@@ -2516,6 +2626,8 @@ export function startRun(
             error?: string;
             errorCode?: string;
             details?: string;
+            blockedTool?: string;
+            blockedBy?: UnknownWriteCause;
           };
           if (ev.type === "missing_api_key") {
             errorCode = LLM_MISSING_CREDENTIALS_ERROR_CODE;
@@ -2524,6 +2636,8 @@ export function startRun(
           } else if (ev.type === "error") {
             errorCode = ev.errorCode;
             errorDetail = ev.error ?? ev.details;
+            runTerminalBlockedTool = ev.blockedTool;
+            runTerminalBlockedBy = ev.blockedBy;
             break;
           }
         }
@@ -2575,6 +2689,8 @@ export function startRun(
           status: persistedStatus,
           terminalReason,
           errorCode: runTerminalErrorCode,
+          blockedTool: runTerminalBlockedTool,
+          blockedBy: runTerminalBlockedBy,
           dispatchMode: options?.dispatchMode,
           abortReason: run.abortReason,
           durationMs: Date.now() - run.startedAt,
@@ -2590,6 +2706,10 @@ export function startRun(
     })
     .finally(async () => {
       clearInterval(heartbeatTimer);
+      if (!livenessResolved) {
+        livenessResolved = true;
+        resolveLivenessReady(false);
+      }
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);

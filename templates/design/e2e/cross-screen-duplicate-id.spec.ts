@@ -171,7 +171,7 @@ async function editSelectedWidth(page: Page, width: string) {
   await expect(input).toBeVisible();
   await input.fill(width);
   await input.press("Enter");
-  await expect(input).toHaveValue(`${width}px`);
+  await expect(input).toHaveValue(width);
 }
 
 const LEGACY_SELECTION_ID = buildCodeLayerProjection(SCREEN_A_HTML).nodes.find(
@@ -184,9 +184,7 @@ async function openLegacySelectionLink(page: Page, query: string) {
   await page.goto(appPath(query), { waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
 }
 
@@ -207,7 +205,7 @@ test("a legacy unscoped selection link resolves inside the Screen the link names
   await expect.poll(() => app.selectedLayers()).toEqual(["Screen A Button"]);
   await expect(
     app.page.getByRole("textbox", { name: /^W(?: size in pixels)?$/ }),
-  ).toHaveValue("100px");
+  ).toHaveValue("100");
 });
 
 test("a legacy unscoped selection link without a Screen selects nothing", async ({
@@ -255,7 +253,7 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   const widthInput = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
-  await expect(widthInput).toHaveValue("100px");
+  await expect(widthInput).toHaveValue("100");
   await editSelectedWidth(page, "105");
   await expect
     .poll(() => screenWidths(app, screens))
@@ -264,7 +262,7 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   const screenALayer = layerRows.filter({ hasText: "Screen A Button" });
   await expect(screenALayer).toHaveCount(1);
   await screenALayer.click();
-  await expect(widthInput).toHaveValue("105px");
+  await expect(widthInput).toHaveValue("105");
   await editSelectedWidth(page, "111");
   await expect
     .poll(() => screenWidths(app, screens))
@@ -287,17 +285,17 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   await expect
     .poll(() => new URL(page.url()).searchParams.get("screen"))
     .toBe(screenBId);
-  await expect(widthInput).toHaveValue("140px");
+  await expect(widthInput).toHaveValue("140");
 
   await clickNode(app, SHARED_NODE_ID, screenBId);
-  await expect(widthInput).toHaveValue("140px");
+  await expect(widthInput).toHaveValue("140");
   await editSelectedWidth(page, "222");
   await expect
     .poll(() => screenWidths(app, screens))
     .toEqual(["111px", "222px"]);
 
   await screenBLayer.click();
-  await expect(widthInput).toHaveValue("222px");
+  await expect(widthInput).toHaveValue("222");
   await editSelectedWidth(page, "233");
   await expect
     .poll(() => screenWidths(app, screens))
@@ -307,16 +305,14 @@ test("identical authored node IDs stay scoped to their Screen", async ({
   await page.reload();
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
+  ).toBeVisible();
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   await expandAllLayers(page);
   expect(await screenWidths(app, screens)).toEqual(["111px", "233px"]);
   await layerRows.filter({ hasText: "Screen A Button" }).click();
-  await expect(widthInput).toHaveValue("111px");
+  await expect(widthInput).toHaveValue("111");
   await layerRows.filter({ hasText: "Screen B Button" }).click();
-  await expect(widthInput).toHaveValue("233px");
+  await expect(widthInput).toHaveValue("233");
 });
 
 test("structural commands stay in the selected Screen with duplicate authored IDs", async ({
@@ -346,7 +342,7 @@ test("structural commands stay in the selected Screen with duplicate authored ID
   const widthInput = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
-  await expect(widthInput).toHaveValue("100px");
+  await expect(widthInput).toHaveValue("100");
   await page.keyboard.press("ArrowRight");
   await expect
     .poll(async () => {
@@ -380,12 +376,24 @@ test("structural commands stay in the selected Screen with duplicate authored ID
   ).toContainText("Group");
   await groupRow.click();
 
-  const fillSection = page
+  // A Group has no Fill of its own; its layers' colors are Selection colors.
+  const selectionColors = page
     .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Selection colors",
+        exact: true,
+      }),
+    })
     .first();
-  await expect(fillSection).toBeVisible();
-  await fillSection.getByRole("button", { name: "Open color picker" }).click();
+  await expect(selectionColors).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Fill", exact: true }),
+  ).toHaveCount(0);
+  await selectionColors
+    .getByRole("button", { name: "Show selection colors" })
+    .click();
+  await selectionColors.getByRole("button", { name: /^#dc2626$/i }).click();
   const hex = page.getByRole("textbox", { name: "Hex", exact: true });
   await expect(hex).toHaveValue("DC2626");
   await hex.fill("3B82F6");

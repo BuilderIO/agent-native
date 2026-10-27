@@ -11,6 +11,7 @@ import {
   acpUpdateToHarnessEvents,
   buildAcpPromptBlocks,
   createAcpHarnessAdapter,
+  resolveAcpResumeCwd,
   resolveAcpWorkspacePath,
   selectAcpPermissionOption,
 } from "./acp-adapter.js";
@@ -282,6 +283,23 @@ describe("resolveAcpWorkspacePath", () => {
 
   it("rejects empty paths", () => {
     expect(() => resolveAcpWorkspacePath(root, "")).toThrow(/non-empty string/);
+  });
+});
+
+describe("resolveAcpResumeCwd", () => {
+  it("restores an absolute checkpoint directory and validates it", async () => {
+    expect(await resolveAcpResumeCwd(os.tmpdir(), "/fallback")).toBe(
+      path.resolve(os.tmpdir()),
+    );
+    expect(await resolveAcpResumeCwd(undefined, os.tmpdir())).toBe(
+      path.resolve(os.tmpdir()),
+    );
+    await expect(
+      resolveAcpResumeCwd("relative/workspace", os.tmpdir()),
+    ).rejects.toThrow(/must be an absolute path/);
+    await expect(
+      resolveAcpResumeCwd(process.execPath, os.tmpdir()),
+    ).rejects.toThrow(/not a directory/);
   });
 });
 

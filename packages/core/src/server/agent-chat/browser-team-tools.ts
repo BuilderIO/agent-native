@@ -5,7 +5,11 @@ import {
   ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   normalizeAgentTeamProgressResult,
 } from "../../action-ui.js";
-import { fail, type ActionRunContext } from "../../action.js";
+import {
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "../../action.js";
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
@@ -14,10 +18,12 @@ import {
   setBuiltinMcpCapabilityEnabled,
   type BuiltinMcpCapabilityId,
 } from "../../mcp-client/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "../builder-browser.js";
+import type { BuilderOAuthPermissionScope } from "../builder-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "../request-context.js";
 import { getMcpManagerForCurrentRequest } from "./mcp-glue.js";
 
@@ -151,6 +157,48 @@ function buildExtensionPromotionPrompt(
   };
 }
 
+type BuilderRequestConnection =
+  | { status: "connected" }
+  | { status: "disconnected" }
+  /** The grant exists but is expired or lacks `requiredScope`. */
+  | { status: "reauthorize"; message: string };
+
+/**
+ * New Builder connections store only an OAuth grant, so a missing legacy key
+ * pair does not mean Builder is disconnected. An unusable grant must not fall
+ * back to a deploy-level key the user never authorized. `requiredScope` is
+ * the scope of the Builder call the tool makes next, so a grant without it
+ * is reported before that call fails.
+ */
+async function builderConnectionForRequest(
+  creds: {
+    privateKey: string | null;
+    publicKey: string | null;
+  },
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestConnection> {
+  const { resolveBuilderRequestAuthorization } =
+    await import("../builder-api-auth.js");
+  try {
+    const authorization = await resolveBuilderRequestAuthorization({
+      requiredScope,
+    });
+    if (authorization?.source === "oauth") return { status: "connected" };
+  } catch (error) {
+    if (isActionContractError(error)) {
+      return { status: "reauthorize", message: error.message };
+    }
+    throw error;
+  }
+  const { getBuilderCredentialAuthFailure } =
+    await import("../credential-provider.js");
+  return creds.privateKey &&
+    creds.publicKey &&
+    !(await getBuilderCredentialAuthFailure(creds))
+    ? { status: "connected" }
+    : { status: "disconnected" };
+}
+
 export function createBuilderBrowserTool(deps: {
   getOrigin: () => string;
   getOwner?: () => string | null | undefined;
@@ -226,15 +274,17 @@ export function createBuilderBrowserTool(deps: {
         },
       },
       run: async (args) => {
-        const { getBuilderCredentialAuthFailure, resolveBuilderCredentials } =
-          await import("../credential-provider.js");
+        const [{ resolveBuilderCredentials }, { BUILDER_OAUTH_SCOPE }] =
+          await Promise.all([
+            import("../credential-provider.js"),
+            import("../builder-oauth.js"),
+          ]);
         const creds = await resolveBuilderCredentials();
-        const authFailure = await getBuilderCredentialAuthFailure(creds);
-        const configured = !!(
-          creds.privateKey &&
-          creds.publicKey &&
-          !authFailure
-        );
+        // The same scope the Builder status route checks. A grant that needs
+        // re-authorizing renders unconfigured, so the card offers to connect.
+        const configured =
+          (await builderConnectionForRequest(creds, BUILDER_OAUTH_SCOPE))
+            .status === "connected";
         const branchProjectId = await resolveBuilderBranchProjectId();
         let prompt = typeof args?.prompt === "string" ? args.prompt : "";
         const extensionId =
@@ -411,7 +461,20 @@ export function createBuilderBrowserTool(deps: {
         const { resolveBuilderCredentials } =
           await import("../credential-provider.js");
         const creds = await resolveBuilderCredentials();
-        if (!creds.privateKey || !creds.publicKey) {
+        // requestBuilderBrowserConnection authorizes with this scope.
+        const builderConnection = await builderConnectionForRequest(
+          creds,
+          "builder:browser:connect",
+        );
+        if (builderConnection.status === "reauthorize") {
+          // connect-builder may still show this grant as connected (it checks
+          // a different scope), so point at re-authorizing, not at the card.
+          return JSON.stringify({
+            error: "builder-reauthorization-required",
+            message: builderConnection.message,
+          });
+        }
+        if (builderConnection.status === "disconnected") {
           return JSON.stringify({
             error: "builder-not-connected",
             message:
@@ -480,7 +543,7 @@ export function createBuilderBrowserTool(deps: {
     delete entries["set-computer-use"];
   }
 
-  return entries;
+  return frameworkMcpTools(entries);
 }
 
 export function createTeamTools(deps: {
@@ -527,7 +590,7 @@ export function createTeamTools(deps: {
     }
     return task;
   };
-  return {
+  return frameworkMcpTools({
     "agent-teams": {
       dedupe: false,
       tool: {
@@ -787,5 +850,5 @@ export function createTeamTools(deps: {
         );
       },
     },
-  };
+  });
 }
