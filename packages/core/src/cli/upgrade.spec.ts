@@ -1369,6 +1369,7 @@ describe("runUpgrade", () => {
             "@agent-native/dispatch": "latest",
             "@agent-native/otel": "latest",
           },
+          devDependencies: { "@agent-native/dispatch": "workspace:*" },
         },
       },
     });
@@ -1387,6 +1388,7 @@ describe("runUpgrade", () => {
           const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
           manifest.dependencies["@agent-native/dispatch"] = "^0.40.40";
           manifest.dependencies["@agent-native/otel"] = "^0.1.25";
+          manifest.devDependencies["@agent-native/dispatch"] = "^0.40.40";
           fs.writeFileSync(
             manifestPath,
             `${JSON.stringify(manifest, null, 2)}\n`,
@@ -1431,6 +1433,41 @@ describe("runUpgrade", () => {
     );
     expect(appPackage.dependencies["@agent-native/dispatch"]).toBe("0.40.40");
     expect(appPackage.dependencies["@agent-native/otel"]).toBe("0.1.25");
+    expect(appPackage.devDependencies["@agent-native/dispatch"]).toBe(
+      "workspace:*",
+    );
+  });
+
+  it("rejects invalid package names before spawn", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/dispatch;echo": "latest" },
+      },
+    });
+    const spawnCalls: string[] = [];
+    const { io, err } = captureIo({
+      spawn: (command) => {
+        spawnCalls.push(command);
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    expect(
+      await runUpgrade(
+        ["--cwd", root, "--skip-skills", "--skip-verify"],
+        io,
+      ),
+    ).toBe(1);
+    expect(spawnCalls).toEqual([]);
+    expect(err.join("\n")).toContain("invalid @agent-native package name");
   });
 
   it("keeps unrelated specs during Yarn Berry refresh", async () => {

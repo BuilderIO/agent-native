@@ -16,7 +16,7 @@ import {
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
   _copyDir,
-  _curlDownloadArgs,
+  _downloadToFile,
   _downloadAndExtract,
   _ensureScaffoldEmailBrandingConfig,
   _fixPackageJsonName,
@@ -876,16 +876,34 @@ describe("template archive downloads", () => {
     }
   });
 
-  it("writes curl response bodies to the archive file", () => {
-    const args = _curlDownloadArgs(
-      "https://example.test/archive.tar.gz",
-      "/tmp/archive.tar.gz",
-    );
-    const outputIndex = args.indexOf("--output");
+  it("stops unknown-length archive downloads at the size limit", async () => {
+    const server = createServer((_request, response) => {
+      response.write("12345678");
+      response.end("12345678");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
 
-    expect(outputIndex).toBeGreaterThanOrEqual(0);
-    expect(args[outputIndex + 1]).toBe("/tmp/archive.tar.gz");
-    expect(args.at(-1)).toBe("https://example.test/archive.tar.gz");
+    const archivePath = path.join(tmpDir, "oversized.tar.gz");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Archive test server did not get a TCP address.");
+      }
+      await expect(
+        _downloadToFile(
+          `http://127.0.0.1:${address.port}/archive.tar.gz`,
+          archivePath,
+          12,
+        ),
+      ).rejects.toThrow("Archive download exceeds the 12-byte limit.");
+      expect(fs.existsSync(archivePath)).toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+      fs.rmSync(archivePath, { force: true });
+    }
   });
 });
 

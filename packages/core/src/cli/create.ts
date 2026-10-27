@@ -1,5 +1,7 @@
-import { execFile, execFileSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import fs from "fs";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -42,6 +44,7 @@ const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const MAX_TEMPLATE_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
@@ -2724,29 +2727,6 @@ function materializeArchiveSymlinks(
   }
 }
 
-function execFileBuffer(
-  command: string,
-  args: string[],
-  options: { maxBuffer: number },
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { ...options, encoding: "buffer" },
-      (error, stdout, stderr) => {
-        if (error) {
-          const detail = stderr?.toString().trim();
-          if (detail) error.message = `${error.message}: ${detail}`;
-          reject(error);
-          return;
-        }
-        resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
-      },
-    );
-  });
-}
-
 function extractTarball(
   tarPath: string,
   destDir: string,
@@ -2774,6 +2754,64 @@ function extractTarball(
   }
 }
 
+export async function _downloadToFile(
+  url: string,
+  tarPath: string,
+  maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
+): Promise<void> {
+  const controller = new AbortController();
+  const connectTimeout = setTimeout(() => controller.abort(), 10_000);
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(connectTimeout);
+  }
+
+  const downloadTimeout = setTimeout(() => controller.abort(), 120_000);
+  try {
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Archive download failed with HTTP ${response.status}.`);
+    }
+    if (!response.body) {
+      throw new Error("Archive download returned an empty response.");
+    }
+
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body.cancel();
+      throw new Error(`Archive download exceeds the ${maxBytes}-byte limit.`);
+    }
+
+    let downloadedBytes = 0;
+    const sizeLimit = new Transform({
+      transform(chunk: Uint8Array, _encoding, callback) {
+        downloadedBytes += chunk.byteLength;
+        if (downloadedBytes > maxBytes) {
+          callback(
+            new Error(`Archive download exceeds the ${maxBytes}-byte limit.`),
+          );
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+
+    await pipeline(
+      Readable.fromWeb(response.body),
+      sizeLimit,
+      fs.createWriteStream(tarPath),
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    fs.rmSync(tarPath, { force: true });
+    throw error;
+  } finally {
+    clearTimeout(downloadTimeout);
+  }
+}
+
 export async function _downloadAndExtract(
   url: string,
   destDir: string,
@@ -2785,13 +2823,7 @@ export async function _downloadAndExtract(
   fs.mkdirSync(destDir, { recursive: true });
   const tarPath = path.join(destDir, ".download.tar.gz");
   try {
-    await execFileBuffer(
-      "curl",
-      _curlDownloadArgs(url, tarPath),
-      {
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
+    await _downloadToFile(url, tarPath);
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);
     }
@@ -2799,20 +2831,6 @@ export async function _downloadAndExtract(
   } finally {
     fs.rmSync(tarPath, { force: true });
   }
-}
-
-export function _curlDownloadArgs(url: string, tarPath: string): string[] {
-  return [
-    "--fail-with-body",
-    "--connect-timeout",
-    "10",
-    "--max-time",
-    "120",
-    "-sSL",
-    "--output",
-    tarPath,
-    url,
-  ];
 }
 
 function validateCommunityArchive(tarPath: string): void {

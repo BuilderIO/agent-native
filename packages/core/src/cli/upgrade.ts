@@ -23,6 +23,8 @@ import {
 } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+const SAFE_AGENT_NATIVE_PACKAGE_NAME =
+  /^@agent-native\/[a-z0-9][a-z0-9._-]*$/;
 // New workspaces exclude every first-party package from pnpm's release-age
 // gate; older ones only excluded core, so same-day dependencies of a fresh
 // core release failed to install.
@@ -1023,20 +1025,33 @@ function installArgs(pm: "pnpm" | "npm" | "yarn"): string[] {
   return ["install"];
 }
 
+type PinnableSection = (typeof PINNABLE_SECTIONS)[number];
+
+interface LatestAgentNativeDependencyDeclaration {
+  section: PinnableSection;
+  name: string;
+  originalVersion: string;
+  restoreToLatest: boolean;
+}
+
 interface LatestAgentNativeDependencyGroup {
   file: string;
   names: string[];
+  declarations: LatestAgentNativeDependencyDeclaration[];
 }
 
 function collectLatestAgentNativeDependencies(
   project: UpgradeProject,
   pendingBumps: AgentNativeDepBump[],
 ): LatestAgentNativeDependencyGroup[] {
-  const byFile = new Map<string, Set<string>>();
-  const add = (file: string, name: string) => {
-    const names = byFile.get(file) ?? new Set<string>();
+  const byFile = new Map<string, Map<PinnableSection, Set<string>>>();
+  const add = (file: string, section: PinnableSection, name: string) => {
+    const sections =
+      byFile.get(file) ?? new Map<PinnableSection, Set<string>>();
+    const names = sections.get(section) ?? new Set<string>();
     names.add(name);
-    byFile.set(file, names);
+    sections.set(section, names);
+    byFile.set(file, sections);
   };
 
   for (const file of project.packageFiles) {
@@ -1048,16 +1063,43 @@ function collectLatestAgentNativeDependencies(
           isAgentNativePackageName(name) &&
           version.trim() === PINNABLE_VERSION
         ) {
-          add(file, name);
+          add(file, section, name);
         }
       }
     }
   }
-  for (const bump of pendingBumps) add(bump.file, bump.name);
+  for (const bump of pendingBumps) {
+    add(bump.file, bump.section, bump.name);
+  }
 
   return [...byFile]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([file, names]) => ({ file, names: [...names].sort() }));
+    .map(([file, targetSections]) => {
+      const names = [
+        ...new Set(
+          [...targetSections.values()].flatMap((section) => [...section]),
+        ),
+      ].sort();
+      const targetNames = new Set(names);
+      const read = readJsonFile(file);
+      const declarations: LatestAgentNativeDependencyDeclaration[] = [];
+      if (read.ok) {
+        for (const section of PINNABLE_SECTIONS) {
+          for (const [name, originalVersion] of Object.entries(
+            read.value[section] ?? {},
+          )) {
+            if (!targetNames.has(name)) continue;
+            declarations.push({
+              section,
+              name,
+              originalVersion,
+              restoreToLatest: targetSections.get(section)?.has(name) ?? false,
+            });
+          }
+        }
+      }
+      return { file, names, declarations };
+    });
 }
 
 function yarnMajorVersion(
@@ -1089,6 +1131,16 @@ function refreshLatestAgentNativeDependencies(
   stdio: "inherit" | "pipe",
 ): { ok: true } | { ok: false; message: string } {
   if (groups.length === 0) return { ok: true };
+  if (
+    groups.some(({ names }) =>
+      names.some((name) => !SAFE_AGENT_NATIVE_PACKAGE_NAME.test(name)),
+    )
+  ) {
+    return {
+      ok: false,
+      message: "Refusing to refresh an invalid @agent-native package name.",
+    };
+  }
 
   const yarnMajor = pm === "yarn" ? yarnMajorVersion(project, io) : null;
   if (pm === "yarn" && yarnMajor === null) {
@@ -1143,14 +1195,17 @@ function refreshLatestAgentNativeDependencies(
         }`,
       };
     }
-    for (const section of PINNABLE_SECTIONS) {
-      const dependencies = read.value[section];
-      if (!dependencies) continue;
-      for (const name of group.names) {
-        if (dependencies[name] !== undefined) {
-          dependencies[name] = PINNABLE_VERSION;
-        }
+    for (const declaration of group.declarations) {
+      const dependencies = read.value[declaration.section];
+      if (
+        !dependencies ||
+        dependencies[declaration.name] === undefined
+      ) {
+        continue;
       }
+      dependencies[declaration.name] = declaration.restoreToLatest
+        ? PINNABLE_VERSION
+        : declaration.originalVersion;
     }
     writeJsonFile(group.file, read.value);
   }
