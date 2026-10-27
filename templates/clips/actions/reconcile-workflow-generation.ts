@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   compareAndSetManyAppState,
@@ -308,7 +308,10 @@ export default defineAction({
         requestId,
       );
       if (tabId !== expectedTabId) {
-        throw new Error("Invalid workflow generation session");
+        fail("Invalid workflow generation session", {
+          errorCode: "invalid_workflow_generation_session",
+          statusCode: 400,
+        });
       }
       await abortTurnByRefDurably(
         tabId,
