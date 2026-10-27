@@ -12,6 +12,7 @@ import {
 import {
   embedTokenStorageKey,
   mcpChatBridgeStorageKey,
+  resolveMcpAppEmbedBasePath,
 } from "../shared/mcp-app-widget-embed.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
@@ -310,7 +311,27 @@ describe("embedApp", () => {
       appUrl: URL,
       appConfig: Record<string, unknown>,
     ) => Record<string, unknown>;
-    const installRuntimeSource = functionSource("installExternalEmbedRuntime");
+    const resolverSource = `var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};`;
+    const installRuntimeSource = functionSource(
+      "installExternalEmbedRuntime",
+    ).replace(
+      resolverSource,
+      `var resolveMcpAppEmbedBasePath = function(_mode, target, options) {
+        var pathname = String(target).split(/[?#]/, 1)[0] || "/";
+        var mounts = Array.isArray(options.workspaceAppMountPaths)
+          ? options.workspaceAppMountPaths
+          : [];
+        var match = mounts
+          .filter(function (mount) { return pathname === mount || pathname.startsWith(mount + "/"); })
+          .sort(function (left, right) { return right.length - left.length; })[0];
+        if (match) return match;
+        if (options.explicitRootPath === true) return "";
+        return undefined;
+      };`,
+    );
+    expect(installRuntimeSource).toContain(
+      "var resolveMcpAppEmbedBasePath = function(_mode",
+    );
     const installRuntime = new Function(
       "window",
       "location",
