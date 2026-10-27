@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
@@ -191,18 +193,60 @@ async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
  * The caller is already failing with the error that matters, so a failed
  * cleanup is logged rather than thrown in its place.
  */
-async function discardUnstoredGmailDraft(
-  ownerEmail: string,
-  saved: { accountEmail: string; draftId: string },
-): Promise<void> {
+async function discardUnstoredGmailDraft(gmailDraft: GmailDraftRef) {
   try {
-    await deleteGmailDraft({
-      ownerEmail,
-      accountEmail: saved.accountEmail,
-      draftId: saved.draftId,
-    });
+    await deleteGmailDraft(gmailDraft);
   } catch (error) {
     console.error("[manage-draft] unstored Gmail draft cleanup failed:", error);
+  }
+}
+
+type GmailDraftRef = {
+  ownerEmail: string;
+  accountEmail: string;
+  draftId: string;
+};
+
+/**
+ * Stores a new compose draft only while its key is empty, and returns
+ * whether it did. The write can commit before it throws, so a throw rereads
+ * the key, and finding this draft there counts as stored. Anything else
+ * means it wasn't: the Gmail draft this call saved, if any, is removed and
+ * the error rethrown. If the reread fails too, the outcome is unknown, so
+ * that Gmail draft stays (Mail may point at it) and the error says to check
+ * before creating the draft again.
+ */
+async function storeNewComposeDraft(
+  draft: ComposeState,
+  newGmailDraft: GmailDraftRef | null,
+): Promise<boolean> {
+  const key = `compose-${draft.id}`;
+  try {
+    return await compareAndSetAppState(key, null, draft);
+  } catch (error) {
+    let stored: Record<string, unknown> | null;
+    try {
+      stored = await readAppState(key);
+    } catch {
+      const kept = newGmailDraft
+        ? `, so it kept the Gmail draft it saved (${newGmailDraft.draftId})`
+        : "";
+      // Mail's ES2020 lib has no Error options, so cause is set directly.
+      throw Object.assign(
+        new Error(
+          `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
+        ),
+        { cause: error },
+      );
+    }
+    // A Gmail draft ID belongs to this call alone. Without one, only the
+    // exact draft this call wrote counts as stored.
+    const stillOurs = draft.savedDraftId
+      ? stored?.savedDraftId === draft.savedDraftId
+      : isDeepStrictEqual(stored, draft);
+    if (stillOurs) return true;
+    if (newGmailDraft) await discardUnstoredGmailDraft(newGmailDraft);
+    throw error;
   }
 }
 
@@ -376,35 +420,16 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      let created: boolean;
-      try {
-        created = await compareAndSetAppState(`compose-${id}`, null, draft);
-      } catch (error) {
-        if (!savedGmailDraft?.created || !ownerEmail) throw error;
-        // The write can commit before it throws. Only a reread showing some
-        // other value proves it didn't, leaving the new Gmail draft with no
-        // Mail draft pointing at it. If the reread fails too, keep the Gmail
-        // draft rather than delete one Mail may still point at, and say so,
-        // so a caller checks before creating a duplicate.
-        let stored: Record<string, unknown> | null;
-        try {
-          stored = await readAppState(`compose-${id}`);
-        } catch {
-          throw new Error(
-            `Mail couldn't confirm whether draft "${id}" was stored, so it kept the Gmail draft it saved (${savedGmailDraft.draftId}). Check for draft "${id}" before creating it again.`,
-            { cause: error },
-          );
-        }
-        if (stored?.savedDraftId !== savedGmailDraft.draftId) {
-          await discardUnstoredGmailDraft(ownerEmail, savedGmailDraft);
-          throw error;
-        }
-        created = true;
-      }
-      if (!created) {
-        if (savedGmailDraft?.created && ownerEmail) {
-          await discardUnstoredGmailDraft(ownerEmail, savedGmailDraft);
-        }
+      const newGmailDraft =
+        savedGmailDraft?.created && ownerEmail
+          ? {
+              ownerEmail,
+              accountEmail: savedGmailDraft.accountEmail,
+              draftId: savedGmailDraft.draftId,
+            }
+          : null;
+      if (!(await storeNewComposeDraft(draft, newGmailDraft))) {
+        if (newGmailDraft) await discardUnstoredGmailDraft(newGmailDraft);
         fail(`Draft "${id}" already exists; use update to revise it.`, {
           errorCode: "draft_already_exists",
           statusCode: 409,

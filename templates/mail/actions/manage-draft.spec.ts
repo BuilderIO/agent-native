@@ -901,3 +901,58 @@ describe("manage-draft create when the draft write throws", () => {
     consoleError.mockRestore();
   });
 });
+
+describe("manage-draft local create when the draft write throws", () => {
+  const writeError = new Error("connection reset");
+
+  it("returns the draft when the write committed before throwing", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(
+      async (key: string, _expected: unknown, next: unknown) => {
+        appState.set(key, next);
+        throw writeError;
+      },
+    );
+
+    const result = await action.run({ action: "create", body: "Local draft" });
+
+    expect(result).toMatchObject({ draft: { body: "Local draft" } });
+    expect(appState.size).toBe(1);
+  });
+
+  it("rethrows when the write didn't commit", async () => {
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "Local draft" }),
+    ).rejects.toBe(writeError);
+    expect(appState.has("compose-fresh")).toBe(false);
+  });
+
+  it("rethrows when another draft holds the key after the write throws", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(async (key: string) => {
+      appState.set(key, { id: "fresh", body: "Someone else's draft" });
+      throw writeError;
+    });
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "Local draft" }),
+    ).rejects.toBe(writeError);
+  });
+
+  it("says to check before creating again when the outcome can't be read", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(async () => {
+      mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
+      throw writeError;
+    });
+
+    const error = await action
+      .run({ action: "create", id: "fresh", body: "Local draft" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toMatchObject({
+      message:
+        'Mail couldn\'t confirm whether draft "fresh" was stored. Check for draft "fresh" before creating it again.',
+      cause: writeError,
+    });
+  });
+});
