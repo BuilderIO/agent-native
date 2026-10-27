@@ -1104,7 +1104,15 @@ const CARDS_OWNER = { "x-agent-native-owner-email": "cards-owner@example.com" };
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
-    vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://mail.agent-native.com");
+    vi.stubEnv(
+      "BETTER_AUTH_TRUSTED_ORIGINS",
+      [
+        "https://mail.agent-native.com",
+        "https://design.agent-native.com",
+        "https://content.agent-native.com",
+        "https://slides.agent-native.com",
+      ].join(","),
+    );
     process.env.ACCESS_TOKEN = "test-access-token";
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
@@ -1417,6 +1425,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           directoryProfile: profile,
         };
         const host = `${appId}.preview.invalid`;
+        vi.stubEnv("APP_URL", `https://${host}`);
         const authHeaders = {
           ...(await mcpAppsAuthHeaders({
             ownerEmail: "scanner+autoz@example.test",
@@ -11142,6 +11151,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     it("renews a production-profile widget on its trusted beta host and mount without changing scope", async () => {
       process.env.APP_BASE_PATH = "/mail";
       const origin = "https://beta.mail.agent-native.com";
+      vi.stubEnv("APP_URL", origin);
       const routes = await import("../server/embed-route.js");
       const actualRoutes = await vi.importActual<
         typeof import("../server/embed-route.js")
