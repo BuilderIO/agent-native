@@ -1589,6 +1589,70 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS content_webhook_deliveries_document_idx
           ON content_webhook_deliveries (document_id)`,
     },
+    {
+      version: 132,
+      name: "content-property-value-generations",
+      // A trigger stamps every write, so no writer can forget to. Existing
+      // values keep a NULL generation, which reads as 0, until they change.
+      // The function body is one quoted string: the runner splits on
+      // semicolons outside quotes.
+      sql: `CREATE SEQUENCE IF NOT EXISTS content_property_value_generation_seq;
+        ALTER TABLE document_property_values ADD COLUMN IF NOT EXISTS generation BIGINT;
+        CREATE OR REPLACE FUNCTION content_property_value_generation()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            IF TG_OP = ''INSERT'' OR NEW.value_json IS DISTINCT FROM OLD.value_json THEN
+              NEW.generation := nextval(''content_property_value_generation_seq'');
+            ELSE
+              NEW.generation := OLD.generation;
+            END IF;
+            RETURN NEW;
+          END;';
+        DROP TRIGGER IF EXISTS content_property_value_generation
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_generation
+          BEFORE INSERT OR UPDATE ON document_property_values
+          FOR EACH ROW
+          EXECUTE FUNCTION content_property_value_generation()`,
+    },
+    {
+      version: 133,
+      name: "content-property-value-tombstones",
+      // Deleting a value records a new generation for that page and
+      // property, so a cleared value can't make an old generation current
+      // again. Each committed delete writes a number no reader has seen, so
+      // the upsert replaces rather than keeping the larger one.
+      sql: `CREATE TABLE IF NOT EXISTS document_property_value_tombstones (
+          document_id TEXT NOT NULL,
+          property_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          PRIMARY KEY (document_id, property_id)
+        );
+        CREATE INDEX IF NOT EXISTS document_property_value_tombstones_property_idx
+          ON document_property_value_tombstones (property_id, document_id);
+        CREATE OR REPLACE FUNCTION content_property_value_tombstone()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            INSERT INTO document_property_value_tombstones
+                (document_id, property_id, generation)
+              SELECT document_id, property_id,
+                  nextval(''content_property_value_generation_seq'')
+                FROM (SELECT DISTINCT document_id, property_id
+                  FROM deleted_values) AS cleared
+            ON CONFLICT (document_id, property_id)
+              DO UPDATE SET generation = EXCLUDED.generation;
+            RETURN NULL;
+          END;';
+        DROP TRIGGER IF EXISTS content_property_value_tombstone
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_tombstone
+          AFTER DELETE ON document_property_values
+          REFERENCING OLD TABLE AS deleted_values
+          FOR EACH STATEMENT
+          EXECUTE FUNCTION content_property_value_tombstone()`,
+    },
   ],
   { table: "content_migrations" },
 );

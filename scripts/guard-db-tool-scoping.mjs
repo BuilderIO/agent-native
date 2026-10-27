@@ -36,6 +36,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "actor-scoped retry receipts; access is rechecked through database setup actions",
   "content:content_database_builder_blob_cleanup":
     "private payload cleanup outbox processed by Content source actions",
+  "content:document_property_value_tombstones":
+    "property generation bookkeeping written only by a database trigger; holds no content",
   "content:content_webhook_deliveries":
     "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",

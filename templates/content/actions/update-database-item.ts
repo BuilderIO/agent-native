@@ -15,6 +15,7 @@ import {
   updateDatabaseRow,
   assertDatabaseWidgetWriteTarget,
 } from "./_database-row-mutation.js";
+import { expectedPropertyGenerationsSchema } from "./_property-generations.js";
 
 const schema = databaseMutationEnvelopeSchema.extend({
   itemId: z
@@ -33,6 +34,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
     .string()
     .min(1)
     .describe("Row revision returned by get-content-database"),
+  expectedPropertyGenerations: expectedPropertyGenerationsSchema,
   title: z.string().trim().min(1).max(500).optional(),
   propertyValues: databasePropertyValuesSchema,
   propertyEntries: databasePropertyEntriesSchema.describe(

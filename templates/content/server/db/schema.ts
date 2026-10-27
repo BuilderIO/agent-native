@@ -1058,9 +1058,37 @@ export const documentPropertyValues = table("document_property_values", {
   documentId: text("document_id").notNull(),
   propertyId: text("property_id").notNull(),
   valueJson: text("value_json").notNull().default("null"),
+  /**
+   * Goes up on every change to the value, set by a database trigger from one
+   * shared sequence; NULL until the value first changes. Read it through
+   * _property-generations.ts, which treats NULL as 0.
+   */
+  generation: bigint("generation", { mode: "number" }),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+/**
+ * One row per page and property whose value has been deleted, holding a
+ * generation from the same sequence as the values. A trigger writes it, so a
+ * cleared value can't make an old generation current again; see
+ * _property-generations.ts. Its primary key is (document_id, property_id);
+ * deleting a property or collection clears its tombstones by property_id.
+ */
+export const documentPropertyValueTombstones = table(
+  "document_property_value_tombstones",
+  {
+    documentId: text("document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    generation: bigint("generation", { mode: "number" }).notNull(),
+  },
+  (tombstone) => [
+    index("document_property_value_tombstones_property_idx").on(
+      tombstone.propertyId,
+      tombstone.documentId,
+    ),
+  ],
+);
 
 export const documentBlockFieldContents = table(
   "document_block_field_contents",
