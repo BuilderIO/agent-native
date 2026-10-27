@@ -584,7 +584,9 @@ function isDbExecSymbol(
         return true;
       }
       if (
-        ts.isPropertyAssignment(declaration) &&
+        (ts.isPropertyAssignment(declaration) ||
+          ts.isPropertyDeclaration(declaration)) &&
+        declaration.initializer !== undefined &&
         isDbExecExpression(
           declaration.initializer,
           checker,
@@ -1596,6 +1598,7 @@ function findUnsafeSqlSources(
   analysis: SqlAnalysis,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
   seenFunctions: ReadonlySet<ts.Symbol> = new Set(),
+  traceTemplateSpans = false,
 ): Set<ts.Node> {
   let current = expression;
   while (
@@ -1613,13 +1616,33 @@ function findUnsafeSqlSources(
     if (isSafeSqlTag(current.tag, analysis.checker, analysis.sourceFile)) {
       return new Set();
     }
-    return ts.isTemplateExpression(current.template) &&
-      current.template.templateSpans.length > 0
-      ? new Set([current])
-      : new Set();
+    if (!ts.isTemplateExpression(current.template)) return new Set();
+    if (!traceTemplateSpans) return new Set([current]);
+    return unionSources(
+      new Set([current]),
+      ...current.template.templateSpans.map((span) =>
+        findUnsafeSqlSources(
+          span.expression,
+          analysis,
+          seenSymbols,
+          seenFunctions,
+        ),
+      ),
+    );
   }
   if (ts.isTemplateExpression(current)) {
-    return current.templateSpans.length > 0 ? new Set([current]) : new Set();
+    if (!traceTemplateSpans) return new Set([current]);
+    return unionSources(
+      new Set([current]),
+      ...current.templateSpans.map((span) =>
+        findUnsafeSqlSources(
+          span.expression,
+          analysis,
+          seenSymbols,
+          seenFunctions,
+        ),
+      ),
+    );
   }
   if (ts.isIdentifier(current)) {
     const symbol = analysis.checker.getSymbolAtLocation(current);
@@ -1938,8 +1961,34 @@ export function findRawSqlInterpolationViolations(
 
   const reportUnsafeSqlValue = (sink: ts.Node, value: ts.Expression) => {
     if (hasNodePragma(sink)) return;
-    const sources = findUnsafeSqlSources(value, analysis);
+    const sources = findUnsafeSqlSources(
+      value,
+      analysis,
+      new Set(),
+      new Set(),
+      true,
+    );
     if (sources.size === 0) return;
+
+    let directValue = value;
+    while (
+      ts.isParenthesizedExpression(directValue) ||
+      ts.isAsExpression(directValue) ||
+      ts.isSatisfiesExpression(directValue) ||
+      ts.isTypeAssertionExpression(directValue) ||
+      ts.isNonNullExpression(directValue) ||
+      ts.isAwaitExpression(directValue)
+    ) {
+      directValue = directValue.expression;
+    }
+    if (
+      (ts.isTemplateExpression(directValue) ||
+        ts.isTaggedTemplateExpression(directValue)) &&
+      touchesAddedLines(directValue)
+    ) {
+      reportIfAdded(directValue);
+      return;
+    }
 
     const changedSources = [...sources].filter(touchesAddedLines);
     if (changedSources.length === 0) {

@@ -190,6 +190,14 @@ describe("raw SQL interpolation guard", () => {
       "  }",
       "}",
     ]);
+    const inferredClassProperty = source([
+      "class Context {",
+      "  private db = getDbExec();",
+      "  run(recordId: string) {",
+      "    this.db.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+      "  }",
+      "}",
+    ]);
     const objectProperty = source([
       "const context = { db: getDbExec() };",
       "context.db.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
@@ -201,6 +209,13 @@ describe("raw SQL interpolation guard", () => {
 
     expect(
       findRawSqlInterpolationViolations(FILE, classProperty, new Set([5])),
+    ).toHaveLength(1);
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        inferredClassProperty,
+        new Set([4]),
+      ),
     ).toHaveLength(1);
     expect(
       findRawSqlInterpolationViolations(FILE, objectProperty, new Set([2])),
@@ -353,6 +368,24 @@ describe("raw SQL interpolation guard", () => {
           file: FILE,
           line: 2,
           snippet: "database.execute(statement);",
+        },
+      ],
+    );
+  });
+
+  it("finds an unsafe template source flowing into an unchanged execute sink", () => {
+    const text = source([
+      "declare const name: string;",
+      "const where = `WHERE owner_email = '${name}'`;",
+      "database.execute(`SELECT * FROM accounts ${where}`);",
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [
+        {
+          file: FILE,
+          line: 2,
+          snippet: "const where = `WHERE owner_email = '${name}'`;",
         },
       ],
     );
