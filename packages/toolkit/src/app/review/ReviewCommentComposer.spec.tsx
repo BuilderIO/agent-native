@@ -14,6 +14,12 @@ vi.mock("@agent-native/core/client/use-avatar", () => ({
 
 const alice = { label: "Alice", email: "alice@example.com" };
 const bob = { label: "Bob", email: "bob@example.com" };
+const claude = {
+  label: "Claude Sonnet 5.5",
+  email: null,
+  id: "agent:claude:claude-sonnet-5.5",
+  description: "Anthropic",
+};
 
 describe("ReviewCommentComposer", () => {
   let container: HTMLDivElement;
@@ -445,6 +451,58 @@ describe("ReviewCommentComposer", () => {
     typeText("zzz");
     await act(async () => {});
     expect(document.body.textContent).toContain("No people found");
+  });
+
+  it("moves the highlight across the Agents heading and inserts the agent", async () => {
+    let state: { value: string; mentions: ReviewMention[] } = {
+      value: "",
+      mentions: [],
+    };
+    await render(
+      <Harness
+        mentionOptions={[alice, bob, claude]}
+        onState={(next) => (state = next)}
+      />,
+    );
+    keydown("@");
+    await act(async () => {});
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain(
+      "Agents",
+    );
+    keydown("ArrowDown");
+    keydown("ArrowDown");
+    expect(
+      document.querySelector("[data-review-mention-option][data-active]")
+        ?.textContent,
+    ).toContain("Claude Sonnet 5.5");
+    keydown("Enter");
+    await act(async () => {});
+
+    expect(state.value).toBe("@Claude Sonnet 5.5");
+    // The description is picker-only; the stored mention keeps label/email/id.
+    expect(state.mentions).toEqual([
+      { label: "Claude Sonnet 5.5", email: null, id: claude.id },
+    ]);
+  });
+
+  it("filters the picker by an agent's description", async () => {
+    await render(<Harness mentionOptions={[alice, claude]} />);
+    keydown("@");
+    typeText("anthro");
+    await act(async () => {});
+    expect(mentionOptionLabels()).toHaveLength(1);
+    expect(mentionOptionLabels()[0]).toContain("Claude Sonnet 5.5");
+  });
+
+  it("renders the agents heading with the label it is given", async () => {
+    await render(
+      <Harness mentionOptions={[alice, claude]} agentsLabel="Agenten" />,
+    );
+    keydown("@");
+    await act(async () => {});
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain(
+      "Agenten",
+    );
   });
 
   it("closes the picker on Escape before it cancels the composer", async () => {

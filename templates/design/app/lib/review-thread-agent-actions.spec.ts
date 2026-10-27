@@ -7,6 +7,8 @@ import { sendToDesignAgentChat } from "./agent-chat";
 import {
   buildReviewThreadAgentContext,
   buildReviewThreadAgentDispatch,
+  isReviewThreadEngineAction,
+  reviewAgentModeForMenuAction,
   type ReviewThreadAgentAction,
 } from "./review-thread-agent-actions";
 
@@ -57,58 +59,21 @@ const thread = {
 const input = { designId: "design-1", thread };
 
 describe("buildReviewThreadAgentDispatch", () => {
-  it("send opens an unsubmitted draft after routing the thread to the agent queue", () => {
-    const dispatch = buildReviewThreadAgentDispatch("send", input);
+  it("opens an unsubmitted draft with the thread attached", () => {
+    const dispatch = buildReviewThreadAgentDispatch(input);
     expect(dispatch.submit).toBe(false);
-    expect(dispatch.routeToAgentQueue).toBe(true);
     expect(dispatch.message.trim()).toBe("");
   });
 
-  it("suggest submits a propose-only prompt without queue routing", () => {
-    const dispatch = buildReviewThreadAgentDispatch("suggest", input);
-    expect(dispatch.submit).toBe(true);
-    expect(dispatch.routeToAgentQueue).toBe(false);
-    expect(dispatch.message).toContain("Do not edit the design");
-    expect(dispatch.message).toContain("wait for me to ask");
-    expect(dispatch.message).not.toContain("resolve-review-thread");
+  it("attaches the design, thread, comment and screen ids, the root body, and the replies", () => {
+    const { context } = buildReviewThreadAgentDispatch(input);
+    expect(context).toContain("Design id: design-1");
+    expect(context).toContain("Review thread id: thread-1");
+    expect(context).toContain("Review comment id: comment-root");
+    expect(context).toContain("Screen id: screen-9");
+    expect(context).toContain("Feedback: Make the hero title bigger");
+    expect(context).toContain("Replies:\nAlex: Agree, 48px feels right");
   });
-
-  it("reply submits a prompt that answers with reply-review-comment, without queue routing", () => {
-    const dispatch = buildReviewThreadAgentDispatch("reply", input);
-    expect(dispatch.submit).toBe(true);
-    expect(dispatch.routeToAgentQueue).toBe(false);
-    expect(dispatch.message).toContain("`reply-review-comment`");
-    expect(dispatch.message).toContain('`resolutionTarget: "human"`');
-    expect(dispatch.message).toContain("Do not edit the design");
-    expect(dispatch.message).toContain("do not resolve the thread");
-    expect(dispatch.message).not.toContain("resolve-review-thread");
-  });
-
-  it("apply routes the thread, submits, and tells the agent to resolve it after verifying", () => {
-    const dispatch = buildReviewThreadAgentDispatch("apply", input);
-    expect(dispatch.submit).toBe(true);
-    expect(dispatch.routeToAgentQueue).toBe(true);
-    expect(dispatch.message).toContain(
-      "Apply this selected design review thread only.",
-    );
-    expect(dispatch.message).toContain("`resolve-review-thread`");
-    expect(dispatch.message).toContain("`resolutionNote`");
-    expect(dispatch.message).toContain("`reply-review-comment`");
-    expect(dispatch.message).toContain('`resolutionTarget: "human"`');
-  });
-
-  it.each(["send", "suggest", "reply", "apply"] as const)(
-    "%s attaches the design, thread, comment and screen ids, the root body, and the replies",
-    (action) => {
-      const { context } = buildReviewThreadAgentDispatch(action, input);
-      expect(context).toContain("Design id: design-1");
-      expect(context).toContain("Review thread id: thread-1");
-      expect(context).toContain("Review comment id: comment-root");
-      expect(context).toContain("Screen id: screen-9");
-      expect(context).toContain("Feedback: Make the hero title bigger");
-      expect(context).toContain("Replies:\nAlex: Agree, 48px feels right");
-    },
-  );
 
   it("marks a board-level thread's screen as unknown and omits an empty replies block", () => {
     const context = buildReviewThreadAgentContext({
@@ -130,9 +95,27 @@ describe("buildReviewThreadAgentDispatch", () => {
   });
 });
 
-describe("agent chat accepts every dispatch", () => {
-  async function deliveredToChat(action: ReviewThreadAgentAction) {
-    const dispatch = buildReviewThreadAgentDispatch(action, input);
+describe("menu items that start a review-agent run", () => {
+  it("sends only Send to agent to the chat", () => {
+    const chat = (
+      ["send", "suggest", "reply", "apply"] as ReviewThreadAgentAction[]
+    ).filter((action) => !isReviewThreadEngineAction(action));
+    expect(chat).toEqual(["send"]);
+  });
+
+  it.each([
+    ["suggest", "suggest"],
+    ["reply", "reply"],
+    ["apply", "apply-resolve"],
+  ] as const)("%s starts a %s run", (action, mode) => {
+    expect(isReviewThreadEngineAction(action)).toBe(true);
+    expect(reviewAgentModeForMenuAction(action)).toBe(mode);
+  });
+});
+
+describe("agent chat accepts the Send to agent dispatch", () => {
+  it("survives the chat's message parser with its submit flag and context", async () => {
+    const dispatch = buildReviewThreadAgentDispatch(input);
     const received = new Promise<MessageEvent>((resolve) => {
       const onMessage = (event: MessageEvent) => {
         if (event.data?.type !== "agentNative.submitChat") return;
@@ -148,20 +131,13 @@ describe("agent chat accepts every dispatch", () => {
       openSidebar: true,
       newTab: true,
     });
-    return { dispatch, parsed: parseSubmitChatMessage(await received) };
-  }
-
-  it.each(["send", "suggest", "reply", "apply"] as const)(
-    "%s survives the chat's message parser with its submit flag and context",
-    async (action) => {
-      const { dispatch, parsed } = await deliveredToChat(action);
-      // A null parse is a send the chat silently drops, which an empty message
-      // would be for the draft that has to open with an empty composer.
-      expect(parsed).not.toBeNull();
-      expect(parsed?.submit).toBe(dispatch.submit);
-      expect(parsed?.newTab).toBe(true);
-      expect(parsed?.openSidebar).toBe(true);
-      expect(parsed?.context).toBe(dispatch.context);
-    },
-  );
+    const parsed = parseSubmitChatMessage(await received);
+    // A null parse is a send the chat silently drops, which an empty message
+    // would be for the draft that has to open with an empty composer.
+    expect(parsed).not.toBeNull();
+    expect(parsed?.submit).toBe(false);
+    expect(parsed?.newTab).toBe(true);
+    expect(parsed?.openSidebar).toBe(true);
+    expect(parsed?.context).toBe(dispatch.context);
+  });
 });

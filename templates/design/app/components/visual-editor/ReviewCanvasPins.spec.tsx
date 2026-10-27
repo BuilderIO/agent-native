@@ -10,6 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isCanvasOverlayInteractionTarget } from "@/components/design/canvas-interactions/review-overlay-interaction";
 import { stubFaithfulWheelEvent } from "@/components/design/canvas-interactions/test-wheel-event";
 import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
+import { ReviewAgentProvider } from "@/lib/review-agent/review-agent-context";
+import {
+  makeReviewAgentRequest,
+  REVIEW_AGENT_TEST_NOW,
+} from "@/lib/review-agent/test-review-agent-request";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 
 const mocks = vi.hoisted(() => ({
   createMutate: vi.fn(),
@@ -24,6 +30,11 @@ const mocks = vi.hoisted(() => ({
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  agentStart: vi.fn(),
+  agentStop: vi.fn(),
+  agentRetry: vi.fn(),
+  agentOpen: vi.fn(),
+  agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
   useRealThreads: false,
   uploadImage: vi.fn().mockResolvedValue({
@@ -191,6 +202,8 @@ function MockReviewCommentComposer(props: {
   onSubmit: (target: "human" | "agent") => void;
   mentions?: readonly ReviewMention[];
   onMentionsChange?: (mentions: ReviewMention[]) => void;
+  mentionOptions?: readonly ReviewMention[];
+  agentsLabel?: string;
   showCommentAction?: boolean;
   showAgentAction?: boolean;
   showCommentTools?: boolean;
@@ -235,12 +248,30 @@ function MockReviewCommentComposer(props: {
         }}
       />
       {props.attachments}
+      <span data-review-test-mention-options>
+        {(props.mentionOptions ?? []).map((option) => option.label).join("|")}
+      </span>
+      <span data-review-test-agents-label>{props.agentsLabel}</span>
       {props.showCommentTools || props.commentToolsEnd ? (
         <div data-review-comment-tools>
           {props.showCommentTools ? (
             <>
               <button type="button" aria-label="review.addEmoji" />
               <button type="button" aria-label="review.mention" />
+              <button
+                type="button"
+                data-review-test-agent-mention
+                onClick={() => {
+                  props.onChange("@Claude Sonnet 5.5 make it bigger");
+                  props.onMentionsChange?.([
+                    {
+                      label: "Claude Sonnet 5.5",
+                      email: null,
+                      id: "agent:anthropic:claude-sonnet-5-5",
+                    },
+                  ]);
+                }}
+              />
               <button
                 type="button"
                 data-review-test-mention
@@ -323,6 +354,43 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
+const SONNET = {
+  model: "claude-sonnet-5-5",
+  engine: "anthropic",
+  provider: "Anthropic",
+};
+
+function makeAgentController(
+  overrides: Partial<ReviewAgentController> = {},
+): ReviewAgentController {
+  return {
+    enabled: true,
+    requests: [],
+    requestForThread: () => undefined,
+    isThreadBusy: () => false,
+    startingThreadIds: new Set(),
+    startingAgentName: () => null,
+    stoppingRequestIds: new Set(),
+    start: mocks.agentStart,
+    stop: mocks.agentStop,
+    retry: mocks.agentRetry,
+    open: mocks.agentOpen,
+    models: { ready: true, options: [SONNET], selected: SONNET },
+    mentionOptions: [
+      {
+        id: "agent:anthropic:claude-sonnet-5-5",
+        label: "Claude Sonnet 5.5",
+        email: null,
+        description: "Anthropic",
+      },
+    ],
+    resolveMention: (mention) =>
+      mention.id === "agent:anthropic:claude-sonnet-5-5" ? SONNET : null,
+    markSurfaceUsed: mocks.agentMarkSurfaceUsed,
+    ...overrides,
+  };
+}
+
 describe("ReviewCanvasPins persisted thread popover", () => {
   let container: HTMLDivElement;
   let canvas: HTMLDivElement;
@@ -345,6 +413,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     mocks.sendToAgent.mockClear();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+    mocks.agentStart.mockReset().mockResolvedValue("started");
+    mocks.agentStop.mockReset().mockResolvedValue(undefined);
+    mocks.agentRetry.mockReset().mockResolvedValue("started");
+    mocks.agentOpen.mockReset();
+    mocks.agentMarkSurfaceUsed.mockReset();
     mocks.uploadImage.mockReset().mockResolvedValue({
       src: "https://cdn.example.com/review.png",
     });
@@ -4275,20 +4348,23 @@ describe("ReviewCanvasPins persisted thread popover", () => {
   describe("thread card and draft card", () => {
     const renderPins = async (
       props: Partial<React.ComponentProps<typeof ReviewCanvasPins>> = {},
+      agent: ReviewAgentController | null = null,
     ) => {
       await act(async () => {
         root.render(
-          <ReviewCanvasPins
-            active={false}
-            onClose={vi.fn()}
-            canvasSelector=".review-test-canvas"
-            resourceType="design"
-            resourceId="design-1"
-            targetId="screen-1"
-            canPost
-            canResolve
-            {...props}
-          />,
+          <ReviewAgentProvider controller={agent}>
+            <ReviewCanvasPins
+              active={false}
+              onClose={vi.fn()}
+              canvasSelector=".review-test-canvas"
+              resourceType="design"
+              resourceId="design-1"
+              targetId="screen-1"
+              canPost
+              canResolve
+              {...props}
+            />
+          </ReviewAgentProvider>,
         );
       });
     };
@@ -4330,10 +4406,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     it("titles the thread card and lists the agent menu in the Figma order for an editor on an open thread", async () => {
       mocks.discussion.canSetThreadPreferences = true;
-      await renderPins({
-        currentUserEmail: "reviewer@example.com",
-        onSendThreadToAgent: vi.fn(),
-      });
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent: vi.fn(),
+        },
+        makeAgentController(),
+      );
       await openFirstThread();
 
       const card = document.querySelector<HTMLElement>(
@@ -4397,10 +4476,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     it("hands the thread and the chosen action to the host", async () => {
       const onSendThreadToAgent = vi.fn();
-      await renderPins({
-        currentUserEmail: "reviewer@example.com",
-        onSendThreadToAgent,
-      });
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent,
+        },
+        makeAgentController(),
+      );
       await openFirstThread();
       const choices = [
         ["review.sendToAgent", "send"],
@@ -4423,11 +4505,14 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     it("disables the agent items, but not Copy link, while a hand-off is in flight", async () => {
       const onSendThreadToAgent = vi.fn();
-      await renderPins({
-        currentUserEmail: "reviewer@example.com",
-        onSendThreadToAgent,
-        sendingThreadId: "thread-1",
-      });
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent,
+          sendingThreadId: "thread-1",
+        },
+        makeAgentController(),
+      );
       await openFirstThread();
       await openCardMenu();
       const disabled = (label: string) =>
@@ -4537,6 +4622,555 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(reply?.textContent).toContain("Claude");
       expect(reply?.textContent).toContain("review.agentBadge");
       expect(reply?.textContent).toContain("Done, the heading is bigger.");
+    });
+
+    describe("agent runs", () => {
+      const savedComment = (overrides: Partial<ReviewComment> = {}) => ({
+        ...comment,
+        id: "comment-new",
+        threadId: "thread-new",
+        ...overrides,
+      });
+      const click = (selector: string) =>
+        act(async () => {
+          document.querySelector<HTMLElement>(selector)?.click();
+        });
+      const openDraftComposer = async () => {
+        await act(async () => {
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 200,
+                clientY: 180,
+              }),
+            );
+        });
+      };
+      const succeed = (
+        mutate: typeof mocks.createMutate,
+        saved: ReviewComment,
+      ) =>
+        act(async () => {
+          const handlers = mutate.mock.calls[0]?.[1] as
+            | { onSuccess?: (comment: ReviewComment) => void }
+            | undefined;
+          handlers?.onSuccess?.(saved);
+        });
+      const mentionOptionLabels = () =>
+        Array.from(
+          document.querySelectorAll("[data-review-test-mention-options]"),
+        ).map((node) => node.textContent);
+      const statusRow = () =>
+        document.querySelector<HTMLElement>("[data-review-agent-status]");
+
+      describe("composer and submit", () => {
+        it("offers the connected models in the picker, under the Agents heading, after the people", async () => {
+          mocks.useRealComposer = false;
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual(["Claude Sonnet 5.5"]);
+          expect(
+            document.querySelector("[data-review-test-agents-label]")
+              ?.textContent,
+          ).toBe("review.agent.sectionLabel");
+        });
+
+        it("lists the people before the agents", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          const editor = document.querySelector<
+            HTMLElement & { editor: Editor }
+          >('[data-review-popover] [role="textbox"]');
+          expect(editor).not.toBeNull();
+          await act(async () => {
+            editor?.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "@",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+          });
+          const items = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+          ).map((item) => item.textContent);
+          const alice = items.findIndex((text) => text?.includes("Alice"));
+          const claude = items.findIndex((text) =>
+            text?.includes("Claude Sonnet 5.5"),
+          );
+          expect(alice).toBeGreaterThanOrEqual(0);
+          expect(claude).toBeGreaterThan(alice);
+          expect(document.body.textContent).toContain(
+            "review.agent.sectionLabel",
+          );
+        });
+
+        it("offers no agents without a controller, or to someone who cannot edit", async () => {
+          await renderPins({ active: true });
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual([""]);
+          expect(
+            document.querySelector("[data-review-test-agent-mention]"),
+          ).not.toBeNull();
+          await act(async () => root.unmount());
+          root = createRoot(container);
+
+          await renderPins(
+            { active: true, canResolve: false },
+            makeAgentController(),
+          );
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual([""]);
+        });
+
+        it("starts an automatic run for a new thread only after the comment is saved", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-agent-mention]");
+          await click("[data-review-test-submit]");
+
+          expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+            body: "@Claude Sonnet 5.5 make it bigger",
+            mentions: [
+              {
+                label: "Claude Sonnet 5.5",
+                id: "agent:anthropic:claude-sonnet-5-5",
+              },
+            ],
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+
+          await succeed(mocks.createMutate, savedComment());
+          expect(mocks.agentStart).toHaveBeenCalledExactlyOnceWith({
+            threadId: "thread-new",
+            mode: "auto",
+            triggerCommentId: "comment-new",
+            selection: SONNET,
+          });
+        });
+
+        it("does not start a run when the comment fails to save", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-agent-mention]");
+          await click("[data-review-test-submit]");
+          await act(async () => {
+            const handlers = mocks.createMutate.mock.calls[0]?.[1] as
+              | { onError?: () => void }
+              | undefined;
+            handlers?.onError?.();
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          expect(mocks.toastError).toHaveBeenCalledWith("review.postFailed");
+        });
+
+        it("starts no run for a comment that mentions only people", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-mention]");
+          await click("[data-review-test-submit]");
+          await succeed(mocks.createMutate, savedComment());
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("starts a run for a reply with an agent chip, keyed to the reply", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+
+          expect(mocks.replyMutate.mock.calls[0]?.[0]).toMatchObject({
+            commentId: "comment-1",
+            mentions: [{ id: "agent:anthropic:claude-sonnet-5-5" }],
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+
+          await succeed(
+            mocks.replyMutate,
+            savedComment({ id: "reply-new", threadId: "thread-1" }),
+          );
+          expect(mocks.agentStart).toHaveBeenCalledExactlyOnceWith({
+            threadId: "thread-1",
+            mode: "auto",
+            triggerCommentId: "reply-new",
+            selection: SONNET,
+          });
+        });
+
+        it("starts no run for a reply without an agent chip", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-type]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("starts no run for a commenter even when the comment carries an agent chip", async () => {
+          await renderPins({ canResolve: false }, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("tells the person when the chip's model is no longer connected, and starts nothing", async () => {
+          await renderPins(
+            {},
+            makeAgentController({ resolveMention: () => null }),
+          );
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          expect(mocks.toastError).toHaveBeenCalledWith(
+            "review.agent.startFailed",
+          );
+        });
+      });
+
+      describe("card menu", () => {
+        const itemLabels = [
+          "review.sendToAgent",
+          "review.suggestChanges",
+          "review.replyInThread",
+          "review.applyChangesAndResolve",
+        ];
+        const agentItems = () =>
+          menuLayout().filter((label) => itemLabels.includes(label ?? ""));
+
+        it("offers every item to an editor on an inline screen's thread", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+              sourceType: "inline",
+            },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(itemLabels);
+        });
+
+        it("keeps only Send to agent without a controller", async () => {
+          await renderPins({
+            currentUserEmail: "reviewer@example.com",
+            onSendThreadToAgent: vi.fn(),
+          });
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(["review.sendToAgent"]);
+        });
+
+        it("keeps only Send to agent when the controller is not enabled for this person", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+            },
+            makeAgentController({ enabled: false }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(["review.sendToAgent"]);
+        });
+
+        it.each([
+          ["a localhost screen", { sourceType: "localhost" as const }],
+          ["a fusion screen", { sourceType: "fusion" as const }],
+        ])(
+          "hides Apply for %s but keeps Suggest and Reply",
+          async (_name, props) => {
+            await renderPins(
+              {
+                currentUserEmail: "reviewer@example.com",
+                onSendThreadToAgent: vi.fn(),
+                ...props,
+              },
+              makeAgentController(),
+            );
+            await openFirstThread();
+            await openCardMenu();
+            expect(agentItems()).toEqual([
+              "review.sendToAgent",
+              "review.suggestChanges",
+              "review.replyInThread",
+            ]);
+          },
+        );
+
+        it("hides Apply for a board-level thread", async () => {
+          reviewComments = [{ ...comment, targetId: null }];
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+              targetId: null,
+            },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual([
+            "review.sendToAgent",
+            "review.suggestChanges",
+            "review.replyInThread",
+          ]);
+        });
+
+        it("hands each choice to the host: the three run modes and Send to agent", async () => {
+          const onSendThreadToAgent = vi.fn();
+          await renderPins(
+            { currentUserEmail: "reviewer@example.com", onSendThreadToAgent },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          const choices = [
+            ["review.suggestChanges", "suggest"],
+            ["review.replyInThread", "reply"],
+            ["review.applyChangesAndResolve", "apply"],
+            ["review.sendToAgent", "send"],
+          ] as const;
+          for (const [label, action] of choices) {
+            await openCardMenu();
+            await act(async () => menuItem(label)?.click());
+            expect(onSendThreadToAgent).toHaveBeenLastCalledWith(
+              expect.objectContaining({
+                root: expect.objectContaining({ threadId: "thread-1" }),
+              }),
+              action,
+            );
+          }
+          // The host starts the run; the card itself never starts one from the menu.
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("disables the agent items while an agent works on the thread, but not Copy link", async () => {
+          const onSendThreadToAgent = vi.fn();
+          await renderPins(
+            { currentUserEmail: "reviewer@example.com", onSendThreadToAgent },
+            makeAgentController({
+              isThreadBusy: (threadId) => threadId === "thread-1",
+            }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          const disabled = (label: string) =>
+            menuItem(label)?.getAttribute("aria-disabled") === "true";
+          for (const label of itemLabels) expect(disabled(label)).toBe(true);
+          expect(disabled("review.copyLink")).toBe(false);
+          await act(async () => menuItem("review.suggestChanges")?.click());
+          expect(onSendThreadToAgent).not.toHaveBeenCalled();
+        });
+
+        it("leaves the items enabled when the agent works on another thread", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+            },
+            makeAgentController({
+              isThreadBusy: (threadId) => threadId === "thread-2",
+            }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(
+            menuItem("review.suggestChanges")?.getAttribute("aria-disabled"),
+          ).not.toBe("true");
+        });
+      });
+
+      describe("status row", () => {
+        const recent = () =>
+          new Date(REVIEW_AGENT_TEST_NOW - 5_000).toISOString();
+
+        beforeEach(() => {
+          vi.useFakeTimers({ toFake: ["Date"] });
+          vi.setSystemTime(REVIEW_AGENT_TEST_NOW);
+        });
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        it("shows the run's status in the card, between the comments and the reply box", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          const row = statusRow();
+          expect(row?.getAttribute("data-review-agent-status")).toBe("running");
+          expect(row?.textContent).toContain("review.agent.working");
+          const card = document.querySelector("[data-review-thread-card]");
+          const nodes = Array.from(card?.querySelectorAll("*") ?? []);
+          const comments = card?.querySelector(
+            '[data-review-comment="comment-1"]',
+          );
+          const reply = card?.querySelector("[data-review-test-composer]");
+          expect(comments && row && reply).toBeTruthy();
+          expect(nodes.indexOf(row as Element)).toBeGreaterThan(
+            nodes.indexOf(comments as Element),
+          );
+          expect(nodes.indexOf(row as Element)).toBeLessThan(
+            nodes.indexOf(reply as Element),
+          );
+        });
+
+        it("shows nothing when the thread has no run, or there is no controller", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          expect(statusRow()).toBeNull();
+          await act(async () => root.unmount());
+          root = createRoot(container);
+
+          await renderPins({});
+          await openFirstThread();
+          expect(statusRow()).toBeNull();
+        });
+
+        it("acknowledges a start at once, before the request exists", async () => {
+          await renderPins(
+            {},
+            makeAgentController({
+              startingThreadIds: new Set(["thread-1"]),
+              startingAgentName: () => "Claude Sonnet 5.5",
+            }),
+          );
+          await openFirstThread();
+          expect(statusRow()?.getAttribute("data-review-agent-status")).toBe(
+            "starting",
+          );
+        });
+
+        it("wires Open chat and Cancel to the controller with the request", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          const press = (label: string) =>
+            act(async () =>
+              Array.from(statusRow()?.querySelectorAll("button") ?? [])
+                .find((button) => button.textContent === label)
+                ?.click(),
+            );
+          await press("review.agent.openChat");
+          expect(mocks.agentOpen).toHaveBeenCalledExactlyOnceWith(request);
+          await press("review.agent.cancel");
+          expect(mocks.agentStop).toHaveBeenCalledExactlyOnceWith(request);
+        });
+
+        it("wires Try again to the controller for a failed run", async () => {
+          const request = makeReviewAgentRequest({
+            status: "failed",
+            errorCode: "run_failed",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          await act(async () =>
+            Array.from(statusRow()?.querySelectorAll("button") ?? [])
+              .find((button) => button.textContent === "review.agent.retry")
+              ?.click(),
+          );
+          expect(mocks.agentRetry).toHaveBeenCalledExactlyOnceWith(request);
+        });
+
+        it("disables Cancel while that request's stop is in flight", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({
+              requestForThread: () => request,
+              stoppingRequestIds: new Set([request.requestId]),
+            }),
+          );
+          await openFirstThread();
+          const cancel = Array.from(
+            statusRow()?.querySelectorAll("button") ?? [],
+          ).find((button) => button.textContent === "review.agent.cancel");
+          expect(cancel?.disabled).toBe(true);
+        });
+
+        it("keeps the status on a resolved thread too, where the reply box is gone", async () => {
+          reviewComments = [{ ...comment, status: "resolved" }];
+          const request = makeReviewAgentRequest({
+            status: "applied",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          expect(statusRow()?.textContent).toContain("review.agent.applied");
+        });
+      });
+
+      describe("model list", () => {
+        it("asks for the model list once a comment surface is open, and not before", async () => {
+          await renderPins({ active: false }, makeAgentController());
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+
+          await openFirstThread();
+          expect(mocks.agentMarkSurfaceUsed).toHaveBeenCalled();
+        });
+
+        it("asks for it while comment mode is on", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          expect(mocks.agentMarkSurfaceUsed).toHaveBeenCalled();
+        });
+
+        it("does not ask for it while the comments are hidden, or without agent access", async () => {
+          await renderPins(
+            { active: true, hidden: true },
+            makeAgentController(),
+          );
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+          await renderPins(
+            { active: true, canResolve: false },
+            makeAgentController(),
+          );
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+        });
+      });
     });
   });
 

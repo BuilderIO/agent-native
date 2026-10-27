@@ -26,6 +26,7 @@ describe("resolveReviewAgent", () => {
     ["Claude Code", "claude-code"],
     ["Codex", "codex"],
     ["OpenAI", "codex"],
+    ["GPT-5.4", "codex"],
     ["Research helper", "agent"],
   ] as const)("maps the author name %s to kind %s", (authorName, kind) => {
     expect(resolveReviewAgent({ createdBy: "agent", authorName })).toEqual({

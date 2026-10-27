@@ -30,7 +30,10 @@ import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
 } from "./ReviewComposerEditor.js";
-import { ReviewMentionPicker } from "./ReviewMentionPicker.js";
+import {
+  ReviewMentionPicker,
+  type ReviewMentionOption,
+} from "./ReviewMentionPicker.js";
 
 const DEFAULT_COMPOSER_EMOJIS = ["👍", "❤️", "🎉", "👀"] as const;
 const EMAIL_LOCAL_PART_BOUNDARY = /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u;
@@ -44,7 +47,7 @@ export interface ReviewCommentComposerProps {
   onSubmit: (resolutionTarget: ReviewResolutionTarget) => void;
   mentions?: readonly ReviewMention[] | undefined;
   onMentionsChange?: ((mentions: ReviewMention[]) => void) | undefined;
-  mentionOptions?: readonly ReviewMention[] | undefined;
+  mentionOptions?: readonly ReviewMentionOption[] | undefined;
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
@@ -53,6 +56,7 @@ export interface ReviewCommentComposerProps {
   emojiChoices?: readonly string[];
   emojiLabel?: string | undefined;
   mentionLabel?: string | undefined;
+  agentsLabel?: string | undefined;
   noMentionsLabel?: string | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
@@ -95,6 +99,7 @@ export function ReviewCommentComposer({
   emojiChoices = DEFAULT_COMPOSER_EMOJIS,
   emojiLabel = "Add emoji",
   mentionLabel = "Mention someone",
+  agentsLabel = "Agents",
   noMentionsLabel = "No people found",
   submittingTarget = null,
   disabled = false,
@@ -159,7 +164,8 @@ export function ReviewCommentComposer({
     return (
       !query ||
       mention.label.toLowerCase().includes(query) ||
-      mention.email?.toLowerCase().includes(query)
+      mention.email?.toLowerCase().includes(query) ||
+      mention.description?.toLowerCase().includes(query)
     );
   });
   const mentionMenuOpen = mentionPickerOpen;
@@ -200,13 +206,15 @@ export function ReviewCommentComposer({
       mentions.filter((mention) => nextValue.includes(`@${mention.label}`)),
     );
   };
-  const insertMention = (mention: ReviewMention) => {
+  const insertMention = (option: ReviewMentionOption) => {
     const trigger = editorRef.current?.getMentionTrigger();
     const nextValue = trigger
-      ? editorRef.current?.insertMention(mention, trigger.from)
+      ? editorRef.current?.insertMention(option, trigger.from)
       : null;
     if (nextValue == null) return;
     onChange(nextValue);
+    // `description` is picker-only: stored mentions keep the comment's shape.
+    const { description: _description, ...mention } = option;
     const nextMentions = mentions.filter((current) =>
       nextValue.includes(`@${current.label}`),
     );
@@ -533,6 +541,7 @@ export function ReviewCommentComposer({
           onSelect={insertMention}
           label={mentionLabel}
           emptyLabel={noMentionsLabel}
+          agentsLabel={agentsLabel}
           onEscapeKeyDown={() => {
             mentionEscapedRef.current = true;
             window.setTimeout(() => {

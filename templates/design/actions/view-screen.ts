@@ -17,11 +17,12 @@ import {
 import * as reviewRuntime from "@agent-native/core/review";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
+import { reviewAgentMachine } from "../server/lib/review-agent-machine.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../shared/design-files.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
@@ -35,6 +36,10 @@ import {
   isNodeRewriteProposal,
   isPendingDesignReprompt,
 } from "../shared/node-rewrite.js";
+import {
+  REVIEW_AGENT_ACTIVE_STATUSES,
+  REVIEW_AGENT_INTENTS,
+} from "../shared/review-agent.js";
 import getDesignSystem from "./get-design-system.js";
 
 interface ReviewThreadSummary {
@@ -234,6 +239,56 @@ const OPEN_THREAD_PREVIEW_LENGTH = 200;
 const OPEN_THREAD_COMMENT_LIMIT = 500;
 const REVIEW_MENTION_MARKUP = /@\[([^\]]+)\]\(mailto:[^)]+\)/g;
 
+/** The first row of a result, typed as possibly missing: no row is a normal answer for a lookup. */
+function firstRow<T>(rows: readonly T[]): T | undefined {
+  return rows[0];
+}
+
+/**
+ * The background agent run working on a thread, if one is. A lookup that
+ * fails throws, so the thread reports `unavailable` instead of "no run".
+ */
+async function loadActiveAgentRequest(
+  designId: string,
+  threadId: string,
+  viewerEmail: string | null,
+) {
+  const requests = schema.designReviewAgentRequests;
+  const rows = await getDb()
+    .select({
+      id: requests.id,
+      status: requests.status,
+      intent: requests.intent,
+      requesterEmail: requests.requesterEmail,
+    })
+    .from(requests)
+    .where(
+      and(
+        eq(requests.designId, designId),
+        eq(requests.threadId, threadId),
+        inArray(requests.status, [...REVIEW_AGENT_ACTIVE_STATUSES]),
+      ),
+    )
+    .limit(1);
+  const request = firstRow(rows);
+  if (!request) return null;
+  const intent = request.intent;
+  if (
+    intent !== null &&
+    !(REVIEW_AGENT_INTENTS as readonly string[]).includes(intent)
+  ) {
+    // guard:allow-bare-error — invariant: only the review agent actions write `intent`, and each writes one of REVIEW_AGENT_INTENTS
+    throw new Error(`Unknown review agent intent ${intent}`);
+  }
+  return {
+    requestId: request.id,
+    status: reviewAgentMachine.parseState(request.status),
+    intent,
+    requesterIsMe:
+      viewerEmail !== null && request.requesterEmail === viewerEmail,
+  };
+}
+
 /**
  * What the agent learns about the thread the user has open: `null` when none
  * is open, the summary when it loads, `unavailable` when it is open but cannot
@@ -275,6 +330,11 @@ async function loadOpenReviewThread(
       screenId: root.targetId,
       anchorNodeId: reviewAnchorNodeId(root.anchor),
       status: root.status,
+      activeAgentRequest: await loadActiveAgentRequest(
+        designId,
+        threadId,
+        scope.userEmail,
+      ),
       commentCount,
       ...(targetComments.length >= OPEN_THREAD_COMMENT_LIMIT
         ? { commentCountTruncated: true as const }
@@ -294,7 +354,7 @@ async function loadOpenReviewThread(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, the Interact preview's device and theme, light, dark or system (system, the default, shows the design as authored; designSelection.interact, null outside Interact), active left rail panel (file, agent, assets, import, tools, tokens, or code; file is the panel labeled Layers), active code file metadata, overview canvas state, live Motion timeline id, playhead/duration in milliseconds, playback mode, auto-keyframe and selected track/keyframe keys, live-collaboration opt-in, review status and feedback queue summary (design.review.openThread is the comment thread open on the canvas or in the Threads panel: null when none, a summary when it loads, or {threadId, unavailable: true} when it cannot be read; its activeAgentRequest is the background agent run already working on that thread, or null), plus any pending question overlay. Basic route context is included in <current-screen>; call this for a fresh or fuller snapshot when visible design details matter.",
   schema: z.object({}),
   http: false,
   readOnly: true,

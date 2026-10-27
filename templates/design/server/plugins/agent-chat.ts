@@ -10,6 +10,10 @@ import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { DESIGN_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
+import {
+  finalizeReviewAgentRun,
+  resolveReviewAgentActionSurface,
+} from "../lib/review-agent-surface.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -295,6 +299,8 @@ export default createAgentChatPlugin({
   appId: "design",
   onAgentTurnStart: autosaveDesignBeforeAgentTurn,
   onAgentTurnComplete: autosaveDesignAfterAgentTurn,
+  resolveActionSurface: resolveReviewAgentActionSurface,
+  onAgentRunComplete: finalizeReviewAgentRun,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
@@ -347,7 +353,7 @@ When the user asks you to refine an existing design, call view-screen if the ope
 
 When the message carries a selected element (a targetNodeId, targetSelector, and an outerHTML excerpt), that element is the edit target. Locate data-agent-native-node-id="<targetNodeId>" in the snapshot and build the search block from that element's own opening tag and the excerpt you were given. Never identify the target by size, color, or position alone — a child or sibling frequently matches those and the uniqueness check will happily accept the wrong element. If the excerpt no longer matches the snapshot, re-read the file instead of guessing.
 
-When the user says "this comment" or "this thread", they mean the open thread view-screen reports as design.review.openThread. If that is {threadId, unavailable: true}, say it could not be read rather than guessing. When open review feedback exists, call get-review-feedback and work one anchored thread at a time. Prefer the stable node anchor, verify each persisted edit before resolving its thread, pass resolutionNote with a one-line description of the persisted change, and call consume-review-feedback after applying agent-targeted feedback. If a reviewer selectively sends one thread to the agent, use that thread id as the scope and do not apply other open feedback. A thread sent from the card menu may say Suggest changes (propose edits only, do not edit), Reply in thread (answer with reply-review-comment only, do not edit or resolve), or Apply changes and resolve (apply, then resolve). If a thread needs a human decision, reply with resolutionTarget "human" instead of resolving it; follow the design-review-feedback skill for the complete loop.
+When the user says "this comment" or "this thread", they mean the open thread view-screen reports as design.review.openThread. If that is {threadId, unavailable: true}, say it could not be read rather than guessing. When open review feedback exists, call get-review-feedback and work one anchored thread at a time. Prefer the stable node anchor, verify each persisted edit before resolving its thread, pass resolutionNote with a one-line description of the persisted change, and call consume-review-feedback after applying agent-targeted feedback. If a reviewer selectively sends one thread to the agent, use that thread id as the scope and do not apply other open feedback. If a thread needs a human decision, reply with resolutionTarget "human" instead of resolving it; follow the design-review-feedback skill for the complete loop.
 
 When the user picks one direction from a set of presented variants, delete each unchosen variant screen at most once, then call get-design-snapshot exactly once for the kept screen's fileId and call edit-design on that same fileId. Use edit-design replace-file when expanding the placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not call generate-design after a variant pick unless the user explicitly asks to create a separate new screen.
 

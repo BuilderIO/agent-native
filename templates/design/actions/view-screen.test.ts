@@ -9,11 +9,22 @@ const mocks = vi.hoisted(() => {
   const contentSelectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
   contentSelectChain.from.mockReturnValue(contentSelectChain);
   contentSelectChain.where.mockReturnValue(contentSelectChain);
+  const requestSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  requestSelectChain.from.mockReturnValue(requestSelectChain);
+  requestSelectChain.where.mockReturnValue(requestSelectChain);
 
   return {
     getDb: vi.fn(() => ({
       select: vi.fn((columns) =>
-        columns?.content ? contentSelectChain : selectChain,
+        columns?.requesterEmail
+          ? requestSelectChain
+          : columns?.content
+            ? contentSelectChain
+            : selectChain,
       ),
     })),
     parseCanvasFrameGeometryById: vi.fn((value) => value ?? []),
@@ -28,6 +39,7 @@ const mocks = vi.hoisted(() => {
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
     contentSelectChain,
+    requestSelectChain,
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
       title: "Acme",
@@ -75,7 +87,9 @@ vi.mock("@agent-native/core/review", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ conditions })),
   eq: mocks.eq,
+  inArray: vi.fn((column, values) => ({ column, values })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -89,6 +103,14 @@ vi.mock("../server/db/index.js", () => ({
       updatedAt: "designFiles.updatedAt",
       designId: "designFiles.designId",
       content: "designFiles.content",
+    },
+    designReviewAgentRequests: {
+      id: "requests.id",
+      designId: "requests.designId",
+      threadId: "requests.threadId",
+      status: "requests.status",
+      intent: "requests.intent",
+      requesterEmail: "requests.requesterEmail",
     },
   },
 }));
@@ -115,6 +137,8 @@ describe("view-screen", () => {
     mocks.getReviewThreadRoot.mockReset();
     mocks.selectChain.where.mockReset();
     mocks.contentSelectChain.limit.mockResolvedValue([]);
+    mocks.requestSelectChain.limit.mockReset();
+    mocks.requestSelectChain.limit.mockResolvedValue([]);
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -894,6 +918,7 @@ describe("view-screen", () => {
         screenId: "file_checkout",
         anchorNodeId: "node_button",
         status: "resolved",
+        activeAgentRequest: null,
         commentCount: 2,
         preview: "Hey @Sam Lee make the button bigger",
       });
@@ -910,6 +935,81 @@ describe("view-screen", () => {
           targetId: "file_checkout",
         }),
       );
+    });
+
+    it("reports the agent run working on the thread, and whether it is the viewer's", async () => {
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockResolvedValue([rootComment]);
+      mocks.requestSelectChain.limit.mockResolvedValue([
+        {
+          id: "request_1",
+          status: "running",
+          intent: "apply-resolve",
+          requesterEmail: "me@example.com",
+        },
+      ]);
+
+      openEditorWithThread("thread_open");
+      const mine = JSON.parse(
+        await action.run({}, { caller: "tool", userEmail: "me@example.com" }),
+      );
+      openEditorWithThread("thread_open");
+      const theirs = JSON.parse(
+        await action.run({}, { caller: "tool", userEmail: "you@example.com" }),
+      );
+
+      expect(mine.design.review.openThread.activeAgentRequest).toEqual({
+        requestId: "request_1",
+        status: "running",
+        intent: "apply-resolve",
+        requesterIsMe: true,
+      });
+      expect(
+        theirs.design.review.openThread.activeAgentRequest.requesterIsMe,
+      ).toBe(false);
+    });
+
+    it("keeps an agent run that has not been classified yet as an unset intent", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockResolvedValue([rootComment]);
+      mocks.requestSelectChain.limit.mockResolvedValue([
+        {
+          id: "request_2",
+          status: "classifying",
+          intent: null,
+          requesterEmail: "me@example.com",
+        },
+      ]);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread.activeAgentRequest).toMatchObject({
+        status: "classifying",
+        intent: null,
+      });
+    });
+
+    it("is unavailable, and logs, when the agent run lookup fails", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        openEditorWithThread("thread_open");
+        mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+        mocks.queryReviewComments.mockResolvedValue([rootComment]);
+        mocks.requestSelectChain.limit.mockRejectedValue(new Error("db down"));
+
+        const result = JSON.parse(await action.run({}));
+
+        expect(result.design.review.openThread).toEqual({
+          threadId: "thread_open",
+          unavailable: true,
+        });
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
 
     it("bounds the preview and reports a board thread with a null screen", async () => {

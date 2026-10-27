@@ -26,6 +26,7 @@ import {
   ReviewCommentItem,
   ReviewThreadCardFrame,
   ReviewThreadMenu,
+  type ReviewMentionOption,
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
@@ -71,6 +72,12 @@ import {
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
 } from "@/lib/node-reprompt";
+import {
+  useReviewAgent,
+  useReviewAgentSurface,
+} from "@/lib/review-agent/review-agent-context";
+import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +108,7 @@ import {
   type ReviewPopoverPlacement,
   type ReviewVisibleRegion,
 } from "./review-canvas-state";
+import { ReviewAgentRequestStatus } from "./ReviewAgentRequestStatus";
 import { type ReviewPinAuthor, ReviewPinBadge } from "./ReviewPinBadge";
 
 export interface RepromptDraftRequest {
@@ -1006,7 +1014,11 @@ export function ReviewCanvasPins({
     },
   );
   const { data: organizationMembers } = useOrgMembers();
-  const mentionOptions = useMemo<ReviewMention[]>(
+  const reviewAgentController = useReviewAgent();
+  // Only editors get agent features; the server refuses everyone else too.
+  const reviewAgent =
+    canResolve && reviewAgentController?.enabled ? reviewAgentController : null;
+  const peopleMentionOptions = useMemo<ReviewMention[]>(
     () =>
       (organizationMembers?.members ?? []).map((member) => ({
         label:
@@ -1014,6 +1026,10 @@ export function ReviewCanvasPins({
         email: member.email,
       })),
     [organizationMembers?.members],
+  );
+  const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
+    () => [...peopleMentionOptions, ...(reviewAgent?.mentionOptions ?? [])],
+    [peopleMentionOptions, reviewAgent?.mentionOptions],
   );
   const createComment = useCreateReviewComment();
   const deleteComment = useDeleteReviewComment();
@@ -1035,6 +1051,11 @@ export function ReviewCanvasPins({
   const onActiveThreadChangeRef = useRef(onActiveThreadChange);
   onActiveThreadChangeRef.current = onActiveThreadChange;
   const emittedThreadIdRef = useRef<string | null>(null);
+  useReviewAgentSurface(
+    Boolean(reviewAgent) &&
+      !hidden &&
+      (active || draftComposerOpen || activeThreadId !== null),
+  );
   const [replyDraft, setReplyDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
   const [replyAttachments, setReplyAttachments] = useState<
@@ -2338,6 +2359,26 @@ export function ReviewCanvasPins({
     dropCanvasPin(pinRequest.canvasPoint);
   }, [active, canPost, canvas, dropCanvasPin, hidden, pinRequest]);
 
+  // Runs after the comment is saved, so a failed start never loses it.
+  const startAgentFromComment = useCallback(
+    (comment: ReviewComment, mentions: readonly ReviewMention[]) => {
+      const chip = firstAgentMention(mentions);
+      if (!chip || !reviewAgent) return;
+      const selection = reviewAgent.resolveMention(chip);
+      if (!selection) {
+        toast.error(t("review.agent.startFailed"));
+        return;
+      }
+      void reviewAgent.start({
+        threadId: comment.threadId,
+        mode: "auto",
+        triggerCommentId: comment.id,
+        selection,
+      });
+    },
+    [reviewAgent, t],
+  );
+
   const postDraft = useCallback(
     (
       pin: ReviewDraftPin,
@@ -2369,6 +2410,7 @@ export function ReviewCanvasPins({
             if (pin.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }
+            startAgentFromComment(comment, mentions);
           },
           onError: () => toast.error(t("review.postFailed")),
         },
@@ -2380,6 +2422,7 @@ export function ReviewCanvasPins({
       onDispatchCommentToAgent,
       resourceId,
       resourceType,
+      startAgentFromComment,
       t,
       targetId,
     ],
@@ -2897,11 +2940,26 @@ export function ReviewCanvasPins({
                       ? (action) => onSendThreadToAgent(thread, action)
                       : undefined
                   }
-                  agentActionsDisabled={Boolean(sendingThreadId)}
+                  agentItems={{
+                    suggest: Boolean(reviewAgent),
+                    reply: Boolean(reviewAgent),
+                    // The server re-checks; this hides the item for a board
+                    // thread or a screen an agent cannot edit.
+                    apply:
+                      Boolean(reviewAgent) &&
+                      thread.root.targetId != null &&
+                      sourceType === "inline",
+                  }}
+                  agentActionsDisabled={
+                    Boolean(sendingThreadId) ||
+                    Boolean(reviewAgent?.isThreadBusy(thread.root.threadId))
+                  }
+                  reviewAgent={reviewAgent}
                   anchor={popoverAnchorFor(position.point, clientPoint)}
                   replyDraft={replyDraft}
                   replyMentions={replyMentions}
                   mentionOptions={mentionOptions}
+                  editMentionOptions={peopleMentionOptions}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
@@ -2910,6 +2968,7 @@ export function ReviewCanvasPins({
                   onReply={() => {
                     const body = replyDraft.trim();
                     if (!body) return;
+                    const sentMentions = replyMentions;
                     replyComment.mutate(
                       {
                         resourceType,
@@ -2929,10 +2988,11 @@ export function ReviewCanvasPins({
                           : {}),
                       },
                       {
-                        onSuccess: () => {
+                        onSuccess: (comment) => {
                           setReplyDraft("");
                           setReplyAttachments([]);
                           setReplyMentions([]);
+                          startAgentFromComment(comment, sentMentions);
                         },
                         onError: () => toast.error(t("review.replyFailed")),
                       },
@@ -3004,7 +3064,11 @@ export function ReviewCanvasPins({
               <DraftComposer
                 value={draftPin.draft}
                 mentions={draftMentions}
-                mentionOptions={mentionOptions}
+                mentionOptions={
+                  draftMode === "reprompt"
+                    ? peopleMentionOptions
+                    : mentionOptions
+                }
                 onMentionsChange={setDraftMentions}
                 attachments={draftAttachments}
                 onAttachmentsChange={setDraftAttachments}
@@ -3525,7 +3589,7 @@ function DraftComposer({
 }: {
   value: string;
   mentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
   onMentionsChange: (mentions: ReviewMention[]) => void;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
@@ -3572,6 +3636,7 @@ function DraftComposer({
             mentions={mentions}
             onMentionsChange={onMentionsChange}
             mentionOptions={mentionOptions}
+            agentsLabel={t("review.agent.sectionLabel")}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
@@ -3648,12 +3713,15 @@ function ReviewThreadPopover({
   onDelete,
   canDelete,
   onAgentAction,
+  agentItems,
   agentActionsDisabled,
+  reviewAgent,
   anchor,
   currentUserEmail,
   replyDraft,
   replyMentions,
   mentionOptions,
+  editMentionOptions,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -3685,14 +3753,19 @@ function ReviewThreadPopover({
   onSetUnread: (unread: boolean) => void;
   onDelete: () => void;
   canDelete: boolean;
-  /** Set only for editors on an open thread; it backs the four agent menu items. */
+  /** Set only for editors on an open thread; it backs the agent menu items. */
   onAgentAction: ((action: ReviewThreadAgentAction) => void) | undefined;
+  /** Send to agent always shows; the review-agent items need a connected controller. */
+  agentItems: { suggest: boolean; reply: boolean; apply: boolean };
   agentActionsDisabled: boolean;
+  reviewAgent: ReviewAgentController | null;
   anchor: ReviewPopoverAnchor;
   currentUserEmail?: string | null | undefined;
   replyDraft: string;
   replyMentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
+  /** A comment edit never starts a run, so it offers people only. */
+  editMentionOptions: readonly ReviewMention[];
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -3710,6 +3783,7 @@ function ReviewThreadPopover({
   const resolvedStatus = thread.root.status === "resolved";
   const canToggleResolution =
     canResolve && (thread.root.status === "open" || resolvedStatus);
+  const agentRequest = reviewAgent?.requestForThread(thread.root.threadId);
   const itemLabels = {
     reviewerLabel: t("review.reviewer"),
     agentBadgeLabel: t("review.agentBadge"),
@@ -3740,7 +3814,7 @@ function ReviewThreadPopover({
             value={editDraft}
             mentions={editMentions}
             onMentionsChange={onEditMentionsChange}
-            mentionOptions={mentionOptions}
+            mentionOptions={editMentionOptions}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
@@ -3776,9 +3850,21 @@ function ReviewThreadPopover({
             copyLinkFailedLabel={t("review.copyLinkFailed")}
             deleteLabel={t("review.deleteThread")}
             onSendToAgent={onAgentAction && (() => onAgentAction("send"))}
-            onSuggestChanges={onAgentAction && (() => onAgentAction("suggest"))}
-            onReplyInThread={onAgentAction && (() => onAgentAction("reply"))}
-            onApplyAndResolve={onAgentAction && (() => onAgentAction("apply"))}
+            onSuggestChanges={
+              onAgentAction && agentItems.suggest
+                ? () => onAgentAction("suggest")
+                : undefined
+            }
+            onReplyInThread={
+              onAgentAction && agentItems.reply
+                ? () => onAgentAction("reply")
+                : undefined
+            }
+            onApplyAndResolve={
+              onAgentAction && agentItems.apply
+                ? () => onAgentAction("apply")
+                : undefined
+            }
             agentActionsDisabled={agentActionsDisabled}
             onCopyLink={onCopyLink}
             onDelete={canDelete ? onDelete : undefined}
@@ -3797,6 +3883,24 @@ function ReviewThreadPopover({
           {commentItem(thread.root, "root")}
           {thread.replies.map((reply) => commentItem(reply, "reply"))}
         </div>
+        {reviewAgent ? (
+          <ReviewAgentRequestStatus
+            className={cn(!canReply && "pb-3")}
+            request={agentRequest}
+            thread={thread}
+            starting={reviewAgent.startingThreadIds.has(thread.root.threadId)}
+            startingAgentName={reviewAgent.startingAgentName(
+              thread.root.threadId,
+            )}
+            stopping={
+              agentRequest !== undefined &&
+              reviewAgent.stoppingRequestIds.has(agentRequest.requestId)
+            }
+            onStop={(request) => void reviewAgent.stop(request)}
+            onOpen={reviewAgent.open}
+            onRetry={(request) => void reviewAgent.retry(request)}
+          />
+        ) : null}
         {canReply ? (
           <div className="group/reply flex items-start gap-2 px-3 py-4">
             <div className="mt-2 shrink-0 group-has-data-expanded/reply:mt-0.5">
@@ -3813,6 +3917,7 @@ function ReviewThreadPopover({
               mentions={replyMentions}
               onMentionsChange={onReplyMentionsChange}
               mentionOptions={mentionOptions}
+              agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
               commentToolsEnd={replyImages.toolsEnd}
               attachments={replyImages.strip}

@@ -49,9 +49,12 @@ import {
   isNativeKeyboardActivationTarget,
 } from "@/hooks/useDesignHotkeys";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 import {
   buildReviewThreadAgentContext,
   buildReviewThreadAgentDispatch,
+  isReviewThreadEngineAction,
+  reviewAgentModeForMenuAction,
   type ReviewThreadAgentAction,
 } from "@/lib/review-thread-agent-actions";
 
@@ -129,6 +132,7 @@ export function useEditorToolsAndVectors({
   editorCanvasAndScreens,
   editorLiveEditsAndPresence,
   editorContentAndComponents,
+  reviewAgent,
 }: {
   editorCore: EditorCore;
   editorHistory: EditorHistory;
@@ -138,6 +142,8 @@ export function useEditorToolsAndVectors({
   editorCanvasAndScreens: EditorCanvasAndScreens;
   editorLiveEditsAndPresence: EditorLiveEditsAndPresence;
   editorContentAndComponents: EditorContentAndComponents;
+  /** Starts the background runs behind the card menu's Suggest, Reply and Apply items. */
+  reviewAgent: ReviewAgentController | null;
 }) {
   const {
     t,
@@ -354,8 +360,17 @@ export function useEditorToolsAndVectors({
       ) {
         return;
       }
-      const { message, context, submit, routeToAgentQueue } =
-        buildReviewThreadAgentDispatch(action, { designId: id, thread });
+      if (isReviewThreadEngineAction(action)) {
+        void reviewAgent?.start({
+          threadId: thread.root.threadId,
+          mode: reviewAgentModeForMenuAction(action),
+        });
+        return;
+      }
+      const { message, context, submit } = buildReviewThreadAgentDispatch({
+        designId: id,
+        thread,
+      });
       const openChat = () =>
         sendToDesignAgentChat({
           message,
@@ -365,10 +380,6 @@ export function useEditorToolsAndVectors({
           openSidebar: true,
           newTab: true,
         });
-      if (!routeToAgentQueue) {
-        openChat();
-        return;
-      }
       setReviewSendingThreadId(thread.root.threadId);
       sendReviewThreadToAgent.mutate(
         {
@@ -385,7 +396,14 @@ export function useEditorToolsAndVectors({
         },
       );
     },
-    [canEditDesign, id, reviewSendingThreadId, sendReviewThreadToAgent, t],
+    [
+      canEditDesign,
+      id,
+      reviewAgent,
+      reviewSendingThreadId,
+      sendReviewThreadToAgent,
+      t,
+    ],
   );
 
   const handleReviewThreadSelect = useCallback(

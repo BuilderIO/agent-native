@@ -24,6 +24,12 @@ function agentKindFromName(authorName: string): ReviewAgentKind {
     return "claude-code";
   }
   if (name.includes("claude")) return "claude";
-  if (name.includes("codex") || name.includes("openai")) return "codex";
+  if (
+    name.includes("codex") ||
+    name.includes("openai") ||
+    name.includes("gpt")
+  ) {
+    return "codex";
+  }
   return "agent";
 }
