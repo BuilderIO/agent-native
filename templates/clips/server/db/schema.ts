@@ -505,6 +505,29 @@ export const recordingAgentViews = table(
   }),
 );
 
+// Recommended agent frames, cut once and stored so serving one never downloads
+// the video. Bytes live in file storage; `media_key` pins the video and edits
+// the frame was cut from.
+export const recordingAgentFrames = table(
+  "recording_agent_frames",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    atMs: integer("at_ms").notNull(),
+    mediaKey: text("media_key").notNull(),
+    storageUrl: text("storage_url").notNull(),
+    storageProvider: text("storage_provider").notNull(),
+    storageId: text("storage_id"),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (frame) => ({
+    recordingAgentFrameUnique: uniqueIndex(
+      "recording_agent_frames_recording_at_unique_idx",
+    ).on(frame.recordingId, frame.atMs),
+  }),
+);
+
 export const meetings = table("clips_meetings", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),

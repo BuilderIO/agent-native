@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getOwnerJevApiKey, findQueueField, getTask } = vi.hoisted(() => ({
-  getOwnerJevApiKey: vi.fn(),
+const { decide, findQueueField, getTask } = vi.hoisted(() => ({
+  decide: vi.fn(),
   findQueueField: vi.fn(),
   getTask: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/server", () => ({ getOwnerJevApiKey }));
+vi.mock("@agent-native/core/decisions", () => ({ decide }));
 vi.mock("../server/task-routing.js", () => ({
   DEFAULT_QUEUES: ["Work", "Personal", "Other"],
   findQueueField,
@@ -22,23 +22,65 @@ vi.mock("../server/tasks/store.js", () => ({
 import suggestTaskRoute from "./suggest-task-route.js";
 
 const context = { userEmail: "alice@example.com", caller: "cli" as const };
-const fetchMock = vi.fn();
+
+function decision({
+  choice = "queue_0",
+  queueProbability = 0.95,
+  queueConfidence = 0.91,
+  urgentProbability = 0.88,
+  includeQueueProbability = true,
+  includeQueueConfidence = true,
+}: {
+  choice?: string;
+  queueProbability?: number;
+  queueConfidence?: number;
+  urgentProbability?: number;
+  includeQueueProbability?: boolean;
+  includeQueueConfidence?: boolean;
+} = {}) {
+  return {
+    status: "ok",
+    provider: "openai",
+    model: "gpt-6-luna",
+    answers: {
+      queue: {
+        type: "choice",
+        name: "queue",
+        choice,
+        ...(includeQueueProbability
+          ? {
+              probabilities: [{ value: choice, probability: queueProbability }],
+            }
+          : {}),
+        ...(includeQueueConfidence ? { confidence: queueConfidence } : {}),
+      },
+      urgent: {
+        type: "predicate",
+        name: "urgent",
+        probability: urgentProbability,
+      },
+    },
+  };
+}
 
 describe("suggest-task-route", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("does not contact Jev without a key", async () => {
+  it("reports when no decision provider is configured", async () => {
     getTask.mockResolvedValue({ id: "task-1", title: "Follow up" });
     findQueueField.mockResolvedValue(null);
-    getOwnerJevApiKey.mockResolvedValue(undefined);
+    decide.mockResolvedValue({
+      status: "not_configured",
+      reason: "missing_credentials",
+      providers: ["jev", "openai"],
+    });
 
     await expect(
       suggestTaskRoute.run({ taskId: "task-1" }, context),
-    ).rejects.toThrow("Connect a Jev API key");
-    expect(fetchMock).not.toHaveBeenCalled();
+    ).rejects.toThrow("No AI decision provider is configured");
+    expect(decide).toHaveBeenCalledTimes(1);
   });
 
   it("returns a queue and urgency judgment without updating the task", async () => {
@@ -48,20 +90,7 @@ describe("suggest-task-route", () => {
       type: "single_select",
       config: { options: [{ id: "billing", name: "Billing" }] },
     });
-    getOwnerJevApiKey.mockResolvedValue("test-key");
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        answers: {
-          queue: {
-            choice: "queue_0",
-            confidence: 0.9,
-            probabilities: { queue_0: 0.95, none: 0.05 },
-          },
-          urgent: { noul: 0.88 },
-        },
-      }),
-    });
+    decide.mockResolvedValue(decision());
 
     await expect(
       suggestTaskRoute.run({ taskId: "task-1" }, context),
@@ -69,15 +98,22 @@ describe("suggest-task-route", () => {
       taskId: "task-1",
       queue: "Billing",
       queueProbability: 0.95,
-      queueConfidence: 0.9,
+      queueConfidence: 0.91,
       urgentProbability: 0.88,
     });
-    const [url, request] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("https://api.typesafe.ai/v1/systemone");
-    expect(JSON.parse(request.body)).toMatchObject({
-      model: "jev-latest",
-      state: { task: { title: "Fix payment outage" } },
-      questions: { queue: { type: "choice" }, urgent: { type: "noul" } },
+    expect(decide).toHaveBeenCalledWith({
+      ownerEmail: "alice@example.com",
+      input: [
+        {
+          type: "json",
+          value: { task: { title: "Fix payment outage" }, queues: ["Billing"] },
+        },
+      ],
+      questions: [
+        expect.objectContaining({ type: "choice", name: "queue" }),
+        expect.objectContaining({ type: "predicate", name: "urgent" }),
+      ],
+      options: { timeoutMs: 10_000 },
     });
     expect(getTask).toHaveBeenCalledWith({
       ownerEmail: "alice@example.com",
@@ -92,23 +128,34 @@ describe("suggest-task-route", () => {
       type: "single_select",
       config: { options: [{ id: "billing", name: "Billing" }] },
     });
-    getOwnerJevApiKey.mockResolvedValue("test-key");
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        answers: {
-          queue: {
-            choice: "unknown",
-            confidence: 0.9,
-            probabilities: { unknown: 0.9 },
-          },
-          urgent: { noul: 0.2 },
-        },
+    decide.mockResolvedValue(
+      decision({
+        choice: "unknown",
+        queueProbability: 0.9,
+        urgentProbability: 0.2,
       }),
-    });
+    );
 
     await expect(
       suggestTaskRoute.run({ taskId: "task-1" }, context),
     ).rejects.toThrow("unknown queue");
+  });
+
+  it("omits an unavailable queue probability instead of inventing one", async () => {
+    getTask.mockResolvedValue({ id: "task-1", title: "Follow up" });
+    findQueueField.mockResolvedValue(null);
+    decide.mockResolvedValue(decision({ includeQueueProbability: false }));
+    const result = await suggestTaskRoute.run({ taskId: "task-1" }, context);
+
+    expect(result).not.toHaveProperty("queueProbability");
+  });
+
+  it("omits unavailable choice confidence instead of inventing it", async () => {
+    getTask.mockResolvedValue({ id: "task-1", title: "Follow up" });
+    findQueueField.mockResolvedValue(null);
+    decide.mockResolvedValue(decision({ includeQueueConfidence: false }));
+    const result = await suggestTaskRoute.run({ taskId: "task-1" }, context);
+
+    expect(result).not.toHaveProperty("queueConfidence");
   });
 });

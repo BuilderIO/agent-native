@@ -1332,6 +1332,24 @@ export const migrations = runMigrations(
     },
     {
       version: 94,
+      name: "recording-agent-frames",
+      // Additive. Mirrors `recordingAgentFrames` in server/db/schema.ts.
+      sql: `CREATE TABLE IF NOT EXISTS recording_agent_frames (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        at_ms INTEGER NOT NULL,
+        media_key TEXT NOT NULL,
+        storage_url TEXT NOT NULL,
+        storage_provider TEXT NOT NULL,
+        storage_id TEXT,
+        size_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_frames_recording_at_unique_idx
+        ON recording_agent_frames (recording_id, at_ms)`,
+    },
+    {
+      version: 95,
       name: "recording-content-bindings",
       // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
       // no CHECK so later lifecycle states need no migration.
