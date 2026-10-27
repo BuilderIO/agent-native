@@ -26,6 +26,7 @@ import {
   AI_PRIORITY_MAX_EMAILS,
   aiPriorityEmailKey,
   aiPriorityEmailSchema,
+  type AiPriorityFailure,
   type AiPriorityScore,
 } from "../shared/ai-priority.js";
 import { mailLabelsInclude } from "../shared/gmail-labels.js";
@@ -224,12 +225,7 @@ export default defineAction({
     );
     let evaluatedCount = 0;
     let failedCount = 0;
-    let failures: Array<{
-      emailId: string;
-      accountEmail?: string;
-      reason: "invalid_response" | "refusal" | "invalid_input";
-      retryable?: boolean;
-    }> = [];
+    let failures: AiPriorityFailure[] = [];
     let model: { provider: DecisionProvider; model: string } = cachedModel ?? {
       provider: selectedProvider,
       model: selectedModel,

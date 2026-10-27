@@ -8,7 +8,6 @@ import {
   getDecisionsStatus,
   MAX_DECISION_PAYLOAD_BYTES,
   type DecisionAnswer,
-  type DecisionQuestionFailureReason,
   type DecisionQuestion,
   type DecisionProvider,
   type DecisionResult,
@@ -43,6 +42,7 @@ import {
   AI_PRIORITY_DEFAULT_INSTRUCTION,
   aiPriorityEmailKey,
   type AiPriorityEmail,
+  type AiPriorityFailure,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
@@ -1210,7 +1210,7 @@ type PriorityScore = {
 export interface PriorityEvaluationFailure {
   emailId: string;
   accountEmail?: string;
-  reason: DecisionQuestionFailureReason | "refusal" | "invalid_input";
+  reason: AiPriorityFailure["reason"];
   retryable?: boolean;
 }
 
@@ -1249,12 +1249,18 @@ async function requestMailDecision(
   questions: DecisionQuestion[],
   signal?: AbortSignal,
 ): Promise<SuccessfulDecision> {
-  const result = await decide({
-    ownerEmail,
-    input: [input],
-    questions,
-    options: { timeoutMs: 12_000, ...(signal ? { signal } : {}) },
-  });
+  let result: DecisionResult;
+  try {
+    result = await decide({
+      ownerEmail,
+      input: [input],
+      questions,
+      options: { timeoutMs: 12_000, ...(signal ? { signal } : {}) },
+    });
+  } catch {
+    if (signal?.aborted) signal.throwIfAborted();
+    throw new MailDecisionRequestError("provider_error");
+  }
   if (result.status !== "ok") {
     if (result.status === "not_configured") {
       throw new MailDecisionRequestError("missing_credentials");
@@ -1434,13 +1440,33 @@ async function evaluatePriorityBatch(
   signal?: AbortSignal,
 ): Promise<PriorityEvaluation> {
   const { input, questions } = buildPriorityDecisionBatch(emails, instruction);
-  const result = await requestMailDecision(
-    ownerEmail,
-    { type: "json", value: input },
-    questions,
-    signal,
-  );
   const scores = new Map<string, PriorityScore>();
+  let result: SuccessfulDecision;
+  try {
+    result = await requestMailDecision(
+      ownerEmail,
+      { type: "json", value: input },
+      questions,
+      signal,
+    );
+  } catch (error) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (!(error instanceof MailDecisionRequestError)) throw error;
+    const retryable = !NON_RETRYABLE_DECISION_FAILURES.has(error.reason);
+    const failures = emails.map((email) => ({
+      emailId: email.id,
+      ...(email.accountEmail ? { accountEmail: email.accountEmail } : {}),
+      reason: error.reason,
+      retryable,
+    }));
+    return {
+      scores,
+      failures,
+      evaluatedCount: 0,
+      failedCount: failures.length,
+      model: null,
+    };
+  }
   const failures: PriorityEvaluationFailure[] = [];
   let evaluatedCount = 0;
   for (const [index, email] of emails.entries()) {

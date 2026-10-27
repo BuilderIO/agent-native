@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { aiFilterPreviewEmailSchema } from "./ai-filter.js";
+import {
+  aiFilterDecisionFailureReasonSchema,
+  aiFilterPreviewEmailSchema,
+} from "./ai-filter.js";
 
 export const AI_IMPORTANT_LABEL = "agent-native-important";
 export const AI_PRIORITY_MAX_EMAILS = 500;
@@ -22,7 +25,7 @@ export type AiPriorityScore = z.infer<typeof aiPriorityScoreSchema>;
 export const aiPriorityFailureSchema = z.object({
   emailId: z.string().min(1).max(256),
   accountEmail: z.string().email().optional(),
-  reason: z.enum(["invalid_response", "refusal", "invalid_input"]),
+  reason: aiFilterDecisionFailureReasonSchema,
   retryable: z.boolean().optional(),
 });
 export type AiPriorityFailure = z.infer<typeof aiPriorityFailureSchema>;

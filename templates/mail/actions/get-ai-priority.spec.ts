@@ -339,6 +339,47 @@ describe("get-ai-priority action", () => {
     );
   });
 
+  it("returns provider failures with successful scores cached", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
+    mocks.previewAutomationPriority.mockResolvedValueOnce({
+      scores: new Map([
+        [
+          aiPriorityEmailKey(undefined, "email-1"),
+          {
+            score: 0.92,
+            provider: "openai",
+            model: "gpt-6-luna",
+          },
+        ],
+      ]),
+      failures: [
+        { emailId: "email-2", reason: "provider_error", retryable: true },
+      ],
+      evaluatedCount: 1,
+      failedCount: 1,
+      model: { provider: "openai", model: "gpt-6-luna" },
+    });
+
+    const result = await action.run({
+      emails: [email("email-1"), email("email-2")],
+    });
+
+    expect(result.scores).toEqual([{ emailId: "email-1", score: 0.92 }]);
+    expect(result).toMatchObject({
+      evaluatedCount: 1,
+      failedCount: 1,
+      failures: [
+        { emailId: "email-2", reason: "provider_error", retryable: true },
+      ],
+    });
+    expect(mocks.saveAiPriorityCache).toHaveBeenCalledWith(
+      "owner@example.com",
+      expect.objectContaining({
+        entries: [expect.objectContaining({ emailId: "email-1" })],
+      }),
+    );
+  });
+
   it("falls through the unavailable Jev space to OpenAI", async () => {
     mocks.getDecisionsStatus.mockResolvedValue(status(["openai"]));
 

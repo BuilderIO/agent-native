@@ -826,6 +826,47 @@ describe("Mail decision automation routing", () => {
     expect(result.scores.size).toBe(200);
   });
 
+  it("keeps successful priority scores when a sibling batch rejects", async () => {
+    const messages = Array.from({ length: 100 }, (_, index) => ({
+      ...email,
+      id: `priority-${index}`,
+      threadId: `thread-${index}`,
+    }));
+    mocks.decide
+      .mockRejectedValueOnce(new Error("decision transport rejected"))
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) =>
+          decisionResult(questions, {
+            probabilities: questions.map(() => 0.8),
+          }),
+      );
+
+    const result = await previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 50, failedCount: 50 });
+    expect(result.scores.size).toBe(50);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "priority-0")),
+    ).toBe(false);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "priority-99")),
+    ).toBe(true);
+    expect(result.failures).toHaveLength(50);
+    expect(result.failures[0]).toMatchObject({
+      emailId: "priority-0",
+      reason: "provider_error",
+      retryable: true,
+    });
+  });
+
   it("keeps decision batches within the provider question limit", async () => {
     const emails = Array.from({ length: 20 }, (_, index) => ({
       ...email,
