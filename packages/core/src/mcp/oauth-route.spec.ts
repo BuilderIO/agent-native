@@ -1103,6 +1103,7 @@ describe("MCP OAuth route", () => {
       query: Record<string, string> = {},
       resource = "https://mail.agent-native.com/mcp/directory",
       connector = { name: "ChatGPT", redirect: chatgptRedirect },
+      headers: Record<string, string> = {},
     ) {
       const client = await (
         await handleMcpOAuth(
@@ -1127,7 +1128,7 @@ describe("MCP OAuth route", () => {
         ...query,
       };
       const response = await handleMcpOAuth(
-        event({ query: params }),
+        event({ query: params, headers }),
         "/authorize",
         { appId: "agent-native-mail", appName: "Mail" },
       );
@@ -1185,11 +1186,32 @@ describe("MCP OAuth route", () => {
       expect(
         decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
       ).toMatchObject({
-        vendor: "openai",
+        signupOrigin: "mcp_oauth",
+        vendorHint: "openai",
         anonymousId: openSource.anonymousId,
         sessionId: openSource.sessionId,
         firstTouchPathAllowed: true,
       });
+    });
+
+    it("does not create or track analytics identifiers without performance consent", async () => {
+      getSessionMock.mockResolvedValueOnce(null);
+      const { response } = await openAuthorize({}, undefined, undefined, {
+        cookie: "an_consent=1.p0.t1; an_sid=old-session; an_aid=old-anonymous",
+      });
+
+      expect(response.status).toBe(200);
+      expect(authorizeFunnelCalls()).toEqual([]);
+      const cookies = response.headers.get("set-cookie") ?? "";
+      expect(cookies).not.toContain("an_aid=");
+      expect(cookies).toContain("an_sid=; path=/; max-age=0");
+      expect(cookies).not.toContain("an_sid=mcp_");
+      const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];
+      const { decodeMcpSignupAttribution } =
+        await import("../server/mcp-signup-attribution.js");
+      expect(
+        decodeMcpSignupAttribution(mcpToken, "mcp-oauth-test-secret"),
+      ).toMatchObject({ signupOrigin: "mcp_oauth", vendorHint: "openai" });
     });
 
     it("counts a signed-in open once, with the user, and not the consent POST", async () => {

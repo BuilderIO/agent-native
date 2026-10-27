@@ -30,7 +30,10 @@ import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { serializeMcpSignupAttributionCookie } from "../server/mcp-signup-attribution.js";
 import { serializeAnalyticsAnonymousIdCookie } from "../shared/analytics-anonymous-id.js";
-import { serializeAnalyticsSessionIdCookie } from "../shared/analytics-session-id.js";
+import {
+  ANALYTICS_SESSION_ID_COOKIE_NAME,
+  serializeAnalyticsSessionIdCookie,
+} from "../shared/analytics-session-id.js";
 import {
   connectionApp,
   connectionClientKey,
@@ -121,19 +124,23 @@ function redirect(location: string): Response {
 function analyticsIdentityForAuthorize(event: H3Event): {
   anonymousId?: string;
   sessionId?: string;
+  performanceAllowed: boolean;
   setCookies: string[];
 } {
   const cookieHeader = getHeader(event, "cookie") ?? null;
-  const allowAnonymousId = requestAllowsConsentCategory(event, "performance");
-  const existingAnonymousId = allowAnonymousId
+  const performanceAllowed = requestAllowsConsentCategory(event, "performance");
+  const existingAnonymousId = performanceAllowed
     ? readAnalyticsAnonymousId(cookieHeader)
     : undefined;
-  const anonymousId = allowAnonymousId
+  const anonymousId = performanceAllowed
     ? (existingAnonymousId ?? `mcp_${randomBytes(16).toString("base64url")}`)
     : undefined;
-  const existingSessionId = readAnalyticsSessionId(cookieHeader);
-  const sessionId =
-    existingSessionId ?? `mcp_${randomBytes(16).toString("base64url")}`;
+  const existingSessionId = performanceAllowed
+    ? readAnalyticsSessionId(cookieHeader)
+    : undefined;
+  const sessionId = performanceAllowed
+    ? (existingSessionId ?? `mcp_${randomBytes(16).toString("base64url")}`)
+    : undefined;
   const setCookies = [
     !existingAnonymousId && anonymousId
       ? serializeAnalyticsAnonymousIdCookie(anonymousId)
@@ -142,10 +149,23 @@ function analyticsIdentityForAuthorize(event: H3Event): {
       ? serializeAnalyticsSessionIdCookie(sessionId)
       : undefined,
   ].filter((cookie): cookie is string => Boolean(cookie));
+  if (
+    !performanceAllowed &&
+    cookieHeader
+      ?.split(";")
+      .some((cookie) =>
+        cookie.trim().startsWith(`${ANALYTICS_SESSION_ID_COOKIE_NAME}=`),
+      )
+  ) {
+    setCookies.push(
+      `${ANALYTICS_SESSION_ID_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`,
+    );
+  }
 
   return {
     ...(anonymousId ? { anonymousId } : {}),
     ...(sessionId ? { sessionId } : {}),
+    performanceAllowed,
     setCookies,
   };
 }
@@ -174,7 +194,8 @@ function mcpSignupCookie(
   try {
     return serializeMcpSignupAttributionCookie(
       {
-        ...(vendor ? { vendor } : {}),
+        signupOrigin: "mcp_oauth",
+        ...(firstTouchPathAllowed && vendor ? { vendorHint: vendor } : {}),
         ...("anonymousId" in identity && identity.anonymousId
           ? { anonymousId: identity.anonymousId }
           : {}),
@@ -937,12 +958,14 @@ interface AuthorizeAnalyticsInput {
   userId?: string;
   anonymousId?: string;
   sessionId?: string;
+  performanceAllowed: boolean;
 }
 
 function trackAuthorizeStage(
   stage: "opened" | "login_wall",
   input: AuthorizeAnalyticsInput,
 ): void {
+  if (!input.performanceAllowed) return;
   // The authorize page is the only way into a connection, so a tracking fault
   // must not turn a sign-in into a failure.
   try {

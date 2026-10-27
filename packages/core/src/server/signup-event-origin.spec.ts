@@ -189,7 +189,7 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0]?.properties).toMatchObject({
       signup_origin: "mcp_oauth",
       first_touch_path: "/mcp/oauth/authorize",
-      $mcp_vendor_client: "openai",
+      $mcp_vendor_client_hint: "openai",
     });
   });
 
@@ -212,11 +212,11 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0]?.properties).toMatchObject({
       signup_origin: "mcp_oauth",
       first_touch_path: "/docs",
-      $mcp_vendor_client: "claude",
+      $mcp_vendor_client_hint: "claude",
     });
   });
 
-  it("keeps MCP signup origin and vendor without storing first touch after opt-out", async () => {
+  it("keeps MCP signup origin and drops vendor attribution after targeting opt-out", async () => {
     const mcpSignup = encodeMcpSignupAttribution(
       {
         vendor: "openai",
@@ -234,9 +234,11 @@ describe("emitSignupEventForCreatedUser", () => {
 
     expect(tracked[0]?.properties).toMatchObject({
       signup_origin: "mcp_oauth",
-      $mcp_vendor_client: "openai",
     });
     expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).not.toHaveProperty(
+      "$mcp_vendor_client_hint",
+    );
     expect(tracked[0]?.source?.sessionId).toBe("session_mcp_no_targeting");
   });
 
@@ -250,7 +252,9 @@ describe("emitSignupEventForCreatedUser", () => {
       headers: headersWithCookie(`an_mcp_signup=${mcpSignup}x`),
     });
 
-    expect(tracked[0]?.properties).not.toHaveProperty("$mcp_vendor_client");
+    expect(tracked[0]?.properties).not.toHaveProperty(
+      "$mcp_vendor_client_hint",
+    );
     expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
     expect(tracked[0]?.properties).toMatchObject({
       signup_origin: "browser_signup",

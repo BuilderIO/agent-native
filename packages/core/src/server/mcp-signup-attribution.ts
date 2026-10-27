@@ -9,7 +9,10 @@ export const MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME = "an_mcp_signup";
 export const MCP_SIGNUP_ATTRIBUTION_TTL_SECONDS = 30 * 60;
 
 export interface McpSignupAttribution {
+  signupOrigin?: "mcp_oauth";
+  /** Legacy signed-cookie field; interpreted only as an unverified hint. */
   vendor?: string;
+  vendorHint?: string;
   anonymousId?: string;
   sessionId?: string;
   firstTouchPathAllowed?: boolean;
@@ -20,14 +23,16 @@ export function applyMcpSignupAttribution(
   mcpSignup: McpSignupAttribution | null | undefined,
 ): Record<string, string | undefined> | undefined {
   if (!mcpSignup) return attribution;
-  return {
+  const vendorHint = normalizeVendor(mcpSignup.vendorHint ?? mcpSignup.vendor);
+  const result = {
     ...(attribution ?? {}),
     ...(mcpSignup.firstTouchPathAllowed === true &&
     !attribution?.first_touch_path
       ? { first_touch_path: "/mcp/oauth/authorize" }
       : {}),
-    ...(mcpSignup.vendor ? { $mcp_vendor_client: mcpSignup.vendor } : {}),
+    ...(vendorHint ? { $mcp_vendor_client_hint: vendorHint } : {}),
   };
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 interface McpSignupAttributionPayload extends McpSignupAttribution {
@@ -48,12 +53,17 @@ export function sanitizeMcpSignupAttribution(
     return undefined;
   }
   const record = value as Record<string, unknown>;
-  const vendor = normalizeVendor(record.vendor);
+  const vendorHint = normalizeVendor(record.vendorHint ?? record.vendor);
+  const signupOrigin =
+    record.signupOrigin === "mcp_oauth" ? "mcp_oauth" : undefined;
   const anonymousId = normalizeAnalyticsAnonymousId(record.anonymousId);
   const sessionId = normalizeAnalyticsSessionId(record.sessionId);
-  if (!vendor && !anonymousId && !sessionId) return undefined;
+  if (!signupOrigin && !vendorHint && !anonymousId && !sessionId) {
+    return undefined;
+  }
   return {
-    ...(vendor ? { vendor } : {}),
+    ...(signupOrigin ? { signupOrigin } : {}),
+    ...(vendorHint ? { vendorHint } : {}),
     ...(anonymousId ? { anonymousId } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(typeof record.firstTouchPathAllowed === "boolean"
@@ -160,11 +170,16 @@ export function readMcpSignupContextFromCookieHeader(
   );
   if (!context) return context;
 
-  const { anonymousId, ...contextWithoutAnonymousId } = context;
-  return {
-    ...(consent?.performance === false ? contextWithoutAnonymousId : context),
-    ...(consent?.targeting === false ? { firstTouchPathAllowed: false } : {}),
-  };
+  const allowedContext = { ...context };
+  if (consent?.performance === false) {
+    delete allowedContext.anonymousId;
+    delete allowedContext.sessionId;
+  }
+  if (consent?.targeting === false) {
+    delete allowedContext.vendorHint;
+    allowedContext.firstTouchPathAllowed = false;
+  }
+  return allowedContext;
 }
 
 export function serializeMcpSignupAttributionCookie(

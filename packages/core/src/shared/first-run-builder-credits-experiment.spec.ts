@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignFirstRunBuilderCreditsV2,
   FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
 } from "./first-run-builder-credits-experiment.js";
 
 describe("first-run Builder credits v2 assignment", () => {
@@ -25,5 +26,8 @@ describe("first-run Builder credits v2 assignment", () => {
     const userId = "auth-user-123";
     const first = assignFirstRunBuilderCreditsV2(userId);
     expect(first?.experiment_id).toBe("first_run_builder_credits_v2");
+    expect(FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY).toBe(
+      "clips-first-run-credits-v2",
+    );
   });
 });

@@ -2788,7 +2788,7 @@ describe("server/auth", () => {
         signupAnonymousId: "anon_mcp_auth_url",
         signupSessionId: "session_mcp_auth_url",
         mcpSignupAttribution: {
-          vendor: "openai",
+          vendorHint: "openai",
           anonymousId: "anon_mcp_auth_url",
           sessionId: "session_mcp_auth_url",
         },
@@ -10745,7 +10745,7 @@ describe("server/auth", () => {
         signupAnonymousId: "anon_mcp_1",
         signupSessionId: "session_mcp_1",
         mcpSignupAttribution: {
-          vendor: "openai",
+          vendorHint: "openai",
           anonymousId: "anon_mcp_1",
           sessionId: "session_mcp_1",
         },
@@ -10756,7 +10756,7 @@ describe("server/auth", () => {
         signupAnonymousId: "anon_mcp_1",
         signupSessionId: "session_mcp_1",
         mcpSignupAttribution: {
-          vendor: "openai",
+          vendorHint: "openai",
           anonymousId: "anon_mcp_1",
           sessionId: "session_mcp_1",
         },
@@ -11305,7 +11305,7 @@ describe("server/auth", () => {
           referrer_user: "owner_123",
           utm_source: "newsletter",
           first_touch_path: "/docs/actions",
-          $mcp_vendor_client: "openai",
+          $mcp_vendor_client_hint: "openai",
         },
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",

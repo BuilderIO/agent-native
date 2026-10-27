@@ -3136,4 +3136,67 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid HubSpot frame before checkpointing or mutating metadata", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Create an email",
+        files: [
+          {
+            filename: "email.html",
+            fileType: "html",
+            frameType: "hubspot-email",
+            content: "<html><body>Hello</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "hubspot_email_marker_required",
+      statusCode: 422,
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  it("preflights locked layers in every file before checkpointing or saving any file", async () => {
+    setExistingFile(
+      '<html><body><section data-agent-native-node-id="section"><div data-agent-native-locked="true" data-agent-native-node-id="locked">Legal</div></section></body></html>',
+    );
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Add two screens",
+        files: [
+          {
+            filename: "new-screen.html",
+            fileType: "html",
+            content: "<html><body><main>New screen</main></body></html>",
+          },
+          {
+            filename: "index.html",
+            fileType: "html",
+            content:
+              '<html><body><section data-agent-native-node-id="section">Updated</section></body></html>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+      statusCode: 409,
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+  });
 });

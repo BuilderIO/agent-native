@@ -12,10 +12,11 @@ const SECRET = "test-mcp-signup-attribution-secret";
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
 
 describe("MCP signup attribution", () => {
-  it("signs short-lived vendor and browser context", () => {
+  it("signs short-lived MCP origin, vendor hint, and browser context", () => {
     const token = encodeMcpSignupAttribution(
       {
-        vendor: "openai",
+        signupOrigin: "mcp_oauth",
+        vendorHint: "openai",
         anonymousId: "anon_mcp_1",
         sessionId: "session_mcp_1",
         firstTouchPathAllowed: true,
@@ -25,7 +26,8 @@ describe("MCP signup attribution", () => {
     );
 
     expect(decodeMcpSignupAttribution(token, SECRET, NOW)).toEqual({
-      vendor: "openai",
+      signupOrigin: "mcp_oauth",
+      vendorHint: "openai",
       anonymousId: "anon_mcp_1",
       sessionId: "session_mcp_1",
       firstTouchPathAllowed: true,
@@ -37,7 +39,11 @@ describe("MCP signup attribution", () => {
 
   it("rejects a tampered token and a different server secret", () => {
     const token = encodeMcpSignupAttribution(
-      { vendor: "claude", sessionId: "session_mcp_2" },
+      {
+        signupOrigin: "mcp_oauth",
+        vendorHint: "claude",
+        sessionId: "session_mcp_2",
+      },
       SECRET,
       NOW,
     )!;
@@ -54,7 +60,8 @@ describe("MCP signup attribution", () => {
   it("keeps signed flow facts while honoring a targeting opt-out", () => {
     const cookie = serializeMcpSignupAttributionCookie(
       {
-        vendor: "openai",
+        signupOrigin: "mcp_oauth",
+        vendorHint: "openai",
         sessionId: "session_mcp_3",
         firstTouchPathAllowed: true,
       },
@@ -71,7 +78,8 @@ describe("MCP signup attribution", () => {
         NOW,
       ),
     ).toEqual({
-      vendor: "openai",
+      signupOrigin: "mcp_oauth",
+      vendorHint: "openai",
       sessionId: "session_mcp_3",
       firstTouchPathAllowed: true,
     });
@@ -82,16 +90,17 @@ describe("MCP signup attribution", () => {
         NOW,
       ),
     ).toEqual({
-      vendor: "openai",
+      signupOrigin: "mcp_oauth",
       sessionId: "session_mcp_3",
       firstTouchPathAllowed: false,
     });
   });
 
-  it("drops the anonymous id when performance consent is revoked", () => {
+  it("drops analytics identifiers when performance consent is revoked", () => {
     const cookie = serializeMcpSignupAttributionCookie(
       {
-        vendor: "openai",
+        signupOrigin: "mcp_oauth",
+        vendorHint: "openai",
         anonymousId: "anon_mcp_4",
         sessionId: "session_mcp_4",
         firstTouchPathAllowed: true,
@@ -109,18 +118,43 @@ describe("MCP signup attribution", () => {
         NOW,
       ),
     ).toEqual({
-      vendor: "openai",
-      sessionId: "session_mcp_4",
+      signupOrigin: "mcp_oauth",
+      vendorHint: "openai",
       firstTouchPathAllowed: true,
     });
   });
 
+  it("preserves the MCP signup origin when both optional consent categories are denied", () => {
+    const cookie = serializeMcpSignupAttributionCookie(
+      { signupOrigin: "mcp_oauth" },
+      SECRET,
+      true,
+      NOW,
+    )!;
+    const value = cookie.split("=", 2)[1].split(";", 1)[0];
+
+    expect(
+      readMcpSignupContextFromCookieHeader(
+        `an_consent=1.p0.t0; an_mcp_signup=${value}`,
+        SECRET,
+        NOW,
+      ),
+    ).toEqual({
+      signupOrigin: "mcp_oauth",
+      firstTouchPathAllowed: false,
+    });
+  });
+
   it("fills a missing first-touch path and keeps an existing one", () => {
-    const mcpSignup = { vendor: "openai", firstTouchPathAllowed: true };
+    const mcpSignup = {
+      signupOrigin: "mcp_oauth" as const,
+      vendorHint: "openai",
+      firstTouchPathAllowed: true,
+    };
 
     expect(applyMcpSignupAttribution(undefined, mcpSignup)).toEqual({
       first_touch_path: "/mcp/oauth/authorize",
-      $mcp_vendor_client: "openai",
+      $mcp_vendor_client_hint: "openai",
     });
     expect(
       applyMcpSignupAttribution(
@@ -129,13 +163,13 @@ describe("MCP signup attribution", () => {
       ),
     ).toEqual({
       first_touch_path: "/docs/actions",
-      $mcp_vendor_client: "openai",
+      $mcp_vendor_client_hint: "openai",
     });
     expect(
       applyMcpSignupAttribution(undefined, {
-        vendor: "openai",
+        signupOrigin: "mcp_oauth",
         firstTouchPathAllowed: false,
       }),
-    ).toEqual({ $mcp_vendor_client: "openai" });
+    ).toBeUndefined();
   });
 });

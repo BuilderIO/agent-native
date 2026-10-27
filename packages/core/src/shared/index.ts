@@ -85,6 +85,7 @@ export { stripInlineAttachmentPayloads } from "./attachments.js";
 export {
   assignFirstRunBuilderCreditsV2,
   FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
   FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
   type FirstRunBuilderCreditsV2Assignment,
   type FirstRunBuilderCreditsV2RequestAssignment,

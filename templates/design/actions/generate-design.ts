@@ -118,6 +118,27 @@ function isRenderableDesignScreenFile(file: {
   return isOverviewScreenFile(file) && isRenderableDesignFile(file);
 }
 
+function noWriteValidationError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  const contractError =
+    typeof error === "object" && error !== null
+      ? (error as { errorCode?: unknown; statusCode?: unknown })
+      : undefined;
+  return new NoWriteError(
+    error instanceof Error
+      ? error.message
+      : "Design generation validation failed before saving.",
+    {
+      ...(typeof contractError?.errorCode === "string"
+        ? { errorCode: contractError.errorCode }
+        : {}),
+      ...(typeof contractError?.statusCode === "number"
+        ? { statusCode: contractError.statusCode }
+        : {}),
+    },
+  );
+}
+
 type GenerationViewport = "mobile" | "tablet" | "desktop";
 
 const DEFAULT_GENERATION_VIEWPORT: GenerationViewport = "desktop";
@@ -869,28 +890,49 @@ const generateDesignAction = defineAction({
       ),
     });
 
-    await snapshotDesignBeforeAgentEdit(designId, context);
-
-    await mutateDesignData({
-      designId,
-      mutate: (current) => current,
-      isApplied: () => true,
-    });
-
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
     for (const file of files) {
-      assertHubSpotEmailFrameContent({
-        content: file.content,
-        fileType: file.fileType ?? "html",
-        frameType: file.frameType,
-      });
+      try {
+        assertHubSpotEmailFrameContent({
+          content: file.content,
+          fileType: file.fileType ?? "html",
+          frameType: file.frameType,
+        });
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
     }
 
     const annotatedFiles = files.map((file) => ({
       ...file,
       content: annotateAgentScreenHtmlForPersist(file.content, file.fileType),
     }));
+
+    const liveFilesById = new Map<
+      string,
+      Awaited<ReturnType<typeof readLiveSourceFile>>
+    >();
+    for (const file of files) {
+      const existing = existingByName.get(file.filename);
+      if (!existing) continue;
+      const workspaceFile: SourceWorkspaceFile = {
+        id: existing.id,
+        designId: existing.designId,
+        filename: existing.filename ?? "",
+        fileType: existing.fileType ?? "html",
+        content: existing.content,
+        createdAt: null,
+        updatedAt: null,
+      };
+      const live = await readLiveSourceFile(workspaceFile);
+      try {
+        assertLockedLayersPreserved(live.content, file.content);
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
+      liveFilesById.set(existing.id, live);
+    }
 
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
@@ -919,6 +961,14 @@ const generateDesignAction = defineAction({
       }
     }
 
+    await snapshotDesignBeforeAgentEdit(designId, context);
+
+    await mutateDesignData({
+      designId,
+      mutate: (current) => current,
+      isApplied: () => true,
+    });
+
     const fileErrors: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
@@ -940,9 +990,12 @@ const generateDesignAction = defineAction({
               createdAt: null,
               updatedAt: null,
             };
-            const live = await readLiveSourceFile(workspaceFile);
-
-            assertLockedLayersPreserved(live.content, file.content);
+            const live = liveFilesById.get(existing.id);
+            if (!live) {
+              throw new Error(
+                `Missing preflight source version for ${existing.filename}`,
+              );
+            }
 
             await writeInlineSourceFile({
               designId: existing.designId,

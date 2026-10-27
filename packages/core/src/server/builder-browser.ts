@@ -2671,10 +2671,14 @@ function builderApiErrorMessage(
 function redactBuilderDiagnosticText(value: string): string {
   return value
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
+    .replace(
+      /\bauthorization\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,};]+)/gi,
+      "Authorization: [redacted]",
+    )
     .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
     .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
     .replace(
-      /(["']?\b(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|session[_-]?cookie|token|secret|password|cookie|credential)\b["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,}&]+)/gi,
+      /(["']?[\w.-]*(?:authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,}&;]+)/gi,
       "$1[redacted]",
     )
     .slice(0, 512);

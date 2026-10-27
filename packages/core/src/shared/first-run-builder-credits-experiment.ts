@@ -1,5 +1,7 @@
 export const FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID =
   "first_run_builder_credits_v2";
+export const FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY =
+  "clips-first-run-credits-v2";
 
 export const FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS = [
   "control",

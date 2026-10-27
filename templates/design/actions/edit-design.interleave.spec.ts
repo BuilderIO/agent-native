@@ -187,6 +187,55 @@ describe("edit-design conflict retry", () => {
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("classifies a retry no-match as no-write and accepts a corrected call", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Hello base</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent update</main>",
+        versionHash: "h1",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent update</main>",
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile
+      .mockRejectedValueOnce(new SourceWorkspaceEditConflictError())
+      .mockResolvedValueOnce({
+        versionHash: "h2",
+        changed: true,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+
+    expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+
+    const corrected = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Concurrent update", replace: "Recovered" }],
+    } as never);
+
+    expect(corrected).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);
+    expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
+      "<main>Recovered</main>",
+    );
+  });
+
   it("does not retry replace-file mode on conflict", async () => {
     mocks.readLiveSourceFile.mockResolvedValueOnce({
       content: "<main>Hello base</main>",

@@ -390,12 +390,9 @@ export default defineAction({
             edits ?? [],
           ));
         } catch (error) {
-          if (attempt === 0) {
-            throw new NoWriteError(
-              error instanceof Error ? error.message : "Design edit failed",
-            );
-          }
-          throw error;
+          throw new NoWriteError(
+            error instanceof Error ? error.message : "Design edit failed",
+          );
         }
       }
       changed = nextContent !== base;
