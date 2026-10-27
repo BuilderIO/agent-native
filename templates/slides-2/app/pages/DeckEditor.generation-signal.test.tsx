@@ -2401,6 +2401,45 @@ describe("DeckEditor generation signal wiring", () => {
     expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2);
   });
 
+  it("does not refresh a hidden editor from a previous mount's null retry", async () => {
+    vi.useFakeTimers();
+    const setVisibilityState = overrideVisibilityState("visible");
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = {
+      ...mocks.deck.generationContext,
+      generationFailureCode: "outcome_unresolved",
+      generationFailureAttemptId: "attempt-1",
+      generationFailureSlidesFingerprint: null,
+    } as typeof mocks.deck.generationContext;
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    router.dispose();
+    router = undefined;
+    mocks.refreshOpenDeck.mockClear();
+    setVisibilityState("hidden");
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mocks.refreshOpenDeck).not.toHaveBeenCalled();
+  });
+
   it("keeps checking an unknown snapshot while visible and pauses when hidden", async () => {
     vi.useFakeTimers();
     const setVisibilityState = overrideVisibilityState("hidden");
@@ -2411,7 +2450,9 @@ describe("DeckEditor generation signal wiring", () => {
       generationFailureAttemptId: "attempt-1",
       generationFailureSlidesFingerprint: null,
     } as typeof mocks.deck.generationContext;
-    mocks.refreshOpenDeck.mockRejectedValue(new Error("refresh unavailable"));
+    mocks.refreshOpenDeck
+      .mockResolvedValueOnce(null)
+      .mockRejectedValue(new Error("refresh unavailable"));
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
       { initialEntries: ["/deck/deck-1"] },
@@ -2433,22 +2474,13 @@ describe("DeckEditor generation signal wiring", () => {
       refreshCountBeforeVisible,
     );
     const refreshCountAfterVisibility = mocks.refreshOpenDeck.mock.calls.length;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_000);
-    });
-
-    const refreshCountBeforeHidden = mocks.refreshOpenDeck.mock.calls.length;
-    expect(refreshCountBeforeHidden).toBeGreaterThanOrEqual(
-      refreshCountAfterVisibility + 2,
-    );
+    expect(refreshCountAfterVisibility).toBe(1);
     setVisibilityState("hidden");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    expect(mocks.refreshOpenDeck.mock.calls.length).toBeLessThanOrEqual(
-      refreshCountBeforeHidden + 1,
-    );
+    expect(mocks.refreshOpenDeck).toHaveBeenCalledTimes(1);
 
     const refreshCountBeforeVisibleResume =
       mocks.refreshOpenDeck.mock.calls.length;
@@ -2459,6 +2491,36 @@ describe("DeckEditor generation signal wiring", () => {
     });
     expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThan(
       refreshCountBeforeVisibleResume,
+    );
+    const refreshCountBeforeVisibleRetries =
+      mocks.refreshOpenDeck.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThanOrEqual(
+      refreshCountBeforeVisibleRetries + 2,
+    );
+
+    const refreshCountBeforeHiddenRetries =
+      mocks.refreshOpenDeck.mock.calls.length;
+    setVisibilityState("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mocks.refreshOpenDeck.mock.calls.length).toBe(
+      refreshCountBeforeHiddenRetries,
+    );
+
+    const refreshCountBeforeVisibleResumeAgain =
+      mocks.refreshOpenDeck.mock.calls.length;
+    setVisibilityState("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThan(
+      refreshCountBeforeVisibleResumeAgain,
     );
     expect(
       (mocks.deck.generationContext as Record<string, unknown>)

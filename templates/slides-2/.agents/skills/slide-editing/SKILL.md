@@ -238,8 +238,8 @@ them, and do not call the deck accessible or those slides fine.
 
 Keep generated flex and grid content in normal flow; create a deliberate
 freeform object instead of absolute-positioning a layout child to make it
-draggable. The editor presents flow content as flat objects the way Google
-Slides does, so write markup that maps cleanly:
+draggable. The editor presents flow content as flat objects, so write markup
+that maps cleanly:
 
 - A card is one painted box (background, border, or shadow on a single element)
   that owns its text. Never stack separately positioned text over a card
@@ -279,6 +279,6 @@ right-click Skip slide does the same.
 
 ## Transitions
 
-Slide transitions (type and speed, Google Slides catalog) are set with the
+Slide transitions (type and speed) are set with the
 `patch-slide` op of `patch-deck`, or with its `add-slide` op on creation. Read
 `references/transitions.md` before changing them.

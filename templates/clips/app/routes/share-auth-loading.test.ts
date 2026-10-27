@@ -11,9 +11,10 @@ describe("authenticated recording route loading", () => {
   it("waits for the browser session before the direct player action", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
-    expect(route).toContain(
-      "if (playerDataQ.isPending || playerDataForbidden)",
-    );
+    // oracle-change: which access states keep the skeleton up is pinned by
+    // recordingAccessView's and RecordingShareRedirect's tests
+    // (_app.r.$recordingId.test.tsx), not by the condition that used to spell
+    // it out here.
     expect(route).toContain("<RecordingWorkspaceSkeleton />");
     expect(route).not.toContain("buildSignInReturnHref");
   });
@@ -102,12 +103,7 @@ describe("authenticated recording route loading", () => {
     expect(processingView).not.toContain("ShareCopyRow");
   });
 
-  it("keeps transient missing share records loading while retrying locally", () => {
-    const route = readRoute("share.$shareId.tsx");
-    expect(route).toContain("retryingMissingShare ||");
-    expect(route).toContain("getQueryState(shareQueryKey)?.dataUpdateCount");
-  });
-
+  // oracle-change: The share page no longer polls the share API after a missing-record 404; share.$shareId.test.tsx verifies the rendered unavailable state instead of the removed polling assertions.
   it("keeps expired share loader data impersonal for CDN caching", () => {
     const route = readRoute("share.$shareId.tsx");
 
@@ -294,7 +290,7 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("agentAccessToken");
     expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
-    expect(meetingRoute).toContain("recordingTranscripts");
+    // oracle-change: Real loader transcript coverage lives in meeting-recording-visibility.test.ts; SQL is shared outside this route.
     expect(meetingRoute).toContain("transcript: transcript");
   });
 

@@ -239,6 +239,23 @@ export default {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
   },
+  gettingStarted: {
+    title: "はじめに",
+    progress: "{{totalCount}}件中{{completeCount}}件完了",
+    collapse: "折りたたむ",
+    expand: "展開",
+    completed: "完了",
+    loadError: "チェックリストを読み込めませんでした",
+    retry: "再試行",
+    steps: {
+      createDesign: "最初のデザインを作成",
+      addBrand: "ブランドを追加",
+      useRealData: "実際のデータを使う",
+      shareFeedback: "フィードバックのために共有",
+      inviteTeammate: "チームメイトを招待",
+      saveTemplate: "デザインをテンプレートとして保存",
+    },
+  },
   settings: {
     agentTitle: "エージェントを管理",
     agentDescription:
@@ -304,6 +321,10 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      moreActions: "その他の操作",
+      askAboutFile: "このファイルについて質問",
+      askAboutFilePrompt:
+        "このリンクされたデザインファイルについて質問してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",
@@ -455,6 +476,7 @@ export default {
       image: "画像",
       style: "スタイル",
       rotation: "回転",
+      length: "長さ",
       flipHorizontal: "水平方向に反転",
       flipVertical: "垂直方向に反転",
       shadow: "影",
@@ -471,7 +493,6 @@ export default {
       showGrid: "グリッドを表示",
       hideGrid: "グリッドを非表示",
       reorderLayer: "レイヤーを並べ替え",
-      stylesComingSoon: "スタイル — 近日対応",
       linkSides: "辺をリンク",
       unlinkSides: "辺のリンクを解除",
       allSides: "すべて",
@@ -1205,6 +1226,14 @@ export default {
         animation: "アニメーション",
         distance: "距離",
         amount: "量",
+        axis: "軸",
+        axisBoth: "両方",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "開始幅",
+        endWidth: "終了幅",
+        startHeight: "開始高さ",
+        endHeight: "終了高さ",
         delay: "遅延",
         easing: "イージング",
         editCurve: "イージングカーブを編集",
@@ -1392,7 +1421,7 @@ export default {
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
       unresolvedStylesheets:
-        "Motion を編集または追加する前に、外部スタイルシートを解決してください。",
+        "Motion を編集または追加する前に、外部または実行時に生成されるスタイルを解決してください。",
       sourceConflict:
         "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
       reloadFromSource: "コードを再読み込み",
@@ -1862,7 +1891,7 @@ export default {
       ellipse: "楕円",
       polygon: "多角形",
       star: "星",
-      imageVideo: "画像/動画...",
+      imageVideo: "画像/動画…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1883,8 +1912,12 @@ export default {
         small: "小さい移動量",
         big: "大きい移動量",
         unit: "px",
-        description:
-          "矢印キーは小さい移動量、Shift 矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
+        close: "移動量を閉じる",
+        done: "完了",
+        smallDescription:
+          "矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
+        bigDescription:
+          "Shift + 矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
       },
       keys: {
         or: "または",
@@ -1922,6 +1955,7 @@ export default {
         arrange: "配置",
         components: "コンポーネント",
         layout: "レイアウト",
+        code: "コード",
       },
       commands: {
         showShortcuts: "キーボードショートカット",
@@ -1938,7 +1972,7 @@ export default {
         drawTool: "描画",
         showLayers: "レイヤー",
         showAssets: "アセット",
-        toggleUi: "View",
+        toggleUi: "UIの表示を切り替え",
         toggleMinimalUi: "ミニマルUI",
         toggleComments: "コメントをピン留め",
         zoomIn: "拡大",
@@ -1946,6 +1980,8 @@ export default {
         zoomReset: "ズーム 100%",
         zoomFit: "画面に合わせる",
         zoomSelection: "ズーム: 選択",
+        bold: "太字",
+        italic: "斜体",
         underline: "下線",
         strikethrough: "取り消し線",
         rectangle: "Rectangle",
@@ -1960,7 +1996,8 @@ export default {
         previousSibling: "← 選択",
         nextScreen: "画面 →",
         previousScreen: "← 画面",
-        toggleLayoutGrids: "レイアウトグリッド: View",
+        toggleLayoutGrids: "レイアウトグリッドの表示を切り替え",
+        toggleRulers: "定規の表示を切り替え",
         nudge: "Move",
         nudgeLarge: "大きい移動量",
         copy: "コピー",
@@ -1993,7 +2030,15 @@ export default {
         ungroup: "グループ解除",
         frameSelection: "選択範囲をフレーム化",
         autoLayout: "オートレイアウト",
-        imageVideo: "画像/動画...",
+        removeAutoLayout: "オートレイアウトを削除",
+        toggleHidden: "選択範囲の表示を切り替え",
+        toggleLocked: "選択範囲のロックを切り替え",
+        alignHorizontalCenters: "水平方向の中央に整列",
+        alignVerticalCenters: "垂直方向の中央に整列",
+        distributeHorizontal: "水平方向に等間隔に分布",
+        distributeVertical: "垂直方向に等間隔に分布",
+        setOpacity: "不透明度を設定",
+        imageVideo: "画像/動画…",
       },
     },
     undo: "元に戻す",
@@ -2022,6 +2067,16 @@ export default {
     pinComment: "コメントをピン留め",
     export: "輸出",
     downloadHtml: "HTML をダウンロード",
+    exportHubspotHtml: "HubSpot HTML をエクスポート",
+    hubspotConversion: {
+      title: "HubSpot 用に変換しますか？",
+      description:
+        "{{name}} にはメール対応の変更が必要です。元のフレームは保持されます。",
+      convert: "エージェントで変換",
+      cancel: "キャンセル",
+      prompt:
+        "このフレームの HubSpot メール版を作成し、内容とブランドを維持して元のフレームも保持してください。HTML エクスポートを検証し、新しいフレームを開いてください。",
+    },
     downloadPng: "PNG をダウンロード",
     downloadSvg: "SVG をダウンロード",
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
@@ -2165,6 +2220,20 @@ export default {
       added: "画面を追加しました",
       addFailed: "画面を追加できませんでした",
     },
+    localhostConsent: {
+      approvedTitle: "承認済み — 編集をもう一度実行してください",
+      approvedDescription:
+        "ファイルの書き込みは 8 時間許可されます。アクセスを求めた編集は保存されていません。",
+      retryInChat: "チャットで再実行",
+      retryPrompt:
+        "{{rootPath}} へのファイル書き込みが承認されました。これを必要とした編集をもう一度実行してください。",
+      unavailableTitle: "この書き込みリクエストは保留中ではなくなりました",
+      unavailableDescription:
+        "アクセスを求めるには、編集をもう一度実行してください。",
+      close: "閉じる",
+      prepareSignInError:
+        "サインイン前にこのリクエストを保存できませんでした。もう一度お試しください。",
+    },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
       send: "送信",
@@ -2217,6 +2286,9 @@ export default {
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
       htmlDownloaded: "HTML をダウンロードしました",
       htmlExportError: "HTML をエクスポートできませんでした",
+      hubspotHtmlExporting: "HubSpot HTML を準備しています…",
+      hubspotHtmlDownloaded: "HubSpot HTML をダウンロードしました",
+      hubspotHtmlExportError: "HubSpot HTML をエクスポートできませんでした",
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
@@ -2296,6 +2368,7 @@ export default {
         "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       versionHistoryUnavailable:
         "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
+      removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
         "オートレイアウトの追加は画面には適用されません",
       booleanSubtractUnsupported:
@@ -2313,8 +2386,25 @@ export default {
         "この形状または変形はベクター編集に対応していません。",
       imageUploading: "画像をアップロード中…",
       pasteReplaceFailed: "そのレイヤーを置き換えられませんでした",
+      pasteTargetUnmeasured:
+        "選択したレイヤーを測定できないため、貼り付けられません",
+      pasteClipboardUnreadable:
+        "ここに貼り付けるには、クリップボードへのアクセスを許可してください",
+      pasteClipboardUntrusted:
+        "別のサイトの Design からコピーしたレイヤーは貼り付けられません",
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
+      alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",
+      alignNeedsTwoScreens: "整列するには2つ以上の画面を選択してください",
+      layoutUnmeasurable:
+        "選択したレイヤーを測定できませんでした。キャンバス上に表示されていることを確認して、もう一度お試しください。",
+      layoutAutoLayoutChildren:
+        "これらのレイヤーはオートレイアウトで配置されています。自由に移動するには、フレームのオートレイアウトを削除してください。",
+      layoutUnsupportedPosition:
+        "スティッキーレイヤーとSVG内のシェイプはこの方法では移動できません",
+      layoutMovesNestedLayers:
+        "このレイヤーを移動すると、内部に配置されたレイヤーがずれます",
+      layoutMoveFailed: "選択したレイヤーを移動できませんでした",
     },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
@@ -2338,6 +2428,7 @@ export default {
     order: "順序",
     createComponent: "コンポーネントを作成",
     addAutoLayout: "オートレイアウトを追加",
+    removeAutoLayout: "オートレイアウトを削除",
     copyAs: "コピー/貼り付け形式",
     copyProps: "プロパティをコピー",
     pasteProps: "プロパティを貼り付け",
@@ -2358,13 +2449,15 @@ export default {
     allScreens: "すべての画面",
     thumbnail: "サムネイル",
     addScreen: "画面を追加",
-    searchPlaceholder: "レイヤーを検索...",
+    searchPlaceholder: "レイヤーを検索",
     empty: "レイヤーがありません",
     noMatches: "一致するレイヤーがありません",
     designLayers: "デザインレイヤー",
     codeLayers: "コードレイヤー",
     elementLayers: "要素レイヤー",
     collapse: "レイヤーを折りたたむ",
+    collapseAll: "すべてのレイヤーを折りたたむ",
+    clearSearch: "検索をクリア",
     expand: "レイヤーを展開",
     lock: "レイヤーをロック",
     unlock: "レイヤーのロックを解除",

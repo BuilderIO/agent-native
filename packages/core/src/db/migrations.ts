@@ -355,8 +355,11 @@ export function runMigrations(
             });
           }
 
+          // Callbacks are idempotent by contract (store-registry retries them
+          // the same way), so a concurrent CREATE TABLE losing a pg_type race
+          // retries instead of escaping and exiting the server.
           const runResult = migration.run
-            ? await migration.run(exec)
+            ? await retryOnDdlRace(() => migration.run!(exec))
             : undefined;
           if (runResult === MIGRATION_DEFERRED) {
             console.info(

@@ -890,7 +890,7 @@ describe("firstTextLeaf", () => {
 
 describe("clampSelectionToTextRoot", () => {
   function mountLeaves() {
-    document.body.innerHTML = `<p id="a">Alpha text</p><p id="b">Beta text</p><p id="c">Gamma text</p>`;
+    document.body.innerHTML = `<p id="a">Alpha text</p><p id="b">Beta text</p><p id="c">Three text</p>`;
     const get = (id: string) => document.getElementById(id)!;
     return { a: get("a"), b: get("b"), c: get("c") };
   }

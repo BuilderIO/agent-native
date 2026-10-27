@@ -64,16 +64,9 @@ import {
   type PendingGeneration,
 } from "@/lib/pending-generation";
 import { buildShellDesign } from "@/lib/shell-design";
-import {
-  captureHistorySelectionSources,
-  resolveHistorySelection,
-} from "@/pages/design-editor/history-identity";
 
 import type { ResponsiveEditScope, RetryablePrompt } from "../command-types";
-import {
-  coalesceMarqueeSelectionHistory,
-  runMarqueeSelectionCancellation,
-} from "../commands/layer-marquee-selection-change";
+import { runMarqueeSelectionCancellation } from "../commands/layer-marquee-selection-change";
 import {
   createVisualEditSnapshotPublicationState,
   runClearVisualEditSnapshotPublications,
@@ -94,21 +87,14 @@ import {
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
 } from "../generation-prompt-directives";
-import {
-  type GeometryHistorySelection,
-  MAX_DESIGN_UNDO_STACK,
-} from "../history";
+import { type GeometryHistorySelection } from "../history";
 import { createLatestWriteQueue } from "../latest-write-queue";
 import { reconcileLiveCollaborationOverride } from "../live-collaboration-override";
-import { localhostConsentRequestRefetchInterval } from "../localhost-consent-request";
 import {
   applyMcpDirectoryWidgetReadOnlyPolicy,
   applyMcpDirectoryWidgetWritePolicy,
 } from "../mcp-widget-write-capabilities";
-import {
-  explicitOverviewScreenSelectionForHistory,
-  selectionHistorySnapshotsEqual,
-} from "../selection-state";
+import { explicitOverviewScreenSelectionForHistory } from "../selection-state";
 import { type DesignData, type DesignFile } from "../types";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorHistory } from "./use-editor-history";
@@ -168,15 +154,8 @@ export function useEditorGenerationAndAccess({
     clearPendingOverviewLayerSelectionTimer,
     schedulePendingOverviewLayerSelectionClear,
     latestClipboardMutationContentRef,
-    linkedComponentMutationQueueRef,
     explicitOverviewScreenSelectionRef,
-    historyOrderRef,
-    selectionUndoStackRef,
-    selectionPushedAtRef,
-    clearRedoStacks,
-    historySourceReaderRef,
     captureCurrentSelection,
-    syncUndoRedoState,
   } = editorHistory;
 
   const browserTabId = getBrowserTabId();
@@ -184,8 +163,9 @@ export function useEditorGenerationAndAccess({
     useState<number | null>(null);
   const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
   const lastMarqueeSelectionSignatureRef = useRef<string | null>(null);
-  const marqueeSelectionHistoryBeforeRef =
-    useRef<GeometryHistorySelection | null>(null);
+  const marqueeSelectionBeforeRef = useRef<GeometryHistorySelection | null>(
+    null,
+  );
   const marqueeSelectedElementBeforeRef = useRef<ElementInfo | null>(null);
   const persistedSelectionStateRef = useRef<string | null>(null);
   const persistedSelectionContextRef = useRef<string | null>(null);
@@ -926,29 +906,6 @@ export function useEditorGenerationAndAccess({
     ),
     readOnlyWidget,
   );
-  const [failedLocalhostConsentClear, setFailedLocalhostConsentClear] =
-    useState<string | null>(null);
-  const localhostConsentRequestQuery = useActionQuery(
-    "get-localhost-write-consent-request",
-    { designId: id ?? "" },
-    {
-      enabled: Boolean(id && canEditDesign),
-      refetchInterval: (query) => {
-        const request = query.state.data?.request;
-        return localhostConsentRequestRefetchInterval({
-          requestKey: request ? `${id}:${request.requestedAt}` : null,
-          failedClearKey: failedLocalhostConsentClear,
-          queryFailed: query.state.status === "error",
-        });
-      },
-      notifyOnChangeProps: failedLocalhostConsentClear
-        ? ["data", "error", "status", "dataUpdatedAt"]
-        : ["data", "error", "status"],
-    },
-  );
-  const clearLocalhostConsentRequestMutation = useActionMutation(
-    "clear-localhost-write-consent-request",
-  );
   const visualEditSnapshotPublicationStateRef =
     useRef<VisualEditSnapshotPublicationState | null>(null);
   if (!visualEditSnapshotPublicationStateRef.current) {
@@ -1081,8 +1038,14 @@ export function useEditorGenerationAndAccess({
       setReviewSendingThreadId(null);
     }
   }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
+  // accessRole includes a Visual Edit link's role, which update-file does not
+  // honor; automatic source syncs need the account's own canPersistSource.
+  const canPersistDesignSource =
+    canEditDesign &&
+    isSignedIn &&
+    (design?.canPersistSource ?? !isVisualEditSurface);
   const canEditDesignRef = useRef(canEditDesign);
-  const canPersistDesignSourceRef = useRef(canEditDesign && isSignedIn);
+  const canPersistDesignSourceRef = useRef(canPersistDesignSource);
   const rawServerFilesByIdRef = useRef(new Map<string, DesignFile>());
   const historyFilesRef = useRef<DesignFile[]>([]);
   const restoreSelectionSnapshot = useCallback(
@@ -1134,75 +1097,13 @@ export function useEditorGenerationAndAccess({
       schedulePendingOverviewLayerSelectionClear,
     ],
   );
-  const pushSelectionHistoryEntry = useCallback(
-    (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
-      if (selectionHistorySnapshotsEqual(before, after)) return;
-      const record = (
-        before: GeometryHistorySelection,
-        after: GeometryHistorySelection,
-      ) => {
-        if (selectionHistorySnapshotsEqual(before, after)) return;
-        selectionUndoStackRef.current = [
-          ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          { before, after },
-        ];
-        selectionPushedAtRef.current = Date.now();
-        clearRedoStacks();
-        historyOrderRef.current = [
-          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-          "selection",
-        ];
-        syncUndoRedoState();
-      };
-      if (
-        linkedComponentMutationQueueRef.current?.queue.deferHistoryChange(
-          () => {
-            const previous = captureCurrentSelection();
-            const fileIds = new Set([
-              ...Object.keys(after.sourceContentByFileId ?? {}),
-              ...after.overviewSelectedScreenIds,
-              ...(after.activeFileId ? [after.activeFileId] : []),
-            ]);
-            const sources = Object.fromEntries(
-              [...fileIds].map((fileId) => [
-                fileId,
-                historySourceReaderRef.current(fileId),
-              ]),
-            );
-            const resolved = resolveHistorySelection(
-              captureHistorySelectionSources(after, sources),
-              sources,
-            );
-            flushSync(() => {
-              restoreSelectionSnapshot(resolved.selection);
-              setSelectedElement(resolved.element);
-            });
-            record(previous, resolved.selection!);
-          },
-        )
-      )
-        return;
-      record(before, after);
-    },
-    [clearRedoStacks, restoreSelectionSnapshot, syncUndoRedoState],
-  );
-  const recordSelectionHistoryAroundChange = useCallback(
-    (run: () => void) => {
-      marqueeSelectionHistoryBeforeRef.current = null;
-      marqueeSelectedElementBeforeRef.current = null;
-      lastMarqueeSelectionSignatureRef.current = null;
-      if (viewModeRef.current !== "overview") {
-        run();
-        return;
-      }
-      const before = captureCurrentSelection();
-      flushSync(run);
-      const after = captureCurrentSelection();
-      pushSelectionHistoryEntry(before, after);
-    },
-    [pushSelectionHistoryEntry],
-  );
-  const recordMarqueeSelectionHistoryAroundChange = useCallback(
+  const applySelectionChange = useCallback((run: () => void) => {
+    marqueeSelectionBeforeRef.current = null;
+    marqueeSelectedElementBeforeRef.current = null;
+    lastMarqueeSelectionSignatureRef.current = null;
+    run();
+  }, []);
+  const applyMarqueeSelectionChange = useCallback(
     (
       run: () => void,
       intent: {
@@ -1214,9 +1115,9 @@ export function useEditorGenerationAndAccess({
       },
     ) => {
       if (intent.source === "marquee" && intent.cancelled) {
-        const before = marqueeSelectionHistoryBeforeRef.current;
+        const before = marqueeSelectionBeforeRef.current;
         const selectedElementBefore = marqueeSelectedElementBeforeRef.current;
-        marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectionBeforeRef.current = null;
         marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
         runMarqueeSelectionCancellation({
@@ -1231,51 +1132,31 @@ export function useEditorGenerationAndAccess({
         return;
       }
       if (intent.source === "marquee" && intent.resetHistory) {
-        marqueeSelectionHistoryBeforeRef.current = null;
+        marqueeSelectionBeforeRef.current = null;
         marqueeSelectedElementBeforeRef.current = null;
         lastMarqueeSelectionSignatureRef.current = null;
       }
-      if (intent.source !== "marquee") {
-        recordSelectionHistoryAroundChange(run);
-        return;
-      }
-      if (viewModeRef.current !== "overview") {
-        marqueeSelectionHistoryBeforeRef.current = null;
-        marqueeSelectedElementBeforeRef.current = null;
-        lastMarqueeSelectionSignatureRef.current = null;
-        run();
+      if (intent.source !== "marquee" || viewModeRef.current !== "overview") {
+        applySelectionChange(run);
         return;
       }
       recordDesignPerformance("marqueeSelectionChange");
       if (intent.final !== true) {
-        if (marqueeSelectionHistoryBeforeRef.current === null) {
+        if (marqueeSelectionBeforeRef.current === null) {
           lastMarqueeSelectionSignatureRef.current = null;
-          marqueeSelectionHistoryBeforeRef.current = captureCurrentSelection();
+          marqueeSelectionBeforeRef.current = captureCurrentSelection();
           marqueeSelectedElementBeforeRef.current = selectedElementRef.current;
         }
         run();
         return;
       }
-      const before =
-        marqueeSelectionHistoryBeforeRef.current ?? captureCurrentSelection();
-      flushSync(run);
+      run();
       recordDesignPerformance("marqueeFinalSelectionChange");
-      const after = captureCurrentSelection();
-      const entry = coalesceMarqueeSelectionHistory(
-        marqueeSelectionHistoryBeforeRef,
-        intent.final === true,
-        before,
-        after,
-      );
-      if (entry) pushSelectionHistoryEntry(entry.before, entry.after);
+      marqueeSelectionBeforeRef.current = null;
       marqueeSelectedElementBeforeRef.current = null;
       lastMarqueeSelectionSignatureRef.current = null;
     },
-    [
-      pushSelectionHistoryEntry,
-      recordSelectionHistoryAroundChange,
-      restoreSelectionSnapshot,
-    ],
+    [applySelectionChange, restoreSelectionSnapshot],
   );
   const pendingLocalFileContentsRef = useRef<
     Map<string, PendingLocalFileContent>
@@ -1292,13 +1173,22 @@ export function useEditorGenerationAndAccess({
       baseUpdatedAt?: string | null,
       identityMigrationSourceContent?: string,
       deferCollabReconcile?: boolean,
+      identityMigrationRefused?: boolean,
     ) => {
       const current = pendingLocalFileContentsRef.current.get(fileId);
+      const sameMigration =
+        current?.content === content &&
+        current.identityMigrationSourceContent ===
+          identityMigrationSourceContent;
+      // A refusal annotates only the migration it answered, never a newer edit.
+      if (identityMigrationRefused && !sameMigration) return;
       if (
         current?.content === content &&
         current.identityMigrationSourceContent ===
           identityMigrationSourceContent &&
         current.deferCollabReconcile === deferCollabReconcile &&
+        current.identityMigrationRefused ===
+          (identityMigrationRefused || undefined) &&
         (baseUpdatedAt === undefined || current.baseUpdatedAt !== undefined)
       )
         return;
@@ -1311,6 +1201,7 @@ export function useEditorGenerationAndAccess({
           baseUpdatedAt,
           identityMigrationSourceContent,
           deferCollabReconcile,
+          identityMigrationRefused,
         }),
       );
       setPendingLocalFileContentsRevision((revision) => revision + 1);
@@ -1353,8 +1244,25 @@ export function useEditorGenerationAndAccess({
 
   useLayoutEffect(() => {
     canEditDesignRef.current = canEditDesign;
-    canPersistDesignSourceRef.current = canEditDesign && isSignedIn;
-  }, [canEditDesign, isSignedIn]);
+    canPersistDesignSourceRef.current = canPersistDesignSource;
+  }, [canEditDesign, canPersistDesignSource]);
+  const sourcePersistenceDeniedRef = useRef(!canPersistDesignSource);
+  useLayoutEffect(() => {
+    const regained =
+      canPersistDesignSource && sourcePersistenceDeniedRef.current;
+    sourcePersistenceDeniedRef.current = !canPersistDesignSource;
+    if (!regained) return;
+    // Refused migrations stay pending so they are not re-sent; regained source
+    // access is the only signal that one may now succeed.
+    let cleared = false;
+    for (const [fileId, pending] of pendingLocalFileContentsRef.current) {
+      if (!pending.identityMigrationRefused) continue;
+      pendingLocalFileContentsRef.current.delete(fileId);
+      cleared = true;
+    }
+    if (cleared)
+      setPendingLocalFileContentsRevision((revision) => revision + 1);
+  }, [canPersistDesignSource]);
 
   useEffect(() => {
     if (!id || !hasPendingGeneration || !designDataReady) return;
@@ -1677,8 +1585,8 @@ export function useEditorGenerationAndAccess({
     lastOverviewSelectedScreenIdsRef,
     lastMarqueeSelectionSignatureRef,
     restoreSelectionSnapshot,
-    recordSelectionHistoryAroundChange,
-    recordMarqueeSelectionHistoryAroundChange,
+    applySelectionChange,
+    applyMarqueeSelectionChange,
     persistedSelectionStateRef,
     persistedSelectionContextRef,
     pendingPersistedSelectionWriteRef,
@@ -1749,10 +1657,6 @@ export function useEditorGenerationAndAccess({
     publicVisualEdit,
     canCommentDesign,
     canRenderAuthenticatedShare,
-    failedLocalhostConsentClear,
-    setFailedLocalhostConsentClear,
-    localhostConsentRequestQuery,
-    clearLocalhostConsentRequestMutation,
     visualEditSnapshotPublicationState,
     liveCollaborationSaving,
     liveCollaborationEnabled,
@@ -1767,6 +1671,7 @@ export function useEditorGenerationAndAccess({
     reviewSendingThreadId,
     setReviewSendingThreadId,
     canEditDesignRef,
+    canPersistDesignSource,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
     historyFilesRef,

@@ -219,7 +219,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
 
     const result: any = await runWithRequestContext(
-      { userEmail: "owner@example.com", orgId: "org-123" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-123",
+        requestOrigin: "https://mail.example.com",
+      },
       () =>
         tools.open_app.run({
           app: "mail",
@@ -287,7 +291,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
 
     const result: any = await runWithRequestContext(
-      { userEmail: "owner@example.com", orgId: "org-123" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-123",
+        requestOrigin: "https://mail.example.com",
+      },
       () =>
         tools.open_app.run({
           app: "mail",
@@ -375,9 +383,29 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
 });
 
 describe("create_embed_session", () => {
+  it.each(["open_app", "create_embed_session"])(
+    "returns a public path from %s without minting from an originless context",
+    async (name) => {
+      const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+      const tools = getBuiltinCrossAppTools(baseConfig(), {
+        origin: "https://mail.example.com",
+        inlineMcpApps: true,
+      });
+      const result = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-123" },
+        () => tools[name]!.run({ path: "/inbox", embed: true }),
+      );
+      expect(result).toMatchObject({ url: "/inbox" });
+      expect(result).not.toHaveProperty("startUrl");
+      expect(result).not.toHaveProperty("embedStartUrl");
+      expect(createTicket).not.toHaveBeenCalled();
+    },
+  );
+
   it("is write-scoped because the embed ticket becomes a browser session", () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
+      inlineMcpApps: true,
     });
     expect(tools.create_embed_session.readOnly).toBe(false);
   });
@@ -385,6 +413,7 @@ describe("create_embed_session", () => {
   it("requires an authenticated MCP caller", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
+      inlineMcpApps: true,
     });
     await expect(
       tools.create_embed_session.run({ path: "/inbox" }),

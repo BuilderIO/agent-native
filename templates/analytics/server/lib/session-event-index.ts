@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { OUTPUT_MADE_EVENT, outputUseRule } from "../../shared/output-use.js";
 import {
   AUTOMATIC_ANALYTICS_EVENT_NAMES,
   type EventCatalogApp,
@@ -686,6 +687,18 @@ export async function listSessionEventNames(
   };
 }
 
+function outputEventRole(
+  app: string | null,
+  eventName: string,
+): EventCatalogEntry["outputRole"] {
+  const rule = outputUseRule(app);
+  if (!rule) return null;
+  if (rule.madeEvents.includes(eventName)) return "made";
+  return rule.usedEvents.some((event) => event.eventName === eventName)
+    ? "used"
+    : null;
+}
+
 export function isAutomaticAnalyticsEvent(eventName: string): boolean {
   return AUTOMATIC_ANALYTICS_EVENT_NAMES.has(eventName);
 }
@@ -798,6 +811,7 @@ export async function listEventCatalog(
         app: c.app,
         eventCount: sql<number>`count(distinct ${c.eventName})`,
         customEventCount: sql<number>`count(distinct ${c.eventName}) filter (where ${notInArray(c.eventName, [...AUTOMATIC_ANALYTICS_EVENT_NAMES])})`,
+        madeEventCount: sql<number>`count(*) filter (where ${eq(c.eventName, OUTPUT_MADE_EVENT)})`,
         volume: sql<number>`sum(${c.eventCount})`,
       })
       .from(c)
@@ -837,6 +851,7 @@ export async function listEventCatalog(
         description: null,
         automatic: isAutomaticAnalyticsEvent(row.eventName),
         stoppedFiring: false,
+        outputRole: outputEventRole(row.app, row.eventName),
       };
     },
   );
@@ -861,12 +876,17 @@ export async function listEventCatalog(
       app: string;
       eventCount: unknown;
       customEventCount: unknown;
+      madeEventCount: unknown;
       volume: unknown;
     }) => ({
       app: row.app || null,
       eventCount: Number(row.eventCount),
       volume: Number(row.volume),
       onlyAutomaticEvents: Number(row.customEventCount) === 0,
+      makesOutputs: Number(row.madeEventCount) > 0,
+      usedItEvents:
+        outputUseRule(row.app)?.usedEvents.map((event) => event.eventName) ??
+        [],
     }),
   );
 

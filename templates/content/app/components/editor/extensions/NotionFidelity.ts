@@ -11,6 +11,17 @@ const COLOR_TYPES = [
 const INDENT_TYPES = ["paragraph", "heading"];
 const MAX_INDENT = 12;
 
+/** Whether a node of this type keeps a block colour, `blue` or `blue_bg`. */
+export function takesBlockColor(typeName: string) {
+  return COLOR_TYPES.includes(typeName);
+}
+
+export function blockColorClass(color: string) {
+  return color.endsWith("_bg")
+    ? `content-block-bg content-block-bg--${color.slice(0, -3)}`
+    : `content-block-color content-block-color--${color}`;
+}
+
 export const NotionBlockColor = Extension.create({
   name: "notionBlockColor",
   addGlobalAttributes() {
@@ -24,13 +35,9 @@ export const NotionBlockColor = Extension.create({
             renderHTML: (attributes) => {
               if (!attributes.color) return {};
               const color = String(attributes.color);
-              const isBg = color.endsWith("_bg");
-              const base = isBg ? color.slice(0, -3) : color;
               return {
                 "data-notion-color": color,
-                class: isBg
-                  ? `content-block-bg content-block-bg--${base}`
-                  : `content-block-color content-block-color--${base}`,
+                class: blockColorClass(color),
               };
             },
           },

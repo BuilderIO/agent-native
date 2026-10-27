@@ -47,6 +47,8 @@ export {
   withPreparedYDocMutation,
   applyUpdate,
   seedXmlFragmentIfEmpty,
+  adoptSnapshotOnce,
+  type SnapshotAdoptionStatus,
   applyText,
   getText,
   getState,
@@ -161,6 +163,7 @@ export {
 export {
   loadAwarenessRows,
   loadAwarenessRowsStrict,
+  loadAwarenessRowsWith,
 } from "./awareness-store.js";
 
 export {

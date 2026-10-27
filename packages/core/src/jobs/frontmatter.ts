@@ -19,6 +19,8 @@ export interface JobFrontmatter {
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
+  /** Sticky provenance: MCP edits cannot inherit unattended action approval. */
+  mcpManaged?: boolean;
   lastRun?: string;
   lastHistoryId?: string;
   lastRunManual?: boolean;
@@ -72,11 +74,16 @@ export interface JobFrontmatter {
 export function jobBelongsToApp(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   appId: string | null | undefined,
+  additionalAppIds?: readonly string[],
 ): boolean {
   const ownerAppId = meta.appId?.trim();
   if (ownerAppId) {
     const schedulerAppId = appId?.trim();
-    return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+    if (!schedulerAppId) return false;
+    return (
+      ownerAppId === schedulerAppId ||
+      Boolean(additionalAppIds?.some((id) => id.trim() === ownerAppId))
+    );
   }
   return !meta.orgId?.trim();
 }
@@ -154,6 +161,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "createdBy",
   "orgId",
   "runAs",
+  "mcpManaged",
   "lastRun",
   "lastHistoryId",
   "lastRunManual",
@@ -351,6 +359,9 @@ function parseKnownField(
     case "runAs":
       meta.runAs =
         value === "shared" || value === "creator" ? value : undefined;
+      break;
+    case "mcpManaged":
+      meta.mcpManaged = value === "true";
       break;
     case "lastRun":
       meta.lastRun = value;
@@ -615,6 +626,7 @@ export function buildJobResourceContent(
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
+  if (meta.mcpManaged) lines.push("mcpManaged: true");
   if (meta.triggerType !== "manual") {
     pushString(lines, "timezone", meta.timezone);
   }

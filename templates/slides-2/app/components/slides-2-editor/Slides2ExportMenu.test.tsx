@@ -234,7 +234,7 @@ describe("Slides2ExportMenu", () => {
     expect(document.querySelector("[data-pdf-export-stage]")).toBeNull();
   });
 
-  it("builds a Google Slides PPTX in the browser for source-only slides", async () => {
+  it("builds a PPTX in the browser for source-only slides", async () => {
     const artifact = {
       protocolVersion: 1,
       deckId: "deck-1",

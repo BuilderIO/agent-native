@@ -4,7 +4,8 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   normalizePropertyValue,
@@ -307,6 +308,7 @@ export function validatePlan(
       persisted.document.updatedAt !== row.expectedUpdatedAt
     )
       throw new Error(`Stale row ${row.documentId}.`);
+    assertNoNewlySharedVideoIds(persisted.document.content, row.content);
     if (
       duplicate(row.propertyValues.map((v) => v.propertyId)) ||
       duplicate(row.protectedPropertyValues.map((v) => v.propertyId))
@@ -538,12 +540,20 @@ export async function applyMigration(
   }
   for (const batch of chunks(versionRows, 100))
     await tx.insert(schema.documentVersions).values(batch);
+  const legacy = await lockLegacyBodyWrites(
+    tx,
+    plan.rows.map((row) => row.documentId),
+    {
+      operation: "migrate-content-database-rows",
+      content: new Map(plan.rows.map((row) => [row.documentId, row.content])),
+    },
+  );
   for (const row of plan.rows) {
     const updated = await tx
       .update(schema.documents)
       .set({
         content: row.content,
-        bodyRevision: bodyRevisionForContent(row.content),
+        bodyRevision: legacy.bodyRevision(row.content),
         updatedAt: now,
       })
       .where(

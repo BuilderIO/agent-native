@@ -179,12 +179,8 @@ export function useEditorSelectionAndStyles({
     recordLocalContentHistoryChangeFallback,
     prepareTextCreationFinalization,
   } = editorHistory;
-  const {
-    recordSelectionHistoryAroundChange,
-    pendingQuestions,
-    design,
-    canEditDesign,
-  } = editorGenerationAndAccess;
+  const { applySelectionChange, pendingQuestions, design, canEditDesign } =
+    editorGenerationAndAccess;
   const {
     setPatchProof,
     queueFileContentSave,
@@ -523,14 +519,14 @@ export function useEditorSelectionAndStyles({
         return;
       }
       selectionRevisionRef.current += 1;
-      recordSelectionHistoryAroundChange(run);
+      applySelectionChange(run);
     },
     [
       activeFile?.id,
       applyFileContentUpdate,
       clearPendingOverviewLayerSelectionTimer,
       createdOverviewLayerSelection,
-      recordSelectionHistoryAroundChange,
+      applySelectionChange,
       getCodeLayerProjectionForScreen,
       getScreenContent,
       handleBreakpointBarSelect,

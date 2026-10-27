@@ -30,6 +30,7 @@ vi.mock("./lib/ai-request-status.js", () => ({
   withAiRequestStatusInstructions: mocks.withAiRequestStatusInstructions,
 }));
 
+import { STALE_PENDING_TRANSCRIPT_MS } from "../shared/transcript-status.js";
 import removeFillerWords from "./remove-filler-words";
 
 function returnRows(...rows: unknown[][]) {
@@ -49,7 +50,10 @@ function returnRows(...rows: unknown[][]) {
 describe("remove-filler-words", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { expiresAt: null },
+    });
     mocks.queueBackgroundAiRequest.mockResolvedValue(undefined);
   });
 
@@ -71,6 +75,51 @@ describe("remove-filler-words", () => {
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
     expect(mocks.queueBackgroundAiRequest).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["missing", null, "transcript_not_ready"],
+    [
+      "pending",
+      {
+        status: "pending",
+        updatedAt: new Date().toISOString(),
+        segmentsJson: "[]",
+      },
+      "transcript_pending",
+    ],
+    [
+      "stale pending",
+      {
+        status: "pending",
+        updatedAt: new Date(
+          Date.now() - STALE_PENDING_TRANSCRIPT_MS - 1,
+        ).toISOString(),
+        segmentsJson: "[]",
+      },
+      "transcript_not_ready",
+    ],
+    [
+      "failed",
+      { status: "failed", segmentsJson: "[]" },
+      "transcript_not_ready",
+    ],
+  ] as const)(
+    "returns a typed prerequisite error for a %s transcript",
+    async (_description, transcript, errorCode) => {
+      returnRows(
+        [{ kind: "video", videoUrl: "https://store.example/clip.webm" }],
+        transcript ? [transcript] : [],
+      );
+
+      await expect(
+        removeFillerWords.run({ recordingId: "rec_1" }),
+      ).rejects.toMatchObject({
+        errorCode,
+        statusCode: 409,
+      });
+      expect(mocks.queueBackgroundAiRequest).not.toHaveBeenCalled();
+    },
+  );
 
   it("queues the request for a Clips-hosted video with a ready transcript", async () => {
     returnRows(

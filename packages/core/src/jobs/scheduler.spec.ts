@@ -11,6 +11,7 @@ import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
+import { AutomationRecoveryProjectionDeferredError } from "./automation-recovery.js";
 import { registerJobRunner, type JobRunnerContext } from "./job-runner.js";
 import {
   classifyJobResource,
@@ -791,6 +792,66 @@ Process the feedback.`,
     expect(resourcePutMock.mock.calls[0]?.[1]).toBe(
       "jobs/factories/demo-factory/factory-slack-feedback.md",
     );
+  });
+
+  describe("jobs under an additional app id", () => {
+    const jobAt = (path: string, appId: string) => ({
+      id: `resource-${appId}`,
+      owner: "__organization__:org-1",
+      path,
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+domain: factory
+appId: ${appId}
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+    });
+    const workflowPath =
+      "jobs/factories/demo-factory/workflow-digest-1a2b3c4d.md";
+    const agentPath = "jobs/factories/demo-factory/factory-pr-governance.md";
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    };
+
+    it("runs a job under a listed app id beside the scheduler's own", async () => {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        jobAt(workflowPath, "factory-workflows"),
+        jobAt(agentPath, "factory"),
+      ]);
+
+      await processRecurringJobs({
+        ...deps,
+        additionalJobAppIds: ["factory-workflows"],
+      });
+
+      expect(
+        new Set(resourcePutMock.mock.calls.map((call) => call[1])),
+      ).toEqual(new Set([workflowPath, agentPath]));
+    });
+
+    it("leaves a job under an unlisted app id alone", async () => {
+      resourceListAllOwnersMock.mockResolvedValueOnce([
+        jobAt(workflowPath, "factory-workflows"),
+        jobAt(agentPath, "factory"),
+      ]);
+
+      await processRecurringJobs(deps);
+
+      expect(resourcePutMock.mock.calls.map((call) => call[1])).toEqual([
+        agentPath,
+      ]);
+    });
   });
 
   it("records scheduler health under the owner org for a recovered Factory job without orgId", async () => {
@@ -2308,6 +2369,22 @@ Runs the saved workflow.`,
         consecutiveFailures: 1,
         enabled: true,
       });
+    });
+
+    it("keeps the history retryable while predecessor projection is deferred", async () => {
+      const deferred = new AutomationRecoveryProjectionDeferredError(
+        "predecessor-run",
+      );
+      disposers.push(
+        registerJobRunner("workflow", async () => {
+          throw deferred;
+        }),
+      );
+      serveJob(runnerJob());
+
+      await expect(runJobNow(OWNER, "wf", deps)).rejects.toBe(deferred);
+
+      expect(historyFinishes()).toHaveLength(0);
     });
 
     it("pauses the job on the fifth consecutive failure and says so on the history row", async () => {

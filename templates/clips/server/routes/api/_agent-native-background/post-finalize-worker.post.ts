@@ -45,6 +45,7 @@ const bodySchema = z.object({
     "meeting-finalize",
   ]),
   token: z.string().min(1),
+  requestedByEmail: z.email().max(320).optional(),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
   uploadAttemptId: z.string().min(1).max(128).nullable().optional(),
@@ -81,6 +82,7 @@ async function scheduleThumbnailRetry(
 async function scheduleMeetingFinalizeRetry(
   recordingId: string,
   retryAttempt: number | undefined,
+  requestedByEmail?: string,
 ): Promise<number | null> {
   const nextRetryAttempt = (retryAttempt ?? 0) + 1;
   if (nextRetryAttempt > MAX_MEETING_FINALIZE_RETRIES) return null;
@@ -90,6 +92,7 @@ async function scheduleMeetingFinalizeRetry(
     delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
     retryAttempt: nextRetryAttempt,
     requireAccepted: true,
+    ...(requestedByEmail ? { requestedByEmail } : {}),
   });
   return nextRetryAttempt;
 }
@@ -111,13 +114,14 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadGenerationId,
     regenerate,
     replaceImportId,
+    requestedByEmail,
   } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyShortLivedToken(
     token,
     scopedAgentAccessResourceId(
       POST_FINALIZE_JOB_TOKEN_KIND,
-      postFinalizeJobResourceId(recordingId, kind),
+      postFinalizeJobResourceId(recordingId, kind, requestedByEmail),
     ),
   );
   if (!verified.ok) {
@@ -198,6 +202,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
       recordingId,
       retryAttempt,
+      requestedByEmail,
     );
     if (nextRetryAttempt !== null) {
       return {
@@ -216,7 +221,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return runWithRequestContext(
     {
-      userEmail: recording.ownerEmail,
+      userEmail: requestedByEmail ?? recording.ownerEmail,
       orgId: recording.orgId ?? undefined,
     },
     async () => {
@@ -234,6 +239,7 @@ export default defineEventHandler(async (event: H3Event) => {
             : {}),
           regenerate,
           replaceImportId,
+          ...(requestedByEmail ? { requestedByEmail } : {}),
           requireAccepted:
             kind === "media-ready" ||
             kind === "thumbnail" ||
@@ -342,6 +348,7 @@ export default defineEventHandler(async (event: H3Event) => {
           const nextRetryAttempt = await scheduleMeetingFinalizeRetry(
             recordingId,
             retryAttempt,
+            requestedByEmail,
           );
           if (nextRetryAttempt !== null) {
             return {

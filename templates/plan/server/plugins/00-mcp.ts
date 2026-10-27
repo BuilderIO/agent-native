@@ -52,5 +52,6 @@ export default function planMcpPlugin(nitroApp: any) {
     actions,
     productionActions: actions,
     connectorCatalog: PLAN_CONNECTOR_CATALOG,
+    appApprovalPage: true,
   });
 }

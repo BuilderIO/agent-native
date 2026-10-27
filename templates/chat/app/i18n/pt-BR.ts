@@ -17,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "Arquivar chat",
-    archiveFailed: "Falha ao arquivar",
+    archiveFailed: "Não foi possível arquivar o chat.",
     chats: "Chats",
-    composerPlaceholder: "Pergunte ao agente...",
+    composerPlaceholder: "Pergunte qualquer coisa",
     emptyState: "Pergunte-me qualquer coisa",
     heroDescription:
       "Peça ao agente para inspecionar, explicar ou alterar este app.",
@@ -29,7 +29,7 @@ const messages = {
     inspectSuggestionCapabilities: "O que este app pode fazer?",
     inspectSuggestionHello: "Ajude-me a começar",
     newChat: "Novo chat",
-    optionsFor: "Opções para",
+    optionsFor: "Opções de chat para {{title}}",
     pinChat: "Fixar chat",
     pinned: "Fixados",
     recents: "Recentes",
@@ -42,8 +42,8 @@ const messages = {
     retryAttachmentUnavailable:
       "O Chat não consegue reabrir este anexo para tentar novamente. Adicione uma URL de arquivo acessível e tente outra vez.",
     renameChat: "Renomear chat",
-    renameFailed: "Falha ao renomear",
-    renameThread: "Renomear conversa",
+    renameFailed: "Não foi possível renomear o chat.",
+    renameThread: "Renomear {{title}}",
     suggestionActions: "Mostre-me as ações disponíveis",
     suggestionCapabilities: "O que este app pode fazer?",
     suggestionCustomize: "Ajude-me a personalizar este app",
@@ -51,19 +51,12 @@ const messages = {
     untitledChat: "Chat sem título",
   },
   home: {
-    communityDescription: "Participe da comunidade Agent-Native",
-    composerPlaceholder: "Chame a ação hello para Alex",
     communityTitle: "Fale com a gente",
     docsAddAction: "Adicionar uma ação",
     docsAddPage: "Adicionar uma página",
-    docsDescription: "Guias sobre ações, páginas e agentes",
     docsGettingStarted: "Primeiros passos",
     docsKeyConcepts: "Conceitos principais",
     docsTitle: "Documentação",
-    editHint:
-      "Edite {{file}}, salve e pergunte de novo para ver a nova saudação.",
-    lead: "A interface do seu app e o agente dele compartilham as mesmas ações.",
-    leadTry: "Peça ao agente para chamar a ação hello.",
     title: "Comece aqui",
   },
   navigation: {

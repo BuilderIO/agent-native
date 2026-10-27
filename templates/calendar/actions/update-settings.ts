@@ -1,9 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import {
-  getJevContextCredentials,
-  getRequestUserEmail,
-  isJevEnabled,
-} from "@agent-native/core/server";
+import { getDecisionsStatus } from "@agent-native/core/decisions";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { saveCalendarSettings } from "../server/lib/calendar-settings.js";
@@ -42,7 +39,7 @@ export default defineAction({
         hide: z.string().max(2000).optional(),
       })
       .optional()
-      .describe("Jev rules for new calendar invitations"),
+      .describe("AI decision rules for new calendar invitations"),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -51,11 +48,15 @@ export default defineAction({
       args.eventRules &&
       Object.values(args.eventRules).some((rule) => rule?.trim())
     ) {
-      const credentials = await getJevContextCredentials(email);
-      if (!(await isJevEnabled(credentials))) {
-        fail("Jev is not enabled for this account.", {
+      const status = await getDecisionsStatus(email);
+      if (!status.providers.some((provider) => provider.status === "ready")) {
+        fail("No AI decision provider is configured for this account.", {
           errorCode: "jev_not_enabled",
-          statusCode: 403,
+          statusCode: status.providers.some(
+            (provider) => provider.status === "unknown",
+          )
+            ? 503
+            : 403,
         });
       }
     }

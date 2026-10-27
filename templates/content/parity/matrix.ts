@@ -260,21 +260,25 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
     uiImplementation:
-      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, and seeds an empty live editor from the saved body; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
+      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, seeds an empty live editor from the saved body, and takes a newer saved body into open live editors exactly once; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
     status: "action-backed",
     actions: [
+      "adopt-document-snapshot",
+      "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
+      "record-editor-merge",
       "record-editor-mount",
       "record-live-body-parity",
       "seed-document-collab",
       "set-image-alt-text",
+      "set-live-body-switch",
       "transcribe-media",
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding, editor mount counts, and the flag-gated live-body parity count are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -283,9 +287,14 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-merge-telemetry.test.ts",
       "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
+      "server/live-copy/live-copy.test.ts",
+      "server/live-copy/backfill.db.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -343,6 +352,63 @@ export const parityMatrix: ParityRow[] = [
       "actions/resolve-content-links.db.test.ts",
       "app/hooks/use-content-links.test.ts",
       "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
+  },
+  {
+    id: "editor.clip-embeds",
+    surface: "editor",
+    label:
+      "Turn a pasted Clips link into a Clip block and play it with its comment markers",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoLinkForm.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a ClipEmbed tag naming the recording; playback grants and comment markers are fetched from Clips per view and never stored.",
+    uiImplementation:
+      "The video block's Link tab reads where Clips lives through get-clips-links and inserts the ClipEmbed block; the player reads get-clip-playback and list-clip-comments, which check document access before asking Clips. Agents write the same ClipEmbed tag with edit-document, and view-screen names the recording of a selected Clip.",
+    status: "action-backed",
+    actions: ["get-clips-links", "get-clip-playback", "list-clip-comments"],
+    exception:
+      "The three reads are hidden with agentTool: false because they feed the player short-lived media URLs and scrubber markers; agents read the ClipEmbed tag with get-document and the selected Clip with view-screen.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-embed-actions.test.ts",
+      "app/components/editor/clip-embed/ClipEmbedBlock.test.tsx",
+      "app/components/editor/extensions/VideoLinkForm.test.tsx",
+    ],
+  },
+  {
+    id: "editor.clip-uploads",
+    surface: "editor",
+    label: "Upload a video into a page as a Clip while Clips in pages is on",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoBlock.tsx",
+      "app/components/editor/clip-embed/ClipUploadGate.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/components/editor/VisualEditor.tsx",
+    ],
+    durableEffect:
+      "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
+    uiImplementation:
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+    status: "action-backed",
+    actions: ["get-clip-upload-status", "create-clip-upload"],
+    exception:
+      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-upload-actions.test.ts",
+      "server/lib/clips-peer.test.ts",
+      "app/components/editor/extensions/video-block-clip-upload.test.tsx",
+      "app/components/editor/clip-embed/clip-uploads.test.ts",
     ],
   },
   {
@@ -691,6 +757,32 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
+  },
+  {
     id: "source-sync.database-source-bindings",
     surface: "source-sync",
     label:
@@ -755,13 +847,14 @@ export const parityMatrix: ParityRow[] = [
       "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
+      "app/components/editor/DocumentProperties.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged publish and unpublish picks, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
-      "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
+      "Builder source dialogs call review, write-mode, validation, staging, and execution actions; the Builder status property's picker calls set-builder-entry-status.",
     status: "action-backed",
     actions: [
       "cancel-prepared-builder-source-update",
@@ -771,6 +864,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "preview-builder-source-review",
       "review-content-database-source-change-set",
+      "set-builder-entry-status",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
       "stage-builder-revision",
@@ -785,6 +879,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/set-builder-entry-status.db.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],

@@ -160,7 +160,7 @@ export const trackSlideContentEdited = bestEffort(
   },
 );
 
-export const trackDeckCreated = bestEffort(function trackDeckCreated(
+export async function trackDeckCreated(
   deckId: string,
   properties: {
     creationMethod: DeckCreationMethod;
@@ -169,7 +169,7 @@ export const trackDeckCreated = bestEffort(function trackDeckCreated(
     generationContext?: unknown;
   },
   source: TrackingSource,
-): void {
+): Promise<void> {
   const generationAttemptId = generationAttemptIdOf(
     properties.generationContext,
   );
@@ -187,7 +187,7 @@ export const trackDeckCreated = bestEffort(function trackDeckCreated(
     },
     source,
   );
-});
+}
 
 function attachmentType(file: Record<string, unknown>): string {
   for (const name of [file.originalName, file.path]) {

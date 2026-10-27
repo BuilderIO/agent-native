@@ -53,7 +53,8 @@ import {
   buildCreateRecordingRequestBody,
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
-  isStorageSetupFailureMessage,
+  isStorageSetupDenial,
+  notifyStorageSetupRequired,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
@@ -1881,6 +1882,8 @@ async function createServerRecording(
   options?: NativeRecordingRequestOptions & {
     authToken?: string;
     signal?: AbortSignal;
+    /** Only a start the user is watching may pop the storage banner open. */
+    announceStorageSetup?: boolean;
   },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
@@ -1933,11 +1936,13 @@ async function createServerRecording(
       if (!res.ok) {
         const body = await res.text();
         console.error("[clips-recorder] bad response:", url, res.status, body);
+        // Checked before the status mapping: the hosted-storage denial is a 403.
+        if (isStorageSetupDenial(body)) {
+          if (options?.announceStorageSetup) notifyStorageSetupRequired();
+          throw new Error(body.slice(0, 200));
+        }
         if (res.status === 401 || res.status === 403) {
           throw new Error(RECORDING_SESSION_EXPIRED);
-        }
-        if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
-          throw new Error(body.slice(0, 200));
         }
         if (res.status >= 500) {
           throw new Error(RECORDING_SERVER_UNAVAILABLE);
@@ -3262,6 +3267,7 @@ async function tryStartRewindFullscreenRecording(
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
             authToken: params.authToken,
+            announceStorageSetup: true,
             signal: params.signal,
           },
         );
@@ -3892,6 +3898,7 @@ async function startNativeFullscreenRecording(
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
               authToken: params.authToken,
+              announceStorageSetup: true,
               signal: params.signal,
             },
           );
@@ -5352,6 +5359,7 @@ async function startRecordingInner(
         mimeType: mimeType || "video/webm",
         requestStreaming: true,
         authToken: params.authToken,
+        announceStorageSetup: true,
         signal: params.signal,
       },
     ).finally(() => {

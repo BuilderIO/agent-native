@@ -1405,6 +1405,10 @@ export default {
     drilldownHideSql: "Masquer le SQL",
     drilldownDownloadCsv: "Télécharger le CSV",
     drilldownShowing: "Affichage de {{shown}} sur {{total}} enregistrements",
+    drilldownShowingLoaded:
+      "Affichage de {{shown}} sur {{loaded}} enregistrements chargés ; total inconnu.",
+    drilldownCsvTruncatedUnknownTotal:
+      "L’exhaustivité de l’export est inconnue ; ce fichier contient {{exported}} des {{loaded}} enregistrements chargés après filtrage.",
     drilldownCsvTruncated:
       "Export incomplet : la requête correspond à {{total}} enregistrements, mais seuls les {{loaded}} premiers ont été chargés ; ce fichier en contient {{exported}} après filtrage.",
     drilldownCountMismatch:
@@ -1412,7 +1416,13 @@ export default {
     drilldownAggregateOnly:
       "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
     drilldownNoRecords: "Aucun enregistrement correspondant",
+    drilldownNoRecordsIncomplete:
+      "Aucun enregistrement chargé. Le résultat est incomplet : des enregistrements peuvent tout de même correspondre.",
+    drilldownNoLoadedMatches:
+      "Aucun enregistrement chargé ne correspond, mais le résultat complet peut inclure des enregistrements non chargés.",
     drilldownLoadFailed: "Impossible de charger les enregistrements",
+    drilldownOverByteCap:
+      "Ces enregistrements liraient plus de {{gib}} Gio, ils n'ont donc pas été chargés. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
@@ -1484,12 +1494,28 @@ export default {
     columnFormatCurrency: "Devise",
     columnFormatPercent: "Pourcentage",
     columnFormatDate: "Date",
+    columnFormatDuration: "Durée (secondes)",
     columnRename: "Renommer la colonne",
     columnHide: "Masquer la colonne",
     columnShow: "Afficher « {{name}} »",
     columnShowHidden: "Afficher les colonnes masquées",
     columnName: "Nom de la colonne",
     columnResize: "Redimensionner la colonne",
+    metricComparisonVs: "par rapport à {{period}}",
+    metricComparisonPreviousPeriod: "la période précédente",
+    metricComparisonNoChange: "Aucun changement",
+    metricComparisonPoints: "{{value}} pt",
+    metricComparisonUp:
+      "En hausse de {{change}} par rapport à {{previous}}, {{period}}",
+    metricComparisonDown:
+      "En baisse de {{change}} par rapport à {{previous}}, {{period}}",
+    metricComparisonFlat:
+      "Aucun changement par rapport à {{previous}}, {{period}}",
+    metricComparisonBetter: "{{comparison}} (mieux)",
+    metricComparisonWorse: "{{comparison}} (moins bien)",
+    calloutSeverityCritical: "Critique",
+    calloutSeverityWarning: "Avertissement",
+    calloutSeverityInfo: "Information",
     rowBreakdownBy: "Ventiler par",
     rowBreakdownAll: "Tous",
     rowBreakdownOther: "Autres",
@@ -1760,6 +1786,10 @@ export default {
     catalogOpenSessions: "Afficher les sessions avec {{event}}",
     catalogAutomatic: "Automatique",
     catalogStoppedFiring: "N'est plus envoyé",
+    catalogMadeIt: "Créé",
+    catalogUsedIt: "Utilisé",
+    catalogNoUsedIt:
+      "« Créé, pas utilisé » ne peut pas vérifier les résultats de {{apps}}, car aucun événement « utilisé » n'est défini.",
     catalogPropertyKeys: "Clés de propriétés",
     catalogMoreKeys: "+{{count}} de plus",
     catalogTruncated:
@@ -1775,6 +1805,31 @@ export default {
       "La vitesse est mesurée sur les pages vues à partir de maintenant.",
     speedFilterNeedsLab:
       "Ce lien contient un filtre de vitesse. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
+    unusedOutputs: "Créé, pas utilisé",
+    anyOutcome: "Toute session",
+    unusedSlidesDecks: "Decks Slides inutilisés",
+    unusedSlidesRule:
+      "Decks créés il y a au moins {{days}} jours qui, en {{days}} jours, n'ont été ni présentés au-delà de la première diapositive pendant {{seconds}} s ou plus, ni exportés. Ouvrir un deck ne compte pas.",
+    unusedFilterNeedsLab:
+      "Ce lien contient un filtre « Créé, pas utilisé ». Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
+    outputCoverageSince:
+      "Résultats suivis depuis le {{date}} ; ceux non utilisés apparaissent {{days}} jours après leur création.",
+    outputCoverageStarting:
+      "Les résultats sont suivis à partir de maintenant ; ceux non utilisés apparaissent {{days}} jours après leur création.",
+    openDeck: "Ouvrir le deck",
+    moreOutputs: "+{{count}} de plus",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck créé le {{date}}",
+    outputPresentedOn: "Présenté le {{date}}",
+    outputExportedOn: "Exporté le {{date}}",
+    outputUsedOn: "Utilisé le {{date}}",
+    outputUnused: "Non utilisé en {{days}} jours",
+    outputOpen:
+      "Pas encore utilisé ; compte comme non utilisé après le {{date}}",
+    outputUnmeasured:
+      "Non mesuré : certains événements n'ont pas pu être enregistrés",
+    outputsUnavailable: "Impossible de charger les résultats.",
     slowRequestCount: "{{count}} requêtes lentes",
     slowRequestCountSingular: "{{count}} requête lente",
     speedIncomplete: "Données de vitesse incomplètes",

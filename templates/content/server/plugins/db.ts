@@ -1479,6 +1479,180 @@ export const runContentMigrations = runMigrations(
       name: "content-live-body-switch",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_switched_at TEXT`,
     },
+    {
+      version: 125,
+      name: "content-live-copy-version",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_copy_version INTEGER`,
+    },
+    {
+      version: 126,
+      name: "builder-private-payload-cleanup-queue",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_name TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS property_value TEXT;
+        CREATE INDEX IF NOT EXISTS document_comments_document_idx
+          ON document_comments (document_id, owner_email);
+        CREATE TABLE IF NOT EXISTS content_database_builder_blob_cleanup (
+          blob_reference TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+    },
+    {
+      version: 127,
+      name: "builder-private-payload-cleanup-retries",
+      sql: `ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS attempt_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE content_database_builder_blob_cleanup
+          ADD COLUMN IF NOT EXISTS next_attempt_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z';
+        CREATE INDEX IF NOT EXISTS content_database_builder_blob_cleanup_due_idx
+          ON content_database_builder_blob_cleanup (next_attempt_at, created_at)`,
+    },
+    {
+      version: 128,
+      name: "content-document-body-steps",
+      sql: `CREATE TABLE IF NOT EXISTS document_body_steps (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          body_revision INTEGER NOT NULL,
+          start_offset INTEGER NOT NULL,
+          end_offset INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS document_body_steps_document_revision_idx
+          ON document_body_steps (document_id, body_revision)`,
+    },
+    {
+      version: 129,
+      name: "content-comment-block-targets",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_id TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS block_type TEXT`,
+    },
+    {
+      version: 130,
+      name: "content-live-body-opt-out",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS live_body_opted_out_at TEXT`,
+    },
+    {
+      version: 131,
+      name: "content-webhooks",
+      sql: `CREATE TABLE IF NOT EXISTS content_webhooks (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          scope_type TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          url TEXT NOT NULL,
+          events_json TEXT NOT NULL,
+          property_ids_json TEXT,
+          description TEXT,
+          secret_scope TEXT NOT NULL,
+          secret_scope_id TEXT NOT NULL,
+          secret_key TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS content_webhooks_scope_idx
+          ON content_webhooks (scope_type, scope_id);
+        CREATE INDEX IF NOT EXISTS content_webhooks_creator_idx
+          ON content_webhooks (created_by, created_at);
+        CREATE TABLE IF NOT EXISTS content_webhook_deliveries (
+          id TEXT PRIMARY KEY,
+          sequence BIGSERIAL NOT NULL,
+          webhook_id TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          database_id TEXT,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at TEXT NOT NULL,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          last_status_code INTEGER,
+          last_error TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          delivered_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_due_idx
+          ON content_webhook_deliveries (status, next_attempt_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_webhook_idx
+          ON content_webhook_deliveries (webhook_id, sequence);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_lease_idx
+          ON content_webhook_deliveries (webhook_id, lease_expires_at)
+          WHERE status = 'pending';
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_settled_idx
+          ON content_webhook_deliveries (status, updated_at);
+        CREATE INDEX IF NOT EXISTS content_webhook_deliveries_document_idx
+          ON content_webhook_deliveries (document_id)`,
+    },
+    {
+      version: 132,
+      name: "content-property-value-generations",
+      // A trigger stamps every write, so no writer can forget to. Existing
+      // values keep a NULL generation, which reads as 0, until they change.
+      // The function body is one quoted string: the runner splits on
+      // semicolons outside quotes.
+      sql: `CREATE SEQUENCE IF NOT EXISTS content_property_value_generation_seq;
+        ALTER TABLE document_property_values ADD COLUMN IF NOT EXISTS generation BIGINT;
+        CREATE OR REPLACE FUNCTION content_property_value_generation()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            IF TG_OP = ''INSERT'' OR NEW.value_json IS DISTINCT FROM OLD.value_json THEN
+              NEW.generation := nextval(''content_property_value_generation_seq'');
+            ELSE
+              NEW.generation := OLD.generation;
+            END IF;
+            RETURN NEW;
+          END;';
+        DROP TRIGGER IF EXISTS content_property_value_generation
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_generation
+          BEFORE INSERT OR UPDATE ON document_property_values
+          FOR EACH ROW
+          EXECUTE FUNCTION content_property_value_generation()`,
+    },
+    {
+      version: 133,
+      name: "content-property-value-tombstones",
+      // Deleting a value records a new generation for that page and
+      // property, so a cleared value can't make an old generation current
+      // again. Each committed delete writes a number no reader has seen, so
+      // the upsert replaces rather than keeping the larger one.
+      sql: `CREATE TABLE IF NOT EXISTS document_property_value_tombstones (
+          document_id TEXT NOT NULL,
+          property_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          PRIMARY KEY (document_id, property_id)
+        );
+        CREATE INDEX IF NOT EXISTS document_property_value_tombstones_property_idx
+          ON document_property_value_tombstones (property_id, document_id);
+        CREATE OR REPLACE FUNCTION content_property_value_tombstone()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS 'BEGIN
+            INSERT INTO document_property_value_tombstones
+                (document_id, property_id, generation)
+              SELECT document_id, property_id,
+                  nextval(''content_property_value_generation_seq'')
+                FROM (SELECT DISTINCT document_id, property_id
+                  FROM deleted_values) AS cleared
+            ON CONFLICT (document_id, property_id)
+              DO UPDATE SET generation = EXCLUDED.generation;
+            RETURN NULL;
+          END;';
+        DROP TRIGGER IF EXISTS content_property_value_tombstone
+          ON document_property_values;
+        CREATE TRIGGER content_property_value_tombstone
+          AFTER DELETE ON document_property_values
+          REFERENCING OLD TABLE AS deleted_values
+          FOR EACH STATEMENT
+          EXECUTE FUNCTION content_property_value_tombstone()`,
+    },
   ],
   { table: "content_migrations" },
 );

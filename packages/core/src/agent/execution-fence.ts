@@ -1,12 +1,22 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedTransactionDbExec,
+  type DbExec,
+} from "../db/client.js";
 
 export interface ExecutionFence {
   threadId: string;
   turnId: string;
   runId: string;
   generation: string;
+  /**
+   * A requested Stop expires the run's lease, and the stopped run still has
+   * to save what it wrote. This fence holds while the lease names the run and
+   * generation, however expired; a worker that claims the turn replaces both.
+   */
+  outlivesStop?: true;
 }
 
 interface ExecutionFenceContext {
@@ -104,11 +114,30 @@ export function withExecutionFence<T>(fence: ExecutionFence, work: () => T): T {
   );
 }
 
+export function runWithoutExecutionFence<T>(work: () => T): T {
+  // A follow-up turn scheduled by a completed run must not inherit that run's
+  // now-expired lease through AsyncLocalStorage.
+  return executionFenceStorage.run(
+    { fences: [], executionLeaseRequested: false },
+    work,
+  );
+}
+
 export async function lockAndAssertCurrentExecutionFences(
   tx: DbExec,
+  ignoredFence?: ExecutionFence,
 ): Promise<void> {
   const fences = executionFenceStorage.getStore()?.fences ?? [];
   for (const activeFence of fences) {
+    if (
+      ignoredFence &&
+      activeFence.threadId === ignoredFence.threadId &&
+      activeFence.turnId === ignoredFence.turnId &&
+      activeFence.runId === ignoredFence.runId &&
+      activeFence.generation === ignoredFence.generation
+    ) {
+      continue;
+    }
     const { rows } = await tx.execute({
       sql: `SELECT generation
             FROM agent_execution_leases
@@ -116,7 +145,7 @@ export async function lockAndAssertCurrentExecutionFences(
               AND turn_id = ?
               AND owner_run_id = ?
               AND generation = CAST(? AS BIGINT)
-              AND lease_expires_at > clock_timestamp()
+              ${activeFence.outlivesStop ? "" : "AND lease_expires_at > clock_timestamp()"}
             FOR UPDATE`,
       args: [
         activeFence.threadId,
@@ -151,6 +180,10 @@ export async function withFencedExecutionWrite<T>(
   );
   if (!scopedFence) {
     throw new StaleExecutionFenceError(fence);
+  }
+  if (getScopedTransactionDbExec() === client) {
+    await lockAndAssertCurrentExecutionFences(client);
+    return write(client);
   }
   if (!client.transaction) {
     throw new Error("Fenced execution writes require transaction support");

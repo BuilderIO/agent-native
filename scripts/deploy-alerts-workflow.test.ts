@@ -14,7 +14,7 @@ function load(file: string): { jobs: Record<string, Workflow>; raw: string } {
   };
 }
 
-const QA_CHANNEL = "C0C4U4XRT6X";
+const DEPLOY_ALERT_CHANNEL = "C0C7A1Y2EF6";
 
 function steps(job: Workflow): Workflow[] {
   return job.steps as Workflow[];
@@ -38,7 +38,10 @@ function retainedReport(job: Workflow, prefix: string): Workflow | undefined {
 // alert-specific behavior: it names its channel through SLACK_CHANNEL, keeps a
 // complete 90-day report, posts after that report exists, and links it.
 function assertReporter(job: Workflow, prefix: string): void {
-  assert.equal((job.env as Record<string, string>).SLACK_CHANNEL, QA_CHANNEL);
+  assert.equal(
+    (job.env as Record<string, string>).SLACK_CHANNEL,
+    DEPLOY_ALERT_CHANNEL,
+  );
 
   const [post, ...rest] = slackSteps(job);
   assert.ok(post, "the job has no Slack step");
@@ -82,7 +85,7 @@ function assertReporter(job: Workflow, prefix: string): void {
   assert.equal(post["continue-on-error"], undefined);
 }
 
-describe("deploy-path alerts go to #qa-agent-native", () => {
+describe("deploy-path alerts go to #dev-agent-native-alerts", () => {
   describe("the nightly canary", () => {
     const { jobs } = load("deploy-canary.yml");
     const report = jobs.report!;

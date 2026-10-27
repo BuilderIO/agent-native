@@ -7,6 +7,8 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 import {
   assertSubtreeCanChangeSpace,
@@ -166,15 +168,18 @@ export default defineAction({
       }
 
       if (sameSpace) {
-        const values = await db
-          .select()
-          .from(schema.documentPropertyValues)
-          .where(
-            inArray(
-              schema.documentPropertyValues.documentId,
-              pages.map((page) => page.id),
+        const values = await withoutBuilderStatusValues(
+          db,
+          await db
+            .select()
+            .from(schema.documentPropertyValues)
+            .where(
+              inArray(
+                schema.documentPropertyValues.documentId,
+                pages.map((page) => page.id),
+              ),
             ),
-          );
+        );
         const owners = new Map<string, string>();
         for (const row of await db
           .select({
@@ -202,7 +207,50 @@ export default defineAction({
           ];
         });
         if (inserts.length > 0) {
-          await db.insert(schema.documentPropertyValues).values(inserts);
+          // Under the copies' collection locks, like every other value write,
+          // and skipping any value a write gave a copy after it was created,
+          // so a guarded write to a copy can't be doubled.
+          await db.transaction(async (transaction) => {
+            const tx = transaction as unknown as typeof db;
+            const copyIds = [...copies.values()];
+            const collectionIds = [
+              ...new Set(
+                (
+                  await tx
+                    .select({
+                      databaseId: schema.contentDatabaseItems.databaseId,
+                    })
+                    .from(schema.contentDatabaseItems)
+                    .where(
+                      inArray(schema.contentDatabaseItems.documentId, copyIds),
+                    )
+                ).map((item) => item.databaseId),
+              ),
+            ].sort();
+            for (const databaseId of collectionIds) {
+              await lockContentDatabaseMutation(tx, databaseId);
+            }
+            const present = new Set(
+              (
+                await tx
+                  .select({
+                    documentId: schema.documentPropertyValues.documentId,
+                    propertyId: schema.documentPropertyValues.propertyId,
+                  })
+                  .from(schema.documentPropertyValues)
+                  .where(
+                    inArray(schema.documentPropertyValues.documentId, copyIds),
+                  )
+              ).map((value) => `${value.documentId}\0${value.propertyId}`),
+            );
+            const missing = inserts.filter(
+              (insert) =>
+                !present.has(`${insert.documentId}\0${insert.propertyId}`),
+            );
+            if (missing.length > 0) {
+              await tx.insert(schema.documentPropertyValues).values(missing);
+            }
+          });
         }
         const fieldContents = await db
           .select()

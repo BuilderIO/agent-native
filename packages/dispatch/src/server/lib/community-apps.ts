@@ -79,7 +79,7 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "actions/generate-qr-code.spec.ts",
-          blobSha: "3459217b7252c6ee0076c68cfdb83001cc74f29e",
+          blobSha: "42a1a84ecb421e1e6435cc2e7fd00e2f4f2e1ea9",
         },
         {
           path: "actions/generate-qr-code.ts",
@@ -95,7 +95,7 @@ export const CURATED_COMMUNITY_APP_SOURCES: readonly CuratedCommunityAppSource[]
         },
         {
           path: "package.json",
-          blobSha: "7b61d5ce35d3d7c8b93215928945eb9dd1bd880b",
+          blobSha: "5815e6665e06176df9954183e89b234acf5c5c37",
         },
         {
           path: "server/db/index.ts",

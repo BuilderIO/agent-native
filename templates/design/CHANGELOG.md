@@ -3,24 +3,107 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-21
+## 2026-10-23
+
+### Improved
+
+- Drag a frame on the canvas by its name label to move it.
+- HTML Motion edits preserve interactive Alpine visibility state
+- Promotional artwork now sizes and checks text for its intended display size.
 
 ### Fixed
 
+- Image and PDF exports preserve external stylesheet styles when the stylesheet can be fetched.
+- Motion editing works again on designs that load Tailwind and Alpine from the CDN.
+- Reopening a design while it is still generating keeps tracking the generation until it finishes.
+- Text typed right after placing a text layer on the board is no longer lost when you press Escape quickly.
+
+## 2026-10-22
+
+### Added
+
+- Export compatible HTML frames for HubSpot email, or ask the agent to adapt existing content into a new email frame while preserving the original.
+- HubSpot conversion exports can verify that original link destinations are preserved.
+- Preview HubSpot emails with sample recipient names and button destinations without changing saved content.
+- Remove auto layout from a frame with the minus button in its Auto layout section, the canvas menu, or Shift+Option+A, and its layers stay where they are.
+- Screens have a Rotation field and Rotate 90° button, so a rotated screen can be reset.
+- Prototype links can play code-authored screen transitions.
+
+### Improved
+
+- A selected line or arrow shows a handle at each end; drag one to move just that end, with Shift to snap to 45 degrees
+- Independent content and mobile layout reviews are available on request for HubSpot emails.
+- Right-clicking a layer row opens the full canvas menu, and Tab while renaming moves to the next layer.
+- The design agent builds flatter layer trees with whole-pixel values.
+- The inspector names each layer's type, hides sections that don't apply, and gives lines Length and Angle.
+
+### Fixed
+
+- Align works on a single layer inside its frame, and aligning several layers moves only the aligned axis.
+- Hug, Fill, and Fixed only appear where they apply, so frames no longer collapse to 0×0 and the inspector shows the mode a layer is actually in.
+- Frames using Hug height expand to show their full content on the canvas.
+- Moving, resizing, pasting, and typing positions land layers on whole pixels.
+- Paste lands inside the selected frame, free on empty canvas, or in another design.
+- Screenshot previews use local Chromium when available for faster, more reliable rendering.
+- Shapes and text drawn on a card or row nest inside it.
+- Undo and redo skip selection changes, so they only step through edits.
+- Verification and export requests finish without requiring unnecessary design changes.
+- Zoom at 100% shows true size, and Shift+0, Shift+R, and Zoom to selection work.
+- Collapsed shader layers no longer interrupt other shaders on the canvas
+- Shader fills keep rendering when other screen content cannot be captured
+- Shader fills and effects render correctly on canvas elements created or updated in the editor.
+
+### Changed
+
+- A click in a screen selects the top-level layer under the pointer, double-click goes one level deeper, and Cmd+click selects the innermost layer
+
+## 2026-10-21
+
+### Added
+
+- A Getting started checklist at the bottom of the sidebar tracks your first design, brand, sharing, teammates, and templates, and checks steps off as you finish them
+- Pulsing Border adds moving color highlights along an element’s outline, with concentrated bright cores, colored falloff, and controls for motion and shape.
+
+### Improved
+
+- Templates now open a read-only preview from the card, and the home library shows more starters, including dashboard, messaging, task board and design studio screens.
+- Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
+- Native shader previews use less GPU memory when many mesh effects are visible.
+- Pulsing Border uses the standard Linear and Angular gradient picker for its moving border colors, with up to eight editable stops and a separate Background color. Thickness sets the bright edge, Softness feathers it, Bloom adjusts glow brightness, and Glow spread sets the halo radius. Smoke, margins, offsets, and layout settings stay grouped in collapsible sections.
+
+### Fixed
+
+- Native effects now render consistently in the editor, presentation, board overview, and design previews.
+- Opening Design no longer shows PNG export errors when no export was requested
+- Shader previews recover from temporary GPU and image failures, and PNG exports stay bound to the correct editor document.
 - Journey canvases accept partial Analytics samples when replay counts are unknown
 - Design generation now counts file renames and type changes as saved output.
 - Design reports uncertain generation outcomes clearly and confirms completed file deletions
 - Generation offers a retry when a completed run saved no design files
 
+### Removed
+
+- Remove obsolete shader catalogs and GLSL authoring controls in favor of native WebGPU shaders. Existing GLSL designs keep rendering and can be removed or replaced.
+
 ## 2026-10-20
+
+### Added
+
+- Folded Mesh adds an animated sculpted fill with editable color, shape, lighting, and noise bands.
 
 ### Improved
 
+- Shader previews reuse validated scene data while panning, including public views.
 - Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
 - Suggested prompts and the quieter Skip prompt action now share one row.
 
 ### Fixed
 
+- The Design / Full app toggle on the home page no longer hides behind the Connect AI card.
+- Read-only Design views render native shader previews in nested frames.
+- Selected screens with shader effects can be exported together as a PNG
+- Shader previews stay aligned while you zoom.
+- Signed-out sessions no longer watch for private PNG export requests
 - Public Design previews no longer show spurious export errors
 - Screen image uploads no longer overwrite edits made during the upload.
 - Failed Design generations now show an error and retry action instead of appearing complete
@@ -94,6 +177,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Design pages use localized visibility badges and a shared ownership filter.
 - Animated shader fills render together more efficiently and pause work outside the visible canvas.
 - Shader property sliders preview changes while dragging
 - Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.

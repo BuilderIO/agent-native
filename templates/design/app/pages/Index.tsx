@@ -36,13 +36,13 @@ import {
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
+import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
   IconChecks,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlus,
@@ -56,7 +56,13 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, Link, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  Link,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -91,8 +97,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -145,6 +149,7 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_TEMPLATE_LIMIT = 8;
 const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
 
 function readHomeLibraryHasRecents():
@@ -207,8 +212,12 @@ function isReadyHomeSuggestions(
 
 export default function Index() {
   const t = useT();
+  const location = useLocation();
+  const navigationType = useNavigationType();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isSaveTemplateGettingStarted =
+    searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
@@ -222,12 +231,20 @@ export default function Index() {
   );
   const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
   const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    storedHasAccessibleDesigns.status === "available" &&
-      storedHasAccessibleDesigns.value === true
+    isSaveTemplateGettingStarted
       ? "recent"
-      : "templates",
+      : storedHasAccessibleDesigns.status === "available" &&
+          storedHasAccessibleDesigns.value === true
+        ? "recent"
+        : "templates",
   );
   const homeLibraryTabWasSelectedRef = useRef(false);
+  const checklistSearch = searchParams.toString();
+  const previousChecklistLocationRef = useRef({
+    isSaveTemplateGettingStarted,
+    search: checklistSearch,
+    hash: location.hash,
+  });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -246,6 +263,43 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useEffect(() => {
+    const previousLocation = previousChecklistLocationRef.current;
+    const checklistQueryReplace =
+      navigationType === "REPLACE" &&
+      previousLocation.isSaveTemplateGettingStarted &&
+      isSaveTemplateGettingStarted &&
+      previousLocation.search !== checklistSearch;
+    previousChecklistLocationRef.current = {
+      isSaveTemplateGettingStarted,
+      search: checklistSearch,
+      hash: location.hash,
+    };
+
+    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection("recent");
+    }
+
+    const targetId = location.hash.slice(1);
+    if (
+      !targetId ||
+      (checklistQueryReplace && previousLocation.hash === location.hash)
+    ) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    isSaveTemplateGettingStarted,
+    checklistSearch,
+    location.hash,
+    location.key,
+    navigationType,
+  ]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
@@ -317,18 +371,20 @@ export default function Index() {
 
     writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
-      setHomeSection("templates");
+      if (isSaveTemplateGettingStarted || hasSearchResultsSection) return;
       homeLibraryTabWasSelectedRef.current = false;
+      setHomeSection("templates");
       return;
     }
     if (homeLibraryTabWasSelectedRef.current) return;
 
     setHomeSection("recent");
-    homeLibraryTabWasSelectedRef.current = true;
   }, [
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
+    hasSearchResultsSection,
+    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -593,6 +649,13 @@ export default function Index() {
     },
     [creativeContextState, t],
   );
+  const homeTemplates = useMemo(
+    () =>
+      templateOptions
+        .filter((template) => template.isBuiltIn)
+        .slice(0, HOME_TEMPLATE_LIMIT),
+    [templateOptions],
+  );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
   const templateDesignSystemId =
@@ -608,11 +671,6 @@ export default function Index() {
       ? chosenDesignSystemId
       : templateDesignSystemId;
 
-  const ownerFilterLabels: Record<DesignFilter, string> = {
-    all: t("home.ownedByAnyone"),
-    mine: t("home.ownedByMe"),
-    "not-mine": t("home.sharedWithMe"),
-  };
   const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
@@ -633,6 +691,7 @@ export default function Index() {
       const next = new URLSearchParams(searchParams);
       if (templateId) next.set("templateId", templateId);
       else next.delete("templateId");
+      if (next.toString() === searchParams.toString()) return;
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
@@ -735,17 +794,19 @@ export default function Index() {
     );
   }, []);
 
-  const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine" && next !== "not-mine") return;
-    designFilterWasSelectedRef.current = true;
-    const nextFilter: DesignFilter = next;
-    setDesignFilter(nextFilter);
-    writeStoredDesignFilter(nextFilter);
-    setPage(1);
-    setSelectedDesignIds((current) =>
-      current.size === 0 ? current : new Set(),
-    );
-  }, []);
+  const handleDesignFilterChange = useCallback(
+    (next: "all" | "mine" | "shared") => {
+      designFilterWasSelectedRef.current = true;
+      const nextFilter: DesignFilter = next === "shared" ? "not-mine" : next;
+      setDesignFilter(nextFilter);
+      writeStoredDesignFilter(nextFilter);
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -1384,6 +1445,7 @@ export default function Index() {
         }
         composer={
           <div
+            id="design-home-composer"
             data-design-home-composer
             className={
               agentEngineMissing
@@ -1564,51 +1626,10 @@ export default function Index() {
             }
             search={searchInput}
             recentActions={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={ownerFilterLabels[designFilter]}
-                    className="h-9 shrink-0 gap-2"
-                  >
-                    <span className="grid">
-                      {Object.entries(ownerFilterLabels).map(
-                        ([filter, label]) => (
-                          <span
-                            key={filter}
-                            aria-hidden="true"
-                            className="invisible col-start-1 row-start-1 whitespace-nowrap"
-                          >
-                            {label}
-                          </span>
-                        ),
-                      )}
-                      <span className="col-start-1 row-start-1 whitespace-nowrap">
-                        {ownerFilterLabels[designFilter]}
-                      </span>
-                    </span>
-                    <IconChevronDown className="size-4" aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuRadioGroup
-                    value={designFilter}
-                    onValueChange={handleDesignFilterChange}
-                  >
-                    <DropdownMenuRadioItem value="all" indicator="check">
-                      {ownerFilterLabels.all}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="mine" indicator="check">
-                      {ownerFilterLabels.mine}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="not-mine" indicator="check">
-                      {ownerFilterLabels["not-mine"]}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <OwnershipFilter
+                value={designFilter === "not-mine" ? "shared" : designFilter}
+                onChange={handleDesignFilterChange}
+              />
             }
             templates={
               templatesError ? (
@@ -1618,10 +1639,9 @@ export default function Index() {
                 />
               ) : (
                 <DesignTemplateLibrary
-                  templates={templateOptions.filter(
-                    (template) => template.isBuiltIn,
-                  )}
+                  templates={homeTemplates}
                   loading={templatesLoading}
+                  previewParam="previewTemplateId"
                 />
               )
             }

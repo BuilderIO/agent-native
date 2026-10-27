@@ -10,7 +10,8 @@ export interface PollEngineOptions {
 
 export interface PollEngineHandle {
   start(): void;
-  stop(): void;
+  /** Stops scheduling and waits (bounded by timeoutMs) for any in-flight attempt. */
+  stop(): Promise<void>;
   pollNow(): void;
   reschedule(): void;
   readonly isRunning: boolean;
@@ -54,6 +55,7 @@ export function createPollEngine(
   let activeController: AbortController | null = null;
   let activeStopRequested = false;
   let inFlightReport: ((err: unknown) => void) | null = null;
+  let currentAttempt: Promise<void> | null = null;
 
   function clearTimer(): void {
     if (timer != null) {
@@ -118,6 +120,7 @@ export function createPollEngine(
           report(err);
         },
       );
+    currentAttempt = settled;
 
     let timeoutError: Error | undefined;
     try {
@@ -148,6 +151,7 @@ export function createPollEngine(
       clearTimeout(abortTimer);
       if (activeController === controller) activeController = null;
       if (inFlightReport === report) inFlightReport = null;
+      if (currentAttempt === settled) currentAttempt = null;
       inFlight = false;
       if (gen === generation && running) schedule(gen);
     }
@@ -162,12 +166,29 @@ export function createPollEngine(
       if (leading && !inFlight) void tick(gen);
       else schedule(gen);
     },
-    stop(): void {
+    async stop(): Promise<void> {
       running = false;
       generation++;
       clearTimer();
       activeStopRequested = true;
       activeController?.abort();
+      const pending = currentAttempt;
+      if (!pending) return;
+      // Abort alone is not enough: an attempt that ignores the signal can
+      // hang forever and block Nitro close via stopBackgroundJobs().
+      const waitMs = getTimeoutMs();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          pending,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, waitMs);
+            maybeUnref(timer);
+          }),
+        ]);
+      } finally {
+        if (timer != null) clearTimeout(timer);
+      }
     },
     pollNow(): void {
       if (!running || inFlight) return;

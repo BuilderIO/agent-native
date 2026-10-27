@@ -1,5 +1,5 @@
 ---
-"@agent-native/toolkit": patch
+"@agent-native/dispatch": patch
 ---
 
-Expose opt-in transcript positioning and typography controls on chat surfaces.
+Preserve trusted request origins and mounted app paths when proxying embedded Workspace chat.

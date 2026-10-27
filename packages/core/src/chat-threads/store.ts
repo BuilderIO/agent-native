@@ -4,6 +4,7 @@ import {
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   parseQueueMessageInput,
+  type AgentSubmissionReference,
   type AgentSubmissionPayload,
   type AgentRunOptions,
 } from "@agent-native/agentkit/protocol";
@@ -12,12 +13,16 @@ import {
   currentExecutionFence,
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
+import { lockThreadRunSlot } from "../agent/run-slot-lock.js";
 import { normalizeSubmissionDeadlineMetadata } from "../agent/submission-deadline.js";
 import {
   extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
+  recordSteeredQueuedMessages,
+  steeredQueuedMessageRecords,
+  type SteeredQueuedMessageRecord,
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import {
@@ -42,6 +47,7 @@ import {
   stripInlineBytes,
 } from "../shared/inline-bytes.js";
 import {
+  ForbiddenError,
   hasCurrentOrgMembership,
   resolveAccess,
   type AccessContext,
@@ -77,6 +83,7 @@ import {
 const _threadDataLocks = new Map<string, Promise<unknown>>();
 const DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS = 12;
 const THREAD_DATA_CONFLICT_BACKOFF_MS = 25;
+const MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER = 100;
 const getChatThreadsDb = createGetDb({ chatThreads, chatThreadShares });
 
 export function withThreadDataLock<T>(
@@ -239,6 +246,17 @@ export const chatThreadsStore = defineStore({
       CHAT_THREAD_SCHEMA_MIGRATIONS,
       { data: [3] },
     ),
+    {
+      name: "viewer-state",
+      sql: `CREATE TABLE IF NOT EXISTS chat_thread_viewer_state (
+        thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+        user_email TEXT NOT NULL,
+        pinned_at BIGINT,
+        hidden_at BIGINT,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (thread_id, user_email)
+      )`,
+    },
   ],
 });
 
@@ -344,6 +362,7 @@ export interface ChatThread {
   updatedAt: number;
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
+  hiddenAt?: number | null;
   archivedAt: number | null;
   source: ChatThreadSource | null;
   orgId: string | null;
@@ -387,6 +406,7 @@ export interface ChatThreadSummary {
   updatedAt: number;
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
+  hiddenAt?: number | null;
   archivedAt: number | null;
   source: ChatThreadSource | null;
   orgId: string | null;
@@ -864,6 +884,7 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
+    hiddenAt: readNullableNumber(r.hidden_at),
     archivedAt: readNullableNumber(r.archived_at),
     source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
@@ -895,6 +916,7 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadListRow | null {
     updatedAt: Number(r.updated_at),
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
+    hiddenAt: readNullableNumber(r.hidden_at),
     archivedAt: readNullableNumber(r.archived_at),
     source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
@@ -1036,7 +1058,47 @@ export async function resolveThreadAccess(
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
   if (!(await hasThreadAccess(userEmail, threadId, minRole, ctx))) return null;
-  return await getThread(threadId);
+  const thread = await getThread(threadId);
+  if (!thread) return null;
+  if (
+    normalizeAccessEmail(thread.ownerEmail) === normalizeAccessEmail(userEmail)
+  ) {
+    return { ...thread, hiddenAt: null };
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT pinned_at, hidden_at FROM chat_thread_viewer_state WHERE thread_id = ? AND user_email = ?`,
+    args: [threadId, normalizeAccessEmail(userEmail)],
+  });
+  return {
+    ...thread,
+    pinnedAt: readNullableNumber(rows[0]?.pinned_at),
+    hiddenAt: readNullableNumber(rows[0]?.hidden_at),
+  };
+}
+
+export async function resolveThreadAccessScope(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<{ scope: ChatThreadScope | null } | null> {
+  if (!userEmail || !threadId) return null;
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
+  if (!access || !roleSatisfies(access.role, minRole)) return null;
+
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT scope_type, scope_id, scope_label FROM chat_threads WHERE id = ?",
+    args: [threadId],
+  });
+  const row = rows[0];
+  if (!row) return null;
+  return { scope: readScope(row as Record<string, unknown>) };
 }
 
 export async function resolveThreadsAccess(
@@ -1052,9 +1114,10 @@ export async function resolveThreadsAccess(
   const access = await chatThreadAccessSql(userEmail, ctx.orgId);
   const client = getDbExec();
   const placeholders = ids.map(() => "?").join(", ");
+  const projection = chatThreadViewerSelect(THREAD_COLUMNS, userEmail);
   const { rows } = await client.execute({
-    sql: `SELECT ${THREAD_COLUMNS} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
-    args: [...ids, ...access.args],
+    sql: `SELECT ${projection.sql} FROM chat_threads WHERE id IN (${placeholders}) AND ${access.sql}`,
+    args: [...projection.args, ...ids, ...access.args],
   });
   for (const row of rows) {
     const thread = rowToThread(row);
@@ -1240,6 +1303,8 @@ export interface ListThreadsOptions {
    * (e.g. an "Archived" filter or restoring one via `setThreadArchived`).
    */
   includeArchived?: boolean;
+  /** Include chats hidden by this caller. Defaults to false. */
+  includeHidden?: boolean;
   /**
    * Include connected and other-app threads. The HTTP chat list defaults this
    * to false so each app shows its own local chats first; internal callers
@@ -1285,6 +1350,22 @@ function normalizeAccessEmail(userEmail: string): string {
   return userEmail.trim().toLowerCase();
 }
 
+function chatThreadViewerSelect(
+  columns: string,
+  userEmail: string,
+): {
+  sql: string;
+  args: string[];
+} {
+  const email = normalizeAccessEmail(userEmail);
+  const viewerValue = (column: string) =>
+    `(SELECT ${column} FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ?)`;
+  return {
+    sql: `${columns.replace("pinned_at", `CASE WHEN LOWER(owner_email) = ? THEN pinned_at ELSE ${viewerValue("pinned_at")} END AS pinned_at`)}, CASE WHEN LOWER(owner_email) = ? THEN NULL ELSE ${viewerValue("hidden_at")} END AS hidden_at`,
+    args: [email, email, email, email],
+  };
+}
+
 /**
  * Summary projection plus the caller's access basis, derived from the same
  * owner and per-user-share comparisons the ACL uses. Anything that is neither
@@ -1295,9 +1376,10 @@ function chatThreadSummarySelect(userEmail: string): {
   args: string[];
 } {
   const normalizedEmail = normalizeAccessEmail(userEmail);
+  const viewer = chatThreadViewerSelect(SUMMARY_COLUMNS, userEmail);
   return {
-    sql: `${SUMMARY_COLUMNS}, CASE WHEN LOWER(owner_email) = ? THEN 'owner' WHEN EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?) THEN 'direct' ELSE 'organization' END AS access_basis`,
-    args: [normalizedEmail, normalizedEmail],
+    sql: `${viewer.sql}, CASE WHEN LOWER(owner_email) = ? THEN 'owner' WHEN EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?) THEN 'direct' ELSE 'organization' END AS access_basis`,
+    args: [...viewer.args, normalizedEmail, normalizedEmail],
   };
 }
 
@@ -1348,6 +1430,15 @@ export async function listThreads(
     filters.push(ownershipFilter.sql);
     args.push(...ownershipFilter.args);
   }
+  if (!opts.includeHidden) {
+    filters.push(
+      `(LOWER(owner_email) = ? OR NOT EXISTS (SELECT 1 FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ? AND hidden_at IS NOT NULL))`,
+    );
+    args.push(
+      normalizeAccessEmail(ownerEmail),
+      normalizeAccessEmail(ownerEmail),
+    );
+  }
   if (!opts.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1366,7 +1457,7 @@ export async function listThreads(
   }
   args.push(limit, offset);
   const { rows } = await client.execute({
-    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY pinned_at DESC NULLS LAST, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -1387,6 +1478,8 @@ export async function searchThreads(
     orgId?: string | null;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
     includeArchived?: boolean;
+    /** Include chats hidden by this caller. Defaults to false. */
+    includeHidden?: boolean;
     /** See `ListThreadsOptions.includeExternal`. */
     includeExternal?: boolean;
     /** Current app id used by the local-only view. */
@@ -1424,6 +1517,15 @@ export async function searchThreads(
     filters.push(ownershipFilter.sql);
     args.push(...ownershipFilter.args);
   }
+  if (!options.includeHidden) {
+    filters.push(
+      `(LOWER(owner_email) = ? OR NOT EXISTS (SELECT 1 FROM chat_thread_viewer_state WHERE thread_id = chat_threads.id AND user_email = ? AND hidden_at IS NOT NULL))`,
+    );
+    args.push(
+      normalizeAccessEmail(ownerEmail),
+      normalizeAccessEmail(ownerEmail),
+    );
+  }
   if (!options.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
@@ -1440,7 +1542,7 @@ export async function searchThreads(
   }
   args.push(limit, options.offset ?? 0);
   const { rows } = await client.execute({
-    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END, pinned_at DESC, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${select.sql} FROM chat_threads WHERE ${filters.join(" AND ")} ORDER BY pinned_at DESC NULLS LAST, updated_at DESC, id ASC LIMIT ? OFFSET ?`,
     args,
   });
   return rows
@@ -1518,81 +1620,132 @@ export async function setThreadScope(
   emitChatThreadChange(id);
 }
 
+export function assertThreadOwner(
+  thread: Pick<ChatThread, "ownerEmail">,
+  ownerEmail: string,
+): void {
+  if (
+    !ownerEmail?.trim() ||
+    thread.ownerEmail.toLowerCase() !== ownerEmail.trim().toLowerCase()
+  ) {
+    throw new ForbiddenError();
+  }
+}
+
+async function getOwnedThread(
+  id: string,
+  ownerEmail: string,
+): Promise<ChatThread | null> {
+  const thread = await getThread(id);
+  if (thread) assertThreadOwner(thread, ownerEmail);
+  return thread;
+}
+
 export async function renameThread(
   id: string,
   title: string,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   const nextTitle = normalizeThreadTitle(title);
   if (!nextTitle) return false;
 
   return await withThreadDataLock(id, async () => {
-    const thread = await getThread(id);
+    const thread = await getOwnedThread(id, options.ownerEmail);
     if (!thread) return false;
-    if (options.ownerEmail && thread.ownerEmail !== options.ownerEmail) {
-      return false;
-    }
 
     const repo = parseThreadData(thread.threadData);
     repo._titleOverride = nextTitle;
-    await updateThreadData(
+    return await updateThreadData(
       id,
       JSON.stringify(repo),
       nextTitle,
       thread.preview,
       thread.messageCount,
     );
-    return true;
   });
+}
+
+async function setThreadViewerState(
+  id: string,
+  field: "pinned_at" | "hidden_at",
+  enabled: boolean,
+  options: { ownerEmail: string; orgId?: string | null },
+): Promise<boolean> {
+  const email = normalizeAccessEmail(options.ownerEmail);
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, owner_email FROM chat_threads WHERE id = ?`,
+    args: [id],
+  });
+  const thread = rows[0];
+  if (!thread) return false;
+  if (!email || normalizeAccessEmail(String(thread.owner_email)) === email) {
+    throw new ForbiddenError();
+  }
+  if (
+    !(await hasThreadAccess(email, id, "viewer", {
+      orgId:
+        (options.orgId === undefined ? getRequestOrgId() : options.orgId) ??
+        undefined,
+    }))
+  ) {
+    throw new ForbiddenError();
+  }
+  const now = Math.max(Date.now(), 1);
+  await getDbExec().execute({
+    sql: `INSERT INTO chat_thread_viewer_state (thread_id, user_email, ${field}, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (thread_id, user_email) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = EXCLUDED.updated_at`,
+    args: [id, email, enabled ? now : null, now],
+  });
+  emitChatThreadChange(id);
+  return true;
 }
 
 export async function setThreadPinned(
   id: string,
   pinned: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string; orgId?: string | null },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [pinned ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET pinned_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [pinned ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
-  return false;
+  return setThreadViewerState(id, "pinned_at", pinned, options);
+}
+
+export async function setThreadHidden(
+  id: string,
+  hidden: boolean,
+  options: { ownerEmail: string; orgId?: string | null },
+): Promise<boolean> {
+  await ensureTable();
+  return setThreadViewerState(id, "hidden_at", hidden, options);
 }
 
 export async function setThreadArchived(
   id: string,
   archived: boolean,
-  options: { ownerEmail?: string } = {},
+  options: { ownerEmail: string },
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const now = Math.max(Date.now(), 1);
-  const args: (string | number | null)[] = [archived ? now : null, id];
-  let ownerFilter = "";
-  if (options.ownerEmail) {
-    ownerFilter = " AND owner_email = ?";
-    args.push(options.ownerEmail);
-  }
   const result = await client.execute({
-    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ?${ownerFilter}`,
-    args,
+    sql: `UPDATE chat_threads SET archived_at = ? WHERE id = ? AND LOWER(owner_email) = LOWER(?)`,
+    args: [archived ? now : null, id, options.ownerEmail.trim()],
   });
   if (result.rowsAffected > 0) {
     emitChatThreadChange(id);
     return true;
   }
+  await getOwnedThread(id, options.ownerEmail);
   return false;
 }
 
@@ -1600,6 +1753,11 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  /**
+   * Preserve the title and its override from each current CAS revision; a
+   * blank title still fills from the merged visible prompts.
+   */
+  preserveCurrentTitle?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
@@ -1692,6 +1850,18 @@ export async function updateThreadData(
             annotationConflicts.push(conflict),
         },
       );
+      if (options.preserveCurrentTitle) {
+        if (
+          Object.prototype.hasOwnProperty.call(
+            safeCurrentThreadData,
+            "_titleOverride",
+          )
+        ) {
+          merged._titleOverride = safeCurrentThreadData._titleOverride;
+        } else {
+          delete merged._titleOverride;
+        }
+      }
       // Client snapshots can predate their upload URL, so inline bytes become a
       // visible placeholder rather than failing the save; legacy rows are
       // scrubbed on their next write.
@@ -1708,13 +1878,14 @@ export async function updateThreadData(
         options.preserveCurrentTitleAndPreview;
       const snapshotMetaForBlankFields =
         !options.preserveCurrentMetadata &&
-        options.preserveCurrentTitleAndPreview &&
+        (options.preserveCurrentTitleAndPreview ||
+          options.preserveCurrentTitle) &&
         (!current.title.trim() || !current.preview.trim())
           ? extractThreadMeta(merged)
           : undefined;
       const nextTitle = preserveCurrentMetadata
         ? current.title
-        : preserveCurrentTitleAndPreview
+        : preserveCurrentTitleAndPreview || options.preserveCurrentTitle
           ? current.title.trim()
             ? current.title
             : snapshotMetaForBlankFields?.title || current.title
@@ -1865,11 +2036,20 @@ export interface QueuedMessage {
   createdAt?: string;
   attachments?: unknown[];
   requestAttachments?: unknown[];
+  references?: AgentSubmissionReference[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
   promotionClaim?: { id: string; expiresAt: number };
+  /**
+   * Send now was pressed during a run: `steering` waits for the run's next
+   * tool boundary, `after_reply` sends as the next turn. Thread state only,
+   * never part of the admitted payload.
+   */
+  delivery?: QueuedMessageDelivery;
 }
+
+export type QueuedMessageDelivery = "steering" | "after_reply";
 
 export type QueuedSubmissionState =
   | "queued"
@@ -1898,6 +2078,7 @@ export interface QueuedSubmissionReceipt {
   submittedRunId?: string;
   interruptRunId?: string;
   retryAfter?: number;
+  retryCount: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1951,6 +2132,7 @@ export function hashQueuedSubmissionPayload(
   const {
     createdAt: _createdAt,
     promotionClaim: _claim,
+    delivery: _delivery,
     ...payload
   } = message as QueuedMessage;
   const options = payload.options as AgentRunOptions | undefined;
@@ -2055,6 +2237,10 @@ function queuedSubmissionReceiptFromRow(
   }
   const orgId = row.actor_org_id;
   const orgScope = row.actor_org_scope;
+  const retryCount = Number(row.retry_count);
+  if (!Number.isSafeInteger(retryCount) || retryCount < 0) {
+    throw new TypeError("Stored queued submission retry count is malformed.");
+  }
   return {
     threadId,
     messageId,
@@ -2085,12 +2271,13 @@ function queuedSubmissionReceiptFromRow(
       ? { interruptRunId: row.interrupt_run_id }
       : {}),
     ...(row.retry_after != null ? { retryAfter: Number(row.retry_after) } : {}),
+    retryCount,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
 }
 
-const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, interrupt_run_id, retry_after, created_at, updated_at`;
+const QUEUED_SUBMISSION_COLUMNS = `thread_id, message_id, state, actor_email, actor_auth_user_id, actor_identity_authenticated_at_ms, actor_name, actor_org_id, actor_org_scope, actor_anonymous, payload_hash, payload_json, submitted_run_id, interrupt_run_id, retry_after, retry_count, created_at, updated_at`;
 
 async function readQueuedSubmissionReceipt(
   db: DbExec,
@@ -2152,22 +2339,124 @@ export async function getQueuedSubmissionReceipt(
   return readQueuedSubmissionReceipt(getDbExec(), threadId, messageId);
 }
 
+export async function getQueuedSubmissionReceiptStatus(
+  threadId: string,
+  messageId: string,
+): Promise<{ state: QueuedSubmissionState; submittedRunId?: string } | null> {
+  const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+  if (!receipt) return null;
+  if (receipt.state === "queued" && !receipt.message) {
+    throw new TypeError("Stored queued submission receipt has no message.");
+  }
+  if (receipt.state === "submitted" && !receipt.submittedRunId) {
+    throw new TypeError(
+      "Stored submitted receipt has no submitted run identifier.",
+    );
+  }
+  const queuedMessage =
+    receipt.state === "queued" ? receipt.message : undefined;
+  return {
+    state:
+      receipt.state === "queued" &&
+      queuedMessage &&
+      queuedSubmissionExpired(queuedMessage, Date.now())
+        ? "expired"
+        : receipt.state,
+    ...(receipt.submittedRunId
+      ? { submittedRunId: receipt.submittedRunId }
+      : {}),
+  };
+}
+
+/** Checks the inbox inside a caller's transaction before a fresh run claims its slot. */
+export async function hasPendingQueuedSubmissionReceipt(
+  tx: DbExec,
+  threadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await tx.execute({
+    sql: `SELECT message_id, payload_json FROM agent_chat_submission_inbox
+          WHERE thread_id = ? AND state = 'queued'
+          ORDER BY created_at ASC, message_id ASC
+          LIMIT ?`,
+    args: [threadId, MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER + 1],
+  });
+  // Unread rows may still contain a live barrier, so keep admission closed.
+  if (rows.length > MAX_QUEUED_RECEIPTS_TO_CHECK_FOR_RUN_BARRIER) return true;
+  const now = Date.now();
+  return rows.some((row) => {
+    const messageId = String(row.message_id ?? "");
+    if (typeof row.payload_json !== "string") {
+      throw new TypeError("Stored queued submission receipt has no message.");
+    }
+    const parsed = JSON.parse(row.payload_json) as unknown;
+    if (
+      !messageId ||
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      typeof (parsed as Record<string, unknown>).id !== "string" ||
+      typeof (parsed as Record<string, unknown>).text !== "string" ||
+      (parsed as Record<string, unknown>).id !== messageId
+    ) {
+      throw new TypeError(
+        "Stored queued submission receipt has a malformed message.",
+      );
+    }
+    return !queuedSubmissionExpired(parsed as QueuedMessage, now);
+  });
+}
+
 /** Finds accepted queue rows in priority order for the signed server sweep. */
 export async function listQueuedSubmissionReceipts(
   options: {
     limit?: number;
     now?: number;
+    threadId?: string;
+    interruptActiveRun?: boolean;
   } = {},
 ): Promise<QueuedSubmissionReceipt[]> {
   await ensureTable();
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 25)));
   const now = options.now ?? Date.now();
+  const where = ["current.state = 'queued'"];
+  const args: (number | string)[] = [now];
+  where.push("(current.retry_after IS NULL OR current.retry_after <= ?)");
+  where.push(`NOT EXISTS (
+    SELECT 1 FROM agent_chat_submission_inbox AS earlier
+    WHERE earlier.thread_id = current.thread_id
+      AND earlier.state = 'queued'
+      AND earlier.retry_after > ?
+      AND (
+        earlier.interrupt_active_run > current.interrupt_active_run
+        OR (
+          earlier.interrupt_active_run = current.interrupt_active_run
+          AND (
+            (earlier.move_to_top_at IS NOT NULL AND current.move_to_top_at IS NULL)
+            OR earlier.move_to_top_at > current.move_to_top_at
+            OR (
+              (earlier.move_to_top_at = current.move_to_top_at
+                OR (earlier.move_to_top_at IS NULL AND current.move_to_top_at IS NULL))
+              AND earlier.queue_order < current.queue_order
+            )
+          )
+        )
+      )
+  )`);
+  args.push(now);
+  if (options.threadId) {
+    where.push("current.thread_id = ?");
+    args.push(options.threadId);
+  }
+  if (options.interruptActiveRun === true) {
+    where.push("current.interrupt_active_run = TRUE");
+  }
   const { rows } = await getDbExec().execute({
-    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox
-          WHERE state = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
-          ORDER BY interrupt_active_run DESC, move_to_top_at DESC NULLS LAST, queue_order ASC
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox AS current
+          WHERE ${where.join(" AND ")}
+          ORDER BY current.interrupt_active_run DESC, current.move_to_top_at DESC NULLS LAST, current.queue_order ASC
           LIMIT ?`,
-    args: [now, limit],
+    args: [...args, limit],
   });
   return rows.map((row) =>
     queuedSubmissionReceiptFromRow(row as Record<string, unknown>),
@@ -2306,7 +2595,7 @@ export async function retryQueuedSubmissionReceipt(
   threadId: string,
   messageId: string,
   retryAfter: number,
-  options: { claimId?: string } = {},
+  options: { claimId?: string; countRetry?: boolean } = {},
 ): Promise<boolean> {
   await ensureTable();
   const result = await mutateThreadQueuedMessages(threadId, {
@@ -2314,8 +2603,86 @@ export async function retryQueuedSubmissionReceipt(
     messageId,
     retryAfter,
     ...(options.claimId ? { claimId: options.claimId } : {}),
+    ...(options.countRetry ? { countRetry: true } : {}),
   });
   return result?.receiptUpdated === true;
+}
+
+/**
+ * True when a queued receipt on this thread was moved to the head, which Send
+ * now does. Lets a run check its tool boundaries without reading thread data.
+ */
+export async function hasPrioritizedQueuedSubmission(
+  threadId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM agent_chat_submission_inbox
+          WHERE thread_id = ? AND state = 'queued' AND move_to_top_at IS NOT NULL
+          LIMIT 1`,
+    args: [threadId],
+  });
+  return rows.length > 0;
+}
+
+async function hasQueuedDelivery(
+  threadId: string,
+  deliveries: readonly QueuedMessageDelivery[],
+): Promise<boolean> {
+  const thread = await getThread(threadId);
+  if (!thread) return false;
+  const queued = parseThreadData(thread.threadData || "{}")?.queuedMessages;
+  return (
+    Array.isArray(queued) &&
+    queued.some((message: unknown) => {
+      const delivery = (message as QueuedMessage | null)?.delivery;
+      return delivery !== undefined && deliveries.includes(delivery);
+    })
+  );
+}
+
+/**
+ * Takes every Send now message off the queue for delivery into `runId`, and
+ * marks each admitted receipt submitted to that run in the same transaction,
+ * so the inbox can never also start it as a new turn.
+ */
+export async function claimSteeredQueuedMessages(
+  threadId: string,
+  runId: string,
+): Promise<
+  Array<{ queued: QueuedMessage; record: SteeredQueuedMessageRecord }>
+> {
+  if (
+    !(await hasPrioritizedQueuedSubmission(threadId)) ||
+    !(await hasQueuedDelivery(threadId, ["steering", "after_reply"]))
+  ) {
+    return [];
+  }
+  const result = await mutateThreadQueuedMessages(threadId, {
+    type: "claimSteered",
+    runId,
+  });
+  const records = result?.steeredRecords ?? [];
+  return (result?.steeredMessages ?? []).map((queued, index) => {
+    const record = records.at(index);
+    if (record?.message.id !== queued.id) {
+      throw new TypeError("Steered queue claim lost its delivery record.");
+    }
+    return { queued, record };
+  });
+}
+
+/** Marks Send now messages that missed the run's last tool boundary. */
+export async function deferSteeredQueuedMessages(
+  threadId: string,
+): Promise<void> {
+  if (
+    !(await hasPrioritizedQueuedSubmission(threadId)) ||
+    !(await hasQueuedDelivery(threadId, ["steering"]))
+  ) {
+    return;
+  }
+  await mutateThreadQueuedMessages(threadId, { type: "deferSteered" });
 }
 
 /** Retains but stops automatically promoting a row that can no longer be authorized. */
@@ -2397,7 +2764,12 @@ export type ThreadQueuedMessageMutation =
       hashInput?: AgentSubmissionPayload;
     }
   | { type: "remove"; messageId: string }
+  | { type: "cancel"; messageId: string }
   | { type: "moveToTop"; messageId: string }
+  | { type: "steer"; messageId: string }
+  | { type: "claimSteered"; runId: string }
+  | { type: "deferSteered" }
+  | { type: "reorder"; messageIds: readonly string[] }
   | { type: "claim"; messageId: string; claimId: string }
   | {
       type: "claimFromInbox";
@@ -2409,6 +2781,7 @@ export type ThreadQueuedMessageMutation =
       messageId: string;
       retryAfter: number;
       claimId?: string;
+      countRetry?: boolean;
     }
   | { type: "blockReceipt"; messageId: string; claimId?: string }
   | {
@@ -2428,20 +2801,35 @@ export type ThreadQueuedMessageMutation =
 export interface ThreadQueuedMessageMutationResult {
   queuedMessages: QueuedMessage[];
   message?: QueuedMessage;
-  claimedMessage?: QueuedMessage;
+  /** A claim check that loses the claim clears this to undefined. */
+  claimedMessage?: QueuedMessage | undefined;
   alreadySubmitted?: boolean;
   submittedRunId?: string;
-  claimBusy?: boolean;
+  claimBusy?: boolean | undefined;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
+  /** A reorder named a different message set than the queue holds. */
+  queueOrderStale?: boolean;
+  receiptManaged?: boolean;
   receiptUnavailable?: boolean;
+  retryDeferred?: boolean;
   receiptConflict?: boolean;
   receiptUpdated?: boolean;
   claimLost?: boolean;
   released?: boolean;
+  /** Messages a run took from the queue at a tool boundary. */
+  steeredMessages?: QueuedMessage[];
+  steeredRecords?: SteeredQueuedMessageRecord[];
 }
 
 const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
+
+function queuedMessageClaimActive(message: QueuedMessage, now: number) {
+  return (
+    message.promotionClaim !== undefined &&
+    message.promotionClaim.expiresAt > now
+  );
+}
 
 function receiptMutationOwnsPromotionClaim(
   message: QueuedMessage | undefined,
@@ -2526,8 +2914,16 @@ function queuedMessageMatchesReceipt(
   message: QueuedMessage,
   receiptMessage: QueuedMessage,
 ): boolean {
-  const { promotionClaim: _messageClaim, ...messagePayload } = message;
-  const { promotionClaim: _receiptClaim, ...receiptPayload } = receiptMessage;
+  const {
+    promotionClaim: _messageClaim,
+    delivery: _messageDelivery,
+    ...messagePayload
+  } = message;
+  const {
+    promotionClaim: _receiptClaim,
+    delivery: _receiptDelivery,
+    ...receiptPayload
+  } = receiptMessage;
   return stableJson(messagePayload) === stableJson(receiptPayload);
 }
 
@@ -2596,11 +2992,14 @@ export async function mutateThreadQueuedMessages(
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     let receiptUnavailable = false;
+    let retryDeferred = false;
     let receiptConflict = false;
     let hadExistingQueuedMessage = false;
     let removedReceiptState: "removed" | "expired" = "removed";
     let movedToTop = false;
+    let reordered = false;
     let receiptClaimMessage: QueuedMessage | undefined;
+    let claimQueueSnapshot: QueuedMessage[] | undefined;
     try {
       await updateThreadData(threadId, "{}", "", "", 0, {
         preserveExistingQueuedMessages: false,
@@ -2669,6 +3068,11 @@ export async function mutateThreadQueuedMessages(
                 hashQueuedSubmissionPayload(threadId, existing) !==
                   hashQueuedSubmissionPayload(threadId, mutation.message)
               ) {
+                if (mutation.hashInput && options.actor) {
+                  queuedMessages = current;
+                  response = { message: existing };
+                  break;
+                }
                 throw new QueuedSubmissionAdmissionError(
                   "queued_message_id_conflict",
                   mutation.message.id,
@@ -2700,6 +3104,23 @@ export async function mutateThreadQueuedMessages(
               );
               break;
             }
+            case "cancel": {
+              const message = current.find(
+                (candidate) => candidate.id === mutation.messageId,
+              );
+              if (
+                message?.promotionClaim &&
+                message.promotionClaim.expiresAt > Date.now() &&
+                !queuedSubmissionExpired(message, Date.now())
+              ) {
+                response = { promotionBusy: true };
+                break;
+              }
+              queuedMessages = current.filter(
+                (candidate) => candidate.id !== mutation.messageId,
+              );
+              break;
+            }
             case "moveToTop": {
               const index = current.findIndex(
                 (message) => message.id === mutation.messageId,
@@ -2723,6 +3144,121 @@ export async function mutateThreadQueuedMessages(
               }
               break;
             }
+            case "steer": {
+              const selected = current.find(
+                (message) => message.id === mutation.messageId,
+              );
+              if (!selected) {
+                throw new Error(
+                  `Unknown queued message: ${mutation.messageId}`,
+                );
+              }
+              const now = Date.now();
+              if (queuedSubmissionExpired(selected, now)) {
+                queuedMessages = current.filter(
+                  (message) => message.id !== mutation.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (queuedMessageClaimActive(selected, now)) {
+                response = { promotionBusy: true };
+                break;
+              }
+              movedToTop = true;
+              const steered: QueuedMessage = {
+                ...selected,
+                delivery: "steering",
+              };
+              queuedMessages = [
+                steered,
+                ...current.filter(
+                  (message) => message.id !== mutation.messageId,
+                ),
+              ];
+              response = { message: steered };
+              break;
+            }
+            case "claimSteered": {
+              const now = Date.now();
+              const steered = current.filter(
+                (message) =>
+                  message.delivery !== undefined &&
+                  !queuedMessageClaimActive(message, now) &&
+                  !queuedSubmissionExpired(message, now),
+              );
+              if (steered.length === 0) {
+                response = { steeredMessages: [] };
+                break;
+              }
+              const steeredIds = new Set(steered.map(({ id }) => id));
+              queuedMessages = current.filter(
+                (message) => !steeredIds.has(message.id),
+              );
+              const delivered = steered.map(
+                ({ promotionClaim: _claim, delivery: _delivery, ...message }) =>
+                  message,
+              );
+              const records = steeredQueuedMessageRecords(
+                mutation.runId,
+                delivered,
+                now,
+              );
+              response = {
+                steeredMessages: delivered,
+                steeredRecords: records,
+              };
+              result = { ...response, queuedMessages };
+              return JSON.stringify(
+                recordSteeredQueuedMessages(
+                  { ...repository, queuedMessages },
+                  records,
+                ),
+              );
+            }
+            case "deferSteered": {
+              queuedMessages = current.map((message) =>
+                message.delivery === "steering"
+                  ? { ...message, delivery: "after_reply" as const }
+                  : message,
+              );
+              break;
+            }
+            case "reorder": {
+              reordered = false;
+              const byId = new Map(
+                current.map((message) => [message.id, message]),
+              );
+              const ids = mutation.messageIds;
+              const ordered = ids.flatMap((id) => {
+                const message = byId.get(id);
+                return message ? [message] : [];
+              });
+              if (
+                ids.length !== current.length ||
+                new Set(ids).size !== ids.length ||
+                ordered.length !== ids.length
+              ) {
+                response = { queueOrderStale: true };
+                break;
+              }
+              const now = Date.now();
+              const moving = ordered.filter(
+                (message, index) => current[index]?.id !== message.id,
+              );
+              if (moving.length === 0) break;
+              // A claimed message is already being promoted into a run, so its
+              // position is no longer the queue's to change.
+              if (
+                moving.some((message) => queuedMessageClaimActive(message, now))
+              ) {
+                response = { promotionBusy: true };
+                break;
+              }
+              reordered = true;
+              queuedMessages = ordered;
+              break;
+            }
             case "claim": {
               const index = current.findIndex(
                 (message) => message.id === mutation.messageId,
@@ -2732,6 +3268,7 @@ export async function mutateThreadQueuedMessages(
                   `Unknown queued message: ${mutation.messageId}`,
                 );
               }
+              claimQueueSnapshot = current;
               const message = current[index]!;
               const now = Date.now();
               if (queuedSubmissionExpired(message, now)) {
@@ -2889,81 +3426,164 @@ export async function mutateThreadQueuedMessages(
           return JSON.stringify({ ...repository, queuedMessages });
         },
         beforeUpdate:
-          mutation.type === "claimFromInbox"
+          mutation.type === "append" && options.actor
             ? async (tx) => {
-                const currentReceipt = await readQueuedSubmissionReceipt(
-                  tx,
-                  threadId,
-                  mutation.receipt.messageId,
-                );
-                if (
-                  !queuedSubmissionReceiptSnapshotMatches(
-                    currentReceipt,
-                    mutation.receipt,
-                  )
-                ) {
-                  receiptUnavailable = true;
-                  return false;
-                }
+                await lockThreadRunSlot(tx, threadId);
                 return true;
               }
-            : mutation.type === "renewClaim"
+            : mutation.type === "claimSteered"
               ? async (tx) => {
-                  const receipt = await readQueuedSubmissionReceipt(
-                    tx,
-                    threadId,
-                    mutation.messageId,
-                  );
-                  if (
-                    result?.claimLost === true ||
-                    receipt?.state !== "queued" ||
-                    receipt.interruptRunId !== mutation.runId
-                  ) {
-                    if (result) {
-                      result.claimLost = true;
-                      result.claimedMessage = undefined;
-                    }
-                    return false;
-                  }
-                  return true;
-                }
-              : mutation.type === "recordInterruptRun" ||
-                  mutation.type === "clearInterruptRun"
-                ? async (tx) => {
-                    const ownsClaim = receiptMutationOwnsPromotionClaim(
-                      receiptClaimMessage,
-                      mutation.claimId,
-                      Date.now(),
-                    );
-                    if (!ownsClaim) {
-                      if (result) result.claimBusy = true;
-                      return false;
-                    }
+                  for (const message of result?.steeredMessages ?? []) {
                     const receipt = await readQueuedSubmissionReceipt(
                       tx,
                       threadId,
-                      mutation.messageId,
+                      message.id,
+                      { forUpdate: true },
                     );
-                    return (
-                      receipt?.state === "queued" &&
-                      (!receipt.interruptRunId ||
-                        receipt.interruptRunId === mutation.runId)
-                    );
-                  }
-                : mutation.type === "retryReceipt" ||
-                    mutation.type === "blockReceipt"
-                  ? async () => {
-                      const ownsClaim = receiptMutationOwnsPromotionClaim(
-                        receiptClaimMessage,
-                        mutation.claimId,
-                        Date.now(),
-                      );
-                      if (!ownsClaim && result) result.claimBusy = true;
-                      return ownsClaim;
+                    // Another delivery already owns it; this run must not
+                    // send it a second time.
+                    if (receipt && receipt.state !== "queued") {
+                      if (result) {
+                        result.steeredMessages = [];
+                        result.steeredRecords = [];
+                      }
+                      return false;
                     }
-                  : undefined,
+                  }
+                  return true;
+                }
+              : mutation.type === "claimFromInbox"
+                ? async (tx) => {
+                    const currentReceipt = await readQueuedSubmissionReceipt(
+                      tx,
+                      threadId,
+                      mutation.receipt.messageId,
+                      { forUpdate: true },
+                    );
+                    if (
+                      !currentReceipt ||
+                      !queuedSubmissionReceiptSnapshotMatches(
+                        currentReceipt,
+                        mutation.receipt,
+                      )
+                    ) {
+                      receiptUnavailable = true;
+                      return false;
+                    }
+                    if (
+                      currentReceipt.retryAfter !== undefined &&
+                      currentReceipt.retryAfter > Date.now()
+                    ) {
+                      retryDeferred = true;
+                      return false;
+                    }
+                    return true;
+                  }
+                : mutation.type === "claim"
+                  ? async (tx) => {
+                      if (result?.submissionExpired) return true;
+                      const receipt = await readQueuedSubmissionReceipt(
+                        tx,
+                        threadId,
+                        mutation.messageId,
+                        { forUpdate: true },
+                      );
+                      if (!receipt) return true;
+                      result = {
+                        ...(result ?? { queuedMessages: [] }),
+                        queuedMessages:
+                          claimQueueSnapshot ?? result?.queuedMessages ?? [],
+                        claimedMessage: undefined,
+                        claimBusy: undefined,
+                        receiptManaged: true,
+                      };
+                      return false;
+                    }
+                  : mutation.type === "renewClaim"
+                    ? async (tx) => {
+                        const receipt = await readQueuedSubmissionReceipt(
+                          tx,
+                          threadId,
+                          mutation.messageId,
+                        );
+                        if (
+                          result?.claimLost === true ||
+                          receipt?.state !== "queued" ||
+                          receipt.interruptRunId !== mutation.runId
+                        ) {
+                          if (result) {
+                            result.claimLost = true;
+                            result.claimedMessage = undefined;
+                          }
+                          return false;
+                        }
+                        return true;
+                      }
+                    : mutation.type === "recordInterruptRun" ||
+                        mutation.type === "clearInterruptRun"
+                      ? async (tx) => {
+                          const ownsClaim = receiptMutationOwnsPromotionClaim(
+                            receiptClaimMessage,
+                            mutation.claimId,
+                            Date.now(),
+                          );
+                          if (!ownsClaim) {
+                            if (result) result.claimBusy = true;
+                            return false;
+                          }
+                          const receipt = await readQueuedSubmissionReceipt(
+                            tx,
+                            threadId,
+                            mutation.messageId,
+                          );
+                          return (
+                            receipt?.state === "queued" &&
+                            (!receipt.interruptRunId ||
+                              receipt.interruptRunId === mutation.runId)
+                          );
+                        }
+                      : mutation.type === "retryReceipt" ||
+                          mutation.type === "blockReceipt"
+                        ? async () => {
+                            const ownsClaim = receiptMutationOwnsPromotionClaim(
+                              receiptClaimMessage,
+                              mutation.claimId,
+                              Date.now(),
+                            );
+                            if (!ownsClaim && result) result.claimBusy = true;
+                            return ownsClaim;
+                          }
+                        : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
+          if (mutation.type === "claimSteered") {
+            for (const message of result.steeredMessages ?? []) {
+              const receipt = await readQueuedSubmissionReceipt(
+                tx,
+                threadId,
+                message.id,
+                { forUpdate: true },
+              );
+              if (!receipt) continue;
+              const submitted = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'submitted', submitted_run_id = ?, interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [mutation.runId, Date.now(), threadId, message.id],
+              });
+              if (submitted.rowsAffected !== 1) {
+                throw new Error(
+                  `Queued submission ${message.id} changed while a run claimed it.`,
+                );
+              }
+            }
+            return;
+          }
+          if (mutation.type === "steer" && result.submissionExpired) {
+            await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', interrupt_run_id = NULL, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+            return;
+          }
           if (
             mutation.type === "recordInterruptRun" ||
             mutation.type === "clearInterruptRun"
@@ -3018,6 +3638,36 @@ export async function mutateThreadQueuedMessages(
               args: [Date.now(), threadId, mutation.messageId, mutation.runId],
             });
             result.receiptUpdated = updated.rowsAffected === 1;
+          } else if (mutation.type === "cancel" && !result.promotionBusy) {
+            const receipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.messageId,
+              { forUpdate: true },
+            );
+            if (receipt?.state === "submitted") {
+              if (!receipt.submittedRunId) {
+                throw new TypeError(
+                  "Stored submitted receipt has no submitted run identifier.",
+                );
+              }
+              result.submittedRunId = receipt.submittedRunId;
+              return;
+            }
+            if (receipt?.state !== "queued") return;
+            const removed = await tx.execute({
+              sql: `UPDATE agent_chat_submission_inbox
+                    SET state = 'removed', interrupt_run_id = NULL,
+                        retry_after = NULL, updated_at = ?
+                    WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+              args: [Date.now(), threadId, mutation.messageId],
+            });
+            if (removed.rowsAffected !== 1) {
+              throw new Error(
+                `Queued submission ${mutation.messageId} changed while cancellation held its receipt lock.`,
+              );
+            }
+            result.receiptUpdated = true;
           } else if (
             mutation.type === "retryReceipt" ||
             mutation.type === "blockReceipt"
@@ -3035,7 +3685,7 @@ export async function mutateThreadQueuedMessages(
             const updated =
               mutation.type === "retryReceipt"
                 ? await tx.execute({
-                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                    sql: `UPDATE agent_chat_submission_inbox SET retry_after = ?${mutation.countRetry ? ", retry_count = retry_count + 1" : ""}, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
                     args: [
                       mutation.retryAfter,
                       Date.now(),
@@ -3197,16 +3847,31 @@ export async function mutateThreadQueuedMessages(
                 );
               }
             }
-          } else if (mutation.type === "moveToTop" && movedToTop) {
+          } else if (
+            (mutation.type === "moveToTop" || mutation.type === "steer") &&
+            movedToTop
+          ) {
             await tx.execute({
               sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
               args: [Date.now(), Date.now(), threadId, mutation.messageId],
             });
+          } else if (mutation.type === "reorder" && reordered) {
+            // Promotion reads move_to_top_at DESC, so descending stamps from
+            // now encode the whole order; a later move-to-top still wins.
+            const now = Date.now();
+            for (const [index, messageId] of mutation.messageIds.entries()) {
+              await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [now - index, now, threadId, messageId],
+              });
+            }
           }
         },
       });
       if (receiptUnavailable) {
         result = { queuedMessages: [], receiptUnavailable: true };
+      } else if (retryDeferred) {
+        result = { queuedMessages: [], retryDeferred: true };
       } else if (receiptConflict) {
         result = { queuedMessages: [], receiptConflict: true };
       }

@@ -380,5 +380,6 @@ grep -rnE 'Icon(Sparkles|Wand|Magic|Robot)' app --include='*.tsx'
   "not scored", and say so in the final report.
 - **No shell or browser at all:** skip the loop, and say in the final report
   that no screenshots were reviewed. Never report scores without screenshots.
-- **Browser hosts:** no review here; the Dispatch handoff carries the design
-  decisions, and the status stays pending or unverified.
+- **Browser hosts, and Hosted with Builder on a local host:** no review here;
+  the Dispatch handoff carries the design decisions, and the status stays
+  pending or unverified.

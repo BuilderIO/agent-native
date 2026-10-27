@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -67,6 +68,7 @@ export default defineAction({
     enabled: z.boolean().default(false),
   }),
   http: { method: "POST" },
+  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "factory",
@@ -168,6 +170,7 @@ export default defineAction({
         config,
         enabled: input.enabled,
       },
+      context,
     );
     if (
       context?.caller === "tool" ||

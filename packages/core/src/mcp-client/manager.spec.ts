@@ -13,6 +13,7 @@ import {
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
+import { InvalidMcpHeaderConfigurationError } from "./remote-store.js";
 
 type FakeTool = {
   name: string;
@@ -42,6 +43,7 @@ const FIRST_A2A_SIGNING_TIMEOUT_MS = 15_000;
 const orgContextMocks = vi.hoisted(() => ({
   getOrgDomain: vi.fn(),
   getOrgA2ASecret: vi.fn(),
+  getOrgWorkspaceUrl: vi.fn(),
 }));
 
 vi.mock("../org/context.js", () => orgContextMocks);
@@ -210,6 +212,7 @@ describe("McpClientManager", () => {
     httpCallHeaders.length = 0;
     orgContextMocks.getOrgDomain.mockReset().mockResolvedValue(null);
     orgContextMocks.getOrgA2ASecret.mockReset().mockResolvedValue(null);
+    orgContextMocks.getOrgWorkspaceUrl.mockReset().mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS;
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
@@ -1015,6 +1018,59 @@ describe("McpClientManager", () => {
     } finally {
       FakeClient.prototype.connect = origConnect;
     }
+  });
+
+  it("keeps a server with invalid saved headers visibly failed while healthy servers connect", async () => {
+    serverFixtures["http https://broken.example.test/mcp"] = {
+      tools: [{ name: "old_ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "old pong" }] }),
+    };
+    serverFixtures["http https://healthy.example.test/mcp"] = {
+      tools: [{ name: "ping" }],
+      callImpl: () => ({ content: [{ type: "text", text: "pong" }] }),
+    };
+
+    const manager = new McpClientManager({
+      servers: {
+        broken: {
+          type: "http",
+          url: "https://broken.example.test/mcp",
+        },
+        healthy: {
+          type: "http",
+          url: "https://healthy.example.test/mcp",
+        },
+      },
+    });
+
+    await manager.start();
+    expect(manager.connectedServers.sort()).toEqual(["broken", "healthy"]);
+
+    const error = new InvalidMcpHeaderConfigurationError("invalid-json");
+    const result = await manager.reconfigure({
+      servers: {
+        broken: {
+          type: "http",
+          url: "https://broken.example.test/mcp",
+          configurationError: error,
+        },
+        healthy: {
+          type: "http",
+          url: "https://healthy.example.test/mcp",
+        },
+      },
+    });
+
+    expect(manager.configuredServers.sort()).toEqual(["broken", "healthy"]);
+    expect(manager.connectedServers).toEqual(["healthy"]);
+    expect(result.reconnected).toEqual(["broken"]);
+    expect(manager.getStatus().errors.broken).toBe(error.message);
+    expect(manager.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__healthy__ping",
+    ]);
+    expect(fakeClients).toHaveLength(2);
+
+    await manager.stop();
   });
 
   it("hydrates an initially empty manager through reconfigure", async () => {

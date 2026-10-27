@@ -282,7 +282,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### कंपोज़र में तैयार संदर्भ {#composer-context}
 
-`PromptComposer` और `TiptapComposer` में `submissionDisabled` भेजना रोकता है, लेकिन ड्राफ़्ट, फ़ाइलें और संदर्भ तैयार करने देता है। प्रदाता का सेटअप न होने पर भेजना रुकता है, तैयारी नहीं। `disabled` अब भी पूरा कंपोज़र बंद करता है।
+`PromptComposer` और `TiptapComposer` में `submissionDisabled` भेजना रोकता है, लेकिन ड्राफ़्ट, फ़ाइलें और संदर्भ तैयार करने देता है। `requireAgentEngine` के साथ, प्रदाता का सेटअप न होने पर जब तक सेटअप कार्ड दिख रहा है, `PromptComposer` में टाइप नहीं किया जा सकता, और उस पर क्लिक करने से कार्ड की ओर ध्यान जाता है। कोई कार्ड न दिखे तो सिर्फ़ भेजना रुकता है। `disabled` अब भी पूरा कंपोज़र बंद करता है।
 
 `PromptComposer`, `TiptapComposer` और `AgentKitComposer` में `contextItems` तथा `contextMenuItems` दिए जा सकते हैं। स्रोत पढ़ना और स्थानीयकृत मेनू लेबल ऐप की ज़िम्मेदारी है।
 
@@ -720,3 +720,7 @@ export default defineAction({
 - [**Actions**](/docs/actions-overview) — `defineAction()`, स्कीमा और इन घटकों द्वारा बुलाई जाने वाली कार्रवाई सतह
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — सहयोग हुक और उपस्थिति घटकों का विस्तृत विवरण
 - [**Sharing**](/docs/sharing) — स्वामित्व योग्य संसाधनों के लिए `<ShareButton>` और `<ShareDialog>` की वायरिंग
+
+## अपनी चैट का इतिहास
+
+चैट साइडबार में `@agent-native/toolkit/app/chat/ownership-history` से `useOwnershipChatHistory()` और `OwnershipChatHistoryRail` का उपयोग किया जा सकता है। अपनी और साझा चैट अलग अनुभागों में दिखती हैं।

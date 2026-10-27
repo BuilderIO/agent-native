@@ -1,4 +1,3 @@
-import { useFocusEffect } from "@react-navigation/native";
 import {
   IconArrowLeft,
   IconCamera,
@@ -12,6 +11,7 @@ import {
   IconUsers,
   IconVideo,
 } from "@tabler/icons-react-native";
+import { useFocusEffect } from "expo-router";
 import { useVideoPlayer } from "expo-video";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {

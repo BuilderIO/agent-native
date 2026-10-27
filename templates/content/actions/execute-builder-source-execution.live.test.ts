@@ -190,16 +190,20 @@ function buildDeps(args: {
     now: vi.fn(() => NOW),
     resolveDatabase: vi.fn(async () => DATABASE),
     assertEditor: vi.fn(async () => {}),
+    assertPageEditor: vi.fn(async () => {}),
     getSourceSnapshot: vi.fn(async () => args.source),
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
     claimExecution: vi.fn(async () => true),
+    renewExecutionClaim: vi.fn(async () => true),
+    markResponseCheckpointFailed: vi.fn(async () => true),
     markExecutionSucceeded: vi.fn(async (call) => {
       args.onSucceeded(call);
     }),
     markExecutionFailed: vi.fn(async (call) => {
       args.onFailed(call);
     }),
+    releaseExecutionClaim: vi.fn(async () => {}),
     executeWrite: vi.fn((call) => executeBuilderCmsWrite(call)),
     readLiveEntry: vi.fn(async () => ({
       exists: true,

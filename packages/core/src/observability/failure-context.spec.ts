@@ -119,6 +119,19 @@ describe("failure context packet", () => {
     expect(packet.runId).toBe("run_ambient");
   });
 
+  it("names the request id the person sees on screen, and lets an explicit one win", () => {
+    const ambient = runWithRequestContext({ requestId: "req-ambient" }, () =>
+      buildFailureContext(),
+    );
+    const explicit = runWithRequestContext({ requestId: "req-ambient" }, () =>
+      buildFailureContext({ requestId: "req-explicit" }),
+    );
+
+    expect(ambient.requestId).toBe("req-ambient");
+    expect(explicit.requestId).toBe("req-explicit");
+    expect(buildFailureContext().requestId).toBeUndefined();
+  });
+
   describe("withFailureContext", () => {
     it("derives the packet from what the call site already reports", () => {
       const context = withFailureContext(

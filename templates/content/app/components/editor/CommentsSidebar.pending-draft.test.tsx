@@ -340,6 +340,38 @@ describe("new comment responsive draft", () => {
     expect(richEditorValue(input())).toBe("");
   });
 
+  it("cancels an empty new comment on Escape, and asks before discarding typed text", async () => {
+    const confirmation = () =>
+      document.querySelector<HTMLElement>('[role="alertdialog"]');
+    await show(1280);
+    await open();
+    await press("Escape");
+    await settle();
+    expect(confirmation()).toBeNull();
+    expect(richEditor(container)).toBeNull();
+    expect(completed).toHaveBeenCalledTimes(1);
+
+    await open();
+    await type("Unsent thought");
+    await press("Escape");
+    await settle();
+    expect(confirmation()?.textContent).toContain(
+      "comments.discardCommentQuestion",
+    );
+    expect(richEditorValue(input())).toBe("Unsent thought");
+    const discard = [...confirmation()!.querySelectorAll("button")].find(
+      (button) => button.textContent === "comments.discard",
+    )!;
+    expect(document.activeElement).toBe(discard);
+    await act(async () => discard.click());
+    await settle();
+    expect(confirmation()).toBeNull();
+    expect(richEditor(container)).toBeNull();
+    expect(completed).toHaveBeenCalledTimes(2);
+    await open();
+    expect(richEditorValue(input())).toBe("");
+  });
+
   it("isolates document drafts and does not preserve text when a new selection replaces one", async () => {
     await show(390);
     await open();

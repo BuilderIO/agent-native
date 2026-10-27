@@ -7,7 +7,10 @@ import type {
   ContentDatabaseItemLayoutSlot,
   ResolvedContentDatabaseItemLayout,
 } from "@shared/database-item-layout";
-import { stripMarkdownForPreview } from "@shared/og-description";
+import {
+  buildListRowExcerpt,
+  stripMarkdownForPreview,
+} from "@shared/og-description";
 import {
   isEmptyPropertyValue,
   type DocumentPropertyOptionColor,
@@ -22,8 +25,17 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-import { displayValue, PropertyValuePopover } from "../DocumentProperties";
-import { DatabaseItemPageIcon, dbText } from "./DatabaseView";
+import {
+  displayValue,
+  propertyUrlHref,
+  PropertyUrlLink,
+  PropertyValuePopover,
+} from "../DocumentProperties";
+import {
+  DatabaseItemPageIcon,
+  dbText,
+  openDatabaseItemOnClick,
+} from "./DatabaseView";
 import {
   ListItemLayoutSlotEditor,
   listItemLayoutSlotLabel,
@@ -93,11 +105,29 @@ function line2Text(property: DocumentProperty) {
     : value.trim();
 }
 
+/**
+ * The first lines of a row's page. The list read sends an excerpt, and saving
+ * the page's body in this tab rebuilds it. Until a read brings one (right after
+ * Page text is picked), a body this tab already holds stands in.
+ */
+function pageExcerpt(item: ContentDatabaseItem) {
+  if (item.excerpt !== undefined) return item.excerpt;
+  return item.document.content
+    ? buildListRowExcerpt({
+        content: item.document.content,
+        title: item.document.title,
+      })
+    : "";
+}
+
 /** The fields a slot shows, which can be set but blank on a given row. */
 function slotFieldNames(
   resolved: ResolvedContentDatabaseItemLayout<DocumentProperty>,
   slot: ContentDatabaseItemLayoutSlot,
 ) {
+  if (slot === "line2" && resolved.line2.pageText) {
+    return [dbText("listRowsPageText")];
+  }
   const fields =
     slot === "line2"
       ? resolved.line2.property
@@ -179,7 +209,14 @@ function SlotZone({
   );
 }
 
-function MetaValues({ values }: { values: DocumentProperty[] }) {
+function MetaValues({
+  values,
+  interactive,
+}: {
+  values: DocumentProperty[];
+  /** Off in Edit rows, where the whole slot is a button. */
+  interactive: boolean;
+}) {
   return values.map((property) => (
     <span
       key={property.definition.id}
@@ -191,7 +228,9 @@ function MetaValues({ values }: { values: DocumentProperty[] }) {
           <span className="truncate">{property.definition.name}</span>
         </span>
       ) : (
-        displayValue(property)
+        displayValue(property, undefined, "compact", {
+          interactiveUrls: interactive,
+        })
       )}
     </span>
   ));
@@ -305,7 +344,17 @@ export function DatabaseLayoutListRow({
   const line2Property = resolved.line2.property
     ? itemValue(item, resolved.line2.property)
     : null;
-  const line2 = line2Property ? line2Text(line2Property) : "";
+  const line2 = resolved.line2.pageText
+    ? pageExcerpt(item)
+    : line2Property
+      ? line2Text(line2Property)
+      : "";
+  // A web address there opens from its link, except while the layout is being
+  // edited, when the whole slot is a button.
+  const line2Href =
+    !editing && line2Property?.definition.type === "url"
+      ? propertyUrlHref(line2Property.value)
+      : null;
   const filled = (properties: DocumentProperty[]) =>
     properties
       .map((property) => itemValue(item, property))
@@ -313,6 +362,18 @@ export function DatabaseLayoutListRow({
   const line3 = filled(resolved.line3);
   const trailing = filled(resolved.trailing);
 
+  const titleText = (
+    <span
+      className={cn(
+        "block min-w-0 truncate text-sm",
+        TITLE_WEIGHT_CLASSES[resolved.titleWeight],
+        checked &&
+          "text-muted-foreground line-through decoration-muted-foreground/70",
+      )}
+    >
+      {title}
+    </span>
+  );
   const body = (
     <>
       <SlotZone
@@ -322,16 +383,17 @@ export function DatabaseLayoutListRow({
         empty={false}
         className="block max-w-full"
       >
-        <span
-          className={cn(
-            "block min-w-0 truncate text-sm",
-            TITLE_WEIGHT_CLASSES[resolved.titleWeight],
-            checked &&
-              "text-muted-foreground line-through decoration-muted-foreground/70",
-          )}
-        >
-          {title}
-        </span>
+        {editing ? (
+          titleText
+        ) : (
+          <button
+            type="button"
+            className="block w-full rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onPreview}
+          >
+            {titleText}
+          </button>
+        )}
       </SlotZone>
       <SlotZone
         slot="line2"
@@ -346,7 +408,11 @@ export function DatabaseLayoutListRow({
             LINE_CLAMP_CLASSES[resolved.line2.lines],
           )}
         >
-          {line2}
+          {line2Href ? (
+            <PropertyUrlLink href={line2Href}>{line2}</PropertyUrlLink>
+          ) : (
+            line2
+          )}
         </span>
       </SlotZone>
       <SlotZone
@@ -357,7 +423,7 @@ export function DatabaseLayoutListRow({
         className="mt-1 inline-flex max-w-full"
       >
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <MetaValues values={line3} />
+          <MetaValues values={line3} interactive={!editing} />
         </span>
       </SlotZone>
       {/* On phones End sits under the title, so it's edited there too. */}
@@ -374,7 +440,7 @@ export function DatabaseLayoutListRow({
             !editing && "mt-1 sm:hidden",
           )}
         >
-          <MetaValues values={trailing} />
+          <MetaValues values={trailing} interactive={!editing} />
         </span>
       </SlotZone>
     </>
@@ -401,13 +467,13 @@ export function DatabaseLayoutListRow({
       {editing ? (
         <div className="min-w-0 flex-1 px-1.5 py-0.5">{body}</div>
       ) : (
-        <button
-          type="button"
-          className="block min-w-0 flex-1 rounded px-1.5 py-0.5 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onPreview}
+        // Only the title is the button, so web addresses in values stay links.
+        <div
+          className="block min-w-0 flex-1 cursor-pointer rounded px-1.5 py-0.5 hover:bg-accent/60"
+          onClick={openDatabaseItemOnClick(onPreview)}
         >
           {body}
-        </button>
+        </div>
       )}
       <SlotZone
         slot="trailing"
@@ -417,7 +483,7 @@ export function DatabaseLayoutListRow({
         className="mt-0.5 hidden shrink-0 sm:inline-flex"
       >
         <span className="mt-1 hidden max-w-xs min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground sm:flex">
-          <MetaValues values={trailing} />
+          <MetaValues values={trailing} interactive={!editing} />
         </span>
       </SlotZone>
       {editing ? null : actions}

@@ -6,12 +6,16 @@ import {
 } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
+import { USE_CASE_SLUG_REDIRECTS } from "../app/components/campaign/use-case-redirects";
 import { loader as localeLoader } from "../app/routes/$locale";
+import { loader as localizedUseCaseLoader } from "../app/routes/$locale.use-cases.$slug";
 import { loader as localizedDocsLoader } from "../app/routes/docs.$locale.$slug";
 import { loader as docsSlugLoader } from "../app/routes/docs.$slug";
 import { loader as corePhilosophyLoader } from "../app/routes/docs.core-philosophy";
 import { loader as databaseAdaptersLoader } from "../app/routes/docs.database-adapters";
 import { loader as templatesLoader } from "../app/routes/templates";
+import { loader as useCaseLoader } from "../app/routes/use-cases.$slug";
+import { loadCampaignContent } from "../lib/campaign-content.server";
 
 function captureRedirect(run: () => unknown): Response {
   try {
@@ -20,6 +24,11 @@ function captureRedirect(run: () => unknown): Response {
     return error as Response;
   }
   throw new Error("Expected the route loader to throw a redirect response");
+}
+
+function returnedRedirect(value: unknown): Response {
+  if (value instanceof Response) return value;
+  throw new Error("Expected the route loader to return a redirect response");
 }
 
 async function captureAsyncRedirect(
@@ -93,6 +102,38 @@ describe("public docs redirects", () => {
     );
     expectHtmlRedirect(templates, 301, "/apps/mail/?source=docs");
     expect(templates.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
+  });
+});
+
+describe("moved use-case pages", () => {
+  it("redirects every old address to its new page, in every language", () => {
+    for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
+      const english = returnedRedirect(
+        useCaseLoader({
+          params: { slug: from },
+        } as Parameters<typeof useCaseLoader>[0]),
+      );
+      expectHtmlRedirect(english, 301, `/use-cases/${to}/`);
+
+      const german = returnedRedirect(
+        localizedUseCaseLoader({
+          params: { locale: "de-de", slug: from },
+          request: new Request(
+            `https://www.agent-native.com/de-de/use-cases/${from}/`,
+          ),
+        } as Parameters<typeof localizedUseCaseLoader>[0]),
+      );
+      expectHtmlRedirect(german, 301, `/de-de/use-cases/${to}/`);
+    }
+  });
+
+  it("redirects only to pages that exist, and never from one", () => {
+    const content = loadCampaignContent();
+    const live = new Set(content.useCases.map((page) => page.slug));
+    for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
+      expect(live.has(to), to).toBe(true);
+      expect(live.has(from), from).toBe(false);
+    }
   });
 });
 

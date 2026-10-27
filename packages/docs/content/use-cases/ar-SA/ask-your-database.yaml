@@ -1,0 +1,103 @@
+slug: ask-your-database
+app: analytics
+roles:
+  - engineering
+  - product
+  - founders
+title: "اطرح أسئلتك على بياناتك بلغة عادية"
+seo_title: "اسأل قاعدة بياناتك دون كتابة SQL"
+meta_description: "اطرح سؤالًا عن بياناتك في BigQuery، فيجيب Agent-Native Analytics باستعلام SQL للقراءة فقط يمكنك مراجعته، ويحفظ الأسئلة المتكررة في لوحة تحكم."
+updated: 2026-10-27
+hero:
+  body: "يجيب Agent-Native Analytics عنها من بياناتك في BigQuery، ويحفظ ما يتكرر منها في لوحة تحكم. ويكتب الوكيل استعلامات SQL للقراءة فقط يمكنك مراجعتها."
+  button:
+    label: "اسأل بياناتك"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: "Analytics مفتوح على Ask. يجيب الوكيل عن سؤال حول تسجيلات الأسبوع الماضي بمخطط أعمدة حسب الخطة والجدول الذي أحصى منه. وتحته سؤال متابعة يُظهر أن خطة Pro نمت أكثر من غيرها."
+how_to:
+  heading: "كيف تسأل قاعدة بياناتك بلغة عادية"
+  steps:
+    - title: "اربط مستودع بياناتك"
+      body: "في صفحة **مصادر البيانات**، افتح BigQuery. ارفع مفتاح JSON لحساب خدمة لديه دورا BigQuery Data Viewer وBigQuery Job User، وأدخل معرّف مشروعك، ثم انقر على **حفظ بيانات الاعتماد** و**اختبار الاتصال**."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: "لقطة مقرّبة لبطاقة BigQuery في صفحة Data Sources، بحالة Connected، ومعرّف المشروع وحساب الخدمة بحالة Configured، ورسالة «Connection successful»."
+    - title: "اطرح سؤالك بلغة عادية"
+      body: "في **اسأل**، اكتب سؤالك كما تسأل زميلًا: «كم حسابًا سجّل الأسبوع الماضي، حسب الخطة؟» يجد الوكيل الجداول المناسبة، ويشغّل الاستعلام، ويجيب بمخطط."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: "لقطة مقرّبة لمحادثة Ask. بحث الوكيل في مخطط قاعدة بيانات BigQuery، وشغّل استعلامًا واحدًا، وأجاب بـ 723 تسجيلًا ومخطط أعمدة حسب الخطة."
+    - title: "احتفظ بالإجابة في لوحة تحكم"
+      body: "اطلب من الوكيل «أضف هذا إلى لوحة تحكم». فيبني اللوحة، ويتحقق من أن استعلام SQL يعمل، ويحفظ لوحة التحكم. وتبقى لوحة التحكم خاصة حتى تشاركها مع زميل أو مع مؤسستك كلها."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: "لوحة تحكم جديدة باسم Weekly signups فيها لوحة التسجيلات حسب الخطة ومخطط التسجيلات حسب الأسبوع. وتقول محادثة الوكيل بجانبها إن اللوحتين جرى التحقق منهما على BigQuery."
+features:
+  heading: "كل ما تحتاجه للحصول على إجابات من قاعدة بياناتك"
+  items:
+    - title: "استعلام SQL وراء كل إجابة"
+      body: "افتح **عرض SQL** على أي مخطط في لوحة التحكم، أو اسأل في المحادثة، لترى الاستعلام الذي كتبه الوكيل وتنسخه لتشغّله بنفسك."
+    - title: "تعريفات المقاييس لدى فريقك"
+      body: "يكتب المسؤول معنى «نشط» أو «تسجيل» في صفحة **الطبقة الدلالية**، ويقرأها الوكيل قبل أن يكتب SQL."
+    - title: "استعلامات لا يمكنها تغيير البيانات"
+      body: "في BigQuery، لا يستطيع SQL الذي يكتبه الوكيل الإدراج أو التحديث أو الحذف، ويتصل عبر حساب خدمة لا يمكنه سوى قراءة الجداول وتشغيل الاستعلامات."
+    - title: "لوحات تحكم يعدّلها الوكيل"
+      body: "اطلب في المحادثة لوحة أخرى أو فلترًا أو تفصيلًا حسب الخطة، فيغيّر الوكيل لوحة التحكم لكل من شاركتها معه."
+    - title: "أسئلة عبر أدواتك"
+      body: "اطرح سؤالًا واحدًا يجمع جداول مستودعك مع إيرادات Stripe أو صفقات HubSpot أو أحداث PostHog."
+    - title: "لوحة التحكم في بريدك"
+      body: "استلم لوحة تحكم بالبريد كل يوم في الوقت الذي تختاره، بمخططاتها وجداولها داخل الرسالة، لما يصل إلى خمسة أشخاص."
+integrations:
+  heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "مستودعك وزيارات موقعك"
+      logos:
+        - name: BigQuery
+        - name: Google Analytics
+      body: "يستعلم Analytics جداولك في BigQuery، وبمفتاح حساب الخدمة نفسه من Google يستعلم أيضًا زيارات موقعك في Google Analytics."
+    - title: "أضف بيانات الإيرادات والمنتج"
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: "اربط Stripe أو HubSpot أو PostHog، لتضع الإجابة أرقام قاعدة البيانات بجانب الإيرادات أو الصفقات أو أحداث المنتج."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Analytics"
+  cards:
+    - title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "تابع إيرادات شركتك الناشئة ومسار مبيعاتها واستخدام منتجها في لوحة تحكم واحدة يمكنك سؤالها."
+    - title: "اعرف أين يتوقف المستخدمون الجدد"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "اعرف الخطوة التي تتعثر عندها التسجيلات، وشاهد تسجيلات الجلسات التي تفسّرها."
+    - title: "راجع مسار مبيعاتك ببيانات HubSpot وGong"
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: "تحقّق من تقدّم صفقاتك بإجابات مأخوذة من نظام CRM ومكالمات المبيعات المسجّلة."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Analytics مجاني؟"
+      a: "نعم، Agent-Native Analytics مجاني ومفتوح المصدر. استخدم التطبيق المستضاف أو شغّل نسختك الخاصة. يحتاج الوكيل إلى اتصال بالذكاء الاصطناعي، عبر Builder.io أو مفتاح النموذج الخاص بك، لذا فاستخدام الذكاء الاصطناعي ليس بلا حدود. لا يزال Analytics في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "هل أحتاج إلى معرفة SQL؟"
+      a: "لا. تسأل بلغة عادية ويكتب الوكيل SQL. قد يحتاج شخص يعرف بياناتك إلى [ربط BigQuery](https://www.agent-native.com/docs/template-analytics-connectors/) أولًا. ويمكن للمسؤول إضافة [تعريفات المقاييس](https://www.agent-native.com/docs/template-analytics-dashboards/) في صفحة **الطبقة الدلالية**، ليختار الوكيل الجداول والأعمدة الصحيحة."
+    - q: "هل يعمل مع Postgres أو Supabase أو Neon؟"
+      a: "نعم، مع Postgres على Supabase أو Neon. اربطه [عبر MCP](https://www.agent-native.com/docs/mcp-clients/) من قائمة + في المحادثة، واطرح سؤالك في المحادثة. تبقى هذه الإجابات في المحادثة، لأن لوحات لوحة التحكم لا تستطيع الاستعلام من Postgres بعد. ولا يمكن الاستعلام من قواعد بيانات Postgres الأخرى بعد، لذا تستخدم خطوات هذه الصفحة BigQuery."
+    - q: "هل يمكن للوكيل تغيير بياناتي؟"
+      a: "ليس في BigQuery. يرفض Analytics هناك أي استعلام من الوكيل يُدرج البيانات أو يحدّثها أو يحذفها أو يُسقطها. ويطلب الإعداد أيضًا حساب خدمة بأدوار للقراءة فقط، يمكنه قراءة جداولك وتشغيل الاستعلامات لكن لا يمكنه تغييرها. أما عبر Supabase أو Neon، فيستطيع الوكيل فعل ما تسمح به لذلك الاتصال."
+    - q: "كيف أعرف أن الإجابة صحيحة؟"
+      a: "راجع الاستعلام الذي وراءها. اطلب من الوكيل أن يعرض SQL الخاص به، أو افتح **عرض SQL** على مخطط في لوحة التحكم. ويمكنك أيضًا أن تسأله عن الجداول والفلاتر التي استخدمها. ويضع الوكيل على الرقم علامة **Unverified** عندما لا يُشغَّل أي استعلام مباشر."
+    - q: "ما الفرق بين هذا وسؤال ChatGPT عن ملف CSV مُصدَّر؟"
+      a: "يجيب مساعد المحادثة من الملف الذي صدّرته، فيبدأ كل سؤال جديد بتصدير جديد. أما Analytics فيستعلم مستودعك مباشرة، ويستخدم تعريفات المقاييس لدى فريقك، ويحفظ الإجابات التي ستحتاجها مجددًا في لوحة تحكم. هذا هو [التطبيق الوكيلي](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

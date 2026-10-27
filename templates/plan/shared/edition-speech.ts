@@ -14,7 +14,7 @@ import type { EditionStoryCohort, EditionStoryData } from "./edition.js";
  */
 export interface EditionSpeechInput {
   nameplate: string;
-  dateline: string;
+  dateline: string | null;
   /** e.g. "Issue 14" — omitted when the edition has no number. */
   issueLabel?: string | null;
   title: string;
