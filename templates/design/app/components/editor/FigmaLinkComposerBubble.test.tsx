@@ -14,17 +14,12 @@ const connectionMocks = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const sendToDesignAgentChat = vi.hoisted(() => vi.fn());
-const featureFlagMocks = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string =>
       options ? `${key}:${JSON.stringify(options)}` : key,
-}));
-
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => featureFlagMocks.enabled,
 }));
 
 vi.mock("@/lib/figma-connection", async () => ({
@@ -54,7 +49,6 @@ beforeEach(() => {
   connectionMocks.get.mockReset();
   connectionMocks.save.mockReset();
   sendToDesignAgentChat.mockReset();
-  featureFlagMocks.enabled = false;
 });
 
 afterEach(async () => {
@@ -85,8 +79,23 @@ function button(label: string): HTMLButtonElement {
   return match;
 }
 
-function renderedText(): string {
-  return container?.textContent ?? "";
+async function openActionsMenu(): Promise<void> {
+  const trigger = container!.querySelector<HTMLButtonElement>(
+    '[aria-label="chat.figmaLink.moreActions"]',
+  );
+  if (!trigger) throw new Error("Missing Figma link actions menu");
+  await act(async () => {
+    trigger.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    await Promise.resolve();
+  });
+}
+
+function menuItem(label: string): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
 }
 
 describe("FigmaLinkComposerBubble", () => {
@@ -124,7 +133,7 @@ describe("FigmaLinkComposerBubble", () => {
     expect(connectionMocks.save).toHaveBeenCalledWith("figma-token-example");
     expect(sendToDesignAgentChat).not.toHaveBeenCalled();
     expect(container!.querySelector('input[type="password"]')).toBeNull();
-    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
+    expect(container!.textContent).toContain("home.import");
   });
 
   it("clears a rejected token from the password field", async () => {
@@ -170,7 +179,7 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble("design-42");
 
-    await act(async () => button("chat.figmaLink.importFrame").click());
+    await act(async () => button("home.import").click());
 
     expect(sendToDesignAgentChat).toHaveBeenCalledWith({
       message:
@@ -180,8 +189,7 @@ describe("FigmaLinkComposerBubble", () => {
     });
   });
 
-  it("prefills separate screen and comment sync requests without submitting them", async () => {
-    featureFlagMocks.enabled = true;
+  it("shows a compact file title and hides the pasted URL", async () => {
     connectionMocks.get.mockResolvedValue({
       connected: true,
       status: "set",
@@ -191,37 +199,45 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble("design-42");
 
-    await act(async () => button("chat.figmaLink.syncDesign").click());
-    expect(sendToDesignAgentChat).toHaveBeenLastCalledWith({
-      message:
-        'chat.figmaLink.syncPrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
-      submit: false,
-      openSidebar: false,
-    });
-
-    await act(async () => button("chat.figmaLink.syncComments").click());
-    expect(sendToDesignAgentChat).toHaveBeenLastCalledWith({
-      message:
-        'chat.figmaLink.syncCommentsPrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
-      submit: false,
-      openSidebar: false,
-    });
+    expect(container!.textContent).toContain("Checkout");
+    expect(container!.querySelector('[title="Checkout"]')).not.toBeNull();
+    expect(container!.textContent).not.toContain(frameLink.url);
+    expect(container!.textContent).toContain("chat.figmaLink.connected");
+    expect(container!.textContent).not.toContain("5678");
+    expect(button("home.import")).toBeTruthy();
+    expect(
+      container!.querySelector(
+        'button[aria-label="chat.figmaLink.moreActions"]',
+      ),
+    ).not.toBeNull();
+    expect(container!.textContent).not.toContain(
+      "chat.figmaLink.actionsPrefill",
+    );
   });
 
-  it("keeps the existing composer bubble unchanged while sync is disabled", async () => {
+  it("prefills an Ask about this file request from the overflow menu", async () => {
     connectionMocks.get.mockResolvedValue({
       connected: true,
       status: "set",
       key: "FIGMA_ACCESS_TOKEN",
       label: "Figma access token",
-      last4: "5678",
     });
     await renderBubble("design-42");
+    await openActionsMenu();
 
-    expect(button("chat.figmaLink.importFrame")).toBeTruthy();
-    expect(button("chat.figmaLink.exportSvg")).toBeTruthy();
-    expect(renderedText()).not.toContain("chat.figmaLink.syncDesign");
-    expect(renderedText()).not.toContain("chat.figmaLink.syncComments");
+    const askItem = menuItem("chat.figmaLink.askAboutFile");
+    expect(askItem).toBeTruthy();
+    await act(async () => {
+      askItem!.click();
+      await Promise.resolve();
+    });
+
+    expect(sendToDesignAgentChat).toHaveBeenCalledWith({
+      message:
+        'chat.figmaLink.askAboutFilePrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
+      submit: false,
+      openSidebar: false,
+    });
   });
 
   it("keeps the newest connection result when status checks finish out of order", async () => {
@@ -264,7 +280,7 @@ describe("FigmaLinkComposerBubble", () => {
       await Promise.resolve();
     });
 
-    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
+    expect(container!.textContent).toContain("home.import");
     expect(container!.querySelector('input[type="password"]')).toBeNull();
   });
 
@@ -326,8 +342,9 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble();
 
-    expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
-    expect(renderedText()).not.toContain("chat.figmaLink.syncDesign");
-    expect(renderedText()).not.toContain("chat.figmaLink.syncComments");
+    await openActionsMenu();
+    expect(
+      menuItem("chat.figmaLink.exportSvg")?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 });

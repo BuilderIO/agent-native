@@ -502,6 +502,7 @@
     "import-design-source",
     "import-design-tokens",
     "import-figma-clipboard",
+    "import-figma-frame",
     "index-components",
     "index-design-system-with-builder",
     "insert-asset",

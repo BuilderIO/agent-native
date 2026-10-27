@@ -1,15 +1,21 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBrandFigma,
   IconCheck,
+  IconDots,
   IconExternalLink,
   IconLoader2,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
@@ -25,10 +31,22 @@ import {
   type FigmaLinkChatAction,
 } from "@/lib/figma-url";
 
-import { FIGMA_SYNC } from "../../../shared/design-flags";
-
 const FIGMA_TOKEN_DOCS_URL =
   "https://developers.figma.com/docs/rest-api/personal-access-tokens/";
+
+function getFigmaFileTitle(link: FigmaLink): string | null {
+  try {
+    const segments = new URL(link.url).pathname.split("/").filter(Boolean);
+    const fileKeyIndex = segments.indexOf(link.fileKey);
+    const encodedTitle =
+      fileKeyIndex >= 0 ? segments[fileKeyIndex + 1] : undefined;
+    if (!encodedTitle) return null;
+    const title = decodeURIComponent(encodedTitle).trim();
+    return title.length > 0 ? title : null;
+  } catch {
+    return null;
+  }
+}
 
 export function useDetectedFigmaComposerLink(): {
   link: FigmaLink | null;
@@ -55,7 +73,13 @@ export function FigmaLinkComposerBubble({
   designId,
 }: FigmaLinkComposerBubbleProps) {
   const t = useT();
-  const figmaSyncEnabled = useFeatureFlag(FIGMA_SYNC.key);
+  const fileTitle =
+    getFigmaFileTitle(link) ??
+    t(
+      link.kind === "frame"
+        ? "chat.figmaLink.frameDetected"
+        : "chat.figmaLink.fileDetected",
+    );
   const tRef = useRef(t);
   tRef.current = t;
   const [connection, setConnection] = useState<FigmaConnectionStatus | null>(
@@ -196,10 +220,6 @@ export function FigmaLinkComposerBubble({
           url: link.url,
         }),
         exportSvg: t("chat.figmaLink.exportSvgPrompt"),
-        sync: t("chat.figmaLink.syncPrompt", { url: link.url }),
-        syncComments: t("chat.figmaLink.syncCommentsPrompt", {
-          url: link.url,
-        }),
       });
       sendToDesignAgentChat({
         ...prompt,
@@ -210,28 +230,30 @@ export function FigmaLinkComposerBubble({
     [designId, link, t],
   );
 
+  const handleAskAboutFile = useCallback(() => {
+    sendToDesignAgentChat({
+      message: t("chat.figmaLink.askAboutFilePrompt", { url: link.url }),
+      submit: false,
+      openSidebar: false,
+    });
+  }, [link.url, t]);
+
   return (
     <div className="mx-3 mb-1.5 rounded-lg border border-border bg-muted/35 px-2.5 py-2 shadow-sm">
       <div className="flex min-w-0 items-center gap-2">
         <IconBrandFigma className="size-4 shrink-0 text-foreground" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">
-            {link.kind === "frame"
-              ? t("chat.figmaLink.frameDetected")
-              : t("chat.figmaLink.fileDetected")}
-          </p>
-          <p className="truncate text-[10px] text-muted-foreground">
-            {link.url}
+          <p
+            className="truncate text-xs font-medium text-foreground"
+            title={fileTitle}
+          >
+            {fileTitle}
           </p>
         </div>
         {connection?.connected ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
             <IconCheck className="size-3 text-emerald-500" />
-            {connection.last4
-              ? t("chat.figmaLink.connectedLast4", {
-                  last4: connection.last4,
-                })
-              : t("chat.figmaLink.connected")}
+            {t("chat.figmaLink.connected")}
           </span>
         ) : null}
       </div>
@@ -245,63 +267,42 @@ export function FigmaLinkComposerBubble({
           {t("chat.figmaLink.checkingConnection")}
         </div>
       ) : !connection ? null : connection.connected ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex min-w-0 items-center gap-1.5">
           <Button
             type="button"
             size="sm"
-            className="h-7 px-2 text-[11px]"
+            className="h-7 min-w-0 flex-1 px-2 text-[11px]"
             onClick={() => handleAgentAction("import")}
           >
-            {link.kind === "frame"
-              ? t("chat.figmaLink.importFrame")
-              : t("chat.figmaLink.chooseFrame")}
+            {t("home.import")}
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => handleAgentAction("inspect")}
-          >
-            {t("chat.figmaLink.inspect")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-[11px]"
-            disabled={!designId}
-            onClick={() => handleAgentAction("export-svg")}
-          >
-            {t("chat.figmaLink.exportSvg")}
-          </Button>
-          {figmaSyncEnabled ? (
-            <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-7 px-2 text-[11px]"
-                disabled={!designId}
-                onClick={() => handleAgentAction("sync")}
+                className="size-7 shrink-0"
+                aria-label={t("chat.figmaLink.moreActions")}
               >
-                {t("chat.figmaLink.syncDesign")}
+                <IconDots className="size-4" />
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-[11px]"
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={() => handleAgentAction("inspect")}>
+                {t("chat.figmaLink.inspect")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 disabled={!designId}
-                onClick={() => handleAgentAction("sync-comments")}
+                onSelect={() => handleAgentAction("export-svg")}
               >
-                {t("chat.figmaLink.syncComments")}
-              </Button>
-            </>
-          ) : null}
-          <span className="min-w-0 flex-1 text-end text-[9px] leading-tight text-muted-foreground">
-            {t("chat.figmaLink.actionsPrefill")}
-          </span>
+                {t("chat.figmaLink.exportSvg")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleAskAboutFile}>
+                {t("chat.figmaLink.askAboutFile")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : (
         <form

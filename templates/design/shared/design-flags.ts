@@ -11,9 +11,3 @@ export const DESIGN_REVIEW_PANEL = defineFeatureFlag({
   displayName: "Design review panel",
   description: "Show accessibility and visual-diff review tools in Design.",
 });
-
-export const FIGMA_SYNC = defineFeatureFlag({
-  key: "figma-sync",
-  displayName: "Design sync",
-  description: "Enable bidirectional sync with connected design files.",
-});

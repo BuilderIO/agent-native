@@ -60,16 +60,15 @@ registerRequiredSecret({
   key: "FIGMA_ACCESS_TOKEN",
   label: "Figma access token",
   description:
-    "Connect frame links, clipboard paste, libraries, styles, open-ended queries, and comment sync. Generate a personal access token with current_user:read and file_content:read; add file_comments:read to import comments, file_comments:write to publish them, and file_metadata:read to verify Draft ownership. Add library_content:read for file libraries, team_library_content:read for team libraries, or Enterprise file_variables:read only when needed.",
+    "Connect Figma frame links, exact clipboard paste, libraries, styles, and open-ended agent queries. Generate a personal access token with current_user:read and file_content:read; add library_content:read for file libraries, team_library_content:read for team libraries, or Enterprise file_variables:read only when needed.",
   docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
   scope: "user",
   kind: "api-key",
   usedFor: [
     {
       appId: "design",
-      feature: "Figma connection",
-      effectWhenRemoved:
-        "Frame imports, libraries, styles, and comment sync stop working.",
+      feature: "Figma import",
+      effectWhenRemoved: "Figma frames, libraries, and styles stop loading.",
     },
   ],
   required: false,

@@ -321,12 +321,10 @@ export default {
       chooseFrame: "Escolher frame",
       inspect: "Inspecionar",
       exportSvg: "Exportar SVG",
-      syncDesign: "Sincronizar design",
-      syncComments: "Sincronizar comentários",
-      syncPrompt:
-        "Confira a fonte vinculada e a tela ativa do Design. Aplique mudanças da fonte somente se a tela do Design não tiver edições locais; informe conflitos sem sobrescrever nenhum lado. Para mudanças do Design, use as ferramentas de escrita conectadas e registre o resultado verificado. {{url}}",
-      syncCommentsPrompt:
-        "Sincronize os tópicos de comentários entre a fonte vinculada e a tela ativa do Design. Preserve autores e respostas, evite duplicatas e publique somente em um rascunho pessoal criado e pertencente à conta conectada correspondente. Informe o que não foi sincronizado. {{url}}",
+      moreActions: "Mais ações",
+      askAboutFile: "Perguntar sobre este arquivo",
+      askAboutFilePrompt:
+        "Pergunte sobre este arquivo de design vinculado. {{url}}",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
       currentDesign: "o Design atual",

@@ -320,12 +320,10 @@ export default {
       chooseFrame: "Frame wählen",
       inspect: "Prüfen",
       exportSvg: "SVG exportieren",
-      syncDesign: "Design synchronisieren",
-      syncComments: "Kommentare synchronisieren",
-      syncPrompt:
-        "Die verknüpfte Quelle und den aktiven Design-Bildschirm auf Änderungen prüfen. Änderungen aus der Quelle nur übernehmen, wenn es keine lokalen Änderungen gibt; Konflikte melden, ohne eine Seite zu überschreiben. Für Design-Änderungen die verbundenen Schreibwerkzeuge verwenden und das verifizierte Ergebnis speichern. {{url}}",
-      syncCommentsPrompt:
-        "Kommentarthreads zwischen der verknüpften Quelle und dem aktiven Design-Bildschirm synchronisieren. Autorinnen und Autoren sowie Antworten beibehalten, Duplikate vermeiden und nur in einen persönlichen Draft schreiben, den das passende verbundene Konto erstellt hat und besitzt. Nicht synchronisierte Kommentare melden. {{url}}",
+      moreActions: "Weitere Aktionen",
+      askAboutFile: "Zu dieser Datei fragen",
+      askAboutFilePrompt:
+        "Stelle Fragen zu dieser verknüpften Designdatei. {{url}}",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
       currentDesign: "das aktuelle Design",

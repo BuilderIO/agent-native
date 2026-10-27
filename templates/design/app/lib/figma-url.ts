@@ -40,12 +40,7 @@ export function extractFigmaLink(text: string): FigmaLink | null {
   return null;
 }
 
-export type FigmaLinkChatAction =
-  | "import"
-  | "inspect"
-  | "export-svg"
-  | "sync"
-  | "sync-comments";
+export type FigmaLinkChatAction = "import" | "inspect" | "export-svg";
 
 export interface FigmaLinkChatPrompts {
   importFrame: string;
@@ -53,8 +48,6 @@ export interface FigmaLinkChatPrompts {
   inspectFrame: string;
   inspectFile: string;
   exportSvg: string;
-  sync: string;
-  syncComments: string;
 }
 
 export function buildFigmaLinkChatPrompt(
@@ -75,7 +68,5 @@ export function buildFigmaLinkChatPrompt(
     };
   }
 
-  if (action === "export-svg") return { message: prompts.exportSvg };
-  if (action === "sync") return { message: prompts.sync };
-  return { message: prompts.syncComments };
+  return { message: prompts.exportSvg };
 }

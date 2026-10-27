@@ -8,8 +8,6 @@ const prompts = {
   inspectFrame: "Inspect frame: {{url}}",
   inspectFile: "Inspect file: {{url}}",
   exportSvg: "Export the current Design screen as SVG.",
-  sync: "Sync this linked screen.",
-  syncComments: "Sync this linked screen's comments.",
 };
 
 describe("extractFigmaLink", () => {

@@ -19,7 +19,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   executeProviderApiRequest: vi.fn(),
-  getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   assertAccess: vi.fn(),
   resolveImportDesignId: vi.fn(),
@@ -38,7 +37,6 @@ vi.mock("@agent-native/core/file-upload", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 

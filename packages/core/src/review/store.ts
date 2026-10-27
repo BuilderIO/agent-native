@@ -20,7 +20,7 @@ import type {
   ReviewStatusEntry,
 } from "./types.js";
 
-export type ReviewThreadStatus = "open" | "resolved";
+type ReviewThreadStatus = "open" | "resolved";
 
 export interface InsertReviewCommentInput {
   id?: string;

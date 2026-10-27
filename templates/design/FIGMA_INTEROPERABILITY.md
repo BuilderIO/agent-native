@@ -53,31 +53,6 @@ use them as durable asset references. Current limits are defined in
   `file_variables:read` for file variables. Figma can change scope and rate
   limit policies; see its current documentation.
 
-## Synchronization
-
-This workflow is available only while the `figma-sync` Labs feature flag is enabled.
-
-Each imported screen keeps its source file key, node id, file version, node
-hash, and Design HTML hash. sync-figma-screen reports which side changed. A
-pull is allowed only for a source-only change while the Design HTML still
-matches its baseline. A two-sided edit returns a conflict and preserves both
-versions. For a push, read and compare the source snapshot before writing
-through the connected MCP tools, read it again afterward, then record the
-exact before/after versions and hashes. REST node endpoints provide reads;
-they do not create or edit canvas nodes.
-
-sync-figma-comments imports comment threads idempotently, retaining author
-handles, reply relationships, source location metadata, and resolved state. It
-publishes only the signed-in user's comments when the connected account
-matches and file metadata reports the connected user as creator and owner in
-the `Drafts` space. The metadata endpoint exposes the folder name, but no
-separate draft-space identifier. Publishing therefore fails closed when those
-fields are absent or differ. This needs `file_metadata:read` in addition to
-`file_comments:write`. The REST API can delete comments written by the current
-user, but this action does not sync deletions; REST does not provide comment
-text edits or resolved-state writes. Uncertain POST results are reconciled
-before a retry.
-
 ## Implementation entry points
 
 - Frame import: `templates/design/actions/import-figma-frame.ts` and

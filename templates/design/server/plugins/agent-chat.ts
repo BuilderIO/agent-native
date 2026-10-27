@@ -8,11 +8,6 @@ import { eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
-import {
-  filterFigmaSyncAgentActions,
-  isFigmaSyncEnabled,
-  prepareFigmaSyncAgentRequest,
-} from "../lib/figma-sync-flag.js";
 import { DESIGN_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
@@ -324,22 +319,6 @@ export default createAgentChatPlugin({
   runSoftTimeoutMs: DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  prepareRequest: async ({ message, displayMessage }) => {
-    return prepareFigmaSyncAgentRequest(
-      displayMessage === undefined ? { message } : { message, displayMessage },
-      await isFigmaSyncEnabled(),
-    );
-  },
-  resolveActionSurface: async ({ availableActionNames }) => {
-    const enabled = await isFigmaSyncEnabled();
-    if (enabled) return { mode: "default" };
-    return {
-      allowedActionNames: filterFigmaSyncAgentActions(
-        availableActionNames,
-        false,
-      ),
-    };
-  },
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.

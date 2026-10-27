@@ -43,10 +43,7 @@ export {
   getReviewStatus,
   getReviewThreadSummary,
   getReviewThreadRoot,
-  insertReviewCommentIdempotently,
-  insertReviewReplyIdempotently,
   queryReviewComments,
-  resolveReviewThread,
   routeReviewThread,
   sendReviewThreadToAgent,
 } from "./store.js";
@@ -72,9 +69,5 @@ export {
 } from "./suggestions/actor-kind.js";
 export type {
   GetReviewThreadSummaryInput,
-  InsertReviewCommentInput,
-  InsertReviewCommentResult,
-  QueryReviewCommentsInput,
-  ReviewThreadStatus,
   ReviewThreadSummary,
 } from "./store.js";
