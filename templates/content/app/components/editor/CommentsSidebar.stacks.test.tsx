@@ -640,24 +640,26 @@ describe("comment stacks in the margin", () => {
     expect(margin()).toEqual(expect.arrayContaining(["a", "c", "d"]));
   });
 
+  function clickResolve(threadId: string) {
+    const button = container.querySelector<HTMLButtonElement>(
+      `[data-thread-card="${threadId}"] [data-comment-resolve]`,
+    );
+    if (!button) throw new Error(`No Resolve button on ${threadId}'s card`);
+    act(() => button.click());
+  }
+
   /** Clicks Resolve on a card, then plays back the saved resolution. */
   async function resolveFromCard(threadId: string, threads = THREADS) {
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          `[data-thread-card="${threadId}"] [data-comment-resolve]`,
-        )!
-        .click(),
-    );
+    clickResolve(threadId);
     const resolved = threads.map((item) =>
       item.threadId === threadId ? { ...item, resolved: true } : item,
     );
     render(resolved);
-    act(() =>
-      scroll
-        .querySelector(`[data-comment-thread="${threadId}"]`)!
-        .removeAttribute("data-comment-thread"),
+    const highlight = scroll.querySelector(
+      `[data-comment-thread="${threadId}"]`,
     );
+    if (!highlight) throw new Error(`No highlight for ${threadId}`);
+    act(() => highlight.removeAttribute("data-comment-thread"));
     await wait(60);
   }
 
@@ -693,13 +695,7 @@ describe("comment stacks in the margin", () => {
     render(THREADS, "inline", true, "popover");
     act(() => harness.select("solo"));
     expect(container.querySelector('[data-thread-card="solo"]')).not.toBeNull();
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-thread-card="solo"] [data-comment-resolve]',
-        )!
-        .click(),
-    );
+    clickResolve("solo");
     await wait(0);
     expect(harness.selected).toBeNull();
   });
@@ -708,13 +704,7 @@ describe("comment stacks in the margin", () => {
     actions.resolve.mockRejectedValueOnce(new Error("offline"));
     render();
     act(() => harness.select("solo"));
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-thread-card="solo"] [data-comment-resolve]',
-        )!
-        .click(),
-    );
+    clickResolve("solo");
     await wait(0);
     expect(harness.selected).toBe("solo");
     expect(margin()).toContain("solo");
@@ -730,13 +720,7 @@ describe("comment stacks in the margin", () => {
     );
     render();
     act(() => harness.select("solo"));
-    act(() =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-thread-card="solo"] [data-comment-resolve]',
-        )!
-        .click(),
-    );
+    clickResolve("solo");
     expect(harness.selected).toBeNull();
     act(() => harness.select("a"));
     await act(async () => rejectResolve(new Error("offline")));
