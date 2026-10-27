@@ -227,7 +227,30 @@ class BuilderEngine implements AgentEngine {
           );
           return;
         }
-        throw error;
+        captureError(error, {
+          route: "/_agent-native/agent-chat",
+          errorMessagePolicy: "omit",
+          tags: {
+            source: "builder-engine",
+            phase: "oauth-access-lookup",
+            model: opts.model,
+            errorCode: "builder_oauth_lookup_failed",
+          },
+          contexts: {
+            builderOAuth: {
+              phase: "access-lookup",
+              requiredScope: BUILDER_OAUTH_SCOPE,
+            },
+          },
+        });
+        yield gatewayErrorStop(
+          {
+            error: BUILDER_RECONNECT_MESSAGE,
+            errorCode: "builder_oauth_lookup_failed",
+          },
+          false,
+        );
+        return;
       }
       hasStoredOAuth = accessState.kind !== "not_connected";
       if (accessState.kind === "available") {
@@ -424,6 +447,7 @@ class BuilderEngine implements AgentEngine {
               requiredScope: BUILDER_OAUTH_SCOPE,
               orgId,
               forceRefresh: true,
+              connectionId: oauthAccess.connectionId,
             });
           } catch (error) {
             if (isTransientDatabaseError(error)) {

@@ -136,12 +136,14 @@ function readUrlGenerationAttemptId(): string | null {
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 const RUN_STATUS_ATTEMPTS = 3;
 const RUN_STATUS_RETRY_MS = 1500;
+const DESIGN_READY_VIEW_PROPAGATION_WINDOW_MS = 30_000;
 type CompletedAgentRun = Extract<AgentRunStatusRead, { ok: true }>;
 type TrackedAgentRun = {
   threadId: string;
   designId?: string;
   ending: boolean;
   completed?: CompletedAgentRun;
+  completedAt?: number;
 };
 
 /**
@@ -232,10 +234,14 @@ export function useDesignReadyViewTracking({
         runsRef.current.delete(runId);
         continue;
       }
-      if (screenCount === 0) {
+      if (
+        run.completedAt !== undefined &&
+        Date.now() - run.completedAt >= DESIGN_READY_VIEW_PROPAGATION_WINDOW_MS
+      ) {
         runsRef.current.delete(runId);
         continue;
       }
+      if (screenCount === 0) continue;
 
       const terminalRunId = run.completed.runId ?? runId;
       const turnKey = run.completed.turnId ?? terminalRunId;
@@ -307,6 +313,7 @@ export function useDesignReadyViewTracking({
               return;
             }
             run.completed = completed;
+            run.completedAt = Date.now();
             flushCompletedRunsRef.current();
           })
           .catch(() => {

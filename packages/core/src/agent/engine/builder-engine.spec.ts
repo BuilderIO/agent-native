@@ -1068,6 +1068,22 @@ describe("createBuilderEngine", () => {
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
+  it("maps non-transient OAuth lookup failures to a typed reconnect error", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.resolveAccessState.mockRejectedValueOnce(
+      new Error("Stored Builder grant could not be read"),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((event) => event.type === "stop")?.errorCode).toBe(
+      "builder_oauth_lookup_failed",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("force-refreshes Builder OAuth once after a 401 and retries with the new token", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.accessToken = "oauth-access-token";
@@ -1080,6 +1096,7 @@ describe("createBuilderEngine", () => {
           ownerEmail: "person@example.com",
           scopes: ["builder:ai:invoke"],
           scope: "user",
+          connectionId: "selected-builder-grant",
         },
       })
       .mockResolvedValueOnce({
@@ -1089,6 +1106,7 @@ describe("createBuilderEngine", () => {
           ownerEmail: "person@example.com",
           scopes: ["builder:ai:invoke"],
           scope: "user",
+          connectionId: "selected-builder-grant",
         },
       });
     const fetchMock = vi
@@ -1115,6 +1133,7 @@ describe("createBuilderEngine", () => {
       expect.objectContaining({
         ownerEmail: "person@example.com",
         forceRefresh: true,
+        connectionId: "selected-builder-grant",
       }),
     );
     expect(events.find((event) => event.type === "stop")?.reason).toBe(
@@ -1135,6 +1154,7 @@ describe("createBuilderEngine", () => {
           ownerEmail: "person@example.com",
           scopes: ["builder:ai:invoke"],
           scope: "user",
+          connectionId: "selected-builder-grant",
         },
       })
       .mockRejectedValueOnce(new Error("refresh response could not be read"));

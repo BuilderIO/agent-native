@@ -610,6 +610,41 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
+  it("force-refreshes only the Builder grant selected for the request", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    const initial = await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: "org-acme",
+    });
+    expect(initial.kind).toBe("available");
+    if (initial.kind !== "available")
+      throw new Error("Expected Builder access");
+    const selectedConnectionId = initial.access.connectionId;
+    resolveAccessStateMock.mockClear();
+
+    await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: "org-acme",
+      forceRefresh: true,
+      connectionId: selectedConnectionId,
+    });
+
+    expect(resolveAccessStateMock).toHaveBeenCalledTimes(1);
+    expect(resolveAccessStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: selectedConnectionId,
+        forceRefresh: true,
+      }),
+    );
+  });
+
   it("does not return a stored access token after reconnect is required", async () => {
     getAccessTokenMock.mockResolvedValue(null);
 

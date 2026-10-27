@@ -256,14 +256,37 @@ describe("design_ready_viewed", () => {
     ]);
   });
 
-  it("drops a completed run with no screens before an unrelated screen arrives", async () => {
+  it("waits for generated screens to arrive after the run completes", async () => {
     await renderReady({ files: [] });
     await agentRun({ isRunning: true });
     await agentRun({ isRunning: false });
-
-    await renderReady({ files: [screen("unrelated")] });
-
     expect(readyEvents()).toHaveLength(0);
+
+    await renderReady({ files: [screen("generated")] });
+
+    expect(readyEvents()).toHaveLength(1);
+    expect(readyEvents()[0]?.[1]).toMatchObject({
+      output_id: "design-1",
+      run_id: "run-1",
+      screen_count: 1,
+    });
+  });
+
+  it("expires a completed run if no generated screens arrive in the bounded window", async () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      await renderReady({ files: [] });
+      await agentRun({ isRunning: true });
+      await agentRun({ isRunning: false });
+
+      now += 30_001;
+      await renderReady({ files: [screen("unrelated")] });
+
+      expect(readyEvents()).toHaveLength(0);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("sends nothing when the editor closes while a run is being confirmed", async () => {

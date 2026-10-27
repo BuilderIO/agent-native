@@ -124,6 +124,13 @@ export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
   ownerEmail: string;
 };
 
+export type ResolvedBuilderOAuthRequestAccess = Omit<
+  BuilderOAuthRequestAccess,
+  "connectionId"
+> & {
+  connectionId: string;
+};
+
 // Builder connections follow the same scope policy as legacy Builder keys:
 // owner/admin writes are shared with the org, while a member's connection is
 // personal and cannot replace the org grant.
@@ -688,7 +695,7 @@ export async function resolveBuilderOAuthRequestAccess(input: {
 export type BuilderOAuthRequestAccessState =
   | { kind: "not_connected" }
   | { kind: "unusable" }
-  | { kind: "available"; access: BuilderOAuthRequestAccess };
+  | { kind: "available"; access: ResolvedBuilderOAuthRequestAccess };
 
 /** Resolve grant custody and request access together for model dispatch. */
 export async function resolveBuilderOAuthRequestAccessState(input: {
@@ -696,14 +703,19 @@ export async function resolveBuilderOAuthRequestAccessState(input: {
   requiredScope: BuilderOAuthPermissionScope;
   orgId?: string | null;
   forceRefresh?: boolean;
+  connectionId?: string;
 }): Promise<BuilderOAuthRequestAccessState> {
   const ownerEmail = normalizeOwnerEmail(input.ownerEmail);
   const options = await resolveBuilderOAuthOptions(ownerEmail, input.orgId, {
     forUse: true,
   });
-  let storedGrant = false;
+  const candidates =
+    input.connectionId !== undefined
+      ? options.filter((candidate) => candidate.key === input.connectionId)
+      : options;
+  let storedGrant = input.connectionId !== undefined;
 
-  for (const candidate of options) {
+  for (const candidate of candidates) {
     const resolved = await resolveMcpOAuthCredentialAccess({
       ...candidate,
       forceRefresh: input.forceRefresh ?? false,
