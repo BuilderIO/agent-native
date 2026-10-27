@@ -3065,10 +3065,15 @@ describe("run manager soft timeout", () => {
 
   it("aborts the in-process run before a turn-reference abort resolves", async () => {
     let observedAbortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-turn-ref-abort",
       "thread-turn-ref-abort",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -3084,6 +3089,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0, turnId: "turn-ref-abort" },
     );
 
+    await runStarted;
     await abortTurnByRefDurably(
       "thread-turn-ref-abort",
       "turn-ref-abort",
@@ -3284,10 +3290,15 @@ describe("run manager soft timeout", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     let abortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-durable-abort-failure",
       "thread-durable-abort-failure",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -3303,6 +3314,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     try {
       await expect(
         abortRunDurably("run-durable-abort-failure", "user_stuck_retry"),
@@ -3458,11 +3470,16 @@ describe("run manager soft timeout", () => {
 
   it("persists the partial turn on a no-progress recovery abort", async () => {
     const onComplete = vi.fn();
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-no-progress-abort",
       "thread-no-progress-abort",
       async (send, signal) => {
-        send({ type: "text", text: "half an answer" });
+        await send({ type: "text", text: "half an answer" });
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), { once: true });
         });
@@ -3471,6 +3488,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     expect(abortRun("run-no-progress-abort", "no_progress")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
 
@@ -3533,11 +3551,39 @@ describe("run manager soft timeout", () => {
     expect(seen).toEqual([{ type: "done" }]);
   });
 
+  it.each([false, true])(
+    "checks a cross-isolate SQL abort before provider dispatch (lease=%s)",
+    async (executionLease) => {
+      const order: string[] = [];
+      vi.mocked(insertRun).mockImplementationOnce(async () => {
+        order.push("insert");
+      });
+      vi.mocked(getRunAbortState).mockImplementationOnce(async () => {
+        order.push("abort-state");
+        return { aborted: true, reason: "user" };
+      });
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        `run-startup-sql-abort-${executionLease}`,
+        `thread-startup-sql-abort-${executionLease}`,
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(order).toEqual(["insert", "abort-state"]);
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.abortReason).toBe("user");
+    },
+  );
+
   it("observes cross-isolate SQL aborts even when the run is idle", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({
-      aborted: true,
-      reason: "no_progress",
-    });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true, reason: "no_progress" });
     let abortReason: unknown;
 
     const run = startRun(
@@ -4258,10 +4304,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(run.status).toBe("completed");
+    await vi.waitFor(() => expect(run.status).toBe("completed"));
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-insert-race",
       "completed",
@@ -5912,7 +5955,9 @@ describe("run manager soft timeout", () => {
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true });
     let abortReason: unknown;
 
     const run = startRun(
@@ -9819,11 +9864,16 @@ describe("run manager soft timeout", () => {
     it("still ends the turn immediately on a user Stop", async () => {
       let turnAborted = false;
       let boundaryReason: string | null = "unset";
+      let signalRunStarted!: () => void;
+      const runStarted = new Promise<void>((resolve) => {
+        signalRunStarted = resolve;
+      });
 
       const run = startRun(
         "run-chunk-user-stop",
         "thread-chunk-user-stop",
         async (send, signal, control) => {
+          signalRunStarted();
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
@@ -9840,6 +9890,7 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add(() => {});
 
+      await runStarted;
       expect(abortRun("run-chunk-user-stop")).toBe(true);
       await run.finalized;
 

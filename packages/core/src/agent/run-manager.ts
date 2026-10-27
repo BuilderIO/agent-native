@@ -865,6 +865,7 @@ export function startRun(
   }
 
   const abort = new AbortController();
+  const isRunAborted = (): boolean => abort.signal.aborted;
   const recoverChunkBoundaries = options?.recoverChunkBoundaries === true;
   let chunkAbort: AbortController | null = recoverChunkBoundaries
     ? new AbortController()
@@ -1701,17 +1702,26 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
-  const checkSqlAbort = () => {
+  const checkSqlAbort = (
+    force = false,
+    includeTerminalStatus = true,
+  ): Promise<void> => {
     const now = Date.now();
-    if (now - lastAbortCheck < 3000) return;
-    lastAbortCheck = now;
-    getRunAbortState(runId)
+    if (!force) {
+      if (now - lastAbortCheck < 3000) return Promise.resolve();
+      lastAbortCheck = now;
+    }
+    return getRunAbortState(runId)
       .then(async (state) => {
         if (state.aborted && !abort.signal.aborted) {
           abortInMemoryRun(run, state.reason ?? "user");
           return;
         }
-        if (!abort.signal.aborted && !ownTerminalStatusEstablished) {
+        if (
+          includeTerminalStatus &&
+          !abort.signal.aborted &&
+          !ownTerminalStatusEstablished
+        ) {
           const status = await getRunStatus(runId);
           if (status !== null && status !== "running") {
             const pendingStatusWrite = terminalStatusWrite;
@@ -1808,7 +1818,7 @@ export function startRun(
           heartbeatInFlight = false;
         });
     }
-    checkSqlAbort();
+    void checkSqlAbort();
     checkNoProgressBackstop();
   }, 1500);
   const softTimeoutMs = resolveRunSoftTimeoutMs(options?.softTimeoutMs, {
@@ -2054,7 +2064,7 @@ export function startRun(
 
     if (!options?.surfacePersistenceError) publication.catch(() => {});
 
-    checkSqlAbort();
+    void checkSqlAbort();
     return publication;
   };
 
@@ -2094,14 +2104,16 @@ export function startRun(
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
       await withWorkerFence(async () => {
         if (executionLeaseClaimFailed || abort.signal.aborted) return;
+        await checkSqlAbort(true, false);
+        if (isRunAborted()) return;
         await runFn(send, runControl.chunkSignal, runControl);
       });
       return;
     }
-    if (servicePrincipalRunStart) {
-      await insertRunPromise;
-      if (abort.signal.aborted) return;
-    }
+    if (servicePrincipalRunStart) await insertRunPromise;
+    if (abort.signal.aborted) return;
+    await checkSqlAbort(true, false);
+    if (isRunAborted()) return;
     await runFn(send, runControl.chunkSignal, runControl);
   };
 
