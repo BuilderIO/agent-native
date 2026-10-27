@@ -8,11 +8,12 @@ const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
 
 describe("filesystemActionEntry", () => {
-  it("keeps the execution key and retry safety of a defineAction module", () => {
+  it("keeps the execution key, retry safety and zoneless-time zone of a defineAction module", () => {
     const action = defineAction({
       description: "Replace the dashboard config",
       schema: z.object({ id: z.string() }),
       retrySafe: true,
+      zonelessTimes: "calendar",
       run: async () => ({ ok: true }),
     });
     expect(keyOf(action)).toBeDefined();
@@ -21,6 +22,7 @@ describe("filesystemActionEntry", () => {
 
     expect(keyOf(entry)).toBe(keyOf(action));
     expect(entry.retrySafe).toBe(true);
+    expect(entry.zonelessTimes).toBe("calendar");
     expect(entry.run).toBe(action.run);
     // A registry rebuild spreads entries; the key has to survive the copy.
     expect(keyOf({ ...entry })).toBe(keyOf(action));

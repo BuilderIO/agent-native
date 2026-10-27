@@ -45,9 +45,15 @@ vi.mock("../server/request-context.js", async (importOriginal) => ({
   getRequestOrgId: () => "org-1",
 }));
 
-vi.mock("../mcp/approval-store.js", () => ({
+// No review page approval or earlier run on record.
+vi.mock("../mcp/approval-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../mcp/approval-store.js")>()),
   createMcpApprovalGrant: mocks.createMcpApprovalGrant,
   consumeMcpApprovalGrant: mocks.consumeMcpApprovalGrant,
+  consumeReviewedMcpApprovalGrant: vi.fn(async () => null),
+  answerMcpApprovalPrompt: vi.fn(async () => true),
+  findRecentMcpApprovalRun: vi.fn(async () => null),
+  recordMcpApprovalRun: vi.fn(async () => undefined),
 }));
 
 import { defineAction, type ActionCaller } from "../action.js";
@@ -417,7 +423,7 @@ describe("MCP automation approval", () => {
         name,
         args,
         callable: entries,
-        approval: { state: () => grant, decision: () => "decline" },
+        approval: { state: () => grant, decision: () => "deny" },
       });
       expect(denied.status).toBe("approval-denied");
       expect(run).not.toHaveBeenCalled();

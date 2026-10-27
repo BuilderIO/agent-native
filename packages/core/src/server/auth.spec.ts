@@ -3836,6 +3836,55 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("admits only a canonical registered approval path with a minted grant id", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth, registerAuthPublicPaths } =
+        await import("./auth.js");
+      const app = createMockApp();
+
+      registerAuthPublicPaths(
+        ["/_agent-native/org/apps/mcp/approvals/:id(uuidv4)"],
+        app,
+      );
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/org/apps/mcp/approvals/12345678-1234-4123-8123-123456789abc",
+          }),
+        ),
+      ).resolves.toBeUndefined();
+      // The review page is public only where an MCP mount registered it.
+      for (const path of [
+        "/_agent-native/org/apps/mcp/approvals",
+        "/_agent-native/org/apps/mcp/approvals/grant-1/more",
+        "/_agent-native/mcp/approvals/grant-1",
+        "/_agent-native/org/apps/mcp/approvals/grant-1",
+        "/_agent-native/org/apps/mcp/approvals/12345678-1234-1123-8123-123456789abc",
+        "/_agent-native/org/apps/mcp/approvals/12345678-1234-4123-7123-123456789abc",
+        "/_agent-native/org/apps/mcp/approvals/%2e%2e%5capi%5cprivate",
+      ]) {
+        await expect
+          .soft(guard(createJsonMethodEvent(path, "POST")), path)
+          .resolves.toEqual({
+            error: "Unauthorized",
+          });
+      }
+      for (const path of [
+        String.raw`/_agent-native/org/apps/mcp/approvals/..\..\..\..\..\api\private`,
+        "/_agent-native/org/apps/mcp/approvals/../api/private",
+      ]) {
+        const result = await guard(createJsonMethodEvent(path, "POST"));
+        expect(result, path).toBeInstanceOf(Response);
+        expect(result.status, path).toBe(400);
+      }
+    });
+
     it("allows framework-managed bearer routes to reach their own verifier", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -9701,6 +9750,162 @@ describe("server/auth", () => {
       const event = createMockEvent();
       expect(await authModule.getSession(event)).toEqual({
         email: "dev@local.test",
+      });
+    });
+
+    describe("getBrowserCookieSession", () => {
+      // A login token as the desktop and mobile apps hold it.
+      const LOGIN_TOKEN = "desktop-token-abc";
+
+      function mockLoginTokenDatabase() {
+        const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
+          if (typeof sql === "string" && sql.includes('FROM "user"')) {
+            return { rows: [{ email_verified: true }] };
+          }
+          if (
+            typeof sql === "string" &&
+            sql.includes("FROM sessions") &&
+            args?.[0] === LOGIN_TOKEN
+          ) {
+            return {
+              rows: [{ email: "user@gmail.com", created_at: Date.now() }],
+            };
+          }
+          return { rows: [] };
+        });
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({ execute: mockExecute }),
+          isLocalDatabase: () => true,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+      }
+
+      function withoutBetterAuth() {
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => undefined,
+          getBetterAuthSync: () => null,
+        }));
+      }
+
+      beforeEach(() => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+        delete process.env.AUTH_DISABLED;
+      });
+
+      it("reads Better Auth's session from the cookie alone", async () => {
+        const getBetterAuthSession = vi.fn(async ({ headers }: any) =>
+          headers.get("cookie")?.includes("an.session_token=signed-value")
+            ? {
+                user: { id: "user-1", email: "cookie@example.com" },
+                session: { token: "browser-session" },
+              }
+            : null,
+        );
+        const auth = { api: { getSession: getBetterAuthSession } };
+        vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          getBetterAuth: async () => auth,
+          getBetterAuthSync: () => auth,
+        }));
+        mockLoginTokenDatabase();
+
+        const { getBrowserCookieSession } = await import("./auth.js");
+        const session = await getBrowserCookieSession(
+          createMockEvent({
+            headers: {
+              cookie: "an.session_token=signed-value",
+              authorization: `Bearer ${LOGIN_TOKEN}`,
+            },
+          }),
+        );
+
+        expect(session).toMatchObject({
+          email: "cookie@example.com",
+          token: "browser-session",
+        });
+        const sent = getBetterAuthSession.mock.calls[0]![0].headers as Headers;
+        expect([...sent.keys()]).toEqual(["cookie"]);
+      });
+
+      it("takes a login token only as the framework's session cookie", async () => {
+        withoutBetterAuth();
+        mockLoginTokenDatabase();
+
+        const { getBrowserCookieSession, getSession, COOKIE_NAME } =
+          await import("./auth.js");
+        const bearer = () =>
+          createMockEvent({
+            headers: { authorization: `Bearer ${LOGIN_TOKEN}` },
+          });
+
+        await expect(getSession(bearer())).resolves.toMatchObject({
+          email: "user@gmail.com",
+        });
+        await expect(getBrowserCookieSession(bearer())).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({ query: { _session: LOGIN_TOKEN } }),
+          ),
+        ).resolves.toBeNull();
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: { cookie: `${COOKIE_NAME}=${LOGIN_TOKEN}` },
+            }),
+          ),
+        ).resolves.toMatchObject({ email: "user@gmail.com" });
+      });
+
+      it("ignores an embed session, in its cookie or its query token", async () => {
+        withoutBetterAuth();
+        mockLoginTokenDatabase();
+        vi.doMock("./embed-session.js", async (importOriginal) => ({
+          ...(await importOriginal<object>()),
+          resolveEmbedSessionFromRequest: vi.fn(async () => ({
+            email: "ticket-owner@example.com",
+            token: "signed-full-scope-embed",
+            targetPath: "/",
+            scope: "full",
+          })),
+        }));
+
+        const { getBrowserCookieSession, getSession } =
+          await import("./auth.js");
+        const embedded = () =>
+          createMockEvent({
+            path: "/_agent-native/mcp/approvals/grant",
+            query: { token: "signed-full-scope-embed" },
+            headers: {
+              cookie: `${EMBED_SESSION_COOKIE}=signed-full-scope-embed`,
+            },
+          });
+
+        await expect(getSession(embedded())).resolves.toMatchObject({
+          email: "ticket-owner@example.com",
+        });
+        await expect(getBrowserCookieSession(embedded())).resolves.toBeNull();
+      });
+
+      it("has no session in an app whose custom resolver decides identity", async () => {
+        withoutBetterAuth();
+        mockLoginTokenDatabase();
+
+        const { autoMountAuth, getBrowserCookieSession, COOKIE_NAME } =
+          await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getSession: async () => ({ email: "custom@example.com" }),
+        });
+
+        await expect(
+          getBrowserCookieSession(
+            createMockEvent({
+              headers: { cookie: `${COOKIE_NAME}=${LOGIN_TOKEN}` },
+            }),
+          ),
+        ).resolves.toBeNull();
       });
     });
 
