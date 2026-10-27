@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   _resetOrgDirectoryCache,
   fetchOrgApps,
@@ -9,6 +10,7 @@ import {
 
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
+const getOrgWorkspaceUrlMock = vi.hoisted(() => vi.fn());
 const signA2AOrganizationTokenMock = vi.hoisted(() => vi.fn());
 
 const ORIGINAL_ENV = { ...process.env };
@@ -17,6 +19,7 @@ function resetEnv() {
   process.env = { ...ORIGINAL_ENV };
   delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+  delete process.env.A2A_SECRET;
 }
 
 beforeEach(() => {
@@ -25,6 +28,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getOrgDomainMock.mockResolvedValue("acme.com");
   getOrgA2ASecretMock.mockResolvedValue("org-secret");
+  getOrgWorkspaceUrlMock.mockResolvedValue(null);
   signA2AOrganizationTokenMock.mockImplementation(
     async (
       _orgDomain: string,
@@ -55,6 +59,7 @@ vi.mock("../a2a/caller-auth.js", () => ({
 vi.mock("../org/context.js", () => ({
   getOrgDomain: getOrgDomainMock,
   getOrgA2ASecret: getOrgA2ASecretMock,
+  getOrgWorkspaceUrl: getOrgWorkspaceUrlMock,
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -219,6 +224,193 @@ describe("fetchOrgApps", () => {
       "https://configured.example",
     );
   });
+
+  it("prefers the organization's bound workspace over the deployment directory URL", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://legacy-dispatch.example";
+    getOrgWorkspaceUrlMock.mockResolvedValue("https://workspace.example");
+    const fetchSpy = vi.fn(
+      async () => new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ selfId: "analytics", serviceOrgId: "org-123" }),
+    ).resolves.toEqual({ status: "available", apps: [] });
+
+    expect(getOrgWorkspaceUrlMock).toHaveBeenCalledWith("org-123");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://workspace.example/dispatch/_agent-native/org/apps",
+      expect.any(Object),
+    );
+    expect(signA2AOrganizationTokenMock).toHaveBeenCalledWith(
+      "acme.com",
+      "org-secret",
+      undefined,
+      expect.objectContaining({
+        audience: "https://workspace.example/dispatch/_agent-native/org/apps",
+      }),
+    );
+  });
+
+  it("uses the request organization's workspace when no service org is passed", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://legacy-dispatch.example";
+    getOrgWorkspaceUrlMock.mockResolvedValue("https://workspace.example");
+    const fetchSpy = vi.fn(
+      async () => new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await runWithRequestContext({ orgId: "request-org" }, async () => {
+      await expect(
+        fetchOrgAppsResult({ selfId: "analytics" }),
+      ).resolves.toEqual({ status: "available", apps: [] });
+    });
+
+    expect(getOrgWorkspaceUrlMock).toHaveBeenCalledWith("request-org");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://workspace.example/dispatch/_agent-native/org/apps",
+      expect.any(Object),
+    );
+  });
+
+  it("keeps an explicit directory base URL authoritative", async () => {
+    getOrgWorkspaceUrlMock.mockResolvedValue("not a valid owner binding");
+    const fetchSpy = vi.fn(
+      async () => new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({
+        directoryBaseUrl: "https://explicit-directory.example",
+        selfId: "analytics",
+        serviceOrgId: "org-123",
+      }),
+    ).resolves.toEqual({ status: "available", apps: [] });
+
+    expect(getOrgWorkspaceUrlMock).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://explicit-directory.example/_agent-native/org/apps",
+      expect.any(Object),
+    );
+  });
+
+  it("fails closed on an invalid bound workspace instead of using the deployment URL", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://legacy-dispatch.example";
+    getOrgWorkspaceUrlMock.mockResolvedValue(
+      "https://user:password@workspace.example",
+    );
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ serviceOrgId: "org-123" }),
+    ).resolves.toEqual({ status: "unavailable", reason: "invalid-origin" });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the owner-bound workspace lookup is unavailable", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://legacy-dispatch.example";
+    getOrgWorkspaceUrlMock.mockRejectedValue(new Error("database unavailable"));
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ serviceOrgId: "org-123" }),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "workspace-url-unavailable",
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the deployment directory URL when the organization has no workspace binding", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://legacy-dispatch.example";
+    const fetchSpy = vi.fn(
+      async () => new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ serviceOrgId: "org-123" }),
+    ).resolves.toEqual({ status: "available", apps: [] });
+
+    expect(getOrgWorkspaceUrlMock).toHaveBeenCalledWith("org-123");
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://legacy-dispatch.example/_agent-native/org/apps",
+      expect.any(Object),
+    );
+  });
+
+  it("retries an owner-bound mount at the root only after a missing route", async () => {
+    getOrgWorkspaceUrlMock.mockResolvedValue("https://workspace.example");
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchOrgAppsResult({ serviceOrgId: "org-123" }),
+    ).resolves.toEqual({ status: "available", apps: [] });
+
+    expect(fetchSpy.mock.calls.map(([url]) => url)).toEqual([
+      "https://workspace.example/dispatch/_agent-native/org/apps",
+      "https://workspace.example/_agent-native/org/apps",
+    ]);
+    expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
+      1,
+      "acme.com",
+      "org-secret",
+      undefined,
+      expect.objectContaining({
+        audience: "https://workspace.example/dispatch/_agent-native/org/apps",
+      }),
+    );
+    expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
+      2,
+      "acme.com",
+      "org-secret",
+      undefined,
+      expect.objectContaining({
+        audience: "https://workspace.example/_agent-native/org/apps",
+      }),
+    );
+  });
+
+  it.each([
+    [401, "unauthorized"],
+    [403, "authorization"],
+    [503, "server-error"],
+  ] as const)(
+    "does not retry an owner-bound directory at the root after HTTP %s",
+    async (status, reason) => {
+      getOrgWorkspaceUrlMock.mockResolvedValue("https://workspace.example");
+      const fetchSpy = vi.fn(async () => new Response("failure", { status }));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        fetchOrgAppsResult({ serviceOrgId: "org-123" }),
+      ).resolves.toEqual({ status: "unavailable", reason });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://workspace.example/dispatch/_agent-native/org/apps",
+        expect.any(Object),
+      );
+    },
+  );
 
   it("passes the Vercel protection bypass to the configured directory", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";

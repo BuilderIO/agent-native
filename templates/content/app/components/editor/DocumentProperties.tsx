@@ -95,6 +95,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { Link } from "react-router";
@@ -321,11 +322,67 @@ function propertyValueTextClass(presentation: PropertyValuePresentation) {
     : "truncate whitespace-nowrap";
 }
 
+/** A URL property's value as a link target: only http(s) addresses open. */
+export function propertyUrlHref(value: DocumentProperty["value"]) {
+  return typeof value === "string" && isHttpUrl(value) ? value.trim() : null;
+}
+
+/**
+ * Whether a property's value renders links, so its value editor gets its own
+ * trigger button beside them rather than wrapping them in button semantics.
+ */
+export function propertyValueHasLinks(property: DocumentProperty) {
+  const type = property.definition.type;
+  return (
+    type === "relation" ||
+    (type === "url" && propertyUrlHref(property.value) !== null)
+  );
+}
+
+// Links inside a cell, row or card keep the click to themselves: the cell
+// opens the value editor, and rows and cards open their page.
+const keepEventOnLink = {
+  onClick: (event: ReactMouseEvent) => event.stopPropagation(),
+  onPointerDown: (event: ReactPointerEvent) => event.stopPropagation(),
+  onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
+};
+
+/** A web address that opens in a new tab. */
+export function PropertyUrlLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+      // Ringed inside, since cells, rows and cards clip what overflows them.
+      className={cn(
+        "rounded-sm underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        className,
+      )}
+      {...keepEventOnLink}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function displayValue(
   property: DocumentProperty,
   t?: TFunction,
   presentation: PropertyValuePresentation = "compact",
-  displayOptions: { interactiveRelations?: boolean } = {},
+  displayOptions: {
+    interactiveRelations?: boolean;
+    interactiveUrls?: boolean;
+  } = {},
 ) {
   const value = property.value;
   const type = property.definition.type;
@@ -460,15 +517,30 @@ export function displayValue(
   }
 
   if (type === "url" && typeof value === "string") {
+    const href = displayOptions.interactiveUrls ? propertyUrlHref(value) : null;
+    if (!href) {
+      return (
+        <span
+          className={cn(
+            "underline decoration-muted-foreground/40 underline-offset-2",
+            propertyValueTextClass(presentation),
+          )}
+        >
+          {value}
+        </span>
+      );
+    }
     return (
-      <span
+      <PropertyUrlLink
+        href={href}
+        // Sized to the cell, so its click target covers only the visible text.
         className={cn(
-          "underline decoration-muted-foreground/40 underline-offset-2",
+          "inline-block max-w-full align-top",
           propertyValueTextClass(presentation),
         )}
       >
         {value}
-      </span>
+      </PropertyUrlLink>
     );
   }
 
@@ -580,6 +652,10 @@ export function filesMediaEditorValue(value: DocumentProperty["value"]) {
 }
 
 export function isValidFilesMediaLink(value: string) {
+  return isHttpUrl(value);
+}
+
+function isHttpUrl(value: string) {
   try {
     const url = new URL(value.trim());
     return url.protocol === "http:" || url.protocol === "https:";
@@ -675,11 +751,7 @@ function RelationPill({
         className,
         "underline-offset-2 hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
-      // Keep the click on the link: the surrounding cell opens the value
-      // editor, and table rows / cards have their own click handlers.
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-      onKeyDown={(event) => event.stopPropagation()}
+      {...keepEventOnLink}
     >
       {content}
     </Link>
@@ -1097,9 +1169,13 @@ function PropertyRow({
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
   const commentState = usePropertyCommentRowState(property.definition.id);
+  const editable = canEditValues && property.editable;
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t, "compact", { interactiveRelations: true })}
+      {displayValue(property, t, "compact", {
+        interactiveRelations: true,
+        interactiveUrls: true,
+      })}
     </div>
   );
 
@@ -1108,8 +1184,12 @@ function PropertyRow({
       className={cn(
         "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
         // The Comment control floats at the right edge; room is kept for
-        // it only while it stays visible, so narrow panels keep their values.
-        commentState.enabled && commentState.shown && "pr-10",
+        // it only while it stays visible, so narrow panels keep their values,
+        // or where it would cover the edit button beside a value's links.
+        commentState.enabled &&
+          (commentState.shown ||
+            (editable && propertyValueHasLinks(property))) &&
+          "pr-10",
         commentState.enabled &&
           commentState.pending &&
           "comment-highlight--pending comment-property-row--pending",
@@ -1165,7 +1245,7 @@ function PropertyRow({
         >
           {value}
         </BuilderStatusPicker>
-      ) : canEditValues && property.editable ? (
+      ) : editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -2406,9 +2486,10 @@ export function PropertyValuePopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      {property.definition.type === "relation" ? (
-        // Relation values render links, so the picker gets its own trigger
-        // button beside them rather than wrapping them in button semantics.
+      {propertyValueHasLinks(property) ? (
+        // Relation pages and web addresses render links, so the editor gets
+        // its own trigger button beside them rather than wrapping them in
+        // button semantics.
         <PopoverAnchor asChild>
           <div
             className="group flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-1 rounded px-1 hover:bg-accent"
@@ -2424,7 +2505,7 @@ export function PropertyValuePopover({
               <button
                 type="button"
                 aria-label={editLabel}
-                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 aria-expanded:opacity-100"
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
               >
                 <IconEdit className="size-3.5" />
               </button>

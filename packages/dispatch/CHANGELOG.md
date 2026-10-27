@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.40.40
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ddd3bd1]
+- Updated dependencies [4ea7d64]
+- Updated dependencies
+- Updated dependencies [0c211bc]
+- Updated dependencies [b73b8ef]
+  - @agent-native/toolkit@0.220.0
+
 ## 0.40.39
 
 ### Patch Changes
@@ -1338,11 +1350,5 @@
 
 - Updated dependencies [fc85cb2]
   - @agent-native/toolkit@0.16.7
-
-## 0.30.3
-
-### Patch Changes
-
-- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -46,7 +46,7 @@ function configString(
 
 export default defineAction({
   description:
-    "Read the organization's dbt Cloud Semantic Layer connection for Analytics: status, environment ID, GraphQL URL, and whether the token is saved. `readiness` names the first missing step: ready, not_connected, token_missing, environment_missing, needs_reauth, or error. `connected` is true only when ready. With several dbt connections, top-level connection fields and readiness are null: pick one `connections[].id` for query-dbt-semantic-metric. Never returns the token value. Read-only.",
+    "Read the organization's dbt Cloud Semantic Layer connection for Analytics: status, environment ID, GraphQL URL, and whether the token is saved. `readiness` names the first missing step: ready, not_connected, token_missing, environment_missing, environment_invalid, checking, disabled, needs_reauth, or error. `connected` is true only when one connection is ready. With several, `connected` is false and top-level readiness is null: check each `connections[].readiness` and pick a `connections[].id` for query-dbt-semantic-metric. Never returns the token value. Read-only.",
   schema: z.object({}),
   outputSchema: z.object({
     connected: z.boolean(),

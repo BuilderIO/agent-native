@@ -190,7 +190,6 @@ export function useEditorToolsAndVectors({
     designSelectionOwnerIdRef,
     setDrawMode,
     setPinMode,
-    resetAgentGenerating,
     pendingQuestions,
     design,
     canEditDesign,
@@ -1460,10 +1459,6 @@ export function useEditorToolsAndVectors({
       t,
     ],
   );
-
-  useEffect(() => {
-    if (files.length > 0) resetAgentGenerating();
-  }, [files.length, resetAgentGenerating]);
 
   const handleTweakPromptSubmit = useCallback(
     (

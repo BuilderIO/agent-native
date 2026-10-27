@@ -1,5 +1,6 @@
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import {
   executeSandboxCode,
   type SandboxCodeEvaluator,
@@ -18,7 +19,7 @@ export function createToolOrchestrationEntry(
   options: { evaluator?: SandboxCodeEvaluator } = {},
 ): ActionEntry {
   const evaluator = options.evaluator ?? "node";
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     allowInPlanMode: false,
     timeoutMs: MAX_TIMEOUT_MS,
@@ -97,7 +98,7 @@ export function createToolOrchestrationEntry(
       });
       return formatResult(result, timeoutMs, maxOutputChars);
     },
-  };
+  });
 }
 
 function formatResult(

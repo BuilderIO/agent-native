@@ -239,6 +239,16 @@ export function runPublishAgentSelectionContext({
           ? motionDockLiveState.selectedKeyframeIds[0]
           : null,
       selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
+      selectedEasingSegment: motionDockLiveState.selectedEasingSegment
+        ? {
+            trackId: motionDockLiveState.selectedEasingSegment.trackId,
+            targetNodeId:
+              motionDockLiveState.selectedEasingSegment.targetNodeId,
+            property: motionDockLiveState.selectedEasingSegment.property,
+            fromT: motionDockLiveState.selectedEasingSegment.fromT,
+            toT: motionDockLiveState.selectedEasingSegment.toT,
+          }
+        : null,
     },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500

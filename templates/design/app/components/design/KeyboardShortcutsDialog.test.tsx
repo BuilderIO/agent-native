@@ -8,6 +8,7 @@ import {
   DESIGN_SHORTCUT_CATEGORIES,
   DESIGN_SHORTCUTS,
 } from "@/components/design/keyboard-shortcuts";
+import { isApplePlatform } from "@/hooks/useDesignHotkeys";
 import enUS from "@/i18n/en-US";
 
 function lookup(key: string): string {
@@ -91,16 +92,28 @@ describe("KeyboardShortcutsDialog", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("lists the same 13 categories in catalog order", async () => {
+  it("lists the canvas categories in catalog order, then Code", async () => {
     await renderDialog();
     expect(categoryButtons().map((b) => b.dataset.shortcutsCategory)).toEqual([
       ...DESIGN_SHORTCUT_CATEGORIES,
+      "code",
     ]);
     expect(
       Array.from(
         document.querySelectorAll<HTMLElement>("[data-shortcut-section]"),
       ).map((s) => s.dataset.shortcutSection),
-    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES]);
+    ).toEqual([...DESIGN_SHORTCUT_CATEGORIES, "code"]);
+    const buttons = categoryButtons();
+    expect(buttons[buttons.length - 1]?.textContent).toBe("Code");
+  });
+
+  it("names every command in one sentence-case form with no stray ellipsis", () => {
+    const commands = enUS.designEditor.keyboardShortcuts.commands;
+    for (const label of Object.values(commands)) {
+      expect(label).not.toMatch(/\.\.\.|\bShow\/|\/[Hh]ide\b/);
+    }
+    expect(commands.commentTool).toBe(enUS.designEditor.pinComment);
+    expect(enUS.layersPanel.searchPlaceholder).toBe("Search layers");
   });
 
   it("shows Essential as plain rows, not tutorial cards", async () => {
@@ -143,7 +156,11 @@ describe("KeyboardShortcutsDialog", () => {
     const all = Array.from(
       document.querySelectorAll<HTMLElement>("[data-shortcut-id]"),
     ).map((row) => row.dataset.shortcutId);
-    expect(all.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
+    expect(all.sort()).toEqual(
+      DESIGN_SHORTCUTS.filter((item) => isApplePlatform() || !item.appleOnly)
+        .map((item) => item.id)
+        .sort(),
+    );
   });
 
   it("filters rows across categories and hides empty categories", async () => {
@@ -187,38 +204,7 @@ describe("KeyboardShortcutsDialog", () => {
     expect(categoryButtons()[0]?.getAttribute("aria-current")).toBeNull();
   });
 
-  it("keeps the nudge-size fields in the Cursor section", async () => {
-    const onNudgeAmountsChange = vi.fn();
-    await renderDialog({
-      nudgeAmounts: { small: 1, big: 10 },
-      onNudgeAmountsChange,
-    });
-    const field = document.querySelector<HTMLInputElement>(
-      '[data-shortcut-section="cursor"] [data-nudge-amount="big"]',
-    )!;
-    expect(field.value).toBe("10");
-    const setter = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!;
-    await act(async () => {
-      setter.call(field, "25");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(onNudgeAmountsChange).toHaveBeenCalledWith({ small: 1, big: 25 });
-  });
-
-  it("focuses the small nudge field when opened for the nudge amount", async () => {
-    await renderDialog({
-      initialFocus: "nudge",
-      nudgeAmounts: { small: 1, big: 10 },
-      onNudgeAmountsChange: vi.fn(),
-    });
-    expect(document.activeElement).toBe(
-      document.querySelector('[data-nudge-amount="small"]'),
-    );
-  });
-
+  // oracle-change: nudge fields moved out of this dialog into NudgeAmountDialog, whose own test covers them.
   it("closes on Escape and consumes the event so editor hotkeys never see it", async () => {
     const { onClose } = await renderDialog();
     const event = new KeyboardEvent("keydown", {

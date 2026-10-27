@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconChevronDown,
@@ -19,9 +20,14 @@ export interface WriteCellMeta {
 interface WriteCellProps {
   meta: WriteCellMeta;
   isRunning: boolean;
+  defaultExpanded?: boolean;
+  /** Render only the file body, for hosts that already show the path. */
+  hideHeader?: boolean;
 }
 
 const MAX_COLLAPSED_LINES = 40;
+const TOOL_CELL_ROW_CLASS =
+  "agent-kit-activity-row flex w-full min-w-0 items-center gap-2 py-1 text-start text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/50 focus-visible:outline-none";
 
 const FileContentView = memo(function FileContentView({
   content,
@@ -38,14 +44,14 @@ const FileContentView = memo(function FileContentView({
       <table className="w-full min-w-full border-collapse font-mono text-[11px] leading-relaxed">
         <tbody>
           {visible.map((line, idx) => (
-            <tr key={idx} className="bg-emerald-500/8 dark:bg-emerald-400/8">
+            <tr key={idx} className="bg-[hsl(var(--agent-kit-positive)/0.08)]">
               <td className="w-8 select-none border-r border-border/30 px-1.5 text-right text-[10px] text-muted-foreground/60">
                 {idx + 1}
               </td>
-              <td className="w-4 select-none text-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+              <td className="agent-kit-tone-positive w-4 select-none text-center text-[10px] font-bold">
                 +
               </td>
-              <td className="px-2 text-emerald-800 dark:text-emerald-200">
+              <td className="px-2 text-foreground">
                 <span
                   style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
                 >
@@ -60,8 +66,14 @@ const FileContentView = memo(function FileContentView({
   );
 });
 
-export function WriteCell({ meta, isRunning }: WriteCellProps) {
-  const [expanded, setExpanded] = useState(false);
+export function WriteCell({
+  meta,
+  isRunning,
+  defaultExpanded = false,
+  hideHeader = false,
+}: WriteCellProps) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAll, setShowAll] = useState(false);
 
   const hasContent = Boolean(meta.content);
@@ -72,70 +84,65 @@ export function WriteCell({ meta, isRunning }: WriteCellProps) {
   const hiddenLines =
     maxCollapsed !== null ? totalLines - MAX_COLLAPSED_LINES : 0;
 
+  const body = meta.content ? (
+    <div className="mt-1 overflow-hidden rounded-md border border-border/60 bg-background">
+      <FileContentView content={meta.content} maxLines={maxCollapsed} />
+      {hiddenLines > 0 && (
+        <div className="border-t border-border/40 px-3 py-1 text-xs text-muted-foreground">
+          <button
+            type="button"
+            className="cursor-pointer underline hover:text-foreground"
+            onClick={() => setShowAll(true)}
+          >
+            {t("agentChat.toolCells.showMoreLines", { count: hiddenLines })}
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  if (hideHeader) return <div className="my-1 w-full">{body}</div>;
+
   return (
-    <div className="my-1 overflow-hidden rounded-md border border-border/60">
-      {/* Header */}
+    <div className="my-1 w-full">
       <button
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
         className={cn(
-          "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-mono",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
-          hasContent && "cursor-pointer",
-          !hasContent && "cursor-default",
+          TOOL_CELL_ROW_CLASS,
+          hasContent ? "cursor-pointer" : "cursor-default",
         )}
         aria-expanded={hasContent ? expanded : undefined}
       >
-        <span className="shrink-0">
+        <span className="flex shrink-0">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-4 animate-spin motion-reduce:animate-none" />
           ) : (
-            <IconFilePlus className="h-3 w-3 text-emerald-500" />
+            <IconFilePlus className="agent-kit-tone-positive size-4" />
           )}
         </span>
-
-        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate font-mono text-foreground">
           {meta.filePath}
         </span>
 
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        <span className="ms-auto flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
           {meta.lineCount !== undefined && !isRunning && (
-            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-              +{meta.lineCount}
-            </span>
+            <span className="agent-kit-tone-positive">+{meta.lineCount}</span>
           )}
-          {meta.truncated && (
-            <span className="text-[10px] text-muted-foreground">(partial)</span>
-          )}
+          {meta.truncated && <span>{t("agentChat.toolCells.partial")}</span>}
           {hasContent && (
             <IconChevronDown
-              className={cn("h-3 w-3 opacity-40", expanded && "rotate-180")}
+              aria-hidden="true"
+              className={cn(
+                "size-4 opacity-60 transition-transform duration-150 motion-reduce:transition-none",
+                expanded && "rotate-180",
+              )}
             />
           )}
         </span>
       </button>
 
-      {/* Content body */}
-      <AnimatedCollapse open={expanded && hasContent}>
-        {meta.content && (
-          <div className="border-t border-border/40 bg-background">
-            <FileContentView content={meta.content} maxLines={maxCollapsed} />
-            {hiddenLines > 0 && (
-              <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
-                <button
-                  type="button"
-                  className="cursor-pointer underline hover:text-foreground"
-                  onClick={() => setShowAll(true)}
-                >
-                  Show {hiddenLines} more lines
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </AnimatedCollapse>
+      <AnimatedCollapse open={expanded && hasContent}>{body}</AnimatedCollapse>
     </div>
   );
 }

@@ -260,12 +260,14 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
     uiImplementation:
-      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, and seeds an empty live editor from the saved body; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
+      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, seeds an empty live editor from the saved body, and takes a newer saved body into open live editors exactly once; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
     status: "action-backed",
     actions: [
+      "adopt-document-snapshot",
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
+      "record-editor-merge",
       "record-editor-mount",
       "record-live-body-parity",
       "seed-document-collab",
@@ -275,7 +277,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding, editor mount counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -284,8 +286,11 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-merge-telemetry.test.ts",
       "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
       "server/live-copy/live-copy.test.ts",
     ],

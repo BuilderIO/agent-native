@@ -7,7 +7,7 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
@@ -58,6 +58,11 @@ import {
   trackRunTerminal,
   type RunTerminalTrackingFields,
 } from "./run-terminal-tracking.js";
+import {
+  ensureAgentToolApprovalTable,
+  getPendingCurrentTurnApprovals,
+  hasPendingCurrentTurnApproval,
+} from "./tool-approval-store.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -288,7 +293,9 @@ export const agentRunsStore = defineStore({
           dispatch_payload TEXT,
           peak_rss_mb BIGINT,
           continuation_order BIGINT,
-          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE
+          thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE,
+          thread_projection_retry_order BIGINT,
+          thread_projection_error_code TEXT
         )
       `;
         const agentRunEventsCreateSql = `
@@ -354,6 +361,8 @@ export const agentRunsStore = defineStore({
           ["continuation_order", "BIGINT"],
           ["auto_continue_of", "TEXT"],
           ["thread_projection_pending", "BOOLEAN NOT NULL DEFAULT FALSE"],
+          ["thread_projection_retry_order", "BIGINT"],
+          ["thread_projection_error_code", "TEXT"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -409,6 +418,75 @@ export const agentRunsStore = defineStore({
       },
     },
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
+    {
+      name: "thread-projection-retry-quarantine-runtime-schema",
+      run: async (exec) => {
+        await exec.execute({
+          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
+        });
+        await exec.execute({
+          sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+                ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+                WHERE thread_projection_pending IS TRUE`,
+        });
+      },
+    },
+    {
+      name: "agent-run-harness-transcript-order-runtime-schema",
+      run: async (exec) => {
+        await ensureColumnExists(
+          "agent_run_events",
+          "transcript_order",
+          "ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS transcript_order BIGINT",
+        );
+        await exec.execute({
+          sql: `CREATE OR REPLACE FUNCTION agent_run_events_assign_harness_transcript_order()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                DECLARE
+                  session_record_id TEXT;
+                  next_transcript_order BIGINT;
+                BEGIN
+                  IF to_regclass('agent_harness_sessions') IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM pg_attribute
+                    WHERE attrelid = to_regclass('agent_harness_sessions')
+                      AND attname = 'transcript_order' AND NOT attisdropped
+                  ) THEN
+                    RETURN NEW;
+                  END IF;
+                  EXECUTE 'SELECT id FROM agent_harness_sessions
+                           WHERE run_id = $1 ORDER BY id LIMIT 1'
+                    INTO session_record_id USING NEW.run_id;
+                  IF session_record_id IS NULL THEN
+                    RETURN NEW;
+                  END IF;
+                  EXECUTE 'UPDATE agent_harness_sessions
+                           SET transcript_order = transcript_order + 1
+                           WHERE id = $1 RETURNING transcript_order'
+                    INTO next_transcript_order USING session_record_id;
+                  NEW.transcript_order := next_transcript_order;
+                  RETURN NEW;
+                END $$`,
+        });
+        await exec.execute({
+          sql: `CREATE OR REPLACE TRIGGER agent_run_events_harness_transcript_order
+                BEFORE INSERT ON agent_run_events
+                FOR EACH ROW EXECUTE FUNCTION agent_run_events_assign_harness_transcript_order()`,
+        });
+      },
+    },
+    {
+      name: "agent-run-admission-order",
+      // Set the volatile default separately so existing run history is not rewritten.
+      sql: [
+        "CREATE SEQUENCE IF NOT EXISTS agent_run_admission_order_seq",
+        "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS admission_order BIGINT",
+        `ALTER TABLE agent_runs ALTER COLUMN admission_order
+           SET DEFAULT nextval('agent_run_admission_order_seq')`,
+      ],
+    },
   ],
 });
 
@@ -705,6 +783,25 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
+const ARGUMENTS_HASH_INPUT_PREFIX = '{"argumentsHash":';
+
+/**
+ * A model step's input snapshot keeps the arguments' key order, which a
+ * re-emitted call need not repeat; its exact arguments hash does not.
+ */
+function executionStepInputIdentity(
+  inputJson: string | undefined,
+): string | undefined {
+  if (!inputJson?.startsWith(ARGUMENTS_HASH_INPUT_PREFIX)) return inputJson;
+  const { argumentsHash } = JSON.parse(inputJson) as {
+    argumentsHash?: unknown;
+  };
+  if (typeof argumentsHash !== "string") {
+    throw new Error("Execution step input has an unreadable arguments hash");
+  }
+  return `arguments:${argumentsHash}`;
+}
+
 /** Persist intent before dispatch and decide whether an interrupted call may run again. */
 export async function beginAgentExecutionStep(
   intent: AgentExecutionStepIntent,
@@ -755,7 +852,8 @@ export async function beginAgentExecutionStep(
       if (
         row.operation_id !== intent.operationId ||
         row.tool_name !== intent.toolName ||
-        row.input_json !== intent.inputJson
+        executionStepInputIdentity(row.input_json) !==
+          executionStepInputIdentity(intent.inputJson)
       ) {
         throw new Error(
           `Execution step ${intent.stepId} was retried with a different intent`,
@@ -838,6 +936,122 @@ export async function markAgentExecutionStepDispatched(
   if (result.rowsAffected !== 1) {
     throw new Error(`Execution step ${intent.stepId} was not prepared`);
   }
+}
+
+export async function resetAgentExecutionStepBeforeInvocation(
+  intent: AgentExecutionStepIntent,
+): Promise<void> {
+  await ensureRunTables();
+  const expectedFence: ExecutionFence = {
+    threadId: intent.threadId,
+    turnId: intent.turnId,
+    runId: intent.runId,
+    generation: intent.generation,
+  };
+  try {
+    const result = await withAgentExecutionStepIntentFence(intent, (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_steps
+              SET status = 'prepared', dispatched_at = NULL,
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+                AND run_id = ? AND generation = CAST(? AS BIGINT)
+                AND status IN ('prepared', 'dispatched')`,
+        args: [
+          intent.threadId,
+          intent.turnId,
+          intent.stepId,
+          intent.runId,
+          intent.generation,
+        ],
+      }),
+    );
+    if (result.rowsAffected !== 1) {
+      throw new Error(
+        `Execution step ${intent.stepId} was not reset before invocation`,
+      );
+    }
+    return;
+  } catch (error) {
+    if (!(error instanceof StaleExecutionFenceError)) throw error;
+    const activeFence = currentExecutionFence();
+    if (
+      !activeFence ||
+      activeFence.threadId !== expectedFence.threadId ||
+      activeFence.turnId !== expectedFence.turnId ||
+      activeFence.runId !== expectedFence.runId ||
+      activeFence.generation !== expectedFence.generation
+    ) {
+      throw error;
+    }
+  }
+
+  const reconcileWithCurrentLease = async (tx: DbExec) => {
+    await lockAndAssertCurrentExecutionFences(tx, expectedFence);
+    const currentLease = await lockTurnExecutionLease(
+      tx,
+      intent.threadId,
+      intent.turnId,
+    );
+    if (!currentLease?.isLive) {
+      throw new StaleExecutionFenceError(expectedFence);
+    }
+    const currentOwner = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs
+            WHERE id = ? FOR UPDATE`,
+      args: [currentLease.ownerRunId],
+    });
+    const owner = currentOwner.rows[0] as
+      | { status?: string; worker_generation?: number | string | null }
+      | undefined;
+    const currentFence = {
+      threadId: intent.threadId,
+      turnId: intent.turnId,
+      runId: currentLease.ownerRunId,
+      generation: currentLease.generation,
+    };
+    if (
+      owner?.status !== "running" ||
+      String(owner.worker_generation) !== currentLease.generation
+    ) {
+      throw new StaleExecutionFenceError(currentFence);
+    }
+    const reconciled = await tx.execute({
+      sql: `UPDATE agent_execution_steps
+            SET status = 'prepared', run_id = ?,
+                generation = CAST(? AS BIGINT), dispatched_at = NULL,
+                updated_at = clock_timestamp()
+            WHERE thread_id = ? AND turn_id = ? AND step_id = ?
+              AND run_id = ? AND generation = CAST(? AS BIGINT)
+              AND status IN ('prepared', 'dispatched', 'unknown')`,
+      args: [
+        currentLease.ownerRunId,
+        currentLease.generation,
+        intent.threadId,
+        intent.turnId,
+        intent.stepId,
+        intent.runId,
+        intent.generation,
+      ],
+    });
+    if (reconciled.rowsAffected !== 1) {
+      throw new Error(
+        `Execution step ${intent.stepId} was not reconciled under the current lease`,
+      );
+    }
+  };
+
+  const client = getDbExec();
+  if (getScopedTransactionDbExec() === client) {
+    await reconcileWithCurrentLease(client);
+    return;
+  }
+  if (!client.transaction) {
+    throw new Error(
+      "Execution step reconciliation requires transaction support",
+    );
+  }
+  await client.transaction(reconcileWithCurrentLease);
 }
 
 export async function completeAgentExecutionStep(
@@ -974,7 +1188,21 @@ export async function getCompletedAgentExecutionSteps(
               AND step_id IN (${batch.map(() => "?").join(", ")})`,
       args: [threadId, turnId, ...batch],
     });
-    for (const raw of rows.rows) {
+    for (const [batchRowIndex, raw] of rows.rows.entries()) {
+      const rowIndex = offset + batchRowIndex;
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              "Completed execution-step lookup returned an invalid row",
+            ),
+          },
+        );
+      }
       const row = raw as {
         step_id?: unknown;
         operation_id?: unknown;
@@ -983,18 +1211,36 @@ export async function getCompletedAgentExecutionSteps(
         result_json?: unknown;
       };
       if (typeof row.step_id !== "string" || !batch.includes(row.step_id)) {
-        throw new Error(
-          "Completed execution-step lookup returned an invalid step id",
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              "Completed execution-step lookup returned an invalid step id",
+            ),
+          },
         );
       }
       if (
         typeof row.operation_id !== "string" ||
+        row.operation_id.trim().length === 0 ||
         typeof row.tool_name !== "string" ||
+        row.tool_name.trim().length === 0 ||
         typeof row.input_json !== "string" ||
         typeof row.result_json !== "string"
       ) {
-        throw new Error(
-          `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+        throw new AgentRunJournalUnreadableError(
+          threadId,
+          turnId,
+          rowIndex,
+          "invalid_execution_step",
+          {
+            cause: new Error(
+              `Completed execution step ${row.step_id} has an incomplete stored intent or result`,
+            ),
+          },
         );
       }
       completed.push({
@@ -1334,7 +1580,7 @@ async function nextContinuationOrder(
 ): Promise<number> {
   await lockContinuationOrder(db, threadId, turnId);
   const { rows } = await db.execute({
-    sql: `SELECT MAX(continuation_order) AS max_order
+    sql: `SELECT MAX(COALESCE(continuation_order, 0)) AS max_order
           FROM agent_runs
           WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
     args: [threadId, turnId],
@@ -1421,6 +1667,32 @@ function livenessBasisSql(): string {
   return `(CASE WHEN COALESCE(last_progress_at, started_at) > COALESCE(heartbeat_at, started_at) THEN COALESCE(last_progress_at, started_at) ELSE COALESCE(heartbeat_at, started_at) END)`;
 }
 
+function earlierTurnProjectionPendingSql(): string {
+  return `NOT EXISTS (
+    SELECT 1 FROM agent_runs pending_projection
+    WHERE pending_projection.thread_id = agent_runs.thread_id
+      AND COALESCE(pending_projection.turn_id, pending_projection.id) =
+          COALESCE(agent_runs.turn_id, agent_runs.id)
+      AND pending_projection.id <> agent_runs.id
+      AND pending_projection.thread_projection_pending IS TRUE
+      AND (
+        COALESCE(pending_projection.continuation_order, 0) <
+            COALESCE(agent_runs.continuation_order, 0)
+        OR (
+          COALESCE(pending_projection.continuation_order, 0) =
+              COALESCE(agent_runs.continuation_order, 0)
+          AND (
+            pending_projection.started_at < agent_runs.started_at
+            OR (
+              pending_projection.started_at = agent_runs.started_at
+              AND pending_projection.id < agent_runs.id
+            )
+          )
+        )
+      )
+  )`;
+}
+
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1429,7 +1701,8 @@ export async function claimBackgroundRun(runId: string): Promise<boolean> {
           SET dispatch_mode = 'background-processing'
           WHERE id = ?
             AND status = 'running'
-            AND dispatch_mode = 'background'`,
+            AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}`,
     args: [runId],
   });
   return (rowsAffected ?? 0) > 0;
@@ -1499,6 +1772,7 @@ export async function listUnclaimedBackgroundRunIds(): Promise<string[]> {
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
     args: [Date.now()],
   });
@@ -1542,6 +1816,7 @@ export async function listUnclaimedBackgroundRunRows(options?: {
     sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
+            AND ${earlierTurnProjectionPendingSql()}
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})
           ORDER BY COALESCE(heartbeat_at, started_at) ASC, started_at ASC
           LIMIT ${limit}`,
@@ -1806,12 +2081,17 @@ export async function tryClaimRunSlot(
     continueOf?: { runId: string; trigger: ContinueTrigger };
     /** Defer a fresh turn while an earlier accepted inbox submission is queued. */
     hasPendingQueuedSubmission?: (tx: DbExec) => Promise<boolean>;
+    /** Keep ordinary turns behind a pending tool approval on this thread. */
+    hasPendingApproval?: (tx: DbExec) => Promise<boolean>;
+    /** Cancel a completed approval pause before admitting an explicit interruption. */
+    interruptApprovalPause?: boolean;
     afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   queuedSubmissionPending?: boolean;
+  approvalPending?: boolean;
   completedRunId?: string;
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
@@ -1820,6 +2100,7 @@ export async function tryClaimRunSlot(
     assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
   }
   await ensureRunTables();
+  if (options?.interruptApprovalPause) await ensureAgentToolApprovalTable();
   const client = getDbExec();
   const now = Date.now();
   const turnId = options?.turnId ?? runId;
@@ -1910,6 +2191,26 @@ export async function tryClaimRunSlot(
           },
         } as const;
       }
+    }
+    if (options?.interruptApprovalPause) {
+      const pauses = await getPendingCurrentTurnApprovals(threadId, tx);
+      if (pauses.some((pause) => pause.status === "running")) {
+        return {
+          result: { claimed: false, activeRunId: null, approvalPending: true },
+        } as const;
+      }
+      for (const pause of pauses) {
+        await insertTurnAbortMarkers(tx, threadId, pause.turnId, "user", now);
+      }
+    }
+    if (await options?.hasPendingApproval?.(tx)) {
+      return {
+        result: {
+          claimed: false,
+          activeRunId: null,
+          approvalPending: true,
+        },
+      } as const;
     }
     // Admitted under the thread's slot lock, so two tabs continuing the same
     // stop start one run and the count of continuations stays exact.
@@ -2316,6 +2617,7 @@ export async function reconcileTerminalRunFromEvents(
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?,
+              thread_projection_retry_order = CASE WHEN ? THEN COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq')) ELSE thread_projection_retry_order END,
               thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
           WHERE id = ?
             AND (
@@ -2329,6 +2631,7 @@ export async function reconcileTerminalRunFromEvents(
           errorCode,
           errorDetail,
           terminalReason,
+          options.threadProjectionPending === true,
           options.threadProjectionPending === true,
           runId,
           STALE_RUN_ERROR_EVENT.errorCode,
@@ -2749,6 +3052,7 @@ async function reconcileTerminalRunInRecoveryTransaction(
               error_detail = ?,
               terminal_reason = ?
           WHERE id = ? AND status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
           ${ENDED_RUN_RETURNING}`,
     args: [
       status,
@@ -2787,6 +3091,7 @@ async function reapSingleStaleRun(
               terminal_reason = ?
           WHERE id = ?
             AND status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
             AND ${terminalRunEventExclusionSql()}
             AND ${staleClause}
           ${ENDED_RUN_RETURNING}`;
@@ -2850,15 +3155,36 @@ async function reapSingleStaleRun(
           args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
         });
       }
-      if (generationMatches || (!lease && run.worker_generation == null)) {
-        await tx.execute({
+      const executionLeaseChanged =
+        !generationMatches && (lease !== null || run.worker_generation != null);
+      const shouldProjectRepairedRun =
+        generationMatches || (!lease && run.worker_generation == null);
+      const outcome =
+        isContinuationTerminalReason(repaired.ending.terminalReason) &&
+        !executionLeaseChanged
+          ? await attemptStaleRunRecovery(tx, runId)
+          : null;
+      if (shouldProjectRepairedRun) {
+        const projection = await tx.execute({
           sql: `UPDATE agent_runs
-                SET thread_projection_pending = TRUE
-                WHERE id = ? AND status = 'errored'`,
-          args: [runId],
+                SET thread_projection_pending = TRUE,
+                    thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
+                WHERE id = ? AND status = ?
+                RETURNING id`,
+          args: [runId, repaired.ending.status],
         });
+        if ((projection.rowsAffected ?? projection.rows.length) !== 1) {
+          throw new Error(
+            `Repaired run ${runId} did not retain its thread projection retry marker`,
+          );
+        }
       }
-      return { reaped: false, outcome: null, repaired };
+      return {
+        reaped: false,
+        outcome,
+        repaired,
+        shouldProjectRepairedRun,
+      };
     }
     const { rows, rowsAffected } = await tx.execute({
       sql: updateSql,
@@ -2889,7 +3215,8 @@ async function reapSingleStaleRun(
       if (outcome.outcome !== "execution_lease_changed") {
         const projection = await tx.execute({
           sql: `UPDATE agent_runs
-                SET thread_projection_pending = TRUE
+                SET thread_projection_pending = TRUE,
+                    thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
                 WHERE id = ? AND status = 'errored'
                 RETURNING id`,
           args: [runId],
@@ -2978,7 +3305,9 @@ async function reapSingleStaleRun(
   // first would have this older run's steps land after its, and take its
   // error and status.
   let projectionFailed = false;
-  if (reaped) {
+  if ("repaired" in reapResult && reapResult.shouldProjectRepairedRun) {
+    projectionFailed = !(await finalizeStaleRun(runId, source));
+  } else if (reaped) {
     // A newer generation owns the turn, so it must remain the sole thread projector.
     projectionFailed = !(await finalizeStaleRun(
       runId,
@@ -2987,7 +3316,11 @@ async function reapSingleStaleRun(
     ));
   }
 
-  if (reaped && outcome && outcome.outcome !== "not_background") {
+  if (
+    (reaped || "repaired" in reapResult) &&
+    outcome &&
+    outcome.outcome !== "not_background"
+  ) {
     const outcomeDetail =
       outcome.outcome === "recovered"
         ? `recovered successorRunId=${outcome.successorRunId}`
@@ -3000,7 +3333,7 @@ async function reapSingleStaleRun(
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,
       forensics ? `${detail} ${forensics}` : detail,
     ).catch(() => {});
-    if (outcome.outcome === "recovered") {
+    if (outcome.outcome === "recovered" && !projectionFailed) {
       attemptStaleRunRecoveryDispatch(outcome.successorRunId);
     }
   } else if (reaped && forensics) {
@@ -3050,6 +3383,7 @@ export async function reapUnclaimedBackgroundRun(
               AND status = 'running'
               AND dispatch_mode = 'background'
               AND COALESCE(heartbeat_at, started_at) < ?
+              AND ${earlierTurnProjectionPendingSql()}
             ${ENDED_RUN_RETURNING}`,
       args: [
         completedAt,
@@ -3125,12 +3459,14 @@ export async function updateRunStatusIfRunning(
     (tx) =>
       tx.execute({
         sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                     thread_projection_retry_order = CASE WHEN ? THEN COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq')) ELSE thread_projection_retry_order END,
                      thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
                      ${terminalReason === undefined ? "" : ", terminal_reason = ?"}
               WHERE id = ? AND status = 'running'`,
         args: [
           status,
           Date.now(),
+          options.threadProjectionPending === true,
           options.threadProjectionPending === true,
           ...(terminalReason === undefined ? [] : [terminalReason]),
           runId,
@@ -3664,6 +4000,38 @@ function turnAbortMarkerRunId(threadId: string, turnId: string): string {
   return `turn-abort:${encodeURIComponent(threadId)}:${encodeURIComponent(turnId)}`;
 }
 
+async function insertTurnAbortMarkers(
+  tx: DbExec,
+  threadId: string,
+  turnId: string,
+  reason: string,
+  now: number,
+): Promise<void> {
+  await tx.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+    args: [
+      turnAbortMarkerRunId(threadId, turnId),
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+      `turn-abort-${turnId}`,
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+    ],
+  });
+}
+
 export async function markTurnAborted(
   threadId: string,
   turnId: string,
@@ -3674,6 +4042,7 @@ export async function markTurnAborted(
     throw new StaleExecutionFenceError(fence);
   }
   await ensureRunTables();
+  await ensureAgentToolApprovalTable();
   const now = Date.now();
   const client = getDbExec();
   if (!client.transaction) {
@@ -3759,11 +4128,12 @@ export async function markTurnAborted(
           .map((row) => String((row as { id?: unknown }).id ?? ""))
           .filter(Boolean),
       );
-      if (
+      const turnPending =
         latest &&
-        latest.continuation_pending !== true &&
-        !isContinuationTerminalReason(latest.terminal_reason ?? "")
-      ) {
+        (latest.continuation_pending === true ||
+          isContinuationTerminalReason(latest.terminal_reason ?? "") ||
+          (await hasPendingCurrentTurnApproval(threadId, tx, turnId)));
+      if (latest && !turnPending) {
         return "already_terminal" as const;
       }
     }
@@ -3806,29 +4176,7 @@ export async function markTurnAborted(
     for (const runId of runIds) {
       await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
     }
-    await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort'), (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
-      args: [
-        turnAbortMarkerRunId(threadId, turnId),
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-        `turn-abort-${turnId}`,
-        threadId,
-        reason,
-        now,
-        now,
-        now,
-        now,
-        turnId,
-        `aborted:${reason}`,
-      ],
-    });
+    await insertTurnAbortMarkers(tx, threadId, turnId, reason, now);
     return "aborted" as const;
   };
   const outcome = await retryAbortTerminalEventTransaction(
@@ -4027,25 +4375,21 @@ export async function insertRunEvent(
           const runAdmissionArgs = continuationReason
             ? [continuationReason]
             : [];
-          const insertSql = options?.requireInserted
-            ? `WITH eligible_run AS MATERIALIZED (
-          SELECT run.id FROM agent_runs AS run
-          WHERE run.id = ? ${runAdmissionPredicate}
-          FOR UPDATE
-        )
-        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-        SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
-        ON CONFLICT (run_id, seq) DO NOTHING`
-            : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
-      SELECT ?, ?, ?, ?
-      WHERE NOT EXISTS (
-        SELECT 1 FROM agent_runs
-        WHERE id = ? AND status <> 'running'
-      )
-      ON CONFLICT (run_id, seq) DO NOTHING`;
-          const insertArgs = options?.requireInserted
-            ? [runId, ...runAdmissionArgs, seq, eventAt, storedEventData]
-            : [runId, seq, eventAt, storedEventData, runId];
+          const insertSql = `WITH eligible_run AS MATERIALIZED (
+            SELECT run.id FROM agent_runs AS run
+            WHERE run.id = ? ${runAdmissionPredicate}
+            FOR UPDATE
+          )
+          INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+          SELECT id, ?, ?, ? FROM eligible_run LIMIT 1
+          ON CONFLICT (run_id, seq) DO NOTHING`;
+          const insertArgs = [
+            runId,
+            ...runAdmissionArgs,
+            seq,
+            eventAt,
+            storedEventData,
+          ];
           const { rowsAffected } = await writeTx.execute({
             sql: insertSql,
             args: insertArgs,
@@ -4183,6 +4527,18 @@ export async function insertRunEvents(
   const writeBatch = async (tx: DbExec) => {
     for (let start = 0; start < events.length; start += RUN_EVENT_BATCH_ROWS) {
       const chunk = events.slice(start, start + RUN_EVENT_BATCH_ROWS);
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
+        args: [runId],
+      });
+      const status = (run.rows[0] as { status?: string } | undefined)?.status;
+      if (status !== "running") {
+        throw new AgentRunEventNotPersistedError(
+          runId,
+          chunk[0]?.seq ?? null,
+          status !== undefined,
+        );
+      }
       const storedChunk = chunk.map((event) => ({
         ...event,
         eventData: persistedRunEventData(event.eventData),
@@ -4196,10 +4552,6 @@ export async function insertRunEvents(
               "(CAST(? AS TEXT), CAST(? AS BIGINT), CAST(? AS BIGINT), CAST(? AS TEXT))",
           )
           .join(", ")}) AS v(run_id, seq, event_at, event_data)
-        WHERE NOT EXISTS (
-          SELECT 1 FROM agent_runs
-          WHERE id = ? AND status <> 'running'
-        )
         ON CONFLICT (run_id, seq) DO NOTHING`,
         args: [
           ...storedChunk.flatMap(({ seq, eventAt, eventData }) => [
@@ -4208,7 +4560,6 @@ export async function insertRunEvents(
             eventAt,
             eventData,
           ]),
-          runId,
         ],
       });
       const persisted = await tx.execute({
@@ -4243,10 +4594,15 @@ export async function insertRunEvents(
     }
   };
   await withFencedExecutionWrite(
-    (tx) =>
-      currentExecutionFence()
-        ? writeBatch(tx)
-        : (tx.transaction?.(writeBatch) ?? writeBatch(tx)),
+    (tx) => {
+      if (currentExecutionFence() || getScopedTransactionDbExec() === tx) {
+        return writeBatch(tx);
+      }
+      if (!tx.transaction) {
+        throw new Error("Run event batch writes require transaction support");
+      }
+      return tx.transaction(writeBatch);
+    },
     { runId },
   );
 }
@@ -4343,7 +4699,14 @@ export async function getRunEventsSince(
   runId: string,
   fromSeq: number,
   opts?: { limit?: number },
-): Promise<Array<{ seq: number; eventData: string }>> {
+): Promise<
+  Array<{
+    seq: number;
+    eventAt: number | null;
+    transcriptOrder: number | null;
+    eventData: string;
+  }>
+> {
   await ensureRunTables();
   const client = getDbExec();
   const limit =
@@ -4357,14 +4720,25 @@ export async function getRunEventsSince(
   ];
   if (limit != null) args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC${
-      limit == null ? "" : " LIMIT ?"
-    }`,
+    sql: `SELECT seq, event_at, transcript_order, event_data
+          FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ?
+          ORDER BY seq ASC${limit == null ? "" : " LIMIT ?"}`,
     args,
   });
   return rows.map((r) => {
-    const row = r as { seq: number | string; event_data: string };
-    return { seq: Number(row.seq), eventData: row.event_data };
+    const row = r as {
+      seq: number | string;
+      event_at: number | string | null;
+      transcript_order: number | string | null;
+      event_data: string;
+    };
+    return {
+      seq: Number(row.seq),
+      eventAt: row.event_at == null ? null : Number(row.event_at),
+      transcriptOrder:
+        row.transcript_order == null ? null : Number(row.transcript_order),
+      eventData: row.event_data,
+    };
   });
 }
 
@@ -4376,11 +4750,12 @@ export async function getRunById(runId: string): Promise<{
   errorCode: string | null;
   errorDetail: string | null;
   terminalReason: string | null;
+  threadProjectionErrorCode: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail, terminal_reason FROM agent_runs WHERE id = ?`,
+    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail, terminal_reason, thread_projection_error_code FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
   if (rows.length === 0) return null;
@@ -4392,6 +4767,7 @@ export async function getRunById(runId: string): Promise<{
     error_code?: string | null;
     error_detail?: string | null;
     terminal_reason?: string | null;
+    thread_projection_error_code?: string | null;
   };
   return {
     id: r.id,
@@ -4401,6 +4777,7 @@ export async function getRunById(runId: string): Promise<{
     errorCode: r.error_code ?? null,
     errorDetail: r.error_detail ?? null,
     terminalReason: r.terminal_reason ?? null,
+    threadProjectionErrorCode: r.thread_projection_error_code ?? null,
   };
 }
 
@@ -4454,8 +4831,38 @@ export async function readStoppedRunForThreadFold(runId: string): Promise<{
   // that worker still saves its own reply.
   if (!row || row.status === "running") return null;
   const events: RunEvent[] = [];
-  for (const { seq, eventData } of await getRunEventsSince(runId, 0)) {
-    events.push({ seq, event: JSON.parse(eventData) as AgentChatEvent });
+  for (const [rowIndex, { seq, eventData }] of (
+    await getRunEventsSince(runId, 0)
+  ).entries()) {
+    if (!Number.isSafeInteger(seq) || seq < 0) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(eventData);
+    } catch (cause) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_event_json",
+        { cause },
+      );
+    }
+    if (!isReadableJournalEvent(event)) {
+      throw new AgentRunJournalUnreadableError(
+        row.thread_id,
+        row.turn_id,
+        rowIndex,
+        "invalid_event",
+      );
+    }
+    events.push({ seq, event });
   }
   return {
     threadId: row.thread_id,
@@ -4662,6 +5069,7 @@ export interface AgentRunSummary {
   dispatchMode: string | null;
   terminalReason: string | null;
   diagStage: string | null;
+  threadProjectionErrorCode: string | null;
   inFlightSince: number | null;
 }
 
@@ -4684,7 +5092,7 @@ export async function listRunsForThread(
       ? ` AND id IN (${batch.map(() => "?").join(", ")})`
       : "";
     return {
-      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage, in_flight_since
+      sql: `SELECT id, thread_id, turn_id, status, started_at, heartbeat_at, completed_at, last_progress_at, error_code, abort_reason, dispatch_mode, terminal_reason, diag_stage, thread_projection_error_code, in_flight_since
             FROM agent_runs
             WHERE thread_id = ?${runIdFilter}${batch ? "" : " ORDER BY started_at DESC LIMIT ?"}`,
       args: [threadId, ...(batch ?? []), ...(batch ? [] : [limit])],
@@ -4734,6 +5142,7 @@ export async function listRunsForThread(
       dispatch_mode?: string | null;
       terminal_reason?: string | null;
       diag_stage?: string | null;
+      thread_projection_error_code?: string | null;
       in_flight_since?: number | string | null;
     };
     return {
@@ -4751,6 +5160,7 @@ export async function listRunsForThread(
       dispatchMode: row.dispatch_mode ?? null,
       terminalReason: row.terminal_reason ?? null,
       diagStage: row.diag_stage ?? null,
+      threadProjectionErrorCode: row.thread_projection_error_code ?? null,
       inFlightSince:
         row.in_flight_since == null ? null : Number(row.in_flight_since),
     };
@@ -4774,7 +5184,9 @@ export class AgentRunJournalUnreadableError extends Error {
       | "invalid_turn"
       | "invalid_row"
       | "invalid_event_json"
-      | "invalid_event",
+      | "invalid_event"
+      | "invalid_thread_data"
+      | "invalid_execution_step",
     options?: ErrorOptions,
   ) {
     super(automationRecoveryMessagesForLocale().unreadable, options);
@@ -4814,6 +5226,7 @@ const JOURNAL_EVENT_STRING_FIELDS = {
   tripwire: ["reason"],
   auto_continue: ["reason"],
   clear: [],
+  user_message: ["continuationMessageId"],
 } satisfies Record<AgentChatEvent["type"], readonly string[]>;
 
 function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
@@ -4873,6 +5286,13 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
       );
     case "approval_required":
       return isJournalObject(value.input);
+    case "user_message":
+      return (
+        isJournalObject(value.message) &&
+        typeof value.message.id === "string" &&
+        typeof value.message.text === "string" &&
+        typeof value.message.createdAt === "string"
+      );
     case "agent_call_activity":
       return isJournalObject(value.snapshot);
     case "agent_call_progress":
@@ -4944,7 +5364,6 @@ async function getCurrentTurnRunEvents(
             AND (r.status IS DISTINCT FROM 'aborted' OR r.terminal_reason IS DISTINCT FROM 'aborted:duplicate_submission')
           ORDER BY COALESCE(r.continuation_order, 0) ASC,
                    r.started_at ASC,
-                   e.event_at ASC NULLS LAST,
                    e.seq ASC,
                    r.id ASC`,
     args: [threadId, turnId],
@@ -5084,6 +5503,7 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
   const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
+            AND ${earlierTurnProjectionPendingSql()}
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
           ORDER BY started_at ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
@@ -5390,6 +5810,25 @@ export async function ensureTerminalRunEvent(
   return appendTerminalRunEvent(runId, event);
 }
 
+/** Hands a terminal run's thread save to the stale-run projection retry. */
+export async function markRunThreadProjectionPending(
+  runId: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_pending = TRUE,
+              thread_projection_retry_order = COALESCE(thread_projection_retry_order, nextval('agent_run_projection_retry_order_seq'))
+          WHERE id = ? AND status <> 'running'`,
+    args: [runId],
+  });
+  if (rowsAffected !== 1) {
+    throw new Error(
+      `Run ${runId} did not retain its thread projection retry marker`,
+    );
+  }
+}
+
 /**
  * A duplicate request, or a worker that lost its turn's execution lease, is
  * aborted before it does any work; the run it stood in for reports the turn.
@@ -5615,16 +6054,7 @@ async function finalizeStaleRun(
 ): Promise<boolean> {
   if (!projectThread) return true;
   try {
-    const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
-    const disposition = await foldReapedRunIntoThread(runId);
-    if (disposition === "retry") return false;
-    await getDbExec().execute({
-      sql: `UPDATE agent_runs
-            SET thread_projection_pending = FALSE
-            WHERE id = ? AND thread_projection_pending IS TRUE`,
-      args: [runId],
-    });
-    return true;
+    return (await projectRunThread(runId)) === "projected";
   } catch (error) {
     captureError(error, {
       tags: {
@@ -5636,6 +6066,139 @@ async function finalizeStaleRun(
     });
     return false;
   }
+}
+
+async function bumpRunThreadProjectionRetryOrder(runId: string): Promise<void> {
+  await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+          WHERE id = ? AND thread_projection_pending IS TRUE`,
+    args: [runId],
+  });
+}
+
+async function projectRunThread(
+  runId: string,
+): Promise<"projected" | "deferred"> {
+  const { foldReapedRunIntoThread } = await import("./reaped-run-thread.js");
+  let disposition: "projected" | "superseded" | "retry";
+  try {
+    disposition = await foldReapedRunIntoThread(runId);
+  } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError) {
+      await getDbExec().execute({
+        sql: `UPDATE agent_runs
+              SET thread_projection_error_code = 'tool_call_journal_unreadable',
+                  thread_projection_retry_order = NULL
+              WHERE id = ? AND thread_projection_pending IS TRUE`,
+        args: [runId],
+      });
+      throw error;
+    }
+    try {
+      await bumpRunThreadProjectionRetryOrder(runId);
+    } catch (retryOrderError) {
+      throw new AggregateError(
+        [error, retryOrderError],
+        `Run ${runId} projection failed and its retry order could not be advanced`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  if (disposition === "retry") {
+    await bumpRunThreadProjectionRetryOrder(runId);
+    return "deferred";
+  }
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error(
+      "Run thread projection completion requires transaction support",
+    );
+  }
+  await client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET thread_projection_pending = FALSE,
+                thread_projection_retry_order = NULL,
+                thread_projection_error_code = NULL
+            WHERE id = ? AND thread_projection_pending IS TRUE
+            RETURNING id`,
+      args: [runId],
+    });
+    if (rows.length === 0) return;
+    // Give queued same-turn successors a dispatch window when their gate opens.
+    await tx.execute({
+      sql: `UPDATE agent_runs AS successor
+            SET heartbeat_at = ?
+            FROM agent_runs AS predecessor
+            WHERE predecessor.id = ?
+              AND successor.thread_id = predecessor.thread_id
+              AND COALESCE(successor.turn_id, successor.id) =
+                  COALESCE(predecessor.turn_id, predecessor.id)
+              AND successor.id <> predecessor.id
+              AND successor.status = 'running'
+              AND successor.dispatch_mode = 'background'
+              AND (
+                COALESCE(predecessor.continuation_order, 0) <
+                    COALESCE(successor.continuation_order, 0)
+                OR (
+                  COALESCE(predecessor.continuation_order, 0) =
+                      COALESCE(successor.continuation_order, 0)
+                  AND (
+                    predecessor.started_at < successor.started_at
+                    OR (
+                      predecessor.started_at = successor.started_at
+                      AND predecessor.id < successor.id
+                    )
+                  )
+                )
+              )`,
+      args: [Date.now(), runId],
+    });
+  });
+  return "projected";
+}
+
+export type RunThreadProjectionRetry =
+  | { state: "untracked" }
+  | { state: "already_projected" }
+  | { state: "projected" }
+  | { state: "deferred" };
+
+/** Retry after repairing persisted source data; until success, the marker keeps later same-turn runs gated. */
+export async function retryRunThreadProjection(
+  runId: string,
+): Promise<RunThreadProjectionRetry> {
+  await ensureRunTables();
+  const retried = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET thread_projection_error_code = NULL
+          WHERE id = ?
+            AND thread_projection_pending IS TRUE
+            AND ${earlierTurnProjectionPendingSql()}
+          RETURNING id`,
+    args: [runId],
+  });
+  if (retried.rows.length > 0) {
+    return { state: await projectRunThread(runId) };
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT thread_projection_pending FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  // Outcome pruning retains every run whose projection marker is still set.
+  if (rows.length === 0) return { state: "untracked" };
+  const pending = (
+    rows[0] as { thread_projection_pending?: unknown } | undefined
+  )?.thread_projection_pending;
+  if (pending === true || pending === "t" || pending === 1) {
+    return { state: "deferred" };
+  }
+  if (pending === false || pending === "f" || pending === 0) {
+    return { state: "already_projected" };
+  }
+  throw new Error(`Run ${runId} has an unreadable thread projection marker`);
 }
 
 class AbortTerminalEventWriteError extends Error {
@@ -5821,9 +6384,13 @@ async function retryPendingStaleRunThreadProjections(
   client: ReturnType<typeof getDbExec>,
 ): Promise<{ failed: number; truncated: boolean }> {
   const { rows } = await client.execute({
-    sql: `SELECT id FROM agent_runs
+    sql: `SELECT id, thread_projection_error_code FROM agent_runs
           WHERE thread_projection_pending IS TRUE
-          ORDER BY completed_at ASC, id ASC
+            AND (thread_projection_error_code IS NOT NULL
+              OR ${earlierTurnProjectionPendingSql()})
+          ORDER BY CASE WHEN thread_projection_error_code IS NULL THEN 0 ELSE 1 END,
+                   thread_projection_retry_order ASC NULLS FIRST,
+                   completed_at ASC, id ASC
           LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [],
   });
@@ -5831,7 +6398,15 @@ async function retryPendingStaleRunThreadProjections(
   const pending = truncated ? rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT) : rows;
   let failed = 0;
   for (const row of pending) {
-    const runId = (row as { id?: unknown }).id;
+    const projection = row as {
+      id?: unknown;
+      thread_projection_error_code?: unknown;
+    };
+    if (projection.thread_projection_error_code != null) {
+      failed += 1;
+      continue;
+    }
+    const runId = projection.id;
     if (typeof runId !== "string") continue;
     if (!(await finalizeStaleRun(runId, "stale-projection-retry"))) failed += 1;
   }

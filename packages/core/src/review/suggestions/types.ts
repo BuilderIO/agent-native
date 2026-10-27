@@ -66,6 +66,11 @@ export interface SuggestionContext {
   ctx?: Record<string, unknown>;
   transaction: unknown;
   coordination?: unknown;
+  /**
+   * Where the reviewing editor showed the suggestion when it was accepted, as
+   * that editor sent it. Adapters check it against the resource before use.
+   */
+  placement?: unknown;
 }
 export interface SuggestionDecisionContext {
   resourceType: string;

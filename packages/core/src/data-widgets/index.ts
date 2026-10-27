@@ -9,40 +9,40 @@ export type DataWidgetKind =
   | typeof DATA_CHART_WIDGET
   | typeof DATA_INSIGHTS_WIDGET;
 
-export interface DataTableColumn {
+export type DataTableColumn = {
   key: string;
   label: string;
   align?: "left" | "right";
-}
+};
 
-export interface DataTableWidget {
+export type DataTableWidget = {
   title?: string;
   columns: DataTableColumn[];
   rows: Array<Record<string, unknown>>;
   totalRows?: number;
   sampledRows?: number;
   truncated?: boolean;
-}
+};
 
-export interface DataChartSeriesDefinition {
+export type DataChartSeriesDefinition = {
   key: string;
   label: string;
   color?: string;
-}
+};
 
 export type DataWidgetActionIcon = "explore" | "camera" | "notebook";
 
-export interface DataWidgetAction {
+export type DataWidgetAction = {
   label: string;
   href: string;
   icon?: DataWidgetActionIcon;
-}
+};
 
-export interface DataWidgetChartAction extends DataWidgetAction {
+export type DataWidgetChartAction = DataWidgetAction & {
   presentation?: "icon";
-}
+};
 
-export interface DataChartWidget {
+export type DataChartWidget = {
   type: "bar" | "line" | "area";
   title?: string;
   layout?: "horizontal" | "vertical";
@@ -70,21 +70,21 @@ export interface DataChartWidget {
   sampled?: boolean;
   truncated?: boolean;
   actions?: DataWidgetChartAction[];
-}
+};
 
-export interface DataWidgetDisplay {
+export type DataWidgetDisplay = {
   title?: string;
   description?: string;
   primaryAction?: DataWidgetAction;
   sources?: DataWidgetDataSource[];
   actions?: DataWidgetDisplayAction[];
-}
+};
 
-export interface DataWidgetDataSource {
+export type DataWidgetDataSource = {
   id?: string;
   label: string;
   href?: string;
-}
+};
 
 export type DataWidgetDisplayAction =
   | {
@@ -102,20 +102,20 @@ export type DataWidgetDisplayAction =
       text: string;
     };
 
-export interface DataWidgetResultMetadata {
+export type DataWidgetResultMetadata = {
   widgetId?: string;
   title?: string;
   summary?: Record<string, unknown>;
   display?: DataWidgetDisplay;
-}
+};
 
-export interface DataTableWidgetResultInput extends DataWidgetResultMetadata {
+export type DataTableWidgetResultInput = DataWidgetResultMetadata & {
   table: DataTableWidget;
-}
+};
 
-export interface DataChartWidgetResultInput extends DataWidgetResultMetadata {
+export type DataChartWidgetResultInput = DataWidgetResultMetadata & {
   chartSeries: DataChartWidget;
-}
+};
 
 export type DataInsightsWidgetResultInput = DataWidgetResultMetadata &
   (

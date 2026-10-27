@@ -2,6 +2,7 @@ import {
   type CodeLayerSource,
   type CodeLayerSourceEdit,
   ensureCodeLayerNodeIdsInHtml,
+  flattenRedundantWrappersInHtml,
   wrapBareTextLeavesInHtml,
 } from "./code-layer.js";
 import { memoizeByContent } from "./memoize-by-content.js";
@@ -37,4 +38,21 @@ export function annotateScreenHtmlForPersist(
   } catch {
     return content;
   }
+}
+
+/**
+ * For screens the agent authors from scratch: also drops wrapper divs that
+ * render nothing, so the layer tree the user inherits stays flat. Not applied
+ * to copies, imports, or restores, whose structure belongs to the user.
+ */
+export function annotateAgentScreenHtmlForPersist(
+  content: string,
+  fileType: string | null | undefined,
+): string {
+  if ((fileType ?? "html") !== "html") return content;
+  if (typeof content !== "string" || !content.trim()) return content;
+  return annotateScreenHtmlForPersist(
+    flattenRedundantWrappersInHtml(content).content,
+    fileType,
+  );
 }

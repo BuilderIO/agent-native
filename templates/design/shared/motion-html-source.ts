@@ -5,6 +5,7 @@ import {
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { parse as parseJavaScript } from "acorn";
+import * as cssTree from "css-tree";
 import { parse, type ParserError } from "parse5";
 import postcss from "postcss";
 
@@ -26,6 +27,7 @@ import {
   type MotionCodeDocument,
 } from "./motion-code";
 import type { MotionEasingVariable } from "./motion-easing";
+import { motionNativeStylesToTracks } from "./motion-native-style-runtime";
 import {
   applyMotionPathTrimSource,
   MotionPathTrimSourceError,
@@ -44,10 +46,12 @@ import {
   type MotionTextDocument,
 } from "./motion-text-code";
 import {
+  MOTION_PROPERTY_PRESETS,
   MOTION_DEFAULT_PLAYBACK_MODE,
   parseMotionPlaybackMode,
   readTimelinePlaybackMode,
   type MotionPlaybackMode,
+  type MotionTrack,
   type MotionTimeline,
 } from "./motion-timeline";
 
@@ -84,6 +88,16 @@ type HtmlNode = {
     endTag?: { startOffset: number; endOffset: number };
   };
 };
+
+const htmlElementSiblingsByParent = new WeakMap<HtmlNode, HtmlNode[]>();
+const runtimeStructuralMutationInSiblingsByParent = new WeakMap<
+  HtmlNode,
+  boolean
+>();
+const remoteAlpineTeleportDestinationsByRoot = new WeakMap<
+  HtmlNode,
+  Array<ReturnType<typeof parseMotionAuthoredCssSimpleSelector>>
+>();
 
 export type MotionHtmlSourceErrorCode =
   | "stale-source"
@@ -400,7 +414,12 @@ function assertSafeTargetId(targetNodeId: string): void {
 
 function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
   const normalized = name.toLowerCase();
+  const baseDirective = normalized.split(".", 1)[0]!;
   return (
+    baseDirective === "x-html" ||
+    baseDirective === "v-html" ||
+    normalized === "ng-bind-html" ||
+    dynamicBoundAttributeName(normalized) === "innerhtml" ||
     ((normalized === "x-data" || normalized === "v-scope") &&
       !isStaticRuntimeScopeData(value)) ||
     isRuntimeLifecycleMutationAttribute(name) ||
@@ -408,6 +427,8 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     normalized.startsWith("x-show.") ||
     normalized === "v-show" ||
     normalized.startsWith("v-show.") ||
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingHasDynamicValues(value)) ||
     normalized === ":class" ||
     normalized.startsWith(":class.") ||
     normalized === "x-bind:class" ||
@@ -426,6 +447,122 @@ function isRuntimeStyleMutationHandler(name: string, value = ""): boolean {
     normalized.startsWith("v-on:") ||
     normalized.startsWith("@")
   );
+}
+
+function runtimeObjectBindingHasDynamicValues(value: string): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return true;
+    const name = (
+      property[1] ??
+      property[2] ??
+      property[3] ??
+      ""
+    ).toLowerCase();
+    return (
+      ["class", "style", "hidden", "inert", "open"].includes(name) &&
+      !isStaticRuntimeScopeValue(property[4]!.trim())
+    );
+  });
+}
+
+function runtimeObjectBindingHasImportantMotionStyle(
+  name: string,
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+  if (directive !== "x-bind" && directive !== "v-bind") return false;
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return false;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return false;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'))\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return false;
+    const propertyName =
+      property[1] ?? readStaticJavaScriptString(property[2]!);
+    if (propertyName === null || propertyName === undefined) {
+      return /!\s*important\b/i.test(property[3]!);
+    }
+    if (propertyName.toLowerCase() !== "style") return false;
+    const styleValue = readStaticJavaScriptString(property[3]!);
+    if (styleValue === null && isStaticRuntimeScopeValue(property[3]!.trim())) {
+      return false;
+    }
+    return (
+      styleValue === null ||
+      hasInlineMotionDeclarations(styleValue, motionProperties)
+    );
+  });
+}
+
+function readStaticJavaScriptString(expression: string): string | null {
+  let program: unknown;
+  try {
+    program = parseJavaScript(expression, { ecmaVersion: "latest" });
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return null;
+  }
+  if (!isJavaScriptNode(program) || !Array.isArray(program.body)) return null;
+  const [statement, ...rest] = program.body;
+  if (
+    rest.length > 0 ||
+    !isJavaScriptNode(statement) ||
+    statement.type !== "ExpressionStatement" ||
+    !isJavaScriptNode(statement.expression)
+  ) {
+    return null;
+  }
+  const value = statement.expression;
+  return value.type === "Literal" && typeof value.value === "string"
+    ? value.value
+    : null;
+}
+
+function runtimeObjectBindingMayWriteAttribute(
+  value: string,
+  attributeName: string,
+): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:([A-Za-z_$][\w$]*)|"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    if (!property) return true;
+    const name = property[1] ?? property[2] ?? property[3];
+    if (name === undefined || name.includes("\\")) return true;
+    return name?.toLowerCase() === attributeName.toLowerCase();
+  });
+}
+
+function runtimeObjectBindingHasAnyDynamicAttributes(value: string): boolean {
+  const expression = value.trim();
+  if (!expression.startsWith("{") || !expression.endsWith("}")) return true;
+  const entries = splitStaticObjectProperties(expression.slice(1, -1).trim());
+  if (!entries) return true;
+  return entries.some((entry) => {
+    const property =
+      /^(?:[A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*:\s*(.+)$/s.exec(
+        entry,
+      );
+    return !property || !isStaticRuntimeScopeValue(property[1]!.trim());
+  });
 }
 
 function isRuntimeLifecycleMutationAttribute(name: string): boolean {
@@ -838,10 +975,1263 @@ const GENERATED_DESIGN_LIBRARY_SCRIPT_ATTRIBUTES = new Set([
 function writesClasses(name: string, value: string): boolean {
   const normalized = name.toLowerCase();
   return (
-    normalized === "x-bind" ||
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingMayWriteAttribute(value, "class")) ||
     dynamicBoundAttributeName(normalized.split(".", 1)[0]!) === "class" ||
     /\bclass(?:List|Name)\b|setAttribute\s*\(\s*["']class["']/.test(value)
   );
+}
+
+const MOTION_CONTROL_CSS_PROPERTY =
+  /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
+
+const CSS_BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
+const CSS_LOGICAL_BORDER_SIDES = [
+  "block-start",
+  "block-end",
+  "inline-start",
+  "inline-end",
+] as const;
+const CSS_BORDER_PARTS = ["color", "style", "width"] as const;
+const CSS_BORDER_IMAGE_LONGHANDS = [
+  "border-image-outset",
+  "border-image-repeat",
+  "border-image-slice",
+  "border-image-source",
+  "border-image-width",
+] as const;
+const cssBorderLonghands = (sides: readonly string[]) =>
+  sides.flatMap((side) =>
+    CSS_BORDER_PARTS.map((part) => `border-${side}-${part}`),
+  );
+const CSS_ALL_BORDER_LONGHANDS = [
+  "border-color",
+  "border-style",
+  "border-width",
+  ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ...cssBorderLonghands(CSS_LOGICAL_BORDER_SIDES),
+];
+const CSS_MASK_BORDER_LONGHANDS = [
+  "mask-border-mode",
+  "mask-border-outset",
+  "mask-border-repeat",
+  "mask-border-slice",
+  "mask-border-source",
+  "mask-border-width",
+];
+const CSS_SHORTHAND_LONGHANDS: Readonly<Record<string, readonly string[]>> = {
+  background: [
+    "background-attachment",
+    "background-clip",
+    "background-color",
+    "background-image",
+    "background-origin",
+    "background-position",
+    "background-position-x",
+    "background-position-y",
+    "background-repeat",
+    "background-repeat-x",
+    "background-repeat-y",
+    "background-size",
+  ],
+  border: [...CSS_ALL_BORDER_LONGHANDS, ...CSS_BORDER_IMAGE_LONGHANDS],
+  "border-color": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-style": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-width": [
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+    ...CSS_LOGICAL_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  ...Object.fromEntries(
+    CSS_BORDER_SIDES.map((side) => [
+      `border-${side}`,
+      [`border-${side}-color`, `border-${side}-style`, `border-${side}-width`],
+    ]),
+  ),
+  "border-radius": [
+    "border-bottom-left-radius",
+    "border-bottom-right-radius",
+    "border-top-left-radius",
+    "border-top-right-radius",
+  ],
+  "border-block": [
+    ...cssBorderLonghands(["block-start", "block-end"]),
+    ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ],
+  "border-block-color": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-color`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-block-style": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-style`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-block-width": [
+    ...["block-start", "block-end"].map((side) => `border-${side}-width`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  "border-inline": [
+    ...cssBorderLonghands(["inline-start", "inline-end"]),
+    ...cssBorderLonghands(CSS_BORDER_SIDES),
+  ],
+  "border-inline-color": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-color`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-color`),
+  ],
+  "border-inline-style": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-style`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-style`),
+  ],
+  "border-inline-width": [
+    ...["inline-start", "inline-end"].map((side) => `border-${side}-width`),
+    ...CSS_BORDER_SIDES.map((side) => `border-${side}-width`),
+  ],
+  ...Object.fromEntries(
+    CSS_LOGICAL_BORDER_SIDES.map((side) => [
+      `border-${side}`,
+      [...cssBorderLonghands([side]), ...cssBorderLonghands(CSS_BORDER_SIDES)],
+    ]),
+  ),
+  "border-image": [...CSS_BORDER_IMAGE_LONGHANDS],
+  "column-rule": [
+    "column-rule-color",
+    "column-rule-style",
+    "column-rule-width",
+  ],
+  columns: ["column-count", "column-width"],
+  flex: ["flex-basis", "flex-grow", "flex-shrink"],
+  "flex-flow": ["flex-direction", "flex-wrap"],
+  font: [
+    "font-family",
+    "font-feature-settings",
+    "font-kerning",
+    "font-language-override",
+    "font-optical-sizing",
+    "font-size",
+    "font-size-adjust",
+    "font-stretch",
+    "font-style",
+    "font-synthesis",
+    "font-variant",
+    "font-variant-alternates",
+    "font-variant-caps",
+    "font-variant-east-asian",
+    "font-variant-ligatures",
+    "font-variant-numeric",
+    "font-variant-position",
+    "font-variation-settings",
+    "font-weight",
+    "line-height",
+  ],
+  "font-variant": [
+    "font-variant-alternates",
+    "font-variant-caps",
+    "font-variant-east-asian",
+    "font-variant-ligatures",
+    "font-variant-numeric",
+    "font-variant-position",
+  ],
+  gap: ["column-gap", "row-gap"],
+  grid: [
+    "grid-auto-columns",
+    "grid-auto-flow",
+    "grid-auto-rows",
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
+  ],
+  "grid-area": [
+    "grid-column-end",
+    "grid-column-start",
+    "grid-row-end",
+    "grid-row-start",
+  ],
+  "grid-column": ["grid-column-end", "grid-column-start"],
+  "grid-row": ["grid-row-end", "grid-row-start"],
+  "grid-template": [
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
+  ],
+  inset: [
+    "bottom",
+    "inset-block-end",
+    "inset-block-start",
+    "inset-inline-end",
+    "inset-inline-start",
+    "left",
+    "right",
+    "top",
+  ],
+  "inset-block": [
+    "inset-block-end",
+    "inset-block-start",
+    "bottom",
+    "left",
+    "right",
+    "top",
+  ],
+  "inset-inline": [
+    "inset-inline-end",
+    "inset-inline-start",
+    "bottom",
+    "left",
+    "right",
+    "top",
+  ],
+  "list-style": ["list-style-image", "list-style-position", "list-style-type"],
+  mask: [
+    "mask-image",
+    "mask-mode",
+    "mask-position",
+    "mask-size",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+    "mask-composite",
+    ...CSS_MASK_BORDER_LONGHANDS,
+  ],
+  "mask-border": CSS_MASK_BORDER_LONGHANDS,
+  "-webkit-mask": [
+    "-webkit-mask-image",
+    "-webkit-mask-position",
+    "-webkit-mask-size",
+    "-webkit-mask-repeat",
+    "-webkit-mask-origin",
+    "-webkit-mask-clip",
+    "-webkit-mask-composite",
+    "mask-image",
+    "mask-position",
+    "mask-size",
+    "mask-repeat",
+    "mask-origin",
+    "mask-clip",
+  ],
+  margin: [
+    ...CSS_BORDER_SIDES.map((side) => `margin-${side}`),
+    "margin-block-end",
+    "margin-block-start",
+    "margin-inline-end",
+    "margin-inline-start",
+  ],
+  "margin-block": [
+    "margin-block-end",
+    "margin-block-start",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+  ],
+  "margin-inline": [
+    "margin-inline-end",
+    "margin-inline-start",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+  ],
+  outline: ["outline-color", "outline-style", "outline-width"],
+  overflow: ["overflow-x", "overflow-y"],
+  padding: [
+    ...CSS_BORDER_SIDES.map((side) => `padding-${side}`),
+    "padding-block-end",
+    "padding-block-start",
+    "padding-inline-end",
+    "padding-inline-start",
+  ],
+  "padding-block": [
+    "padding-block-end",
+    "padding-block-start",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+  ],
+  "padding-inline": [
+    "padding-inline-end",
+    "padding-inline-start",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+  ],
+  "place-content": ["align-content", "justify-content"],
+  "place-items": ["align-items", "justify-items"],
+  "place-self": ["align-self", "justify-self"],
+  "scroll-margin": [
+    ...CSS_BORDER_SIDES.map((side) => `scroll-margin-${side}`),
+    "scroll-margin-block-end",
+    "scroll-margin-block-start",
+    "scroll-margin-inline-end",
+    "scroll-margin-inline-start",
+  ],
+  "scroll-padding": [
+    ...CSS_BORDER_SIDES.map((side) => `scroll-padding-${side}`),
+    "scroll-padding-block-end",
+    "scroll-padding-block-start",
+    "scroll-padding-inline-end",
+    "scroll-padding-inline-start",
+  ],
+  "text-decoration": [
+    "text-decoration-color",
+    "text-decoration-line",
+    "text-decoration-style",
+    "text-decoration-thickness",
+  ],
+};
+const CSS_SHORTHANDS_BY_LONGHAND = new Map<string, string[]>();
+
+for (const [shorthand, longhands] of Object.entries(CSS_SHORTHAND_LONGHANDS)) {
+  for (const longhand of longhands) {
+    const shorthands = CSS_SHORTHANDS_BY_LONGHAND.get(longhand) ?? [];
+    shorthands.push(shorthand);
+    CSS_SHORTHANDS_BY_LONGHAND.set(longhand, shorthands);
+  }
+}
+
+export function cssDeclarationAffectsMotionProperty(
+  property: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  const normalizedProperty = decodeMotionCssIdentifier(property)
+    .toLowerCase()
+    .replace(/^-(?:webkit|moz|ms|o)-/i, "");
+  if (
+    normalizedProperty === "all" ||
+    MOTION_CONTROL_CSS_PROPERTY.test(normalizedProperty) ||
+    motionProperties?.has(normalizedProperty)
+  ) {
+    return true;
+  }
+
+  return Boolean(
+    CSS_LOGICAL_PHYSICAL_PROPERTY_ALIASES[normalizedProperty]?.some((alias) =>
+      motionProperties?.has(alias),
+    ) ||
+    CSS_SHORTHANDS_BY_LONGHAND.get(normalizedProperty)?.some((shorthand) =>
+      motionProperties?.has(shorthand),
+    ) ||
+    CSS_SHORTHAND_LONGHANDS[normalizedProperty]?.some((longhand) =>
+      motionProperties?.has(longhand),
+    ),
+  );
+}
+
+// The source reader cannot prove the computed writing mode, so logical sizes
+// are checked against both physical dimensions while finding CSS conflicts.
+const CSS_LOGICAL_PHYSICAL_PROPERTY_ALIASES: Record<string, readonly string[]> =
+  {
+    "inline-size": ["width", "height"],
+    "block-size": ["width", "height"],
+    "min-inline-size": ["min-width", "min-height"],
+    "min-block-size": ["min-width", "min-height"],
+    "max-inline-size": ["max-width", "max-height"],
+    "max-block-size": ["max-width", "max-height"],
+    width: ["inline-size", "block-size"],
+    height: ["inline-size", "block-size"],
+    "min-width": ["min-inline-size", "min-block-size"],
+    "min-height": ["min-inline-size", "min-block-size"],
+    "max-width": ["max-inline-size", "max-block-size"],
+    "max-height": ["max-inline-size", "max-block-size"],
+  };
+
+function cssDeclarationCanOverrideMotionProperty(
+  property: string,
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+): boolean {
+  const normalizedProperty = decodeMotionCssIdentifier(property).toLowerCase();
+  const standardProperty = normalizedProperty.replace(
+    /^-(?:webkit|moz|ms|o)-/i,
+    "",
+  );
+  if (/^(?:-(?:webkit|moz|ms|o)-)?animation(?:-|$)/i.test(normalizedProperty)) {
+    return Boolean(motionProperties?.size);
+  }
+  if (standardProperty === "transition-property") {
+    return cssTransitionValueAffectsMotionProperty(
+      value,
+      motionProperties,
+      false,
+    );
+  }
+  if (standardProperty === "transition") {
+    return cssTransitionValueAffectsMotionProperty(
+      value,
+      motionProperties,
+      true,
+    );
+  }
+  if (/^transition-/i.test(standardProperty)) {
+    return Boolean(motionProperties?.size);
+  }
+  return cssDeclarationAffectsMotionProperty(
+    normalizedProperty,
+    motionProperties,
+  );
+}
+
+function cssTransitionValueAffectsMotionProperty(
+  value: string,
+  motionProperties: ReadonlySet<string> | undefined,
+  shorthand: boolean,
+): boolean {
+  if (!motionProperties?.size) return false;
+  const normalized = decodeMotionCssIdentifier(value).toLowerCase();
+  if (/\b(?:var|env)\s*\(/.test(normalized)) return true;
+  if (/\bnone\b/.test(normalized)) return false;
+  if (
+    /\b(?:all|initial|inherit|unset|revert|revert-layer)\b/.test(normalized)
+  ) {
+    return true;
+  }
+
+  const withoutTimes = normalized.replace(
+    /-?(?:\d+(?:\.\d*)?|\.\d+)(?:ms|s)\b/g,
+    " ",
+  );
+  const tokens = withoutTimes.match(/[a-z_][a-z0-9_-]*/g) ?? [];
+  if (
+    tokens.some((token) =>
+      cssDeclarationAffectsMotionProperty(token, motionProperties),
+    )
+  ) {
+    return true;
+  }
+  if (!shorthand) return false;
+
+  const nonPropertyKeywords = new Set([
+    "ease",
+    "ease-in",
+    "ease-out",
+    "ease-in-out",
+    "linear",
+    "step-start",
+    "step-end",
+    "allow-discrete",
+    "normal",
+    "cubic-bezier",
+    "steps",
+    "frames",
+  ]);
+  if (tokens.some((token) => !nonPropertyKeywords.has(token))) return false;
+  return [...normalized.matchAll(/(-?(?:\d+(?:\.\d*)?|\.\d+))(ms|s)\b/g)].some(
+    ([, amount, unit]) => Number(amount) * (unit === "s" ? 1000 : 1) > 0,
+  );
+}
+
+function hasUnsafeMotionCssRule(
+  nodes: readonly HtmlNode[],
+  targetNodeIds: readonly string[],
+  generatedIds: Map<number | undefined, string>,
+  motionPropertiesByTarget: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+  for (const node of nodes) {
+    if (
+      node.tagName !== "style" ||
+      attributes(node, MANAGED_STYLE_ATTRIBUTE).length > 0 ||
+      (node.insideTemplate && !isRenderedByAlpine(node)) ||
+      !isPotentialCssStyle(node)
+    ) {
+      continue;
+    }
+
+    try {
+      const stylesheet = cssTree.parse(textContent(node), {
+        context: "stylesheet",
+      });
+      let affected = false;
+      visitCssRules(
+        stylesheet as unknown as CssTreeSelectorNode,
+        false,
+        false,
+        (rule, insideReducedMotionMedia) => {
+          if (affected) return;
+          const declarations = cssTreeChildren(rule.block).filter(
+            (child) => child.type === "Declaration",
+          );
+          const relevantDeclarations = declarations.filter((declaration) => {
+            const property = declaration.property
+              ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
+              : undefined;
+            return (
+              property !== undefined &&
+              targetNodeIds.some((targetNodeId) =>
+                cssDeclarationAffectsMotionProperty(
+                  property,
+                  motionPropertiesByTarget.get(targetNodeId),
+                ),
+              )
+            );
+          });
+          if (relevantDeclarations.length === 0) return;
+          const affectedTargets = targetNodeIds.filter((targetNodeId) => {
+            const targetProperties = motionPropertiesByTarget.get(targetNodeId);
+            return relevantDeclarations.some((declaration) => {
+              const property = declaration.property
+                ? decodeMotionCssIdentifier(declaration.property).toLowerCase()
+                : undefined;
+              return (
+                property !== undefined &&
+                cssDeclarationAffectsMotionProperty(property, targetProperties)
+              );
+            });
+          });
+          if (affectedTargets.length === 0) return;
+
+          const selectorList = rule.prelude;
+          for (const selector of cssTreeChildren(selectorList)) {
+            if (selector.type !== "Selector") continue;
+            if (
+              affectedTargets.some((targetNodeId) => {
+                const targetProperties =
+                  motionPropertiesByTarget.get(targetNodeId);
+                const target = nodes.find((candidate) =>
+                  isMotionTargetNode(
+                    candidate,
+                    new Set([targetNodeId]),
+                    generatedIds,
+                  ),
+                );
+                if (!target) return false;
+                const effect = selectorEffectOnTarget(
+                  selector,
+                  target,
+                  targetNodeId,
+                );
+                const hasImportantConflict = relevantDeclarations.some(
+                  (declaration) =>
+                    declaration.important === true &&
+                    !insideReducedMotionMedia &&
+                    declaration.property !== undefined &&
+                    cssDeclarationCanOverrideMotionProperty(
+                      declaration.property,
+                      cssTree.generate(declaration.value as never),
+                      targetProperties,
+                    ),
+                );
+                const hasDynamicMotionControlDeclaration =
+                  relevantDeclarations.some(
+                    (declaration) =>
+                      declaration.property !== undefined &&
+                      MOTION_CONTROL_CSS_PROPERTY.test(
+                        decodeMotionCssIdentifier(
+                          declaration.property,
+                        ).toLowerCase(),
+                      ) &&
+                      cssDeclarationCanOverrideMotionProperty(
+                        declaration.property,
+                        cssTree.generate(declaration.value as never),
+                        targetProperties,
+                      ),
+                  );
+                return (
+                  effect.matches &&
+                  (hasImportantConflict ||
+                    (effect.dynamic && hasDynamicMotionControlDeclaration))
+                );
+              })
+            ) {
+              affected = true;
+              return;
+            }
+          }
+        },
+      );
+      if (affected) return true;
+    } catch {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function visitCssRules(
+  node: CssTreeSelectorNode | undefined,
+  insideKeyframes: boolean,
+  insideReducedMotionMedia: boolean,
+  visit: (rule: CssTreeSelectorNode, insideReducedMotionMedia: boolean) => void,
+): void {
+  if (!node) return;
+  const isKeyframes =
+    node.type === "Atrule" && /^(?:-[\w]+-)?keyframes$/i.test(node.name ?? "");
+  const nestedInKeyframes = insideKeyframes || isKeyframes;
+  const isReducedMotionMedia =
+    node.type === "Atrule" &&
+    node.name?.toLowerCase() === "media" &&
+    isReducedMotionMediaQuery(node.prelude);
+  const nestedInReducedMotionMedia =
+    insideReducedMotionMedia || isReducedMotionMedia;
+  if (node.type === "Rule" && !insideKeyframes) {
+    visit(node, insideReducedMotionMedia);
+  }
+  for (const child of cssTreeChildren(node)) {
+    visitCssRules(child, nestedInKeyframes, nestedInReducedMotionMedia, visit);
+  }
+  if (node.block) {
+    visitCssRules(
+      node.block,
+      nestedInKeyframes,
+      nestedInReducedMotionMedia,
+      visit,
+    );
+  }
+}
+
+function isReducedMotionMediaQuery(
+  prelude: CssTreeSelectorNode | undefined,
+): boolean {
+  if (!prelude) return false;
+  const query = cssTree
+    .generate(prelude as Parameters<typeof cssTree.generate>[0])
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  // Only the standalone reduced-motion preference is exempt from the CSS conflict check.
+  return /^\(prefers-reduced-motion:\s*reduce\)$/.test(query);
+}
+
+type CssTreeSelectorNode = {
+  type: string;
+  name?: string;
+  property?: string;
+  value?: CssTreeSelectorNode;
+  important?: boolean;
+  children?: { toArray(): CssTreeSelectorNode[] };
+  nth?: {
+    type: string;
+    name?: string;
+    a?: string | null;
+    b?: string | null;
+  };
+  selector?: CssTreeSelectorNode;
+  prelude?: CssTreeSelectorNode;
+  block?: CssTreeSelectorNode;
+};
+
+function cssTreeChildren(
+  node: CssTreeSelectorNode | undefined,
+): CssTreeSelectorNode[] {
+  return node?.children?.toArray() ?? [];
+}
+
+type SelectorMatch = { matches: boolean; dynamic: boolean };
+
+const DYNAMIC_BROWSER_PSEUDO_CLASSES = new Set([
+  "active",
+  "any-link",
+  "autofill",
+  "checked",
+  "default",
+  "defined",
+  "disabled",
+  "enabled",
+  "focus",
+  "focus-visible",
+  "focus-within",
+  "fullscreen",
+  "hover",
+  "indeterminate",
+  "invalid",
+  "link",
+  "modal",
+  "open",
+  "optional",
+  "out-of-range",
+  "paused",
+  "placeholder-shown",
+  "playing",
+  "popover-open",
+  "read-only",
+  "read-write",
+  "required",
+  "target",
+  "user-invalid",
+  "user-valid",
+  "valid",
+  "visited",
+]);
+
+const STRUCTURAL_BROWSER_PSEUDO_CLASSES = new Set([
+  "empty",
+  "first-child",
+  "first-of-type",
+  "last-child",
+  "last-of-type",
+  "nth-child",
+  "nth-last-child",
+  "nth-of-type",
+  "nth-last-of-type",
+  "only-child",
+  "only-of-type",
+]);
+
+function selectorEffectOnTarget(
+  selector: CssTreeSelectorNode,
+  target: HtmlNode,
+  targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null = target,
+): SelectorMatch {
+  const compounds: CssTreeSelectorNode[][] = [[]];
+  const combinators: string[] = [];
+  for (const child of cssTreeChildren(selector)) {
+    if (child.type === "Combinator") {
+      combinators.push(child.name ?? " ");
+      compounds.push([]);
+    } else {
+      compounds[compounds.length - 1]!.push(child);
+    }
+  }
+  if (compounds.some((compound) => compound.length === 0)) {
+    return { matches: false, dynamic: false };
+  }
+
+  let currentNodes = [target];
+  let dynamic = false;
+  for (let index = compounds.length - 1; index >= 0; index--) {
+    const matches = currentNodes.flatMap((candidate) => {
+      const match = selectorCompoundMatches(
+        candidate,
+        compounds[index]!,
+        targetNodeId,
+        virtualNodeIdTarget,
+      );
+      return match.matches ? [{ candidate, match }] : [];
+    });
+    if (matches.length === 0) return { matches: false, dynamic: false };
+    dynamic ||= matches.some(({ match }) => match.dynamic);
+    if (index === 0) return { matches: true, dynamic };
+    const combinator = combinators[index - 1] ?? " ";
+    currentNodes = matches.flatMap(({ candidate }) =>
+      selectorRelationCandidates(candidate, combinator),
+    );
+  }
+  return { matches: false, dynamic: false };
+}
+
+function selectorCompoundMatches(
+  node: HtmlNode,
+  compound: readonly CssTreeSelectorNode[],
+  targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
+): SelectorMatch {
+  if (node.tagName === "template" && isAlpineStructuralTemplate(node)) {
+    for (const contentNode of descendants(node.content)) {
+      const contentMatch = selectorCompoundMatches(
+        contentNode,
+        compound,
+        targetNodeId,
+        virtualNodeIdTarget,
+      );
+      if (contentMatch.matches) {
+        return { matches: true, dynamic: true };
+      }
+    }
+  }
+
+  let dynamic = false;
+  for (const selector of compound) {
+    if (selector.type === "UniversalSelector") continue;
+    if (selector.type === "PseudoClassSelector") {
+      const pseudoMatch = selectorPseudoMatchesNode(
+        node,
+        selector,
+        targetNodeId,
+        virtualNodeIdTarget,
+      );
+      if (!pseudoMatch.matches && !pseudoMatch.dynamic) {
+        return { matches: false, dynamic: false };
+      }
+      dynamic ||= pseudoMatch.dynamic;
+      continue;
+    }
+
+    const simple = parseMotionAuthoredCssSimpleSelector(
+      cssTree.generate(selector as never),
+    );
+    if (!simple) {
+      if (hasRuntimeMutationOnSelectorPath(node)) dynamic = true;
+      continue;
+    }
+    const selectorAttribute =
+      simple.kind === "id"
+        ? "id"
+        : simple.kind === "class"
+          ? "class"
+          : simple.kind === "attribute"
+            ? simple.name
+            : null;
+    const virtualNodeIdMatch =
+      node === virtualNodeIdTarget &&
+      simple.kind === "attribute" &&
+      simple.name === NODE_ID_ATTRIBUTE &&
+      simple.value === targetNodeId;
+    const staticMatch =
+      (virtualNodeIdMatch || matchesHtmlSelector(node, simple)) &&
+      (simple.kind !== "type" || node.tagName?.toLowerCase() === simple.name);
+    const dynamicMatch = Boolean(
+      selectorAttribute &&
+      node.attrs?.some(({ name, value }) =>
+        isDynamicHtmlAttribute(name, selectorAttribute, value),
+      ),
+    );
+    if (!staticMatch && !dynamicMatch)
+      return { matches: false, dynamic: false };
+    dynamic ||= dynamicMatch;
+  }
+  return { matches: true, dynamic };
+}
+
+function selectorPseudoMatchesNode(
+  node: HtmlNode,
+  pseudo: CssTreeSelectorNode,
+  targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
+): SelectorMatch {
+  const name = pseudo.name?.toLowerCase() ?? "";
+  if (name === "is" || name === "where" || name === "not") {
+    const selectorList = cssTreeChildren(pseudo).find(
+      (child) => child.type === "SelectorList",
+    );
+    if (!selectorList) return { matches: true, dynamic: true };
+
+    const matches = cssTreeChildren(selectorList).map((selector) =>
+      selectorMatchesCandidate(
+        node,
+        selector,
+        targetNodeId,
+        virtualNodeIdTarget,
+      ),
+    );
+    const anyMatch = matches.some((match) => match.matches);
+    const dynamic = matches.some((match) => match.dynamic);
+    if (dynamic) return { matches: true, dynamic: true };
+    return {
+      matches: name === "not" ? !anyMatch : anyMatch,
+      dynamic: false,
+    };
+  }
+
+  if (STRUCTURAL_BROWSER_PSEUDO_CLASSES.has(name)) {
+    if (name === "empty") {
+      return {
+        matches: !(node.childNodes ?? []).some(
+          (child) => child.tagName || child.nodeName === "#text",
+        ),
+        dynamic:
+          hasRuntimeContentReplacement(node) ||
+          hasRemoteAlpineTeleportTo(node) ||
+          hasRuntimeStructuralMutationInSubtree(node),
+      };
+    }
+
+    const sameType = name.endsWith("of-type");
+    const allSiblings = htmlElementSiblings(node);
+    let siblings = allSiblings;
+    if (sameType) {
+      siblings = siblings.filter(
+        (sibling) =>
+          sibling.tagName?.toLowerCase() === node.tagName?.toLowerCase(),
+      );
+    }
+
+    const nthArgument = cssTreeChildren(pseudo).find(
+      (child) => child.type === "Nth",
+    );
+    let dynamic =
+      hasRuntimeStructuralMutationOnSelectorPath(node) ||
+      hasRemoteAlpineTeleportToParent(node) ||
+      hasRuntimeStructuralMutationInSiblings(node);
+    if (nthArgument?.selector) {
+      const siblingMatches = siblings.map((sibling) => {
+        const matches = cssTreeChildren(nthArgument.selector)
+          .filter((selector) => selector.type === "Selector")
+          .map((selector) =>
+            selectorEffectOnTarget(
+              selector,
+              sibling,
+              targetNodeId,
+              virtualNodeIdTarget,
+            ),
+          );
+        return {
+          matches: matches.some((match) => match.matches),
+          dynamic: matches.some((match) => match.dynamic),
+        };
+      });
+      if (
+        siblingMatches.some(
+          (match, index) =>
+            match.dynamic ||
+            hasRuntimeStructuralMutationOnSelectorPath(siblings[index]!),
+        )
+      ) {
+        return { matches: true, dynamic: true };
+      }
+      siblings = siblings.filter((_, index) => siblingMatches[index]!.matches);
+    }
+
+    const index = siblings.indexOf(node);
+    if (index === -1) return { matches: false, dynamic };
+    const position =
+      name.startsWith("nth-last-") ||
+      name === "last-child" ||
+      name === "last-of-type"
+        ? siblings.length - index
+        : index + 1;
+    let matches: boolean;
+    if (name === "first-child" || name === "first-of-type") {
+      matches = index === 0;
+    } else if (name === "last-child" || name === "last-of-type") {
+      matches = index === siblings.length - 1;
+    } else if (name === "only-child" || name === "only-of-type") {
+      matches = siblings.length === 1;
+    } else {
+      const expression = nthArgument?.nth;
+      const nthMatch = matchesNthPosition(expression, position);
+      if (nthMatch === null) return { matches: true, dynamic: true };
+      matches = nthMatch;
+    }
+    return { matches, dynamic };
+  }
+  if (DYNAMIC_BROWSER_PSEUDO_CLASSES.has(name)) {
+    return { matches: true, dynamic: true };
+  }
+
+  if (name === "has") {
+    const selectorList = cssTreeChildren(pseudo).find(
+      (child) => child.type === "SelectorList",
+    );
+    const nestedSelectors = selectorList ? cssTreeChildren(selectorList) : [];
+    if (!selectorList) return { matches: true, dynamic: true };
+    if (
+      nestedSelectors.some((selector) =>
+        cssTreeChildren(selector).some((child) => child.type === "Combinator"),
+      )
+    ) {
+      return { matches: true, dynamic: true };
+    }
+    const dynamicNestedMatch = nestedSelectors.some((selector) => {
+      const compound = cssTreeChildren(selector);
+      return descendants(node).some(
+        (candidate) =>
+          selectorCompoundMatches(
+            candidate,
+            compound,
+            targetNodeId,
+            virtualNodeIdTarget,
+          ).dynamic,
+      );
+    });
+    const staticNestedMatch = nestedSelectors.some((selector) => {
+      const compound = cssTreeChildren(selector);
+      return descendants(node).some((candidate) => {
+        const match = selectorCompoundMatches(
+          candidate,
+          compound,
+          targetNodeId,
+          virtualNodeIdTarget,
+        );
+        return match.matches && !match.dynamic;
+      });
+    });
+    const dynamic =
+      dynamicNestedMatch ||
+      hasRuntimeStructuralMutationInSubtree(node) ||
+      hasRuntimeMutationOnSelectorPath(node) ||
+      hasRemoteAlpineTeleportToSubtree(node);
+    return {
+      matches: dynamic || staticNestedMatch,
+      dynamic,
+    };
+  }
+
+  return {
+    matches: true,
+    dynamic: true,
+  };
+}
+
+function matchesNthPosition(
+  expression: CssTreeSelectorNode["nth"] | undefined,
+  position: number,
+): boolean | null {
+  if (!expression) return null;
+  if (expression.type === "Identifier") {
+    const keyword = expression.name?.toLowerCase();
+    if (keyword === "odd") return position % 2 === 1;
+    if (keyword === "even") return position % 2 === 0;
+    return null;
+  }
+  if (expression.type !== "AnPlusB") return null;
+
+  const a =
+    expression.a === null || expression.a === undefined
+      ? 0
+      : Number(expression.a);
+  const b =
+    expression.b === null || expression.b === undefined
+      ? 0
+      : Number(expression.b);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (a === 0) return position === b;
+  const n = (position - b) / a;
+  return n >= 0 && Number.isInteger(n);
+}
+
+function selectorMatchesCandidate(
+  node: HtmlNode,
+  selector: CssTreeSelectorNode,
+  targetNodeId: string,
+  virtualNodeIdTarget: HtmlNode | null,
+): SelectorMatch {
+  const compound = cssTreeChildren(selector);
+  if (compound.some((child) => child.type === "Combinator")) {
+    return { matches: true, dynamic: true };
+  }
+  return selectorCompoundMatches(
+    node,
+    compound,
+    targetNodeId,
+    virtualNodeIdTarget,
+  );
+}
+
+function hasRuntimeMutationOnSelectorPath(node: HtmlNode): boolean {
+  for (let candidate: HtmlNode | undefined = node; candidate?.tagName; ) {
+    if (hasRuntimeHtmlMutation(candidate)) return true;
+    candidate = candidate.parentNode;
+  }
+  return false;
+}
+
+function hasRuntimeStructuralMutationOnSelectorPath(node: HtmlNode): boolean {
+  for (let candidate: HtmlNode | undefined = node; candidate?.tagName; ) {
+    if (
+      hasRuntimeStructuralMutation(candidate) ||
+      (candidate !== node &&
+        (candidate.attrs ?? []).some(({ name, value }) =>
+          isAlpineMarkupInjection(name, value),
+        ))
+    ) {
+      return true;
+    }
+    candidate = candidate.parentNode;
+  }
+  return false;
+}
+
+function selectorRelationCandidates(
+  node: HtmlNode,
+  combinator: string,
+): HtmlNode[] {
+  if (combinator === ">")
+    return node.parentNode?.tagName ? [node.parentNode] : [];
+  const siblings = htmlElementSiblings(node);
+  const index = siblings.indexOf(node);
+  if (index < 0) return [];
+  if (combinator === "+") return index > 0 ? [siblings[index - 1]!] : [];
+  if (combinator === "~") return siblings.slice(0, index).reverse();
+  const ancestors: HtmlNode[] = [];
+  for (
+    let parent = node.parentNode;
+    parent?.tagName;
+    parent = parent.parentNode
+  ) {
+    ancestors.push(parent);
+  }
+  return ancestors;
+}
+
+function htmlElementSiblings(node: HtmlNode): HtmlNode[] {
+  const parent = node.parentNode;
+  if (!parent) return [];
+  const cached = htmlElementSiblingsByParent.get(parent);
+  if (cached) return cached;
+
+  const siblings = (parent.childNodes ?? [])
+    .filter((candidate) => candidate.tagName)
+    .sort(
+      (left, right) =>
+        (left.sourceCodeLocation?.startTag?.startOffset ?? -1) -
+        (right.sourceCodeLocation?.startTag?.startOffset ?? -1),
+    );
+  htmlElementSiblingsByParent.set(parent, siblings);
+  return siblings;
+}
+
+function isAlpineStructuralTemplate(node: HtmlNode): boolean {
+  return (
+    node.tagName === "template" &&
+    node.attrs?.some(({ name }) =>
+      /^x-(?:if|for|teleport)(?:\.|$)/i.test(name),
+    ) === true
+  );
+}
+
+function isVueStructuralDirective(name: string): boolean {
+  const directive = name.toLowerCase().split(/[.:]/, 1)[0]!;
+  return ["v-if", "v-else", "v-else-if", "v-for"].includes(directive);
+}
+
+function hasRuntimeContentReplacement(node: HtmlNode): boolean {
+  return (
+    node.attrs?.some(({ name, value }) =>
+      isRuntimeContentReplacement(name, value),
+    ) ?? false
+  );
+}
+
+function hasRuntimeHtmlMutation(node: HtmlNode): boolean {
+  return (
+    isAlpineStructuralTemplate(node) ||
+    (node.attrs ?? []).some(({ name, value }) => {
+      const normalized = name.toLowerCase();
+      return (
+        dynamicBoundAttributeName(normalized) !== null ||
+        ((normalized === "x-bind" || normalized === "v-bind") &&
+          runtimeObjectBindingHasAnyDynamicAttributes(value)) ||
+        isRuntimeStyleMutationHandler(name, value) ||
+        isEventHandlerAttribute(name)
+      );
+    })
+  );
+}
+
+function hasRuntimeStructuralMutation(node: HtmlNode): boolean {
+  return (
+    isAlpineStructuralTemplate(node) ||
+    (node.attrs ?? []).some(({ name, value }) => {
+      const normalized = name.toLowerCase();
+      const directive = normalized.split(/[.:]/, 1)[0]!;
+      return (
+        isEventHandlerAttribute(name) ||
+        isVueStructuralDirective(name) ||
+        directive === "x-init" ||
+        directive === "x-effect" ||
+        (isRuntimeStyleMutationScope(directive) &&
+          !isStaticRuntimeScopeData(value))
+      );
+    })
+  );
+}
+
+function hasRuntimeStructuralMutationInSubtree(node: HtmlNode): boolean {
+  return (
+    hasRuntimeStructuralMutation(node) ||
+    descendants(node).some(hasRuntimeStructuralMutation)
+  );
+}
+
+function hasRuntimeStructuralMutationInSiblings(node: HtmlNode): boolean {
+  const parent = node.parentNode;
+  if (!parent) return false;
+
+  const cached = runtimeStructuralMutationInSiblingsByParent.get(parent);
+  if (cached !== undefined) return cached;
+
+  const hasMutation = htmlElementSiblings(node).some(
+    hasRuntimeStructuralMutationInSubtree,
+  );
+  runtimeStructuralMutationInSiblingsByParent.set(parent, hasMutation);
+  return hasMutation;
+}
+
+function hasRemoteAlpineTeleportToParent(node: HtmlNode): boolean {
+  const parent = node.parentNode;
+  if (!parent?.tagName) return false;
+
+  return hasRemoteAlpineTeleportTo(parent);
+}
+
+function hasRemoteAlpineTeleportTo(target: HtmlNode): boolean {
+  return hasRemoteAlpineTeleportToAny([target]);
+}
+
+function hasRemoteAlpineTeleportToSubtree(target: HtmlNode): boolean {
+  return hasRemoteAlpineTeleportToAny(
+    [target, ...descendants(target)].filter((candidate) => candidate.tagName),
+  );
+}
+
+function hasRemoteAlpineTeleportToAny(targets: readonly HtmlNode[]): boolean {
+  const firstTarget = targets[0];
+  if (!firstTarget) return false;
+
+  let root = firstTarget;
+  while (root.parentNode) root = root.parentNode;
+
+  return remoteAlpineTeleportDestinations(root).some(
+    (selector) =>
+      !selector ||
+      targets.some((target) => remoteAlpineTeleportCanTarget(target, selector)),
+  );
+}
+
+function remoteAlpineTeleportDestinations(
+  root: HtmlNode,
+): Array<ReturnType<typeof parseMotionAuthoredCssSimpleSelector>> {
+  const cached = remoteAlpineTeleportDestinationsByRoot.get(root);
+  if (cached) return cached;
+
+  const selectors: Array<
+    ReturnType<typeof parseMotionAuthoredCssSimpleSelector>
+  > = [];
+  for (const candidate of descendants(root)) {
+    if (candidate.tagName !== "template") continue;
+    const directive = candidate.attrs?.find(({ name }) =>
+      /^x-teleport(?:\.|$)/i.test(name),
+    );
+    if (directive) {
+      selectors.push(
+        parseMotionAuthoredCssSimpleSelector(directive.value.trim()),
+      );
+    }
+  }
+
+  remoteAlpineTeleportDestinationsByRoot.set(root, selectors);
+  return selectors;
+}
+
+function remoteAlpineTeleportCanTarget(
+  target: HtmlNode,
+  selector: MotionAuthoredCssSimpleSelector,
+): boolean {
+  const matchesTarget = matchesHtmlSelector(target, selector);
+  const selectorAttribute =
+    selector.kind === "id"
+      ? "id"
+      : selector.kind === "class"
+        ? "class"
+        : selector.kind === "attribute"
+          ? selector.name
+          : null;
+  const canMatchTargetLater =
+    selectorAttribute !== null &&
+    (target.attrs ?? []).some(({ name, value }) =>
+      isDynamicHtmlAttribute(name, selectorAttribute, value),
+    );
+
+  return matchesTarget || canMatchTargetLater;
+}
+
+function descendants(node: HtmlNode | undefined): HtmlNode[] {
+  if (!node) return [];
+  const result: HtmlNode[] = [];
+  const pending = [...(node.childNodes ?? [])];
+  while (pending.length > 0) {
+    const candidate = pending.pop()!;
+    result.push(candidate);
+    pending.push(...(candidate.childNodes ?? []));
+    if (candidate.content) pending.push(candidate.content);
+  }
+  return result;
 }
 
 function buildsStringAtRuntime(value: string): boolean {
@@ -1010,12 +2400,27 @@ function assertExecutableScriptsSafe(
   nodes: readonly HtmlNode[],
   targetNodeIds: readonly string[],
   generatedIds: Map<number | undefined, string>,
+  motionPropertiesByTarget: ReadonlyMap<string, ReadonlySet<string>>,
 ): void {
   const alpineBootstraps = nodes.filter(isStaticAlpineBootstrapRuntime);
   const alpineBootstrap =
     alpineBootstraps.length === 1 ? alpineBootstraps[0] : undefined;
   const compilesClassesAtRuntime =
     targetNodeIds.length > 0 && nodes.some(isTailwindBrowserRuntime);
+  if (
+    hasUnsafeMotionCssRule(
+      nodes,
+      targetNodeIds,
+      generatedIds,
+      motionPropertiesByTarget,
+    )
+  ) {
+    sourceError(
+      "unsupported-target",
+      "HTML Motion targets cannot be synchronized safely while runtime HTML state can change CSS for an animated property.",
+    );
+  }
+
   for (const node of nodes) {
     if (node.insideTemplate && !isRenderedByAlpine(node)) continue;
 
@@ -1041,7 +2446,9 @@ function assertExecutableScriptsSafe(
 
     const markupSink =
       targetNodeIds.length > 0 &&
-      node.attrs?.find(({ name }) => isAlpineMarkupInjection(name));
+      node.attrs?.find(({ name, value }) =>
+        isAlpineMarkupInjection(name, value),
+      );
     if (markupSink) {
       sourceError(
         "unsupported-target",
@@ -1139,21 +2546,25 @@ function isRenderedByAlpine(node: HtmlNode): boolean {
   return false;
 }
 
-function isAlpineMarkupInjection(name: string): boolean {
+function isAlpineMarkupInjection(name: string, value = ""): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
     directive === "x-html" ||
+    directive === "v-html" ||
     ["innerhtml", "outerhtml"].includes(
       dynamicBoundAttributeName(directive) ?? "",
-    )
+    ) ||
+    (["x-bind", "v-bind"].includes(directive) &&
+      (runtimeObjectBindingMayWriteAttribute(value, "innerHTML") ||
+        runtimeObjectBindingMayWriteAttribute(value, "outerHTML")))
   );
 }
 
-function isAlpineContentReplacement(name: string): boolean {
+function isRuntimeContentReplacement(name: string, value = ""): boolean {
   const directive = name.toLowerCase().split(".", 1)[0]!;
   return (
-    directive === "x-text" ||
-    isAlpineMarkupInjection(directive) ||
+    ["x-text", "v-text"].includes(directive) ||
+    isAlpineMarkupInjection(directive, value) ||
     ["textcontent", "innertext"].includes(
       dynamicBoundAttributeName(directive) ?? "",
     )
@@ -1172,9 +2583,11 @@ function findContentReplacement(
   ) {
     // x-text on the target only replaces its text, which CSS Motion does not
     // depend on; Motion Text refuses dynamic text on its own.
-    const replaces =
-      current === target ? isAlpineMarkupInjection : isAlpineContentReplacement;
-    const attribute = current.attrs?.find(({ name }) => replaces(name));
+    const attribute = current.attrs?.find(({ name, value }) =>
+      current === target
+        ? isAlpineMarkupInjection(name, value)
+        : isRuntimeContentReplacement(name, value),
+    );
     if (attribute) return { attribute, onTarget: current === target };
   }
   return undefined;
@@ -2388,12 +3801,59 @@ export function instrumentMotionHtmlPreviewSource(args: {
   };
 }
 
+function motionPropertiesForTargets(
+  targetNodeIds: readonly string[],
+  motionTracks: readonly MotionTrack[],
+): Map<string, Set<string>> {
+  const propertiesByTarget = new Map<string, Set<string>>();
+  for (const targetNodeId of targetNodeIds) {
+    const properties = new Set<string>();
+    for (const track of motionTracks) {
+      if (track.enabled === false || track.targetNodeId !== targetNodeId) {
+        continue;
+      }
+      if (track.property === "path-trim") {
+        properties.add("stroke-dasharray");
+        properties.add("stroke-dashoffset");
+      } else if (
+        track.property === "translate" &&
+        track.keyframes.some((keyframe) => keyframe.motionPath)
+      ) {
+        for (const property of [
+          "offset-path",
+          "offset-anchor",
+          "offset-rotate",
+          "offset-distance",
+          "offset",
+          "translate",
+        ]) {
+          properties.add(property);
+        }
+      } else {
+        properties.add(track.property.toLowerCase());
+      }
+    }
+    if (properties.size === 0) {
+      for (const preset of MOTION_PROPERTY_PRESETS) {
+        properties.add(preset.property.toLowerCase());
+        for (const property of preset.additionalProperties ?? []) {
+          properties.add(property.toLowerCase());
+        }
+      }
+    }
+    propertiesByTarget.set(targetNodeId, properties);
+  }
+  return propertiesByTarget;
+}
+
 function assertTargetsExist(
   source: string,
   targetNodeIds: readonly string[],
   sourceFilePath?: string,
   checkExecutableScripts = true,
   checkEditSafety = true,
+  motionTracks: readonly MotionTrack[] = [],
+  rejectAllImportant = false,
 ): void {
   if (targetNodeIds.length === 0) return;
   const { nodes } = parseHtml(source);
@@ -2406,8 +3866,18 @@ function assertTargetsExist(
       target.nodeId,
     ]),
   );
+  const motionPropertiesByTarget = motionPropertiesForTargets(
+    targetNodeIds,
+    motionTracks,
+  );
   if (checkExecutableScripts) {
-    assertExecutableScriptsSafe(source, nodes, targetNodeIds, generatedIds);
+    assertExecutableScriptsSafe(
+      source,
+      nodes,
+      targetNodeIds,
+      generatedIds,
+      motionPropertiesByTarget,
+    );
   }
   const targets = new Map<string, HtmlNode[]>();
   for (const node of nodes) {
@@ -2428,7 +3898,6 @@ function assertTargetsExist(
   const generatedById = new Map(
     generatedTargets.map((target) => [target.nodeId, target.node]),
   );
-
   for (const nodeId of targetNodeIds) {
     assertSafeTargetId(nodeId);
     const matches = targets.get(nodeId) ?? [];
@@ -2503,28 +3972,56 @@ function assertTargetsExist(
           `Motion target "${nodeId}" ${onTarget ? "uses" : "has an ancestor using"} ${attribute.name}, which replaces its content when Alpine runs.`,
         );
       }
-      const inlineStyle = target.attrs?.find(({ name }) => name === "style");
-      if (inlineStyle && hasInlineMotionDeclarations(inlineStyle.value)) {
+      const importantRuntimeStyle = target.attrs?.find(({ name, value }) =>
+        runtimeObjectBindingHasImportantMotionStyle(
+          name,
+          value,
+          motionPropertiesByTarget.get(nodeId),
+        ),
+      );
+      if (importantRuntimeStyle) {
         sourceError(
           "unsupported-target",
-          `Motion target "${nodeId}" uses style, which cannot be synchronized with CSS Motion yet.`,
+          `Motion target "${nodeId}" uses ${importantRuntimeStyle.name} with an important style declaration that overrides CSS Motion.`,
+        );
+      }
+      const inlineStyle = target.attrs?.find(({ name }) => name === "style");
+      if (
+        inlineStyle &&
+        hasInlineMotionDeclarations(
+          inlineStyle.value,
+          motionPropertiesByTarget.get(nodeId),
+          rejectAllImportant,
+        )
+      ) {
+        sourceError(
+          "unsupported-target",
+          `Motion target "${nodeId}" uses style that conflicts with CSS Motion.`,
         );
       }
     }
   }
 }
 
-function hasInlineMotionDeclarations(value: string): boolean {
-  const motionProperty =
-    /^(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$/i;
+function hasInlineMotionDeclarations(
+  value: string,
+  animatedProperties: ReadonlySet<string> = new Set(),
+  rejectAllImportant = false,
+): boolean {
   try {
     const declarations = postcss.parse(`.motion-target {\n${value}\n}`);
     let found = false;
     declarations.walkDecls((declaration) => {
+      const property = decodeMotionCssIdentifier(
+        declaration.prop,
+      ).toLowerCase();
       if (
-        motionProperty.test(
-          decodeMotionCssIdentifier(declaration.prop).toLowerCase(),
-        )
+        MOTION_CONTROL_CSS_PROPERTY.test(property) ||
+        (declaration.important &&
+          cssDeclarationAffectsMotionProperty(property, animatedProperties) &&
+          (property !== "all" ||
+            rejectAllImportant ||
+            animatedProperties.size > 0))
       ) {
         found = true;
       }
@@ -2532,8 +4029,12 @@ function hasInlineMotionDeclarations(value: string): boolean {
     return found;
   } catch {
     const withoutComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
-    return /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
-      decodeMotionCssIdentifier(withoutComments),
+    const normalized = decodeMotionCssIdentifier(withoutComments);
+    return (
+      /(?:^|;)\s*(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\s*:/i.test(
+        normalized,
+      ) ||
+      (animatedProperties.size > 0 && /!\s*important\b/i.test(normalized))
     );
   }
 }
@@ -2764,10 +4265,14 @@ function hasUnresolvedStylesheet(nodes: readonly HtmlNode[]): boolean {
 
 function dynamicBoundAttributeName(attributeName: string): string | null {
   const normalized = attributeName.toLowerCase();
-  if (normalized.startsWith(":")) return normalized.slice(1);
-  for (const prefix of ["x-bind:", "v-bind:", "ng-attr-"]) {
-    if (normalized.startsWith(prefix)) return normalized.slice(prefix.length);
+  if (normalized.startsWith(":")) return normalized.slice(1).split(".", 1)[0]!;
+  for (const prefix of ["x-bind:", "v-bind:"]) {
+    if (normalized.startsWith(prefix)) {
+      return normalized.slice(prefix.length).split(".", 1)[0]!;
+    }
   }
+  if (normalized.startsWith("ng-attr-"))
+    return normalized.slice("ng-attr-".length);
   return normalized === "ng-href" ? "href" : null;
 }
 
@@ -3013,17 +4518,14 @@ function resolveAuthoredHtmlTarget(
 function isDynamicHtmlAttribute(
   name: string,
   selectorAttribute: string | null,
+  value = "",
 ): boolean {
   if (!selectorAttribute) return false;
   const normalized = name.toLowerCase();
   return (
-    normalized === "x-bind" ||
-    normalized === "v-bind" ||
-    [
-      `:${selectorAttribute}`,
-      `x-bind:${selectorAttribute}`,
-      `v-bind:${selectorAttribute}`,
-    ].includes(normalized)
+    ((normalized === "x-bind" || normalized === "v-bind") &&
+      runtimeObjectBindingMayWriteAttribute(value, selectorAttribute)) ||
+    dynamicBoundAttributeName(normalized) === selectorAttribute
   );
 }
 
@@ -3148,6 +4650,10 @@ function readSource(
     sourceFilePath,
     !options.allowUnmanagedExecutableScripts,
     !options.cleanupOnly,
+    [
+      ...(document?.tracks ?? []),
+      ...motionNativeStylesToTracks(document?.nativeStyles ?? []),
+    ],
   );
   const pathTrimmedSource = applyPathTrimTargets(
     source,
@@ -3341,7 +4847,10 @@ export function applyMotionHtmlSourceEdit(
   source = args.sourceFilePath
     ? addGeneratedHtmlNodeIds(source, args.sourceFilePath, targetNodeIds)
     : source;
-  assertTargetsExist(source, targetNodeIds);
+  assertTargetsExist(source, targetNodeIds, undefined, true, true, [
+    ...timeline.tracks,
+    ...motionNativeStylesToTracks(timeline.nativeStyles ?? []),
+  ]);
 
   const preservedAudioClips =
     currentRead.status === "valid"
@@ -3418,7 +4927,20 @@ export function inspectMotionHtmlSourceWriteCapability(args: {
     const source = args.sourceFilePath
       ? addGeneratedHtmlNodeIds(args.source, args.sourceFilePath, targetNodeIds)
       : args.source;
-    assertTargetsExist(source, targetNodeIds);
+    assertTargetsExist(
+      source,
+      targetNodeIds,
+      undefined,
+      true,
+      true,
+      read.status === "valid"
+        ? [
+            ...(read.document?.tracks ?? []),
+            ...motionNativeStylesToTracks(read.document?.nativeStyles ?? []),
+          ]
+        : [],
+      true,
+    );
     return { status: "supported", targetNodeIds };
   } catch (error) {
     const normalized =

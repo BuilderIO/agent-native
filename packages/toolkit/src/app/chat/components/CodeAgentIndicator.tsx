@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { cn } from "@agent-native/toolkit/utils";
 import { useEffect, useState } from "react";
 
 export interface CodeAgentIndicatorProps {
@@ -9,14 +11,15 @@ export function CodeAgentIndicator({
   isWorking,
   label,
 }: CodeAgentIndicatorProps) {
+  const t = useT();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (isWorking) {
       setVisible(true);
     } else {
-      const t = setTimeout(() => setVisible(false), 1500);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setVisible(false), 1500);
+      return () => clearTimeout(timer);
     }
   }, [isWorking]);
 
@@ -24,26 +27,27 @@ export function CodeAgentIndicator({
 
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 border-b border-border text-[11px]"
-      style={{
-        background: isWorking
-          ? "hsl(var(--accent) / 0.3)"
-          : "hsl(var(--accent) / 0.15)",
-      }}
-    >
-      {isWorking ? (
-        <>
-          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-          <span className="text-muted-foreground">
-            {label || "Code agent is working on your request..."}
-          </span>
-        </>
-      ) : (
-        <>
-          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-          <span className="text-muted-foreground">Code changes applied</span>
-        </>
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground",
+        isWorking ? "bg-accent/30" : "bg-accent/15",
       )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          isWorking
+            ? "animate-pulse bg-muted-foreground motion-reduce:animate-none"
+            : "bg-[hsl(var(--agent-kit-positive))]",
+        )}
+      />
+      <span>
+        {isWorking
+          ? label || t("agentChat.codeAgent.working")
+          : t("agentChat.codeAgent.applied")}
+      </span>
     </div>
   );
 }

@@ -9,10 +9,14 @@ import {
   uploadFile,
 } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import {
   recordCreatedDocumentsHistory,
   recordDocumentHistoryTransition,
@@ -105,6 +109,7 @@ type DocumentRow = typeof schema.documents.$inferSelect;
 type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 
 export const GITHUB_SYNC_OPERATION = "sync-github-source";
+const GITHUB_BODY_WRITER = { operation: "GitHub folder sync" };
 /** How long a running sync holds its lease; longer than any sync's budget. */
 const SYNC_LEASE_MS = 2 * 60 * 1000;
 /** Files previewed before linking, enough to see the frontmatter's shape. */
@@ -141,16 +146,29 @@ function parseJsonObject(value: string | null | undefined) {
     : {};
 }
 
-/** Runs GitHub reads as the person who linked the folder. */
+/** Runs as the person who linked the folder, in the collection's workspace. */
 async function asLinker<T>(
   state: Pick<GitHubSourceState, "linkedBy">,
   orgId: string | null,
   run: () => Promise<T>,
 ): Promise<T> {
   return await runWithRequestContext(
-    { userEmail: state.linkedBy, orgId: orgId ?? undefined },
+    { userEmail: state.linkedBy, ...(orgId ? { orgId } : {}) },
     run,
   );
+}
+
+/**
+ * Reads GitHub as the person who linked the folder. Their connection is saved
+ * under the workspace they linked it from, so a collection with no workspace
+ * of its own, in a Personal space, reads through that one.
+ */
+async function readAsLinker<T>(
+  state: Pick<GitHubSourceState, "linkedBy" | "linkedOrgId">,
+  orgId: string | null,
+  run: () => Promise<T>,
+): Promise<T> {
+  return await asLinker(state, orgId ?? state.linkedOrgId, run);
 }
 
 async function mapLimit<T, R>(
@@ -263,6 +281,7 @@ const PROBLEM_STATUS: Record<GitHubSourceProblemCode, number> = {
   unavailable: 502,
   sync_failed: 500,
   storage_unavailable: 503,
+  storage_failed: 503,
 };
 
 /** Gives a GitHub read failure the error code and status agents act on. */
@@ -741,8 +760,14 @@ interface RowState {
   frontmatterId: string | null;
   /** Images uploaded for this page, by folder-relative path. */
   assets: Record<string, { sha: string; url: string }>;
-  /** Images left out because file storage isn't set up; retried once it is. */
+  /** Images left out because file storage isn't set up or failed; retried later. */
   imagesWaiting?: number;
+  /**
+   * When an upload of one of this page's images last failed. Such pages are
+   * retried after the rest, oldest failure first, so an image storage always
+   * rejects can't hold back the others.
+   */
+  imagesFailedAt?: string;
 }
 
 function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
@@ -773,6 +798,9 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
     assets,
     ...(typeof value.imagesWaiting === "number" && value.imagesWaiting > 0
       ? { imagesWaiting: value.imagesWaiting }
+      : {}),
+    ...(typeof value.imagesFailedAt === "string"
+      ? { imagesFailedAt: value.imagesFailedAt }
       : {}),
   };
 }
@@ -805,9 +833,32 @@ export interface GitHubSyncResult {
   renamed: number;
   trashed: number;
   remaining: number;
-  /** Images left out because file storage isn't set up. */
+  /** Images left out because file storage isn't set up or failed. */
   imagesWaiting: number;
   problem: GitHubSourceState["problem"];
+}
+
+/**
+ * How many images the planned pages wait on: what this run left out of the
+ * pages it wrote, and what their last sync left out of the rest. Also whether
+ * any of those images failed to upload, rather than waiting for storage.
+ */
+function waitingImages(planned: readonly PlannedFile[]) {
+  let waiting = 0;
+  let failed = false;
+  for (const file of planned) {
+    // A skipped file's page keeps its last version until the file changes,
+    // so no sync can add its images before then, storage or not.
+    if (file.skipped) continue;
+    const linked = file.row ?? file.renamedFrom;
+    const last = linked ? rowState(linked) : null;
+    const count = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
+    waiting += count;
+    if (count > 0 && (file.imagesFailed ?? Boolean(last?.imagesFailedAt))) {
+      failed = true;
+    }
+  }
+  return { waiting, failed };
 }
 
 function emptyResult(
@@ -849,17 +900,29 @@ export function unexpectedSyncFailure(at: string): GitHubSyncResult {
   return emptyResult("error", null, unexpectedProblem(at));
 }
 
-/** The status problem for images a sync couldn't store, if there are any. */
+/**
+ * The status problem for images a sync couldn't store, if there are any:
+ * storage isn't set up, or `failed` when it's set up but couldn't save them.
+ */
 function storageProblem(
   imagesWaiting: number,
   at: string,
+  failed = false,
 ): GitHubSourceState["problem"] {
   if (imagesWaiting === 0) return null;
-  return {
-    code: "storage_unavailable",
-    message: `${imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
-    at,
-  };
+  const images =
+    imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`;
+  return failed
+    ? {
+        code: "storage_failed",
+        message: `${images} shown because file storage couldn't save images. The next sync tries again.`,
+        at,
+      }
+    : {
+        code: "storage_unavailable",
+        message: `${images} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
+        at,
+      };
 }
 
 async function readSource(sourceId: string) {
@@ -981,6 +1044,10 @@ interface PlannedFile {
   batched?: boolean;
   /** Images this sync couldn't store for the file's page. */
   imagesWaiting?: number;
+  /** Whether any of those failed to upload, this sync or an earlier one. */
+  imagesFailed?: boolean;
+  /** Whether the file can't become a page, this sync or an earlier one. */
+  skipped?: boolean;
 }
 
 interface SyncRun {
@@ -998,8 +1065,17 @@ interface SyncRun {
   documentIdByPath: Map<string, string>;
   /** Uploaded image URL by blob SHA, shared across pages. */
   assetUrlBySha: Map<string, string>;
+  /**
+   * Blob SHAs of images whose upload failed this run. Other pages that use
+   * one leave it out without trying again, so one image counts once.
+   */
+  failedAssetShas: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
+  /** Set once an upload fails, so the status says storage couldn't save images. */
+  storageFailed: boolean;
+  /** Uploads that failed since the last one that worked; see `storageDown`. */
+  uploadFailuresInARow: number;
   now: string;
   actor: string;
   /** Aborts GitHub requests once the sync's time budget runs out. */
@@ -1022,13 +1098,86 @@ function folderRelative(run: SyncRun, repoPath: string) {
 }
 
 /**
- * Copies one image into Content's file storage. `"no-storage"` means none is
- * set up, so the page leaves the image out until a later sync can store it.
+ * Stores one image's bytes and returns its URL. Returns null when storage
+ * isn't set up, which stops the run's uploads, or `"failed"` when this upload
+ * failed; a later sync tries it again. `uploadFile` also returns nothing when
+ * it couldn't check a Builder credential, so storage that's still set up
+ * after an empty answer counts as a failed upload.
+ */
+async function storeImage(
+  run: SyncRun,
+  file: Omit<Parameters<typeof uploadFile>[0], "ownerEmail">,
+): Promise<{ url: string } | "failed" | null> {
+  try {
+    const uploaded = await asLinker(run.state, run.database.orgId, () =>
+      uploadFile({ ...file, ownerEmail: run.database.ownerEmail }),
+    );
+    if (uploaded?.url) {
+      run.uploadFailuresInARow = 0;
+      return { url: uploaded.url };
+    }
+    const provider = await asLinker(run.state, run.database.orgId, () =>
+      getActiveFileUploadProviderForRequest(),
+    );
+    if (provider) return uploadFailed(run, "file storage returned no URL");
+    run.storageMissing = true;
+    return null;
+  } catch (error) {
+    return uploadFailed(
+      run,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+function uploadFailed(run: SyncRun, reason: string): "failed" {
+  console.warn(
+    "[github-source] couldn't save an image to file storage; the next sync tries again:",
+    reason,
+  );
+  run.storageFailed = true;
+  run.uploadFailuresInARow += 1;
+  return "failed";
+}
+
+/**
+ * Uploads that fail in a row before a sync stops trying for the rest of its
+ * run. One failure may be that image alone, such as a file storage rejects;
+ * several different images in a row mean storage itself is down.
+ */
+const STORAGE_DOWN_FAILURES = 3;
+
+/** Whether later images should wait for a later sync without being read. */
+function storageDown(run: SyncRun) {
+  return (
+    run.storageMissing || run.uploadFailuresInARow >= STORAGE_DOWN_FAILURES
+  );
+}
+
+/**
+ * Whether a file's page would be rebuilt only to add its images while
+ * storage is down. It would come out the same, so it waits for a later sync
+ * without reading GitHub.
+ */
+function waitsForStorage(run: SyncRun, file: PlannedFile) {
+  return (
+    storageDown(run) &&
+    !!file.row &&
+    rowState(file.row)?.blobSha === file.entry.sha
+  );
+}
+
+/**
+ * Copies one image into Content's file storage. `"no-storage"` means storage
+ * isn't set up or is down, and `"failed"` that this upload failed; either way
+ * the page leaves the image out until a later sync can store it.
+ * `beforeUpload` runs before each copy the sync can't take back.
  */
 async function uploadAsset(
   run: SyncRun,
   request: ImportAssetRequest,
-): Promise<{ sha: string; url: string } | "no-storage" | null> {
+  beforeUpload: () => Promise<void>,
+): Promise<{ sha: string; url: string } | "no-storage" | "failed" | null> {
   if (request.kind === "data-url") {
     if (!isImportImageMediaType(request.mediaType)) return null;
     const data = dataUrlBytes(request.dataUrl);
@@ -1036,22 +1185,22 @@ async function uploadAsset(
     const sha = hash(request.dataUrl);
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
-    if (run.storageMissing) return "no-storage";
+    if (run.failedAssetShas.has(sha)) return "failed";
+    if (storageDown(run)) return "no-storage";
+    await beforeUpload();
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-    const uploaded = await asLinker(run.state, run.database.orgId, () =>
-      uploadFile({
-        data,
-        filename: `github-image.${extension}`,
-        mimeType: request.mediaType,
-        ownerEmail: run.database.ownerEmail,
-      }),
-    );
-    if (!uploaded?.url) {
-      run.storageMissing = true;
-      return "no-storage";
+    const stored = await storeImage(run, {
+      data,
+      filename: `github-image.${extension}`,
+      mimeType: request.mediaType,
+    });
+    if (stored === "failed") {
+      run.failedAssetShas.add(sha);
+      return stored;
     }
-    run.assetUrlBySha.set(sha, uploaded.url);
-    return { sha, url: uploaded.url };
+    if (!stored) return "no-storage";
+    run.assetUrlBySha.set(sha, stored.url);
+    return { sha, url: stored.url };
   }
   const entry = run.files.blobs.get(request.path);
   const mimeType = importImageMediaType(request.path);
@@ -1061,8 +1210,10 @@ async function uploadAsset(
   }
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
-  if (run.storageMissing) return "no-storage";
-  const data = await asLinker(run.state, run.database.orgId, () =>
+  if (run.failedAssetShas.has(entry.sha)) return "failed";
+  if (storageDown(run)) return "no-storage";
+  await beforeUpload();
+  const data = await readAsLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1071,20 +1222,18 @@ async function uploadAsset(
       signal: run.signal,
     }),
   );
-  const uploaded = await asLinker(run.state, run.database.orgId, () =>
-    uploadFile({
-      data,
-      filename: request.path.split("/").pop() ?? "image",
-      mimeType,
-      ownerEmail: run.database.ownerEmail,
-    }),
-  );
-  if (!uploaded?.url) {
-    run.storageMissing = true;
-    return "no-storage";
+  const stored = await storeImage(run, {
+    data,
+    filename: request.path.split("/").pop() ?? "image",
+    mimeType,
+  });
+  if (stored === "failed") {
+    run.failedAssetShas.add(entry.sha);
+    return stored;
   }
-  run.assetUrlBySha.set(entry.sha, uploaded.url);
-  return { sha: entry.sha, url: uploaded.url };
+  if (!stored) return "no-storage";
+  run.assetUrlBySha.set(entry.sha, stored.url);
+  return { sha: entry.sha, url: stored.url };
 }
 
 /**
@@ -1092,7 +1241,12 @@ async function uploadAsset(
  * uses, with images copied into Content storage and links to other files in
  * the folder pointing at their pages.
  */
-async function buildPage(run: SyncRun, relativePath: string, text: string) {
+async function buildPage(
+  run: SyncRun,
+  relativePath: string,
+  text: string,
+  beforeUpload: () => Promise<void>,
+) {
   const draft = parseMarkdownImport({
     sourcePath: relativePath,
     text,
@@ -1118,10 +1272,14 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
   const assets: RowState["assets"] = {};
   const urls = new Map<string, string>();
   let imagesWaiting = 0;
+  let imagesFailed = false;
   for (const [key, request] of requests) {
-    const uploaded = await uploadAsset(run, request);
-    if (uploaded === "no-storage") imagesWaiting += 1;
-    if (!uploaded || uploaded === "no-storage") continue;
+    const uploaded = await uploadAsset(run, request, beforeUpload);
+    if (uploaded === "no-storage" || uploaded === "failed") imagesWaiting += 1;
+    if (uploaded === "failed") imagesFailed = true;
+    if (!uploaded || uploaded === "no-storage" || uploaded === "failed") {
+      continue;
+    }
     urls.set(key, uploaded.url);
     if (request.kind === "file") assets[request.path] = uploaded;
   }
@@ -1143,7 +1301,7 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
     },
     "apply",
   );
-  return { draft, page, assets, imagesWaiting };
+  return { draft, page, assets, imagesWaiting, imagesFailed };
 }
 
 /**
@@ -1333,7 +1491,7 @@ type FileOutcome =
 
 async function readFileText(run: SyncRun, file: PlannedFile) {
   if (file.text !== undefined) return file.text;
-  const bytes = await asLinker(run.state, run.database.orgId, () =>
+  const bytes = await readAsLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1359,12 +1517,14 @@ function unread(file: PlannedFile) {
  */
 async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
   const batch = fitTextBatch(
-    work.slice(from).filter(unread),
+    work
+      .slice(from)
+      .filter((file) => unread(file) && !waitsForStorage(run, file)),
     (file) => file.entry.size,
   );
   if (batch.length < 2) return;
   for (const file of batch) file.batched = true;
-  const texts = await asLinker(run.state, run.database.orgId, () =>
+  const texts = await readAsLinker(run.state, run.database.orgId, () =>
     readTextsTogether(
       {
         owner: run.state.owner,
@@ -1399,16 +1559,29 @@ async function buildFile(
 ): Promise<BuiltFile | { skipped: GitHubSourceSkipReason }> {
   const text = await readFileText(run, file);
   if (text === null) return { skipped: "not-text" };
-  const { draft, page, assets, imagesWaiting } = await buildPage(
+  const linkedRow = file.row ?? file.renamedFrom;
+  // An upload can't roll back with the write, so a page the write would refuse
+  // refuses before the first one. Only a page this file's record still links
+  // refuses here: a restore that released the record gives the file a new
+  // page. The write rechecks both under its locks.
+  let uploadsAllowed: Promise<void> | undefined;
+  const beforeUpload = () =>
+    (uploadsAllowed ??= (async () => {
+      if (linkedRow && (await recordStillLinked(run.db, linkedRow))) {
+        await assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER);
+      }
+    })());
+  const { draft, page, assets, imagesWaiting, imagesFailed } = await buildPage(
     run,
     file.entry.path,
     text,
+    beforeUpload,
   );
   if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
     return { skipped: "too-large" };
   }
-  file.imagesWaiting = imagesWaiting;
   const values = frontmatterValues(draft);
+  const previous = linkedRow ? rowState(linkedRow) : null;
   return {
     file,
     page,
@@ -1421,8 +1594,24 @@ async function buildFile(
       frontmatterId: frontmatterId(values),
       assets,
       ...(imagesWaiting ? { imagesWaiting } : {}),
+      // A page whose images only waited this time keeps its place in line.
+      ...(imagesFailed
+        ? { imagesFailedAt: run.now }
+        : imagesWaiting && previous?.imagesFailedAt
+          ? { imagesFailedAt: previous.imagesFailedAt }
+          : {}),
     },
   };
+}
+
+/**
+ * Counts what this run left out of a page once the page is saved. One that
+ * failed to save keeps its row's count, so the next sync still goes back for
+ * them.
+ */
+function countSavedImages({ file, state }: BuiltFile) {
+  file.imagesWaiting = state.imagesWaiting ?? 0;
+  file.imagesFailed = Boolean(state.imagesFailedAt);
 }
 
 /** Holds the collection's next positions while a write may append to it. */
@@ -1448,7 +1637,7 @@ async function applyFile(
   const linkedRow = file.row ?? file.renamedFrom;
   const previous = linkedRow ? rowState(linkedRow) : null;
 
-  return withAppendPositions(run, () =>
+  const outcome = await withAppendPositions(run, () =>
     run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
       await lockLinkedCollection(tx, run);
       // A restore that released the page since this sync planned the
@@ -1472,12 +1661,16 @@ async function applyFile(
             previous.metaHash !== nextState.metaHash;
           const moved = document.sourcePath !== file.repoPath;
           if (bodyChanged) {
+            const legacy = await lockLegacyBodyWrites(tx, [document.id], {
+              ...GITHUB_BODY_WRITER,
+              content: page.content,
+            });
             const [written] = await tx
               .update(schema.documents)
               .set({
                 title: page.title,
                 content: page.content,
-                bodyRevision: bodyRevisionForContent(page.content),
+                bodyRevision: legacy.bodyRevision(page.content),
                 description: page.description ?? "",
                 icon: page.icon ?? document.icon,
                 sourcePath: file.repoPath,
@@ -1551,6 +1744,8 @@ async function applyFile(
       return "created";
     }),
   );
+  countSavedImages(built);
+  return outcome;
 }
 
 /** New files a sync writes in one transaction. */
@@ -1601,6 +1796,7 @@ async function applyNewFiles(
         await insertNewPages(tx, run, pages);
       }),
     );
+    for (const page of pages) countSavedImages(page);
   }
   return { outcomes, cutShort, failure };
 }
@@ -1943,7 +2139,7 @@ async function matchRenames(
   };
   const addedByPath = new Map(added.map((file) => [file.repoPath, file]));
   if (run.state.syncedCommitSha) {
-    const renames = await asLinker(run.state, run.database.orgId, () =>
+    const renames = await readAsLinker(run.state, run.database.orgId, () =>
       readGitHubRenames({
         owner: run.state.owner,
         repo: run.state.repo,
@@ -2061,12 +2257,31 @@ export async function syncGitHubSource(
   // Files this run read and had to skip. A run that fails partway keeps
   // them too, so the next one doesn't read them again.
   let readSkipsSoFar: GitHubReadSkip[] | null = null;
+  // The images this run's planned files wait on, once it has planned them,
+  // whether storage failed to save some, and whether storage is set up. A run
+  // that fails partway records them, so the next sync goes back for the ones
+  // still missing, stops counting the ones it stored, and the status line
+  // still says why.
+  let imagesSoFar:
+    | (() => { waiting: number; failed: boolean; ready: boolean })
+    | null = null;
+  // Whether this run found storage set up for the images it found waiting,
+  // or null when it hasn't looked.
+  let storageFound: boolean | null = null;
+  const imagesNow = (current: GitHubSourceState) =>
+    imagesSoFar?.() ?? {
+      waiting: current.imagesWaiting,
+      // Storage this run found missing didn't fail to save them.
+      failed: current.imagesFailed && storageFound !== false,
+      ready: storageFound ?? current.storageReady,
+    };
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
     created: result.created,
     updated: result.updated,
     renamed: result.renamed,
     trashed: result.trashed,
+    imagesWaiting: imagesNow(state).waiting,
   });
   const endBudget = () => budget.abort();
   if (options.signal?.aborted) endBudget();
@@ -2075,19 +2290,21 @@ export async function syncGitHubSource(
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
-    const retryImages =
-      state.imagesWaiting > 0 &&
-      Boolean(
-        await asLinker(state, database.orgId, () =>
-          getActiveFileUploadProviderForRequest(),
-        ),
-      );
+    storageFound =
+      state.imagesWaiting > 0
+        ? Boolean(
+            await asLinker(state, database.orgId, () =>
+              getActiveFileUploadProviderForRequest(),
+            ),
+          )
+        : null;
+    const retryImages = storageFound === true;
     const canSkip =
       !options.force &&
       !retryImages &&
       !!state.syncedCommitSha &&
       !state.pendingCommitSha;
-    const head = await asLinker(state, database.orgId, () =>
+    const head = await readAsLinker(state, database.orgId, () =>
       readGitHubBranchHead(
         {
           owner: state.owner,
@@ -2109,6 +2326,9 @@ export async function syncGitHubSource(
           checkedAt: now,
           headEtag: head.status === "ok" ? head.etag : current.headEtag,
           problem: storageProblem(current.imagesWaiting, now),
+          // Images wait here only when storage isn't set up.
+          imagesFailed: false,
+          storageReady: false,
         }),
         () => ({
           syncState: "linked",
@@ -2139,7 +2359,7 @@ export async function syncGitHubSource(
       });
     }
     const files = classifyFolder(
-      await asLinker(state, database.orgId, () =>
+      await readAsLinker(state, database.orgId, () =>
         readGitHubFolderTree({
           owner: state.owner,
           repo: state.repo,
@@ -2183,7 +2403,10 @@ export async function syncGitHubSource(
       removedKeys: removed,
       documentIdByPath: new Map(),
       assetUrlBySha,
+      failedAssetShas: new Set(),
       storageMissing: false,
+      storageFailed: false,
+      uploadFailuresInARow: 0,
       now,
       actor: state.linkedBy,
       signal: budget.signal,
@@ -2237,6 +2460,7 @@ export async function syncGitHubSource(
       const skip = readSkipsByPath.get(file.entry.path);
       if (skip?.blobSha === file.entry.sha) {
         stillSkipped.push(skip);
+        file.skipped = true;
         return false;
       }
       const previous = file.row ? rowState(file.row) : null;
@@ -2252,24 +2476,65 @@ export async function syncGitHubSource(
     const cutShort = new Map(
       state.cutShort.map((path, index) => [path, index + 1]),
     );
-    work.sort(
-      (a, b) =>
-        (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0),
+    // A renamed file keeps the place its old path had.
+    const cutShortRank = new Map(
+      work.map((file) => {
+        const from = file.renamedFrom ? rowState(file.renamedFrom)?.path : null;
+        const rank =
+          cutShort.get(file.repoPath) ?? (from ? cutShort.get(from) : 0) ?? 0;
+        return [file, rank];
+      }),
     );
+    // Pages whose images failed to upload go after those too, oldest failure
+    // first, so an image storage always rejects can't stop the rest.
+    const failedAt = new Map(
+      work.map((file) => [
+        file,
+        (() => {
+          const linked = file.row ?? file.renamedFrom;
+          return linked ? rowState(linked)?.imagesFailedAt : undefined;
+        })() ?? "",
+      ]),
+    );
+    const imagesFailedTier = (file: PlannedFile) =>
+      failedAt.get(file) ? 1 : 0;
+    const inLine = (a: PlannedFile, b: PlannedFile) =>
+      imagesFailedTier(a) - imagesFailedTier(b) ||
+      cutShortRank.get(a)! - cutShortRank.get(b)! ||
+      failedAt.get(a)!.localeCompare(failedAt.get(b)!);
+    work.sort(inLine);
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     readSkipsSoFar = readSkips;
+    // Images that failed to upload say so until they're stored, even when the
+    // time ran out before a run got back to them.
+    const imagesOfRun = () => {
+      const images = waitingImages(planned);
+      // Storage that went missing during the run isn't set up any more,
+      // whatever failed before it went.
+      const storageFailed =
+        !run.storageMissing &&
+        (run.storageFailed || (retryImages && images.failed));
+      return {
+        waiting: images.waiting,
+        failed: images.waiting > 0 && storageFailed,
+        ready: !run.storageMissing && (retryImages || run.storageFailed),
+      };
+    };
+    imagesSoFar = imagesOfRun;
     let done = 0;
     let cutShortPath: string | null = null;
     const record = (file: PlannedFile, outcome: FileOutcome) => {
       if (typeof outcome === "string") result[outcome] += 1;
-      else
+      else {
+        file.skipped = true;
         readSkips.push({
           path: file.entry.path,
           reason: outcome.skipped,
           blobSha: file.entry.sha,
         });
+      }
       done += 1;
     };
     for (let index = 0; index < work.length; ) {
@@ -2318,6 +2583,10 @@ export async function syncGitHubSource(
         continue;
       }
       index += 1;
+      if (waitsForStorage(run, file)) {
+        record(file, "unchanged");
+        continue;
+      }
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
         if (file.text === undefined && !file.batched) {
@@ -2343,6 +2612,24 @@ export async function syncGitHubSource(
               folderRelative(run, file.repoPath),
               match[1].documentId,
             );
+            // It takes its old page's place in line, so one the time ran out
+            // on, or whose images failed to upload, still goes after the
+            // files still to come.
+            cutShortRank.set(
+              file,
+              cutShort.get(file.repoPath) ?? cutShort.get(match[0]) ?? 0,
+            );
+            failedAt.set(file, rowState(match[1])?.imagesFailedAt ?? "");
+            // The loop has already moved index past this file.
+            const at = index - 1;
+            let to = index;
+            while (to < work.length && inLine(work[to]!, file) < 0) to += 1;
+            if (to > index) {
+              work.splice(to, 0, file);
+              work.splice(at, 1);
+              index = at;
+              continue;
+            }
           }
         }
         outcome = await applyFile(run, file);
@@ -2367,20 +2654,15 @@ export async function syncGitHubSource(
       }
     }
     result.remaining = remainingFiles + gone.size;
-    result.imagesWaiting = planned.reduce((total, file) => {
-      const linked = file.row ?? file.renamedFrom;
-      return (
-        total +
-        (file.imagesWaiting ??
-          (linked ? (rowState(linked)?.imagesWaiting ?? 0) : 0))
-      );
-    }, 0);
-    // Storage that just worked isn't missing, even if the time budget left
-    // some pages for the next sync to fill in.
-    const storageReady = retryImages && !run.storageMissing;
-    result.problem = storageReady
-      ? null
-      : storageProblem(result.imagesWaiting, now);
+    // Pages this run didn't get to still wait on what their last sync left
+    // out. Storage that just worked isn't missing, even if the time budget
+    // left some pages for the next sync to fill in.
+    const images = imagesOfRun();
+    result.imagesWaiting = images.waiting;
+    result.problem =
+      images.ready && !images.failed
+        ? null
+        : storageProblem(result.imagesWaiting, now, images.failed);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
     // A run that got through some files isn't a finished check, so the
@@ -2414,6 +2696,8 @@ export async function syncGitHubSource(
           skippedCount: skippedFiles.length,
           readSkips,
           imagesWaiting: result.imagesWaiting,
+          imagesFailed: images.failed,
+          storageReady: images.ready,
           ...(complete
             ? {
                 syncedCommitSha: head.sha,
@@ -2452,7 +2736,15 @@ export async function syncGitHubSource(
       // may well finish, so the link shows no problem and waits its turn. It
       // can't say the rows match the branch, though, until a check gets through.
       await release(
-        (current) => current,
+        (current) => {
+          const images = imagesNow(current);
+          return {
+            ...current,
+            imagesWaiting: images.waiting,
+            imagesFailed: images.failed,
+            storageReady: images.ready,
+          };
+        },
         (next) => ({
           syncState: next.pendingCommitSha
             ? "refreshing"
@@ -2484,12 +2776,20 @@ export async function syncGitHubSource(
       );
     }
     await release(
-      (current) => ({
-        ...current,
-        checkedAt: now,
-        problem,
-        ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
-      }),
+      (current) => {
+        // The problem says why the sync failed, and imagesFailed and
+        // storageReady still say why its pictures are missing.
+        const images = imagesNow(current);
+        return {
+          ...current,
+          imagesWaiting: images.waiting,
+          imagesFailed: images.failed,
+          storageReady: images.ready,
+          checkedAt: now,
+          problem,
+          ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
+        };
+      },
       () => ({
         syncState: "error",
         freshness: "stale",
@@ -2530,6 +2830,7 @@ export async function createGitHubSourceLink(args: {
     ...resolved.location,
     connectionId: args.connectionId,
     linkedBy: args.userEmail,
+    linkedOrgId: getRequestOrgId() ?? null,
     linkedAt: now,
     mode: "view_only",
     headEtag: null,
@@ -2538,6 +2839,8 @@ export async function createGitHubSourceLink(args: {
     checkedAt: null,
     pendingCommitSha: resolved.commitSha,
     imagesWaiting: 0,
+    imagesFailed: false,
+    storageReady: false,
     progress: { done: 0, total: preview.markdownFiles },
     cutShort: [],
     files: preview.markdownFiles,
@@ -2655,7 +2958,8 @@ export function githubSyncSummary(label: string, result: GitHubSyncResult) {
     return `${label} is already syncing; its rows update when that sync finishes.`;
   }
   const waiting =
-    result.problem?.code === "storage_unavailable"
+    result.problem?.code === "storage_unavailable" ||
+    result.problem?.code === "storage_failed"
       ? ` ${result.problem.message}`
       : "";
   if (result.state === "unchanged") {

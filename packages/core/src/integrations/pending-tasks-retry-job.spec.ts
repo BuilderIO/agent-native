@@ -365,6 +365,40 @@ describe("pending task retry job", () => {
     );
   });
 
+  it("clears the delayed start so shutdown does not leave a later interval tick", async () => {
+    vi.useFakeTimers();
+    executeMock.mockResolvedValue({ rows: [] });
+    const { startPendingTasksRetryJob, stopPendingTasksRetryJob } =
+      await loadRetryJob();
+
+    startPendingTasksRetryJob();
+    stopPendingTasksRetryJob();
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(executeMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("stops an already-started interval so later ticks cannot keep the process busy", async () => {
+    vi.useFakeTimers();
+    executeMock.mockResolvedValue({ rows: [] });
+    const { startPendingTasksRetryJob, stopPendingTasksRetryJob } =
+      await loadRetryJob();
+
+    startPendingTasksRetryJob();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await Promise.resolve();
+    expect(executeMock).toHaveBeenCalled();
+
+    executeMock.mockClear();
+    stopPendingTasksRetryJob();
+    await vi.advanceTimersByTimeAsync(180_000);
+    await Promise.resolve();
+
+    expect(executeMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
   it("does not reclaim a healthy durable background task at the synchronous cutoff", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-21T12:00:00.000Z"));

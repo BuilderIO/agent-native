@@ -226,7 +226,7 @@ describe("FillProperties — existing layer fill popover", () => {
     ).toBeNull();
   });
 
-  it("can hide Add fill without hiding other fill-section actions", () => {
+  it("can hide Add fill", () => {
     act(() => {
       root.render(
         <FillProperties
@@ -241,9 +241,7 @@ describe("FillProperties — existing layer fill popover", () => {
       container.querySelector('button[aria-label="editPanel.labels.addFill"]'),
     ).toBeNull();
     expect(
-      container.querySelector(
-        'button[aria-label="editPanel.labels.stylesComingSoon"]',
-      ),
+      container.querySelector('h3[aria-label="editPanel.sections.fill"]'),
     ).not.toBeNull();
   });
 
