@@ -1029,6 +1029,12 @@ describe("content webhooks", () => {
   });
 
   it("W2-4: registers, lists and removes a webhook, and keeps others out", async () => {
+    // A person approves each registration an agent asks for; removing and
+    // listing need no approval.
+    expect(createWebhook.needsApproval).toBe(true);
+    expect(createWebhook.allowPersistentApproval).toBe(false);
+    expect(deleteWebhook.needsApproval).toBeUndefined();
+    expect(listWebhooks.needsApproval).toBeUndefined();
     const ids = await fixture();
     const created = await asOwner(() =>
       createWebhook.run({
