@@ -176,7 +176,11 @@ describe("delete-comment", () => {
   );
 
   it("lets an author delete whatever case their email was stored in", async () => {
-    state.rows[0] = { ...state.rows[0]!, authorEmail: "Author@Example.com" };
+    state.rows = state.rows.map((row) =>
+      row.id === "comment-1"
+        ? { ...row, authorEmail: "Author@Example.com" }
+        : row,
+    );
     mockAssertAccess.mockImplementation(async (_type, _id, role) => {
       if (role === "editor") throw new ForbiddenError();
       return { role: "viewer", resource: { trashedAt: null } };
