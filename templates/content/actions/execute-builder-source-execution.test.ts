@@ -1091,6 +1091,48 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("refuses a publish when page edit access is revoked during the live check", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: {
+        allowPublicationTransitions: true,
+      },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "publish",
+    });
+    const deps = depsFor({ source: builderSource, execution });
+    vi.mocked(deps.assertPageEditor)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(
+        new Error("Requires editor role on document doc-1 (have viewer)"),
+      );
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "publish",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Requires editor role on document doc-1 (have viewer)");
+
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(deps.assertPageEditor).mock.invocationCallOrder[1],
+    ).toBeGreaterThan(
+      vi.mocked(deps.readLiveEntry).mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.releaseExecutionClaim).toHaveBeenCalled();
+  });
+
   it("publishes an approved revision when the entry is already published", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({

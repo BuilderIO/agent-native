@@ -56,8 +56,13 @@ export default defineAction({
       },
     );
 
+    // A page can be shared more narrowly than its collection, and a pick
+    // needs edit access to both.
     const builderStatusChoices =
       canEditValues &&
+      (access.role === "owner" ||
+        access.role === "admin" ||
+        access.role === "editor") &&
       database &&
       properties.some(
         (property) => property.definition.systemRole === "builder_status",

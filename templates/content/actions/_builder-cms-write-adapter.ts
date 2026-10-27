@@ -798,7 +798,7 @@ function builderSafetyChecks(args: {
       // A push with nothing but the transition exists only because of a
       // status pick, so an approval for it can't outlive the pick.
       blockers.push(
-        `This entry's staged ${args.effect} was cleared, and the push has nothing else to send.`,
+        `This push only sends a ${args.effect}, and this entry has no ${args.effect} staged.`,
       );
     }
   }

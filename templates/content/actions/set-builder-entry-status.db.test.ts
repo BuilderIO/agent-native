@@ -401,7 +401,19 @@ it("refuses a pick from a collection editor who can't edit the page", async () =
         status: "published",
       }),
     );
+  const collaboratorChoices = async () =>
+    (
+      await runWithRequestContext({ userEmail: collaborator }, () =>
+        listProperties.run({
+          documentId: "doc_entry_draft",
+          databaseId: DATABASE_ID,
+        }),
+      )
+    ).properties.find(
+      (property) => property.definition.systemRole === "builder_status",
+    )?.builderStatusChoices ?? null;
   try {
+    expect(await collaboratorChoices()).toBeNull();
     await expect(pickAsCollaborator()).rejects.toThrow(
       "Requires editor role on document doc_entry_draft (have viewer)",
     );
@@ -416,6 +428,7 @@ it("refuses a pick from a collection editor who can't edit the page", async () =
           eq(schema.documentShares.principalId, collaborator),
         ),
       );
+    expect(await collaboratorChoices()).not.toBeNull();
     await expect(pickAsCollaborator()).resolves.toMatchObject({
       stagedPublicationTransition: "publish",
     });
@@ -546,7 +559,7 @@ it("blocks an approved publish-only push once its pick is cleared", async () => 
     .where(eq(schema.contentDatabases.id, DATABASE_ID));
   const approvedId = "csc_entry_draft_approved_publish";
   const cleared =
-    "This entry's staged publish was cleared, and the push has nothing else to send.";
+    "This push only sends a publish, and this entry has no publish staged.";
   const blockers = async () => {
     const snapshot = await asOwner(() =>
       utils.getContentDatabaseSourceSnapshot(database),
@@ -767,6 +780,33 @@ it("refuses a pick when page access is revoked while it waits for the row", asyn
     await db
       .delete(schema.documentShares)
       .where(eq(schema.documentShares.principalId, collaborator));
+  }
+});
+
+it("refuses a pick when the entry leaves the source while it waits for the row", async () => {
+  const [sourceRow = null] = await getDb()
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.documentId, "doc_entry_draft"),
+      ),
+    );
+  if (!sourceRow) throw new Error("The draft entry has no source row.");
+  membershipLock.beforeNextLock = async (tx) => {
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.id, sourceRow.id));
+  };
+  try {
+    await expect(pick("doc_entry_draft", "published")).rejects.toMatchObject({
+      errorCode: "builder_entry_not_found",
+      statusCode: 409,
+    });
+    expect(await stagedIntent("doc_entry_draft")).toBeUndefined();
+  } finally {
+    membershipLock.beforeNextLock = null;
   }
 });
 

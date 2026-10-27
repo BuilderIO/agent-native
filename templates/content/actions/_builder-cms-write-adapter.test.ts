@@ -1128,7 +1128,7 @@ describe("Builder CMS write adapter plan", () => {
       });
       expect(plan.state).toBe("blocked");
       expect(plan.payload.safety.blockers).toEqual([
-        "This entry's staged publish was cleared, and the push has nothing else to send.",
+        "This push only sends a publish, and this entry has no publish staged.",
       ]);
     }
     // A push with a field change still publishes on the review's own choice.
