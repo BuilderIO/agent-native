@@ -345,4 +345,48 @@ describe("list recordings expiry with PostgreSQL", () => {
       }
     },
   );
+  it.each([false, true])(
+    "handles a permanently deleted recording link (override=%s)",
+    async (override) => {
+      identity.email = "viewer@example.test";
+      await db.insert(schema.meetings).values({
+        id: "fake-meeting",
+        title: "Fake meeting",
+        ownerEmail: identity.email,
+        recordingId: "deleted-recording",
+        transcriptStatus: "ready",
+        userNotesMd: "",
+        updatedAt: now,
+      });
+      // A dangling transcript must not supply content when its recording is absent.
+      await db.insert(schema.recordingTranscripts).values({
+        recordingId: "deleted-recording",
+        fullText: "Fake orphan transcript",
+      });
+      const result = await finalizeMeeting.run({
+        meetingId: "fake-meeting",
+        force: override,
+        ...(override
+          ? { overrideTranscript: "Fake independent meeting transcript" }
+          : {}),
+      });
+      if (override) {
+        expect(result).toMatchObject({ summaryMd: "Fake generated notes" });
+        expect(identity.cleanup).toHaveBeenCalledOnce();
+        expect(identity.cleanup).toHaveBeenCalledWith(
+          expect.objectContaining({
+            transcript: "Fake independent meeting transcript",
+          }),
+        );
+      } else {
+        expect(result).toMatchObject({ skipped: "no-transcript" });
+        expect(identity.cleanup).not.toHaveBeenCalled();
+      }
+      expect(
+        await db
+          .select({ summaryMd: schema.meetings.summaryMd })
+          .from(schema.meetings),
+      ).toEqual([{ summaryMd: override ? "Fake generated notes" : null }]);
+    },
+  );
 });

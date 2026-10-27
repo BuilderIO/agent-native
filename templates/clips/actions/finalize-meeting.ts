@@ -66,6 +66,7 @@ export default defineAction({
     const recordingRows = meeting.recordingId
       ? await db
           .select({
+            id: schema.recordings.id,
             ownerEmail: schema.recordings.ownerEmail,
             expiresAt: schema.recordings.expiresAt,
             title: schema.recordings.title,
@@ -79,19 +80,18 @@ export default defineAction({
       : [];
     const linkedRecording = recordingRows.values().next().value;
     if (
-      meeting.recordingId &&
-      (!linkedRecording ||
-        isRecordingExpiredForEmail(linkedRecording, getRequestUserEmail()))
+      linkedRecording &&
+      isRecordingExpiredForEmail(linkedRecording, getRequestUserEmail())
     ) {
       throw new ForbiddenError();
     }
 
     let transcriptText = args.overrideTranscript ?? "";
-    if (!transcriptText && meeting.recordingId) {
+    if (!transcriptText && linkedRecording) {
       const [t] = await db
         .select()
         .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
+        .where(eq(schema.recordingTranscripts.recordingId, linkedRecording.id))
         .limit(1);
       transcriptText = t?.fullText ?? "";
     }

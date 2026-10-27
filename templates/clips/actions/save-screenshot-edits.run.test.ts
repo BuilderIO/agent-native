@@ -33,7 +33,10 @@ vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...(args as [])),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { expiresAt: null },
+  })),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",

@@ -36,7 +36,10 @@ vi.mock("../server/lib/recording-media-cleanup.js", () => ({
     mocks.deleteSuperseded(...args),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { expiresAt: null },
+  })),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",

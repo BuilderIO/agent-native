@@ -24,6 +24,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { loadRecordingMediaBytes } from "../server/lib/public-agent-context.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   failBurn,
@@ -86,7 +87,9 @@ export async function burnRedactionsFor(args: {
   recordingId: string;
   ownerEmail: string;
 }) {
-  await assertAccess("recording", args.recordingId, "editor");
+  assertRecordingNotExpired(
+    await assertAccess("recording", args.recordingId, "editor"),
+  );
 
   const db = getDb();
   const { ownerEmail } = args;
@@ -451,7 +454,9 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const ownerEmail = getCurrentOwnerEmail();
 
     const db = getDb();

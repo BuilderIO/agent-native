@@ -8,6 +8,7 @@ import { z } from "zod";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { deleteSupersededHostedMedia } from "../server/lib/recording-media-cleanup.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { uploadRecordingMedia } from "../server/lib/upload-recording-media.js";
 import { requiresConfiguredVideoStorage } from "../server/lib/video-storage.js";
@@ -67,7 +68,9 @@ export default defineAction({
     filename: z.string().optional(),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

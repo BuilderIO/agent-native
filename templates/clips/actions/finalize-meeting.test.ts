@@ -70,7 +70,13 @@ function createDb(transcriptStatus: "pending" | "ready" = "ready") {
       from: vi.fn((table) => {
         result =
           table.table === "recordings"
-            ? [{ ownerEmail: "owner@example.test", expiresAt: null }]
+            ? [
+                {
+                  id: "recording-1",
+                  ownerEmail: "owner@example.test",
+                  expiresAt: null,
+                },
+              ]
             : (selectResults[selectCount++] ?? []);
         return builder;
       }),

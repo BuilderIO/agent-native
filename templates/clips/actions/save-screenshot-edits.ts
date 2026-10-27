@@ -1,3 +1,4 @@
+import { defineAction } from "@agent-native/core/action";
 /**
  * Save a screenshot's edits, and burn its redactions in when asked.
  *
@@ -22,8 +23,6 @@
  *
  * A burn has no undo. Burned regions are recorded (where, never what).
  */
-
-import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -42,6 +41,7 @@ import {
 } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   hasDeleteClaim,
@@ -229,7 +229,9 @@ export default defineAction({
   maxBodyBytes: Math.ceil((2 * 4 * MAX_SCREENSHOT_BYTES) / 3) + 1024 * 1024,
   schema: saveScreenshotEditsSchema,
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

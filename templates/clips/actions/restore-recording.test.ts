@@ -14,7 +14,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(async () => undefined),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { expiresAt: null },
+  })),
 }));
 vi.mock("../server/db/index.js", () => ({
   schema: { recordings: {} },
