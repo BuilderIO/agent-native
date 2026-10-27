@@ -139,4 +139,29 @@ describe("browser tab id", () => {
 
     expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/risk`)).toBe(id);
   });
+
+  it("adopts an unresolved mount id into the first resolved workspace scope", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState({}, "", "/opening");
+
+    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
+      await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBeNull();
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(pendingId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      pendingId,
+    );
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
 });

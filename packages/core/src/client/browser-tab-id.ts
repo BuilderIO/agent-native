@@ -8,6 +8,7 @@ const BROWSER_TAB_ID_STATE_SYMBOL = Symbol.for(
 
 type BrowserTabIdState = {
   ids: Map<string, string>;
+  pendingId: string | null;
 };
 
 const browserTabIdGlobal = globalThis as typeof globalThis & {
@@ -16,7 +17,11 @@ const browserTabIdGlobal = globalThis as typeof globalThis & {
 // Vite can load optimized package and deep-import copies in the same tab.
 const browserTabIdState =
   browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] ??
-  (browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] = { ids: new Map() });
+  (browserTabIdGlobal[BROWSER_TAB_ID_STATE_SYMBOL] = {
+    ids: new Map(),
+    pendingId: null,
+  });
+browserTabIdState.pendingId ??= null;
 let serverCached: string | undefined;
 
 function storageKey(): string {
@@ -50,32 +55,53 @@ export function getBrowserTabId(): string {
   try {
     key = storageKey();
   } catch {
-    return getOrCreateMemoryId(STORAGE_KEY);
+    return getOrCreatePendingId();
   }
 
   const cached = browserTabIdState.ids.get(key);
-  if (cached) return cached;
+  if (cached) {
+    browserTabIdState.pendingId = null;
+    return cached;
+  }
+
+  let existing: string | null;
   try {
-    const existing = sessionStorage.getItem(key);
-    if (
-      existing &&
-      SAFE_BROWSER_TAB_ID_RE.test(existing) &&
-      shouldReuseStoredTabId()
-    ) {
-      browserTabIdState.ids.set(key, existing);
-      return existing;
-    }
-    const id = generate();
-    sessionStorage.setItem(key, id);
-    browserTabIdState.ids.set(key, id);
-    return id;
+    existing = sessionStorage.getItem(key);
   } catch {
+    const pending = browserTabIdState.pendingId;
+    if (pending) {
+      browserTabIdState.pendingId = null;
+      browserTabIdState.ids.set(key, pending);
+      return pending;
+    }
     return getOrCreateMemoryId(key);
   }
+
+  if (
+    existing &&
+    SAFE_BROWSER_TAB_ID_RE.test(existing) &&
+    shouldReuseStoredTabId()
+  ) {
+    browserTabIdState.pendingId = null;
+    browserTabIdState.ids.set(key, existing);
+    return existing;
+  }
+
+  const id = browserTabIdState.pendingId ?? generate();
+  browserTabIdState.pendingId = null;
+  try {
+    sessionStorage.setItem(key, id);
+  } catch {
+    browserTabIdState.ids.set(key, id);
+    return id;
+  }
+  browserTabIdState.ids.set(key, id);
+  return id;
 }
 
 export function isBrowserTabIdForCurrentDocument(tabId?: string): boolean {
   if (typeof tabId !== "string") return false;
+  if (browserTabIdState.pendingId === tabId) return true;
   for (const knownTabId of browserTabIdState.ids.values()) {
     if (knownTabId === tabId) return true;
   }
@@ -88,4 +114,9 @@ function getOrCreateMemoryId(key: string): string {
   const id = generate();
   browserTabIdState.ids.set(key, id);
   return id;
+}
+
+function getOrCreatePendingId(): string {
+  browserTabIdState.pendingId ??= generate();
+  return browserTabIdState.pendingId;
 }

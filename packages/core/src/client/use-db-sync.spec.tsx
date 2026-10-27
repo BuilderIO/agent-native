@@ -280,6 +280,26 @@ describe("useDbSync", () => {
     expect(keys).toContainEqual(["navigate-command", "browser-tab-a"]);
     expect(keys).not.toContainEqual(["navigate-command", "chat-tab-a"]);
     expect(keys).not.toContainEqual(["navigate-command"]);
+    expect(keys).not.toContainEqual(["app-state"]);
+    const appStateCall = queryClient.calls.find(
+      (call) => call?.predicate && !call.queryKey,
+    );
+    expect(
+      appStateCall?.predicate?.({
+        queryKey: ["app-state", "navigate:browser-tab-a"],
+      }),
+    ).toBe(true);
+    expect(
+      appStateCall?.predicate?.({
+        queryKey: ["app-state", "selection:chat-tab-a"],
+      }),
+    ).toBe(false);
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "navigate:browser-tab-a",
+      }),
+    ).toBe(true);
     expect(observedEvents).toContainEqual(
       expect.objectContaining({
         source: "app-state",

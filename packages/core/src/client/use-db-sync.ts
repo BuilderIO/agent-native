@@ -1727,10 +1727,7 @@ export function useDbSync(
             const needsBroadAppStateRefresh = appStateKeys.some(
               (key) =>
                 key === "*" ||
-                isInteractionCriticalSyncEvent({
-                  source: "app-state",
-                  key,
-                }),
+                INTERACTION_CRITICAL_APP_STATE_KEYS.includes(key),
             );
             invalidateWithoutCancel(
               needsBroadAppStateRefresh
