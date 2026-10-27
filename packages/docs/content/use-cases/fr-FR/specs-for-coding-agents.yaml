@@ -6,7 +6,7 @@ seo_title: Specs pour Claude Code, Codex et Cursor
 meta_description: Agent-Native Content garde votre spec sur une page que Claude Code, Codex ou Cursor lit via MCP, pour coder depuis la version que modifie votre équipe.
 updated: 2026-10-27
 hero:
-  body: Agent-Native Content fait de vos notes une spec partagée par vous, votre équipe et votre agent de code, sur une seule page. Claude Code, Codex ou Cursor lit la page en direct et suggère des changements à valider.
+  body: Agent-Native Content fait de vos notes une spec partagée par vous, votre équipe et votre agent de code. Claude Code, Codex ou Cursor la lit en direct et suggère des changements à valider.
   button:
     label: Rédigez une spec
     url: https://content.agent-native.com

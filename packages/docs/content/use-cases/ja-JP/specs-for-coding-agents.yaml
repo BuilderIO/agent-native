@@ -6,7 +6,7 @@ seo_title: Claude Code・Codex・Cursor向けの仕様書
 meta_description: Agent-Native Contentは仕様書を1つのページにまとめ、Claude Code、Codex、CursorがMCP経由で読めるようにします。エージェントはチームが編集中の版をもとに開発します。
 updated: 2026-10-27
 hero:
-  body: Agent-Native Contentは、メモを仕様書にし、あなたとチーム、コーディングエージェントが1つのページで作業できるようにします。Claude Code、Codex、Cursorが最新のページを読み、承認制で変更を提案します。
+  body: Agent-Native Contentは、メモを、チームとコーディングエージェントが同じページで使う仕様書にします。Claude Code、Codex、Cursorが最新のページを読み、変更を提案します。
   button:
     label: 仕様書を書く
     url: https://content.agent-native.com
