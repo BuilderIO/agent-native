@@ -1,5 +1,6 @@
 // i18n-raw-literal-disable-file -- Static Dispatch artwork, not interactive UI.
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
+import { IconVoiceChat } from "@agent-native/toolkit/composer/voice-chat-icon";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -342,7 +343,7 @@ function ChatComposer() {
           <span className="dispatch-composer-spacer" />
           <span className="dispatch-composer-mode">Chat</span>
           <span className="dispatch-voice-button">
-            <IconWaveSine />
+            <IconVoiceChat />
           </span>
           <span className="dispatch-send-button">
             <IconSend />

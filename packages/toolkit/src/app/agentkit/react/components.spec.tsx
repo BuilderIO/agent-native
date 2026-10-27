@@ -431,7 +431,7 @@ describe("AgentKitChat", () => {
     );
     expect(styles).toContain("overflow-anchor: none;");
     expect(styles).toMatch(
-      /\.agentkit-agent \{[\s\S]*padding: 0\.125rem 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
+      /\.agentkit-agent \{[\s\S]*min-block-size: 1\.5rem;\n\s+padding: 0 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
     );
     expect(styles).toContain("overscroll-behavior-block: contain;");
     expect(styles).toContain("max-block-size: 12.5rem;");
@@ -493,7 +493,7 @@ describe("AgentKitChat", () => {
       /@container \(max-width: 24rem\) \{\s*\.agentkit-composer \[data-agent-composer-slot="toolbar"\] \{([^}]*)\}/,
     )?.[1];
     expect(narrowToolbarRule).toContain(
-      "--agentkit-composer-toolbar-control-gap: 0.125rem;",
+      "--agentkit-composer-toolbar-control-gap: 0;",
     );
     expect(narrowToolbarRule).not.toContain(
       "--agentkit-composer-model-max-width",

@@ -844,6 +844,28 @@
       ]
     },
     {
+      "id": "toolkit/app-agent-select",
+      "label": "Toolkit app Agent Select",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-agent-select"],
+      "entrypoints": ["./app/agent-select"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/agent-select"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@agent-native/core",
+        "@tabler/icons-react",
+        "react",
+        "sonner"
+      ],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": [
+        "@agent-native/core/client/agent-chat",
+        "@agent-native/core/client/hooks",
+        "@agent-native/core/client/i18n"
+      ]
+    },
+    {
       "id": "toolkit/app-db-admin",
       "label": "Toolkit app Db Admin",
       "catalog": "toolkit-ui",
@@ -1197,12 +1219,14 @@
         "@agent-native/core/client/onboarding/use-onboarding",
         "@agent-native/core/client/onboarding/use-onboarding-checklist",
         "@agent-native/core/client/onboarding/use-preview-mode",
+        "@agent-native/core/client/use-action",
         "@agent-native/core/client/use-dev-mode",
         "@agent-native/core/client/use-session",
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/navigation",
         "@agent-native/core/onboarding/types",
         "@agent-native/core/onboarding/workspace-services",
+        "@agent-native/core/shared",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-run-onboarding",
         "@agent-native/core/shared/workspace-app-id"

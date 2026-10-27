@@ -112,7 +112,7 @@ export function chatThreadToHistoryItem(
     timestamp:
       row.id === activeId ? undefined : threadAge(row.updatedAt, locale, now),
     accessBasis: row.accessBasis,
-    pinned: !shared && row.pinnedAt != null,
+    pinned: row.pinnedAt != null,
     ...(shared
       ? {
           ownerAvatar: createElement(ChatOwnerAvatar, {

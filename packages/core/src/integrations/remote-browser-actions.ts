@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   createComputerApprovalRequest,
   decideComputerApproval,
@@ -472,7 +473,7 @@ const deviceSelectorProperties = {
 export function createRemoteBrowserActionEntries(
   options: CreateRemoteBrowserActionEntriesOptions,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "list-remote-browser-devices": {
       readOnly: true,
       tool: {
@@ -628,5 +629,5 @@ export function createRemoteBrowserActionEntries(
         };
       },
     },
-  };
+  });
 }

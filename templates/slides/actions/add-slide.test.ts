@@ -286,6 +286,103 @@ describe("add-slide", () => {
     });
   });
 
+  it("does not report a browser generation again for later edits to the same deck", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [],
+      generationContext: { generationAttemptId: "browser-attempt" },
+    };
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+      { caller: "tool", runId: "run-first", turnId: "turn-first" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-first", turnId: "turn-first", status: "completed" },
+      finished,
+      async () => 1,
+    );
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed"),
+    ).toHaveLength(1);
+    expect(
+      (JSON.parse(String(updatedFields?.data)) as typeof deckData)
+        .generationContext,
+    ).toMatchObject({ firstOutputAttemptId: "browser-attempt" });
+
+    deckData = JSON.parse(String(updatedFields?.data)) as typeof deckData;
+    mockTrack.mockClear();
+    await action.run(
+      { deckId: "deck-1", slideId: "s-2", content: "<div>Two</div>" },
+      {
+        caller: "tool",
+        runId: "run-follow-up",
+        turnId: "turn-follow-up",
+      } as never,
+    );
+    await trackGenerationCompletedForRun(
+      {
+        runId: "run-follow-up",
+        turnId: "turn-follow-up",
+        status: "completed",
+      },
+      finished,
+      async () => 2,
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
+  it("records the first real slide when the deck starts with only a blank placeholder", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [{ id: "blank", content: "" }],
+      generationContext: {
+        targetSlideCount: 1,
+        generationAttemptId: "a-placeholder-first-output",
+      },
+    };
+
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "generated-1",
+        content: "<div>Generated</div>",
+      },
+      {
+        caller: "tool",
+        runId: "run-placeholder",
+        turnId: "turn-placeholder",
+      } as never,
+    );
+
+    await trackGenerationCompletedForRun(
+      {
+        runId: "run-placeholder",
+        turnId: "turn-placeholder",
+        status: "completed",
+      },
+      finished,
+      async () => 1,
+    );
+
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed"),
+    ).toHaveLength(1);
+    expect(
+      mockTrack.mock.calls.find(
+        ([name]) => name === "generation_completed",
+      )?.[1],
+    ).toMatchObject({
+      generation_attempt_id: "a-placeholder-first-output",
+      output_id: "deck-1",
+      slide_count: 1,
+      source: "agent_run",
+    });
+  });
+
   describe("generation_completed only for a finished turn", () => {
     async function writeFirstSlide(turnId: string, runId: string) {
       deckData = {
@@ -319,6 +416,22 @@ describe("add-slide", () => {
         expect(reported()).toHaveLength(0);
       },
     );
+
+    it("does not report a failed attempt when its output did not persist", async () => {
+      await writeFirstSlide("turn-empty-fail", "run-empty-fail");
+
+      await trackGenerationCompletedForRun(
+        {
+          runId: "run-empty-fail",
+          turnId: "turn-empty-fail",
+          status: "errored",
+        },
+        finished,
+        async () => 0,
+      );
+
+      expect(reported()).toHaveLength(0);
+    });
 
     it("waits for the final chunk of a chained turn and reports its slide count", async () => {
       await writeFirstSlide("turn-chain", "run-chunk-1");
@@ -490,15 +603,46 @@ describe("add-slide", () => {
     });
   });
 
-  it("does not report a follow-up edit to an already generated deck", async () => {
-    deckData.generationContext = { generationAttemptId: "a-1" };
+  it("reports a generated slide appended to an existing deck", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "a-existing-deck",
+      generationStartedAt: 100,
+    };
 
     await action.run(
       { deckId: "deck-1", slideId: "s-3", content: "<div>Three</div>" },
-      { caller: "tool", runId: "run-2" } as never,
+      {
+        caller: "tool",
+        runId: "run-existing",
+        turnId: "turn-existing",
+      } as never,
     );
     await trackGenerationCompletedForRun(
-      { runId: "run-2", status: "completed" },
+      { runId: "run-existing", turnId: "turn-existing", status: "completed" },
+      finished,
+      async () => 3,
+    );
+
+    expect(
+      mockTrack.mock.calls.find(
+        ([name]) => name === "generation_completed",
+      )?.[1],
+    ).toMatchObject({
+      generation_attempt_id: "a-existing-deck",
+      outcome: "completed",
+      slide_count: 3,
+    });
+  });
+
+  it("does not report a follow-up edit without an active generation attempt", async () => {
+    deckData.generationContext = {};
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-3", content: "<div>Three</div>" },
+      { caller: "tool", runId: "run-follow-up" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-follow-up", status: "completed" },
       finished,
       async () => 3,
     );
@@ -535,6 +679,53 @@ describe("add-slide", () => {
       started_at_ms: 100,
       ended_at_ms: expect.any(Number),
       duration_ms: expect.any(Number),
+    });
+  });
+
+  it("does not emit completion again for a persisted generation attempt", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-once",
+      generationStartedAt: 100,
+      generationMode: "action",
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-final",
+      content: "<div>Final</div>",
+      generationComplete: true,
+    });
+
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed"),
+    ).toHaveLength(1);
+    const savedDeck = JSON.parse(String(updatedFields?.data)) as Record<
+      string,
+      unknown
+    >;
+    expect(savedDeck.generationContext).toMatchObject({
+      generationAttemptId: "attempt-once",
+      completedAttemptId: "attempt-once",
+    });
+
+    deckData = savedDeck;
+    mockTrack.mockClear();
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-follow-up",
+      content: "<div>Follow-up edit</div>",
+      generationComplete: true,
+    });
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+    const updatedAgain = JSON.parse(String(updatedFields?.data)) as Record<
+      string,
+      unknown
+    >;
+    expect(updatedAgain.generationContext).toMatchObject({
+      completedAttemptId: "attempt-once",
     });
   });
 

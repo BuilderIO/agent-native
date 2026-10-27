@@ -1,6 +1,7 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import type { ContextStatus } from "../shared/context-status.js";
+import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { SignupAttributionContext } from "./attribution.js";
 
@@ -160,6 +161,11 @@ export interface RequestContext {
   signupAttribution?: SignupAttributionContext;
   signupOrigin?: import("./attribution.js").SignupOrigin;
   clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
+  /**
+   * Set only after the authenticated first-run route confirms the v2 flag is
+   * enabled; tracking uses it to tag the four durable experiment events.
+   */
+  firstRunBuilderCreditsV2Assignment?: FirstRunBuilderCreditsV2RequestAssignment;
   authContextAccessed?: boolean;
   requestOrigin?: string;
   federationMembershipValidated?: boolean;
@@ -540,6 +546,10 @@ export function getRequestContext(): RequestContext | undefined {
   return store;
 }
 
+/**
+ * Call only after the Clips v2 feature flag evaluates on for this request.
+ * The arm is derived from the verified auth id already in the request context.
+ */
 export function hasRequestContext(): boolean {
   return als.getStore() !== undefined;
 }

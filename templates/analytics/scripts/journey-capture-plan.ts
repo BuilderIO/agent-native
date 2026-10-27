@@ -232,6 +232,7 @@ export interface ManifestFrame {
   replayAt: string | null;
   route?: string;
   attachmentRef?: string;
+  imageUrl?: string;
 }
 
 export interface ManifestFailure {

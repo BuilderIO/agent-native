@@ -4,7 +4,6 @@ import {
   IconLoader2,
   IconMicrophone,
   IconPlayerStopFilled,
-  IconWaveSine,
   IconX,
 } from "@tabler/icons-react";
 import type { MouseEvent } from "react";
@@ -22,6 +21,7 @@ import {
   useRealtimeVoiceModeOptional,
 } from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+import { IconVoiceChat } from "./voice-chat-icon.js";
 import { VoiceLevelWaveform } from "./voice-waveform.js";
 
 export interface VoiceButtonProps {
@@ -30,6 +30,8 @@ export interface VoiceButtonProps {
   disabled?: boolean;
   /** Overrides for the trigger, such as the larger primary-slot size. */
   className?: string;
+  /** Show a live voice-chat session's controls in this slot (default: true). */
+  voiceChat?: boolean;
 }
 
 /**
@@ -42,11 +44,12 @@ export function VoiceButton({
   isMac,
   disabled,
   className,
+  voiceChat = true,
 }: VoiceButtonProps) {
   const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
 
-  if (realtimeVoice?.active) {
+  if (voiceChat && realtimeVoice?.active) {
     return <ActiveVoiceChatControls voice={realtimeVoice} />;
   }
   if (!voice.supported) return null;
@@ -336,7 +339,7 @@ function ComposerPrimaryButton({
                 )}
               />
             ) : mode === "voice-chat" ? (
-              <IconWaveSine className={iconClass} />
+              <IconVoiceChat className={iconClass} />
             ) : (
               <IconArrowUp className={iconClass} />
             )}

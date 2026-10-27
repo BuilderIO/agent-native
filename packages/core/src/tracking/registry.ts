@@ -15,11 +15,18 @@ import {
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
+import { assignFirstRunBuilderCreditsV2 } from "../shared/first-run-builder-credits-experiment.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
+const FIRST_RUN_EXPERIMENT_EVENT_NAMES = new Set([
+  "run_started",
+  "design_created",
+  "deck_created",
+  "recording_ready",
+]);
 interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
@@ -174,8 +181,13 @@ export function track(
   delete safeProperties.auth_user_id;
   delete safeProperties.authUserId;
   if (authUserId) safeProperties.auth_user_id = authUserId;
+  const firstRunExperiment =
+    authUserId && FIRST_RUN_EXPERIMENT_EVENT_NAMES.has(name)
+      ? requestFirstRunExperiment(authUserId)
+      : null;
   const trackedProperties = withCanonicalTrackingProperties({
     ...safeProperties,
+    ...(firstRunExperiment ?? {}),
     ...(sessionId ? { session_id: sessionId } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(actionContext?.userEmail
@@ -230,6 +242,22 @@ export function track(
       occurredAt,
     });
   }
+}
+
+function requestFirstRunExperiment(authUserId: string) {
+  const assignment = getRequestContext()?.firstRunBuilderCreditsV2Assignment;
+  if (assignment?.authUserId !== authUserId) return null;
+  const expected = assignFirstRunBuilderCreditsV2(authUserId);
+  if (
+    !expected ||
+    assignment.experiment_variant !== expected.experiment_variant
+  ) {
+    return null;
+  }
+  return {
+    experiment_id: assignment.experiment_id,
+    experiment_variant: assignment.experiment_variant,
+  };
 }
 
 function emitTrackingEvent(

@@ -11,13 +11,13 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { cliSpawnOptions, runDevServer } from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
-  reactRouterTypegenEnv,
 } from "./react-router-command.js";
 import {
   captureSentryException as captureOptionalSentryException,
@@ -688,20 +688,40 @@ switch (command) {
 
   case "typecheck": {
     if (isReactRouterFramework()) {
+      // Typed action hooks and the server action registry import these. The
+      // Core Vite plugins write them during dev and build, but typegen below
+      // runs without those plugins.
+      generateActionRegistryForProject(process.cwd());
       validateReactRouterBuildDependencies();
-      const rr = findReactRouterInvocation(["typegen"]);
-      const env = reactRouterTypegenEnv();
+      // Typegen resolves the Vite config only to detect the React Router RSC
+      // plugin, which agent-native apps don't use. The app's own config runs
+      // every Core Vite plugin and costs seconds, so typegen gets an empty one.
+      // Without the explicit "." root, typegen would use that config's folder.
+      // With a missing or stale dist, bin/agent-native.js runs this file from
+      // src, where the stub exists only as .ts, so it takes this file's
+      // extension.
+      const cliFile = fileURLToPath(import.meta.url);
+      const typegenViteConfig = path.join(
+        path.dirname(cliFile),
+        `typegen-vite-config${path.extname(cliFile)}`,
+      );
+      const rr = findReactRouterInvocation([
+        "typegen",
+        ".",
+        "--config",
+        typegenViteConfig,
+      ]);
       try {
         if (rr.shell) {
-          execSync(`${rr.command} ${rr.args.join(" ")}`, {
-            stdio: "inherit",
-            env,
-          });
+          execSync(`${rr.command} ${rr.args.join(" ")}`, { stdio: "inherit" });
         } else {
-          execFileSync(rr.command, rr.args, { stdio: "inherit", env });
+          execFileSync(rr.command, rr.args, { stdio: "inherit" });
         }
-      } catch {
-        // typegen may fail if routes aren't set up yet; continue to TypeScript.
+      } catch (error) {
+        console.error(
+          "\nreact-router typegen failed, so this app's route types are missing or stale. Fix the error above, then rerun typecheck.",
+        );
+        process.exit((error as { status?: number | null }).status ?? 1);
       }
     }
     run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);

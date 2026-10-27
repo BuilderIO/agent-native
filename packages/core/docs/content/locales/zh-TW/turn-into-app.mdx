@@ -7,6 +7,15 @@ description: "/turn-into-app skill 可將對話、skill、試算表或 Claude �
 
 `/turn-into-app` 是一個 skill，可將你已驗證的工作流程轉換為 Agent-Native 應用程式。來源可以是對話、skill、試算表，或 Claude 或 ChatGPT 專案。應用程式會在你的業務情境中開啟，填入與來源結構一致的範例資料，應用程式內的代理在其操作物件的控制項背後運作。步驟列下方的一個表單，正是這個 skill 想要避免的結果。
 
+## 開始之前 {#before-you-start}
+
+- 一個能夠執行終端機指令的 AI 代理，例如 Claude Code、Codex 或 Cursor。網頁版 Claude 或 ChatGPT 可以改為把工作交給 Builder。請參閱 [執行位置](#hosts)。
+- [Node.js](https://nodejs.org) 22.22 或更新版本。nodejs.org 的安裝程式包含 `npx`，下方的安裝指令由它執行。請用 `node --version` 檢查你的版本。
+- [pnpm](https://pnpm.io) 位於你的 `PATH` 中。如果 `pnpm --version` 失敗，請執行 `corepack enable`，它隨 Node.js 一併提供。
+- 一個用於新應用程式的空資料夾，以及約 45 分鐘。
+
+建構應用程式不需要 AI 供應商的金鑰。只有當你希望應用程式內的代理回覆你時，才需要它。
+
 ## 安裝 {#install}
 
 ```bash
@@ -43,10 +52,6 @@ npx @agent-native/core@latest skills add turn-into-app
 
 在瀏覽器主機上，skill 需要 Agent-Native Dispatch MCP 連接器（`https://dispatch.agent-native.com/mcp`，OAuth），並呼叫其 `start-workspace-app-creation` 動作。主機無法執行或檢查應用程式，因此在 Dispatch 回傳的分支建構完成之前，報告會維持待處理或未驗證狀態。skill 只會回報 Dispatch 實際回傳的內容，絕不捏造分支 URL。對於 ChatGPT 專案，或任何僅公開 MCP 的主機，請將 skill 指示放入專案指示或知識檔案中。
 
-## 本機先決條件
-
-在本機主機上，請先安裝 Node.js 22.22.0 或更新版本（包含 npm 和 npx）以及 pnpm，再開始操作。瀏覽器主機使用 Dispatch，不會執行這些命令。
-
 ## 來源 {#sources}
 
 - **對話。** 最近一次具體且可重複的工作就是產品。
@@ -67,7 +72,7 @@ skill 會將來源簡報儲存為 `docs/brief.md`，並將介面設計附加到 
 ## 一次執行的流程 {#how-it-works}
 
 1. **簡報。** 讀取完整來源，並撰寫一份簡短的簡報：工作內容、最多三個代理時刻、不變條件、資料風險、事實來源和假設。
-2. **設計。** 決定原型、方向、外殼、首屏視埠與範例資料以及代理時刻，並將簡報作為檢查點發布一次。無需等待，直接繼續。
+2. **設計。** 決定原型、方向、外殼、首屏視埠與範例資料以及代理時刻，並將簡報作為檢查點發布一次，同時說明其餘部分還需要多長時間。無需等待，直接繼續。
 3. **腳手架。** 使用 chat 範本建立真正的應用程式，且絕不覆寫現有應用程式。
 
    ```bash
@@ -82,6 +87,8 @@ skill 會將來源簡報儲存為 `docs/brief.md`，並將介面設計附加到 
 
 skill 的目標耗時約為 45 分鐘。如果審查開始時已過了 35 分鐘，則只執行一輪，並列出未滿足的標準。
 
+如果執行中途停止，請在同一個資料夾中再次呼叫這個 skill。它會找到建構到一半的應用程式，說明哪些已完成、哪些還剩下，並從第一個未完成的步驟繼續，而不是另建第二個應用程式。
+
 ## 螢幕截圖審查迴圈 {#review-loop}
 
 交付之前，skill 會啟動開發伺服器，在桌面和手機尺寸下的淺色與深色模式中對 `/` 截圖，並在點擊後對主要代理控制項截圖。它依照包含 12 項的評分標準為截圖打分，涵蓋首屏視埠衝擊力、領域契合度、層次結構、介面裝飾克制度、範例資料、字體排印、色彩、細節打磨、代理與 UI 的整體配合、390px 版面、深色模式和無障礙。
@@ -92,7 +99,7 @@ skill 的目標耗時約為 45 分鐘。如果審查開始時已過了 35 分鐘
 
 ## 執行與部署 {#run-deploy}
 
-為了進行本機審查，skill 會在應用程式被忽略的 `.env` 中設定 `AUTH_DISABLED=1`，因為全新的截圖瀏覽器並未登入。這僅用於迴路位址的開發。它會在最終的 `pnpm build` 之前被移除，絕不能提交或部署。沒有它時，開啟應用程式會顯示一張 "Continue as local dev" 卡片。
+為了進行本機審查，skill 會在應用程式被忽略的 `.env` 中設定 `AUTH_DISABLED=1`，因為全新的截圖瀏覽器並未登入。這僅用於迴路位址的開發。它會在最終的 `pnpm build` 之前被移除，絕不能提交或部署。此後，第一個開啟應用程式的瀏覽器會自動以本機開發帳號登入。之後開啟的全新瀏覽器會顯示一張 "Continue as local dev" 卡片。
 
 若要自行執行應用程式：
 
@@ -100,7 +107,7 @@ skill 的目標耗時約為 45 分鐘。如果審查開始時已過了 35 分鐘
 pnpm dev
 ```
 
-若要在本機使用你自己的模型供應商，請在同一個 `.env` 中放入諸如 `ANTHROPIC_API_KEY` 之類的金鑰。否則，代理側邊欄會顯示共用的 Use Builder.io 或 Custom keys 設定。
+若要在本機使用你自己的模型供應商，請在同一個 `.env` 中放入諸如 `ANTHROPIC_API_KEY` 之類的金鑰。否則，應用程式仍會以範例資料開啟，而在你使用代理時，代理側邊欄會提供共用的 Use Builder.io 或 Custom keys 設定。
 
 只有在你要求部署或供應商已設定時，skill 才會部署。一次正常的本機建構仍會印出一個 "production configuration errors" 區塊，結束碼為 0。這就是部署清單：穩定的 `BETTER_AUTH_SECRET` 和持久的 `DATABASE_URL`，以及工作區內應用程式所需的 `A2A_SECRET`。skill 會將這些回報為待辦步驟，並且不會建立預留值。請參閱[部署應用程式](/docs/deploy-an-app)和[部署工作區](/docs/workspace-deployment)。
 

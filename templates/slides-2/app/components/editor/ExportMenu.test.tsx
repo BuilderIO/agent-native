@@ -19,6 +19,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import messages from "@/i18n/en-US";
+
 const { getDeckMock, flushDeckSaveMock } = vi.hoisted(() => ({
   getDeckMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
@@ -60,7 +62,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint":
           "A copy of this deck was created in your Google Drive.",
-        "editorExport.googleSlidesGoTo": "Go to Google Slides",
+        "editorExport.googleSlidesGoTo": messages.editorExport.googleSlidesGoTo,
         "editorExport.downloadHtml": "Download as HTML",
         "editorExport.duplicateDeck": "Duplicate deck",
         "editorExport.export": "Export",
@@ -68,7 +70,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPdf": "Export PDF",
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.exporting": "Exporting...",
-        "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesDownloaded":
+          messages.editorExport.googleSlidesDownloaded,
         "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides.",
@@ -399,7 +402,9 @@ describe("<ExportMenu>", () => {
       "A copy of this deck was created in your Google Drive.",
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Go to Google Slides" }),
+      screen.getByRole("button", {
+        name: messages.editorExport.googleSlidesGoTo,
+      }),
     );
     expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
     expect(window.open).toHaveBeenCalledWith(

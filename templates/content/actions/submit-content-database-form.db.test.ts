@@ -390,6 +390,48 @@ describe("submit-content-database-form", () => {
     expect(after).toHaveLength(before.length);
   });
 
+  it("saves Blocks that give two videos one id, since a new row has no thread on them", async () => {
+    const seeded = await seedFormDatabase();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const paired = `${video("Demo")}
+${video("Copy")}`;
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Two clips",
+        propertyValues: {
+          Description: paired,
+          "Internal notes": paired,
+          Priority: "P1 — High",
+        },
+      }),
+    );
+
+    const db = getDb();
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    const [notes] = await db
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            result.createdDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            seeded.additionalBlocksId,
+          ),
+        ),
+      );
+    expect([document.content, notes.content]).toEqual([paired, paired]);
+  });
+
   it("rejects duplicate model-safe entries before creating a row", async () => {
     const seeded = await seedFormDatabase();
 

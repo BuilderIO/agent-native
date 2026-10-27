@@ -544,17 +544,17 @@
 }
 
 .agent-markdown p {
-  margin: 0.4em 0;
+  margin: 0.25rem 0;
 }
 
 .agent-markdown ul,
 .agent-markdown ol {
-  margin: 0.4em 0;
-  padding-inline-start: 1.5em;
+  margin: 0.25rem 0;
+  padding-inline-start: 1.25rem;
 }
 
 .agent-markdown li {
-  margin: 0.15em 0;
+  margin: 0.25rem 0;
 }
 
 .agent-markdown li > p {
@@ -564,19 +564,19 @@
 .agent-markdown h1 {
   font-size: 1.25em;
   font-weight: 600;
-  margin: 0.75em 0 0.25em;
+  margin: 0.75rem 0 0.25rem;
 }
 
 .agent-markdown h2 {
   font-size: 1.125em;
   font-weight: 600;
-  margin: 0.75em 0 0.25em;
+  margin: 0.75rem 0 0.25rem;
 }
 
 .agent-markdown h3 {
   font-size: 1em;
   font-weight: 600;
-  margin: 0.75em 0 0.25em;
+  margin: 0.75rem 0 0.25rem;
 }
 
 .agent-markdown strong {
@@ -589,7 +589,7 @@
 
 .agent-markdown code {
   font-size: 0.875em;
-  padding: 0.15em 0.35em;
+  padding: 0.125rem 0.25rem;
   border-radius: 0.25em;
   background: hsl(var(--muted, 0 0% 15%));
   color: hsl(var(--foreground, 0 0% 90%));
@@ -597,8 +597,8 @@
 }
 
 .agent-markdown pre {
-  margin: 0.5em 0;
-  padding: 0.75em 1em;
+  margin: 0.5rem 0;
+  padding: 0.75rem 1rem;
   border-radius: 0.375em;
   background: hsl(var(--muted, 0 0% 15%));
   color: hsl(var(--foreground, 0 0% 90%));
@@ -617,7 +617,7 @@
 .agent-markdown hr {
   border: none;
   border-top: 1px solid hsl(var(--border, 0 0% 20%));
-  margin: 0.75em 0 1em;
+  margin: 0.75rem 0 1rem;
 }
 
 .agent-markdown a {
@@ -631,14 +631,14 @@
 
 .agent-markdown blockquote {
   border-inline-start: 2px solid hsl(var(--border, 0 0% 20%));
-  padding-inline-start: 0.75em;
-  margin: 0.5em 0;
+  padding-inline-start: 0.75rem;
+  margin: 0.5rem 0;
   opacity: 0.8;
 }
 
 .agent-markdown table {
   border-collapse: collapse;
-  margin: 0.5em 0;
+  margin: 0.5rem 0;
   font-size: 0.875em;
 }
 
@@ -669,7 +669,7 @@
 .agent-markdown th,
 .agent-markdown td {
   border: 1px solid hsl(var(--border, 0 0% 20%));
-  padding: 0.35em 0.65em;
+  padding: 0.25rem 0.5rem;
   text-align: start;
 }
 
@@ -680,7 +680,7 @@
 }
 
 .agent-markdown-shiki {
-  margin: 0.5em 0;
+  margin: 0.25rem 0;
   border-radius: 0.375em;
   overflow: hidden;
   font-size: 0.8125em;
@@ -688,7 +688,7 @@
 
 .agent-markdown-shiki pre {
   margin: 0;
-  padding: 0.75em 1em;
+  padding: 0.5rem 0.75rem;
   overflow-x: auto;
   background: var(--shiki-light-bg);
   color: var(--shiki-light);

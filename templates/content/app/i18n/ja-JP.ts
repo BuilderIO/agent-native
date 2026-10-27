@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "幅に合わせる",
   githubLinkTitle: "GitHub フォルダーをリンク",
   githubNewCollectionTitle: "GitHub フォルダーから新しいコレクションを作成",
   githubLinkDescription:
@@ -677,6 +678,16 @@ const editor = {
     purple: "紫",
     pink: "ピンク",
     red: "赤",
+    defaultText: "デフォルトの文字",
+    defaultBackground: "デフォルトの背景",
+    textChoice: "{{color}}の文字",
+    backgroundChoice: "{{color}}の背景",
+  },
+  blockMenu: {
+    label: "ブロックの操作",
+    duplicate: "複製",
+    delete: "削除",
+    insertBelow: "下にブロックを挿入",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
@@ -1351,6 +1362,14 @@ const exactEnglish = {
       "この提案の周囲のテキストが変更されたため、適用できません。提案は保留中のままです。却下するか、もう一度編集を提案してください。",
     proposalUnplaceable:
       "周囲のテキストが変更されたため適用できない提案があり、どの提案も適用されませんでした。すべて保留中のままです。1 件ずつ承認または却下してください。",
+    suggestionAcceptFailed: "提案を承認できませんでした",
+    suggestionRejectFailed: "提案を却下できませんでした",
+    proposalAcceptFailed: "これらの提案を承認できませんでした",
+    proposalRejectFailed: "これらの提案を却下できませんでした",
+    suggestionDecisionReverted:
+      "保留中に戻りました。その後に入力した内容は保持されています。",
+    proposalDecisionReverted:
+      "すべて保留中に戻りました。その後に入力した内容は保持されています。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",

@@ -1047,12 +1047,20 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges. It covers this action's own write: once a write nested in it
-   * entered its handler, a failure stays an unknown outcome.
+   * charges, except for inputs carrying an idempotency key the action answers
+   * with its first result. It covers this action's own write: once a write
+   * nested in it entered its handler, a failure stays an unknown outcome. MCP
+   * approval reads it too: a call it covers gets no "already ran" warning.
    */
   retrySafe?:
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
+   * How the action reads an ISO date-time argument that names no zone, so an
+   * approval summary can say so: `"calendar"` means in the calendar's own
+   * time zone. Unset, the summary shows such a time as having no zone given.
+   */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1144,6 +1152,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1193,6 +1203,7 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -1266,23 +1277,58 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  const tool: ActionTool = {
+    ...(typeof options.title === "string" && options.title.trim()
+      ? { title: options.title.trim() }
+      : {}),
+    description: options.description,
+    ...(!hasSchema && options.parameters
+      ? {
+          parameters: {
+            type: "object" as const,
+            properties: options.parameters,
+          },
+        }
+      : {}),
+  };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
-  // action-heavy app's cold start, so convert only the schema the agent sees.
-  let toolParameters: ActionTool["parameters"];
-  let inputSchemaVerdict: ConvertedSchema["verdict"];
+  // action-heavy app's cold start, so convert only the schema the agent sees,
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
-    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
-      schemaToJsonSchema(
-        options.agentInputSchema && "~standard" in options.agentInputSchema
-          ? options.agentInputSchema
-          : options.schema,
-        options.description,
-      ));
-  } else if (options.parameters) {
-    toolParameters = {
-      type: "object" as const,
-      properties: options.parameters,
+    const agentSchema =
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema;
+    let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
     };
+    Object.defineProperty(tool, "parameters", {
+      enumerable: true,
+      configurable: true,
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
+      set(value: ActionTool["parameters"]) {
+        convertedParameters();
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
   }
 
   const executionKey = {};
@@ -1444,7 +1490,7 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
@@ -1504,6 +1550,8 @@ export function defineAction(options: any) {
       : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
+  const zonelessTimes =
+    options.zonelessTimes === "calendar" ? options.zonelessTimes : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -1524,7 +1572,8 @@ export function defineAction(options: any) {
     }
     if (
       (options.mcpApp.compactCatalog === true ||
-        options.mcpApp.structuredContent === true) &&
+        options.mcpApp.structuredContent === true ||
+        Array.isArray(options.mcpApp.visibility)) &&
       !options.mcpApp.resource
     ) {
       return options.mcpApp as ActionMcpAppConfig;
@@ -1557,13 +1606,7 @@ export function defineAction(options: any) {
   })();
 
   const entry = {
-    tool: {
-      ...(typeof options.title === "string" && options.title.trim()
-        ? { title: options.title.trim() }
-        : {}),
-      description: options.description,
-      parameters: toolParameters,
-    },
+    tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -1605,6 +1648,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -1657,9 +1701,6 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
-  if (inputSchemaVerdict) {
-    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
-  }
   // `never` input keeps the implementation compatible with every overload,
   // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
   return entry as ActionDefinition<never, unknown>;
@@ -2704,11 +2745,11 @@ export function boundActionCallIntent(
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
-  toolParameters?: ActionTool["parameters"],
+  toolParameters: () => ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters), ctx);
+    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
   };
 }
 
