@@ -180,7 +180,9 @@ the invocation gives), plus 14 days for open items.
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
   or reply there, and leave it out of your self-check; just list it under
-  "Still open from earlier runs". Of the remaining workflow roots, any
+  "Still open from earlier runs". If that PR has had no push in 24 hours,
+  its run has stopped: its reports are yours again. Of the remaining
+  workflow roots, any
   without ✅ or 🎫, or with a human reply newer than our last reply, comes
   first in this run. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what

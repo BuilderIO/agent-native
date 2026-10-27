@@ -987,7 +987,7 @@ function isReadmePath(path: string): boolean {
 
 function isMarkdownPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
-  // The execution-lease verifier reads its model's notes.
+  // Any change under the execution-lease model keeps running its verifier.
   if (normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX)) return false;
   return /\.mdx?$/iu.test(normalized);
 }
