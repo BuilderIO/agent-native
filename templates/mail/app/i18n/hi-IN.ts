@@ -761,6 +761,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "ईमेल ड्राफ़्ट - Mail",
+    },
+    draftCard: {
+      loadFailed: "यह ड्राफ़्ट लोड नहीं हो सका।",
+      notFoundTitle: "ड्राफ़्ट नहीं मिला",
+      threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
+      threadLookupFailed:
+        "यह जवाब किस बातचीत का है, यह नहीं मिल सका, इसलिए इसे अभी भेजा नहीं जा सकता।",
+      earlierMessages: "पिछले संदेश ({{count}})",
+      deleted: "ड्राफ़्ट हटा दिया गया।",
     },
     agentEngine: {
       activeEngine: "Motor activo",

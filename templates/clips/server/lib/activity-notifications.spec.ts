@@ -52,6 +52,7 @@ vi.mock("../db/index.js", () => ({
       orgId: "org_id",
       password: "password",
       expiresAt: "expires_at",
+      trashedAt: "trashed_at",
     },
     recordingComments: {
       recordingId: "recording_id",
@@ -79,6 +80,7 @@ const RECORDING = {
   orgId: null,
   password: null as string | null,
   expiresAt: null as string | null,
+  trashedAt: null as string | null,
 };
 
 function stubDb(options: {
@@ -88,16 +90,25 @@ function stubDb(options: {
   const participants = (options.participants ?? []).map((authorEmail) => ({
     authorEmail,
   }));
-  mocks.select.mockReturnValue({
+  mocks.select.mockImplementation((columns: Record<string, unknown>) => ({
     from: () => ({
       where: () => {
-        const rows = options.recording ? [options.recording] : [];
+        const rows = options.recording
+          ? [
+              Object.fromEntries(
+                Object.keys(columns).map((key) => [
+                  key,
+                  options.recording?.[key as keyof typeof RECORDING],
+                ]),
+              ),
+            ]
+          : [];
         return Object.assign(Promise.resolve(participants), {
           limit: async () => rows,
         });
       },
     }),
-  });
+  }));
 }
 
 function notifyArgs() {
@@ -315,4 +326,68 @@ describe("clips activity notifications", () => {
 
     expect(result.status).toBe("notification-error");
   });
+});
+
+describe("activity email recording lifecycle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.filterRecipients.mockImplementation(
+      async ({ emails }: { emails: string[] }) => emails,
+    );
+    mocks.notifyActivity.mockResolvedValue({
+      status: "delivered",
+      sent: [],
+      failed: [],
+    });
+  });
+
+  it.each([
+    { kind: "comment", trashedAt: "2026-10-22T12:00:00Z" },
+    { kind: "reply", trashedAt: "2026-10-22T12:00:00Z" },
+    { kind: "reaction", trashedAt: "2026-10-22T12:00:00Z" },
+    { kind: "comment", trashedAt: null },
+    { kind: "reply", trashedAt: null },
+    { kind: "reaction", trashedAt: null },
+  ])(
+    "limits $kind recipients while trashedAt=$trashedAt",
+    async ({ kind, trashedAt }) => {
+      stubDb({
+        recording: { ...RECORDING, trashedAt },
+        participants: ["viewer@example.test"],
+      });
+      if (kind === "reaction") {
+        await notifyRecordingReaction({
+          recordingId: RECORDING.id,
+          emoji: "fire",
+          viewerEmail: RECORDING.ownerEmail,
+          extraRecipients: ["viewer@example.test"],
+        });
+      } else {
+        await notifyRecordingComment({
+          recordingId: RECORDING.id,
+          threadId: "fake-thread",
+          authorEmail: RECORDING.ownerEmail,
+          content: "Fake saved comment",
+          isReply: kind === "reply",
+          mentions:
+            kind === "comment"
+              ? [{ email: "viewer@example.test", name: "Fake viewer" }]
+              : [],
+        });
+      }
+      expect(notifyArgs().candidates).toEqual(
+        trashedAt
+          ? [RECORDING.ownerEmail]
+          : [RECORDING.ownerEmail, "viewer@example.test"],
+      );
+      expect(mocks.filterRecipients).toHaveBeenCalledWith(
+        expect.objectContaining({
+          emails: trashedAt
+            ? [RECORDING.ownerEmail]
+            : [RECORDING.ownerEmail, "viewer@example.test"],
+        }),
+      );
+    },
+  );
 });

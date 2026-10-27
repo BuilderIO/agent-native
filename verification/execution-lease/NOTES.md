@@ -61,8 +61,10 @@ Helper invariants, checked in the same runs:
   is outside the lease model, and earlier-projection blockers restrict when
   reaping may terminalize a run. Run admission also has pending-inbox and
   pending-approval gates that the model omits, so `InsertRun` is an
-  over-approximation within the active-turn assumption. These changes do not
-  add an unfenced step-journal write.
+  over-approximation within the active-turn assumption. It distinguishes
+  externally admitted inserts from worker-originated inserts; the latter require
+  the caller's current lease generation. These changes do not add an unfenced
+  step-journal write.
 - A run stopped by request saves its completion under a fence with
   `outlivesStop` (`run-manager.ts` `withWorkerFence`), which
   `lockAndAssertCurrentExecutionFences` accepts while the lease row still names
@@ -280,3 +282,7 @@ tests.
 | `agent/production-agent.ts` step-intent region (fence lookup through `beginAgentExecutionStep`)            | `BeginStep` preconditions: intent only under a fence, policy per run              |
 | `agent/production-agent.ts` pre-invocation reset admission                                                 | `ResetBeforeInvocation` history carry-forward decision                            |
 | `currentExecutionFence`, `currentExecutionFenceForScope`, `withExecutionFence`, `lockTurnExecutionLease`   | `Current`, `Claim`, reaper and abort lease locks                                  |
+
+`tryClaimRunSlot` takes the thread run-slot lock before checking inherited
+execution fences, matching the reaper and turn-abort transaction order. The
+`InsertRun` action models the generation guard, not database lock ordering.

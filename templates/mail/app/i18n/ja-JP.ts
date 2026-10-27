@@ -774,6 +774,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "メールの下書き - Mail",
+    },
+    draftCard: {
+      loadFailed: "この下書きを読み込めませんでした。",
+      notFoundTitle: "下書きが見つかりません",
+      threadUnavailable: "この会話の以前のメッセージを読み込めませんでした。",
+      threadLookupFailed:
+        "この返信が属する会話が見つからないため、まだ送信できません。",
+      earlierMessages: "以前のメッセージ（{{count}}）",
+      deleted: "下書きを削除しました。",
     },
     agentEngine: {
       activeEngine: "Motor activo",
