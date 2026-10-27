@@ -591,9 +591,12 @@ function safeAppOrigin(
 }
 
 function isDispatchAppPageUrl(url: string): boolean {
+  if (safeAppOrigin({ url }) === null) return false;
+  const { pathname } = new URL(url);
+  const basePath = getConfiguredAppBasePath();
   return (
-    safeAppOrigin({ url }) !== null &&
-    new URL(url).pathname.startsWith("/dispatch/apps/")
+    pathname.startsWith("/dispatch/apps/") ||
+    (basePath !== "" && pathname.startsWith(`${basePath}/dispatch/apps/`))
   );
 }
 

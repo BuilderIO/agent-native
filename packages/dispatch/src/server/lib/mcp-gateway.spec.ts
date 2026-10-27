@@ -485,6 +485,36 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a prefixed Dispatch app page out of the granted list when a base path is configured", async () => {
+    const previous = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/prefix";
+    try {
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: "customer-ticket-triage",
+          name: "Customer Ticket Triage",
+          description: "Triage customer tickets",
+          url: "https://beta.agent-workspace.builder.io/prefix/dispatch/apps/customer-ticket-triage",
+          color: "#6366F1",
+        },
+      ]);
+      mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listGrantedDispatchMcpApps(),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    } finally {
+      if (previous === undefined) delete process.env.APP_BASE_PATH;
+      else process.env.APP_BASE_PATH = previous;
+    }
+  });
+
   it("defaults to exposing every discovered app", async () => {
     mocks.getUserSetting.mockResolvedValue(null);
     const apps = await runWithRequestContext(
