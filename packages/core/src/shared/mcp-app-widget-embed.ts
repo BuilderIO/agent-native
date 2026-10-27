@@ -52,7 +52,6 @@ export function resolveMcpAppEmbedBasePath(
 
     if (routerBasePath && matches(routerBasePath)) return routerBasePath;
     if (configuredPath && matches(configuredPath)) return configuredPath;
-    if (explicitRootPath && !options.preferDeclaredMounts) return "";
 
     const segment = pathname.split("/").find(Boolean);
     if (!segment) {
@@ -68,6 +67,7 @@ export function resolveMcpAppEmbedBasePath(
     ) {
       return fallbackPath;
     }
+    if (explicitRootPath && !options.preferDeclaredMounts) return "";
 
     const declaredMounts = (
       Array.isArray(options.workspaceAppMountPaths)

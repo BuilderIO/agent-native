@@ -859,8 +859,7 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   const urlToken = readTokenFromUrl(win);
   if (urlToken) {
-    getEmbedAuthToken();
-    stripTokenFromUrl(win);
+    if (getEmbedAuthToken()) stripTokenFromUrl(win);
   }
   ensureMcpChatBridgeViewportClamp(win);
 

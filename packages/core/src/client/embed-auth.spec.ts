@@ -163,6 +163,39 @@ describe("embed auth client", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("keeps a URL token until the workspace mount can be resolved", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/reports/overview?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(window.location.search).toBe(
+      `?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
+    );
+
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
+    );
+
+    expect(auth.getEmbedAuthToken()).toBe("unmatched-token");
+    expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+      "unmatched-token",
+    );
+  });
+
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
     // MCP App embeds always load in a sandboxed iframe without
     // allow-same-origin, so window.location.origin is "null". The embed session
