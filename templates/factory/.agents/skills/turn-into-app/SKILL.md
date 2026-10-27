@@ -38,11 +38,11 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ### Ask where the app runs
 
-On an interactive local host, after the plan (step 2) and before installing
-anything, ask once: **On your machine** (some setup) or **Hosted with Builder**
-(a free Builder account). Skip it on browser hosts, when the person already
-chose, or when resuming; in Local File Mode or headless, build here and say
-why. Details: [where it runs](references/where-it-runs.md).
+On an interactive local host, after the plan (step 2) and before installing,
+ask once: **On your machine** (some setup) or **Hosted with Builder** (a free
+Builder account). Skip it on browser hosts or when the route is set (by the
+person, a resumed run, Local File Mode, an existing workspace, or headless);
+[where it runs](references/where-it-runs.md) says which wins.
 
 ### Pick the source
 
@@ -91,7 +91,7 @@ Decide and proceed. Take the source's recommended option, otherwise the most
 conventional default, and record it as an assumption. Never ask about visuals,
 copy, layout, template, or integrations.
 
-Apart from where the app runs, ask once, with your recommendation, only when:
+Beyond the hosting question, ask once, with your recommendation, only when:
 
 1. no repeatable workflow can be identified, or Project context is not visible
    (ask for an export);
