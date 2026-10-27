@@ -33,6 +33,7 @@ import { JsonLd, faqSchema } from "./shared";
 
 const SITE_ORIGIN = "https://www.agent-native.com";
 const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+const BOLD = /\*\*([^*]+)\*\*/g;
 
 const HEADING_CLASS =
   "m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]";
@@ -61,7 +62,23 @@ function sitePath(url: string): string {
 }
 
 function plainText(text: string): string {
-  return text.replace(LINK, "$1");
+  return text.replace(LINK, "$1").replace(BOLD, "$1");
+}
+
+// App labels the reader looks for ("Click **Send to agent**") are written in bold.
+function withBold(text: string): ReactNode[] {
+  return text.split(BOLD).map((part, index) =>
+    index % 2 ? (
+      <strong
+        key={index}
+        className="font-semibold text-[var(--b-text-primary)]"
+      >
+        {part}
+      </strong>
+    ) : (
+      part
+    ),
+  );
 }
 
 function InlineText({ text }: { text: string }) {
@@ -70,7 +87,7 @@ function InlineText({ text }: { text: string }) {
   let last = 0;
   for (const match of text.matchAll(LINK)) {
     const [whole, label, url] = match as unknown as [string, string, string];
-    parts.push(text.slice(last, match.index));
+    parts.push(withBold(text.slice(last, match.index)));
     const href = sitePath(url);
     parts.push(
       href.startsWith("/") ? (
@@ -95,7 +112,7 @@ function InlineText({ text }: { text: string }) {
     );
     last = match.index + whole.length;
   }
-  parts.push(text.slice(last));
+  parts.push(withBold(text.slice(last)));
   return (
     <>
       {parts.map((part, index) => (
