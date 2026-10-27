@@ -458,7 +458,21 @@ export function isReadOnlySql(sql: string): boolean {
     "pg_stat_reset_single_function_counters",
     "pg_logical_slot_get_changes",
     "pg_logical_slot_get_binary_changes",
+    "pg_logical_slot_peek_changes",
+    "pg_logical_slot_peek_binary_changes",
     "pg_replication_slot_advance",
+    "pg_create_physical_replication_slot",
+    "pg_create_logical_replication_slot",
+    "pg_drop_replication_slot",
+    "pg_copy_physical_replication_slot",
+    "pg_copy_logical_replication_slot",
+    "pg_sync_replication_slots",
+    "pg_replication_origin_create",
+    "pg_replication_origin_drop",
+    "pg_replication_origin_session_setup",
+    "pg_replication_origin_session_reset",
+    "pg_replication_origin_xact_setup",
+    "pg_replication_origin_xact_reset",
   ]);
   return !tokens.some((token, index) => {
     const quotedIdentifier = token.startsWith("<identifier:")

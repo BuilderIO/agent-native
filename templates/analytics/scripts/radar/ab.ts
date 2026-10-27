@@ -362,6 +362,19 @@ function isCalendarDate(value: string): boolean {
   );
 }
 
+function parseAsOfTimestamp(value: string): Date | undefined {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/i.test(
+      value,
+    ) ||
+    !isCalendarDate(value.slice(0, 10))
+  ) {
+    return undefined;
+  }
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : undefined;
+}
+
 export interface AbReadoutOptions {
   experiment?: string;
   startDate?: string;
@@ -393,10 +406,14 @@ export async function runAbReadout(
   }
   const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
   endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
-  const requestedCutoff = options.asOf ? new Date(options.asOf) : endExclusive;
-  if (!Number.isFinite(requestedCutoff.getTime())) {
-    throw new RadarQueryError("--as-of must be a valid timestamp.", 2);
-  }
+  const requestedCutoff = options.asOf
+    ? parseAsOfTimestamp(options.asOf)
+    : endExclusive;
+  if (!requestedCutoff)
+    throw new RadarQueryError(
+      "--as-of must be an ISO timestamp with a valid date and explicit UTC offset.",
+      2,
+    );
   const cutoffDate = new Date(
     Math.min(requestedCutoff.getTime(), Date.now(), endExclusive.getTime()),
   );

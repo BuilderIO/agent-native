@@ -135,6 +135,24 @@ describe("radar query safety", () => {
     expect(
       isReadOnlySql("SELECT pg_replication_slot_advance('slot', NULL)"),
     ).toBe(false);
+    for (const sql of [
+      "SELECT pg_logical_slot_peek_changes('slot', NULL, NULL)",
+      "SELECT pg_logical_slot_peek_binary_changes('slot', NULL, NULL)",
+      "SELECT pg_create_physical_replication_slot('slot')",
+      "SELECT pg_create_logical_replication_slot('slot', 'pgoutput')",
+      "SELECT pg_drop_replication_slot('slot')",
+      "SELECT pg_copy_physical_replication_slot('source', 'target')",
+      "SELECT pg_copy_logical_replication_slot('source', 'target')",
+      "SELECT pg_sync_replication_slots()",
+      "SELECT pg_replication_origin_create('origin')",
+      "SELECT pg_replication_origin_drop('origin')",
+      "SELECT pg_replication_origin_session_setup('origin')",
+      "SELECT pg_replication_origin_session_reset()",
+      "SELECT pg_replication_origin_xact_setup('0/0', now())",
+      "SELECT pg_replication_origin_xact_reset()",
+    ]) {
+      expect(isReadOnlySql(sql), sql).toBe(false);
+    }
     expect(isReadOnlySql("SELECT pg_advisory_unlock_shared(1, 2)")).toBe(false);
     expect(isReadOnlySql("SELECT pg_advisory_xact_lock_shared(1, 2)")).toBe(
       false,

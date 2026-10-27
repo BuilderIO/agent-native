@@ -110,6 +110,40 @@ describe("A/B readout arguments", () => {
     },
   );
 
+  it.each(["2026-02-30T12:00:00Z", "2026-10-26T12:00:00", "2026-10-26"])(
+    "rejects invalid or timezone-free --as-of timestamp %s",
+    async (asOf) => {
+      await expect(
+        runAbReadout({
+          startDate: "2026-10-19",
+          endDate: "2026-10-26",
+          asOf,
+        }),
+      ).rejects.toMatchObject({
+        exitCode: 2,
+        message:
+          "--as-of must be an ISO timestamp with a valid date and explicit UTC offset.",
+      });
+    },
+  );
+
+  it("accepts an --as-of timestamp with an explicit UTC offset", async () => {
+    queryMocks.runPostgresQuery.mockResolvedValue({
+      rows: [
+        { app: "all", variant: "control" },
+        { app: "all", variant: "credits" },
+      ],
+    });
+
+    const result = await runAbReadout({
+      startDate: "2026-10-19",
+      endDate: "2026-10-26",
+      asOf: "2026-10-26T12:00:00-07:00",
+    });
+
+    expect(result.dataCutoff).toBe("2026-10-26T19:00:00.000Z");
+  });
+
   it("rejects an empty cohort instead of returning a ready empty readout", async () => {
     await expect(
       runAbReadout({ startDate: "2026-10-19", endDate: "2026-10-26" }),
