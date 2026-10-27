@@ -91,7 +91,7 @@ other_uses:
 faqs:
   heading: ¿Dudas? Aquí tienes las respuestas
   items:
-    - q: ¿Clips es gratis?
+    - q: ¿Agent-Native Clips es gratis?
       a: Sí. Agent-Native Clips es gratuito y de código abierto, extensión de Chrome incluida. Los títulos, los resúmenes y la limpieza de transcripciones funcionan por defecto con créditos de IA de Builder.io, así que el uso de IA no es ilimitado, y las grabaciones necesitan un sitio donde guardar el vídeo. Clips está en alfa, así que espera cambios a medida que crece.
     - q: ¿Qué captura Clips de mi navegador?
       a: La extensión de Clips para Chrome captura [mensajes de consola, errores de JavaScript y peticiones de red](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) de hasta cinco pestañas, retrocediendo hasta 30 segundos antes de que pulsaras grabar. Cada petición conserva su dirección, estado, tiempo y si falló. Los editores lo ven todo en la pestaña Depuración del clip, y los agentes lo reciben a través del enlace.

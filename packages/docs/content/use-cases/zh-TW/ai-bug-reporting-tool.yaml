@@ -91,7 +91,7 @@ other_uses:
 faqs:
   heading: 有問題？我們來解答
   items:
-    - q: Clips 是免費的嗎？
+    - q: Agent-Native Clips 是免費的嗎？
       a: 是的。Agent-Native Clips 免費且開源，包括 Chrome 擴充功能。標題、摘要和逐字稿清理預設使用 Builder.io AI 點數，所以 AI 用量並非無限，錄影也需要有地方儲存影片。Clips 目前是 alpha 版，功能會隨著發展持續調整。
     - q: Clips 會從我的瀏覽器擷取什麼？
       a: Clips Chrome 擴充功能會擷取最多五個分頁的[主控台訊息、JavaScript 錯誤和網路請求](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs)，並回溯到你按下錄製前最多 30 秒。每個請求都會保留它的網址、狀態、耗時和是否失敗。編輯者可以在剪輯的「偵錯」分頁看到全部內容，agent 則透過連結取得。
