@@ -1,12 +1,12 @@
 template: v2
 slug: ai-meeting-notes
 app: clips
-title: AI Meeting Notes
-seo_title: AI meeting notes with no bot in your call
-meta_description: "Agent-Native Clips is a free, open-source way to take AI meeting notes from your own computer: a transcript, summary and action items for every call."
+title: Get meeting notes without a bot in the call
+seo_title: AI meeting notes without a bot in your call
+meta_description: Get a transcript, a summary and action items from every call. Agent-Native Clips records on your own computer, so you can search or ask about any meeting later.
 updated: 2026-10-26
 hero:
-  body: "Agent-Native Clips turns your calls into notes: a transcript, a summary and action items by attendee. It records from your own computer, so no bot joins, and you can search or ask about any meeting."
+  body: "Agent-Native Clips turns your calls into notes: a transcript, a summary and action items by attendee. It records your mic and the call audio on your computer, and you can search or ask about any call."
   button:
     label: Take meeting notes
     url: https://clips.agent-native.com
@@ -75,12 +75,12 @@ integrations:
       more: true
       body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
 other_uses:
-  heading: Other things you can do with Clips
+  heading: Other things you can do with Agent-Native Clips
   cards:
-    - title: AI Bug Reporting Tool
+    - title: Record bugs with their console and network logs
       url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
-      body: Record a bug with its browser console and network logs, ready for your coding agent.
-    - title: AI Dictation
+      body: Each recording is ready to hand to your coding agent, so it can see what went wrong.
+    - title: Dictate your prompts instead of typing them
       url: https://www.agent-native.com/use-cases/ai-dictation/
       body: Hold a key and speak, and Clips types cleaned-up text into the app you are using.
 faqs:
