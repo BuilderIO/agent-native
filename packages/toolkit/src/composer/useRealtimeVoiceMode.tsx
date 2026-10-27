@@ -1342,7 +1342,11 @@ function createRealtimeVoiceToolManifestUpdate(
         ? {
             delegation: {
               type: "responses",
-              responses: { tools, tool_choice: "auto" },
+              // Strict schemas make every optional parameter required.
+              responses: {
+                tools: tools.map((tool) => ({ ...tool, strict: false })),
+                tool_choice: "auto",
+              },
             },
           }
         : {

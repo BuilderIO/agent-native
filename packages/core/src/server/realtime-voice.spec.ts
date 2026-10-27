@@ -521,6 +521,10 @@ describe("realtime voice app configuration", () => {
     expect(event.responseHeaders[REALTIME_VOICE_PRIORITY_TOOLS_HEADER]).toBe(
       "update-slide",
     );
+    // A strict schema would make the delegated model fill every optional field.
+    expect(
+      new Set(tools.map((tool: { strict?: unknown }) => tool.strict)),
+    ).toEqual(new Set([false]));
   });
 
   it("uses the app's default intelligence until the user picks one", async () => {

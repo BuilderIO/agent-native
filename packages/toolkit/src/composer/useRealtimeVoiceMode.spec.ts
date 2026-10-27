@@ -623,6 +623,14 @@ describe("Realtime voice dynamic tool manifests", () => {
     );
     expect(names.slice(0, 2)).toEqual(["web-search", "update-slide"]);
     expect(names).toHaveLength(32);
+    // A strict schema would make the delegated model fill every optional field.
+    expect(
+      new Set(
+        update.session.delegation.responses.tools.map(
+          (tool) => (tool as { strict?: unknown }).strict,
+        ),
+      ),
+    ).toEqual(new Set([false]));
   });
 
   it("packs dynamic schemas within the realtime session byte budget", () => {

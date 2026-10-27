@@ -408,6 +408,14 @@ function buildRealtimeTools(
     .map(({ tool }) => tool);
 }
 
+/**
+ * Strict schemas make every optional parameter required, so the delegated
+ * model fills each one with a placeholder the action rejects, and retries.
+ */
+function delegatedRealtimeTool(tool: RealtimeFunctionTool) {
+  return { ...tool, strict: false };
+}
+
 function realtimeSessionWithTools(
   session: Record<string, unknown>,
   tools: RealtimeFunctionTool[],
@@ -426,7 +434,7 @@ function realtimeSessionWithTools(
         type: "responses",
         responses: {
           ...responses,
-          tools,
+          tools: tools.map(delegatedRealtimeTool),
           tool_choice: "auto",
         },
       },
