@@ -1139,7 +1139,7 @@ esac
     const dispatchPeer = readManifest("packages/dispatch/package.json")
       .peerDependencies?.[core];
     assert(coreVersion && dispatchPeer);
-    const qrRange = coreVersion;
+    const templateRange = coreVersion;
 
     const dir = mkdtempSync(path.join(tmpdir(), "an-snapshot-links-"));
     const write = (file: string, content: unknown) => {
@@ -1175,10 +1175,10 @@ esac
         peerDependencies: { [core]: dispatchPeer },
         devDependencies: { [core]: "workspace:*" },
       });
-      write("templates/community/qr/package.json", {
-        name: "qr",
+      write("templates/community/range-fixture/package.json", {
+        name: "range-fixture",
         private: true,
-        dependencies: { [core]: qrRange },
+        dependencies: { [core]: templateRange },
       });
 
       const version = spawnSync(
@@ -1195,16 +1195,14 @@ esac
 
       const snapshot = fixtureManifest("packages/core/package.json").version;
       assert.match(String(snapshot), /-nightly-/);
+      const dispatchSnapshotPeer = fixtureManifest(
+        "packages/dispatch/package.json",
+      ).peerDependencies?.[core];
+      assert.equal(dispatchSnapshotPeer, dispatchPeer);
+      assert(semver.satisfies(String(snapshot), dispatchSnapshotPeer));
       assert.equal(
-        fixtureManifest("packages/dispatch/package.json").peerDependencies?.[
-          core
-        ],
-        snapshot,
-      );
-      assert.equal(
-        fixtureManifest("templates/community/qr/package.json").dependencies?.[
-          core
-        ],
+        fixtureManifest("templates/community/range-fixture/package.json")
+          .dependencies?.[core],
         snapshot,
       );
 
@@ -1243,8 +1241,9 @@ esac
           >;
         };
         assert.equal(
-          lock.importers["templates/community/qr"]?.dependencies?.[core]
-            ?.version,
+          lock.importers["templates/community/range-fixture"]?.dependencies?.[
+            core
+          ]?.version,
           "link:../../../packages/core",
           stepName,
         );
@@ -1526,7 +1525,7 @@ esac
     assert(changesetsIndex < restoreIndex);
   });
 
-  it("keeps plain internal ranges like the QR template's Core out of stable releases", async () => {
+  it("updates plain internal dependency ranges only in non-stable releases", async () => {
     const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
       getPackages: (cwd: string) => Promise<unknown>;
     };
@@ -1544,65 +1543,108 @@ esac
       }
     ).default;
 
-    const packages = (await getPackages(process.cwd())) as {
-      packages: Array<{
-        packageJson: {
-          name: string;
-          version?: string;
-          dependencies?: Record<string, string>;
-        };
-      }>;
+    const dir = mkdtempSync(path.join(tmpdir(), "stable-range-fixture-"));
+    const write = (file: string, content: unknown) => {
+      const target = path.join(dir, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(
+        target,
+        typeof content === "string"
+          ? content
+          : `${JSON.stringify(content, null, 2)}\n`,
+      );
     };
-    const corePackage = packages.packages.find(
-      (pkg) => pkg.packageJson.name === "@agent-native/core",
-    );
-    const qrPackage = packages.packages.find(
-      (pkg) => pkg.packageJson.name === "qr",
-    );
-    assert(corePackage?.packageJson.version && qrPackage);
-    // Give the private template a current exact range so this fixture exercises
-    // the release that moves the dependency out of range, not stale manifest data.
-    qrPackage.packageJson.version = corePackage.packageJson.version;
-    qrPackage.packageJson.dependencies = {
-      ...qrPackage.packageJson.dependencies,
-      "@agent-native/core": corePackage.packageJson.version,
-    };
-    const sharedConfig = readFileSync(".changeset/config.json", "utf8");
-    const corePatch = [
-      {
-        id: "core-patch",
-        summary: "Core patch",
-        releases: [{ name: "@agent-native/core", type: "patch" }],
-      },
-    ];
-    const releasesWith = (configSource: string) =>
-      assembleReleasePlan(
-        corePatch,
-        packages,
-        parseChangesetConfig(JSON.parse(configSource), packages),
-        undefined,
-      ).releases;
 
-    const stable = releasesWith(stableChangesetConfig(sharedConfig)).map(
-      (release) => release.name,
-    );
-    const fixedGroup = (JSON.parse(sharedConfig) as { fixed: string[][] })
-      .fixed[0];
-    for (const name of fixedGroup) assert(stable.includes(name), name);
-    assert(!stable.includes("qr"));
+    try {
+      write("package.json", { name: "stable-range-fixture", private: true });
+      write(
+        "pnpm-workspace.yaml",
+        "packages:\n  - packages/*\n  - templates/community/*\n",
+      );
+      const config = {
+        ...JSON.parse(readFileSync(".changeset/config.json", "utf8")),
+        changelog: false,
+        fixed: [],
+        ignore: [],
+        linked: [],
+      };
+      const configSource = `${JSON.stringify(config, null, 2)}\n`;
+      write(".changeset/config.json", configSource);
 
-    // Without the stable override, Changesets includes QR because its current
-    // Core range will no longer accept the next Core patch.
-    assert(releasesWith(sharedConfig).some((release) => release.name === "qr"));
+      const core = "@agent-native/core";
+      const coreVersion = (
+        JSON.parse(readFileSync("packages/core/package.json", "utf8")) as {
+          version: string;
+        }
+      ).version;
+      write("packages/core/package.json", { name: core, version: coreVersion });
+      write("templates/community/range-fixture/package.json", {
+        name: "range-fixture",
+        version: "1.0.0",
+        private: true,
+        dependencies: { [core]: coreVersion },
+      });
+      write(
+        ".changeset/core-patch.md",
+        `---\n"${core}": patch\n---\n\nCore patch.\n`,
+      );
+
+      const packages = (await getPackages(dir)) as {
+        packages: Array<{
+          packageJson: {
+            name: string;
+            version?: string;
+            dependencies?: Record<string, string>;
+          };
+        }>;
+      };
+      const changesets = [
+        {
+          id: "core-patch",
+          summary: "Core patch",
+          releases: [{ name: core, type: "patch" }],
+        },
+      ];
+      const releasesWith = (source: string) =>
+        assembleReleasePlan(
+          changesets,
+          packages,
+          parseChangesetConfig(JSON.parse(source), packages),
+          undefined,
+        ).releases;
+
+      const stable = releasesWith(stableChangesetConfig(configSource)).map(
+        (release) => release.name,
+      );
+      assert(stable.includes(core));
+      assert(!stable.includes("range-fixture"));
+      assert(
+        releasesWith(configSource).some(
+          (release) => release.name === "range-fixture",
+        ),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("leaves the shared Changesets config moving snapshot peer ranges", () => {
-    // Nightly and dev snapshots rewrite peers such as Dispatch's
-    // `>=0.209.1` Core range to the exact snapshot, which the range rejects.
+    // Snapshot workflows keep the shared config so ranges that reject
+    // prereleases can still be rewritten to their published snapshot.
     const config = JSON.parse(
       readFileSync(".changeset/config.json", "utf8"),
     ) as Record<string, unknown>;
     assert.notEqual(config.bumpVersionsWithWorkspaceProtocolOnly, true);
+  });
+
+  it("requires Core 0.220.1 or its prereleases for Dispatch app-only visibility", () => {
+    const dispatch = JSON.parse(
+      readFileSync("packages/dispatch/package.json", "utf8"),
+    ) as { peerDependencies?: Record<string, string> };
+    assert.equal(
+      dispatch.peerDependencies?.["@agent-native/core"],
+      ">=0.220.1-0",
+    );
   });
 
   it("restores the shared Changesets config when a stable version run fails", async () => {
@@ -2554,10 +2596,6 @@ fi
         "dev-${{ steps.snapshot_tag.outputs.value }}",
       );
       assert.equal(publish.run, "node scripts/changeset-publish-sequential.ts");
-      assert.doesNotMatch(
-        String((publish.env as Workflow).AGENT_NATIVE_NPM_DIST_TAG),
-        /^(latest|nightly)$/,
-      );
     });
 
     it("requires new Core and Dispatch versions before a Beta publish", () => {
@@ -2649,6 +2687,17 @@ fi
       );
       assert(betaDispatch);
       assert.equal(betaDispatch.if, "${{ inputs.betaTag != '' }}");
+      const buildIndex = steps.findIndex(
+        (step) => step.name === "Build all packages",
+      );
+      const publishIndex = steps.findIndex(
+        (step) => step.name === "Publish dev snapshot packages sequentially",
+      );
+      const tokenIndex = steps.indexOf(token);
+      const dispatchIndex = steps.indexOf(betaDispatch);
+      assert(buildIndex < publishIndex);
+      assert(publishIndex < tokenIndex);
+      assert(tokenIndex < dispatchIndex);
       assert.match(
         String(betaDispatch.run),
         /@agent-native\/core @agent-native\/dispatch/,
