@@ -2565,6 +2565,9 @@ fi
       const preflight = steps.find(
         (step) => step.name === "Require Core and Dispatch in Beta snapshot",
       );
+      const versionIndex = steps.findIndex(
+        (step) => step.name === "Create dev snapshot versions",
+      );
       const publishIndex = steps.findIndex(
         (step) => step.name === "Publish dev snapshot packages sequentially",
       );
@@ -2573,6 +2576,7 @@ fi
       assert.match(String(preflight.run), /for package in core dispatch/);
       assert.match(String(preflight.run), /git show "HEAD:\$manifest"/);
       assert.match(String(preflight.run), /Beta snapshot must include a new/);
+      assert(versionIndex < steps.indexOf(preflight));
       assert(steps.indexOf(preflight) < publishIndex);
     });
 
