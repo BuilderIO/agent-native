@@ -254,6 +254,40 @@ function storedToken(win: Window, storageKey: string): string | null {
   }
 }
 
+function embedTokenTargetStorageKey(token: string): string | null {
+  const payload = token.split(".")[0] ?? "";
+  let decodedClaims: unknown;
+  try {
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(
+      atob(base64 + "=".repeat((4 - (base64.length % 4)) % 4)),
+      (char) => char.charCodeAt(0),
+    );
+    decodedClaims = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    // coercion-ok: an unreadable token has no mount binding; null makes the caller reject it.
+    return null;
+  }
+  if (
+    !decodedClaims ||
+    typeof decodedClaims !== "object" ||
+    Array.isArray(decodedClaims)
+  ) {
+    return null;
+  }
+  const claims = decodedClaims as {
+    targetMount?: unknown;
+    targetPath?: unknown;
+  };
+  if (typeof claims.targetMount === "string") {
+    return embedTokenStorageKey(claims.targetMount, true);
+  }
+  if (claims.targetMount !== undefined) return null;
+  if (typeof claims.targetPath !== "string") return null;
+  const basePath = resolveExternalEmbedTargetAppBasePath(claims.targetPath);
+  return basePath === undefined ? null : embedTokenStorageKey(basePath, true);
+}
+
 function storeToken(token: string, win: Window, storageKey: string): void {
   memoryTokens.set(storageKey, token);
   try {
@@ -272,6 +306,12 @@ export function getEmbedAuthToken(): string | null {
   const renewedFromStorageKey = `${storageKey}:renewed-from`;
   const fromUrl = readTokenFromUrl(win);
   if (fromUrl) {
+    if (
+      isWorkspaceRuntime() &&
+      embedTokenTargetStorageKey(fromUrl) !== storageKey
+    ) {
+      return null;
+    }
     let renewedFrom = renewedFromUrlToken;
     if (!renewedFrom) {
       try {

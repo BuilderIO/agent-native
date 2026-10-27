@@ -27,7 +27,10 @@ import {
   MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "./app-base-path.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { isHttpsRequest } from "./https-request.js";
@@ -152,6 +155,7 @@ export interface EmbedSessionTokenClaims {
   ownerEmail: string;
   orgId?: string;
   targetPath: string;
+  targetMount?: string;
   audienceHost?: string;
   scope?: string;
   iat: number;
@@ -1565,6 +1569,7 @@ export function signEmbedSessionToken(input: {
   ownerEmail: string;
   orgId?: string | null;
   targetPath: string;
+  targetMount?: string;
   audienceHost?: string;
   scope?: string | null;
   ticketCreatedAtMs?: number;
@@ -1599,6 +1604,9 @@ export function signEmbedSessionToken(input: {
     issuedAtMs,
     exp: now + ttl,
   };
+  if (input.targetMount !== undefined) {
+    claims.targetMount = normalizeAppBasePath(input.targetMount);
+  }
   if (input.ticketCreatedAtMs != null) {
     claims.ticketCreatedAtMs = input.ticketCreatedAtMs;
   }
@@ -1643,6 +1651,8 @@ export function verifyEmbedSessionToken(
     claims.kind !== TOKEN_KIND ||
     typeof claims.ownerEmail !== "string" ||
     !claims.ownerEmail ||
+    (claims.targetMount !== undefined &&
+      typeof claims.targetMount !== "string") ||
     typeof claims.iat !== "number" ||
     !Number.isFinite(claims.iat) ||
     (claims.issuedAtMs !== undefined &&

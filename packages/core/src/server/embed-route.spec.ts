@@ -110,6 +110,8 @@ describe("createEmbedStartRouteHandler", () => {
   });
 
   it("still consumes valid tickets on GET and redirects to the embedded target", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
     consumeEmbedSessionTicket.mockResolvedValue({
       ownerEmail: "steve@example.com",
       orgId: "builder",
@@ -141,6 +143,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: "steve@example.com",
       orgId: "builder",
       targetPath: "/inbox",
+      targetMount: "",
       audienceHost: "beta.calendar.agent-native.com",
       scope: "full",
       ticketCreatedAtMs: expect.any(Number),
@@ -170,6 +173,24 @@ describe("createEmbedStartRouteHandler", () => {
       expect.anything(),
       "Cross-Origin-Resource-Policy",
       "cross-origin",
+    );
+  });
+
+  it("signs the target app mount into the issued embed token", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/calendar");
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      targetPath: "/inbox",
+      scope: "full",
+      expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now() - 1,
+    });
+
+    const handler = createEmbedStartRouteHandler();
+    await handler(fakeEvent("GET", { ticket: "ticket-123" }));
+
+    expect(signEmbedSessionToken).toHaveBeenCalledWith(
+      expect.objectContaining({ targetMount: "/calendar" }),
     );
   });
 
@@ -265,6 +286,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: undefined,
         targetPath: "/visual-edit/design_1",
+        targetMount: "",
         audienceHost: "app.test",
         scope: "capability:visual-edit:design:design_1",
         ttlSeconds: 45,
@@ -299,6 +321,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: localWorkspacePrincipal,
       orgId: undefined,
       targetPath: "/visual-edit/design_1",
+      targetMount: "",
       audienceHost: "app.test",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: expect.any(Number),

@@ -362,6 +362,7 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
+      targetMount: getConfiguredAppBasePath(),
       audienceHost: getForwardedRequestHostname(event),
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&

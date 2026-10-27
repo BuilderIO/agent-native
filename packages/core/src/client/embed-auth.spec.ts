@@ -16,6 +16,19 @@ const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 type EmbedAuthModule = typeof import("./embed-auth.js");
 let lastEmbedAuthModule: EmbedAuthModule | undefined;
 
+function embedTokenForTarget(targetPath: string, targetMount?: string): string {
+  const payload = btoa(
+    JSON.stringify({
+      targetPath,
+      ...(targetMount !== undefined ? { targetMount } : {}),
+    }),
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `${payload}.signature`;
+}
+
 async function loadEmbedAuth() {
   lastEmbedAuthModule?._resetEmbedAuthForTests();
   vi.resetModules();
@@ -61,6 +74,7 @@ describe("embed auth client", () => {
   });
 
   it("isolates embed tokens by workspace app mount and preserves same-app reloads", async () => {
+    const childToken = embedTokenForTarget("/inbox", "/event-finder");
     const appConfig = window as Window & {
       __AGENT_NATIVE_CONFIG__?: unknown;
     };
@@ -72,17 +86,17 @@ describe("embed auth client", () => {
     window.history.replaceState(
       null,
       "",
-      `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=child-token`,
+      `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=${childToken}`,
     );
 
     const child = await loadEmbedAuth();
     child.ensureEmbedAuthFetchInterceptor();
     const childStorageKey = embedTokenStorageKey("/event-finder", true);
-    expect(sessionStorage.getItem(childStorageKey)).toBe("child-token");
+    expect(sessionStorage.getItem(childStorageKey)).toBe(childToken);
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
 
     window.history.replaceState(null, "", "/event-finder/inbox");
-    expect(child.getEmbedAuthToken()).toBe("child-token");
+    expect(child.getEmbedAuthToken()).toBe(childToken);
 
     appConfig.__AGENT_NATIVE_CONFIG__ = {
       workspaceRuntime: true,
@@ -106,10 +120,12 @@ describe("embed auth client", () => {
     };
     window.history.replaceState(null, "", "/event-finder/inbox");
     const reloadedChild = await loadEmbedAuth();
-    expect(reloadedChild.getEmbedAuthToken()).toBe("child-token");
+    expect(reloadedChild.getEmbedAuthToken()).toBe(childToken);
   });
 
   it("keeps in-memory fallback tokens isolated and available per workspace mount", async () => {
+    const dispatchToken = embedTokenForTarget("/inbox", "/dispatch");
+    const eventFinderToken = embedTokenForTarget("/inbox", "/event-finder");
     const appConfig = window as Window & {
       __AGENT_NATIVE_CONFIG__?: unknown;
     };
@@ -137,24 +153,24 @@ describe("embed auth client", () => {
       window.history.replaceState(
         null,
         "",
-        `/dispatch/inbox?${EMBED_TOKEN_QUERY_PARAM}=dispatch-token`,
+        `/dispatch/inbox?${EMBED_TOKEN_QUERY_PARAM}=${dispatchToken}`,
       );
       const auth = await loadEmbedAuth();
-      expect(auth.getEmbedAuthToken()).toBe("dispatch-token");
+      expect(auth.getEmbedAuthToken()).toBe(dispatchToken);
 
       window.history.replaceState(null, "", "/event-finder/inbox");
       expect(auth.getEmbedAuthToken()).toBeNull();
       window.history.replaceState(
         null,
         "",
-        `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=event-finder-token`,
+        `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=${eventFinderToken}`,
       );
-      expect(auth.getEmbedAuthToken()).toBe("event-finder-token");
+      expect(auth.getEmbedAuthToken()).toBe(eventFinderToken);
 
       window.history.replaceState(null, "", "/dispatch/inbox");
-      expect(auth.getEmbedAuthToken()).toBe("dispatch-token");
+      expect(auth.getEmbedAuthToken()).toBe(dispatchToken);
       window.history.replaceState(null, "", "/event-finder/inbox");
-      expect(auth.getEmbedAuthToken()).toBe("event-finder-token");
+      expect(auth.getEmbedAuthToken()).toBe(eventFinderToken);
     } finally {
       setItem.mockRestore();
       getItem.mockRestore();
@@ -269,6 +285,7 @@ describe("embed auth client", () => {
   });
 
   it("keeps a URL token until the workspace mount can be resolved", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
     ).__AGENT_NATIVE_CONFIG__ = {
@@ -278,26 +295,24 @@ describe("embed auth client", () => {
     window.history.replaceState(
       null,
       "",
-      `/reports/overview?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
+      `/reports/overview?${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
 
     const auth = await loadEmbedAuth();
     auth.ensureEmbedAuthFetchInterceptor();
 
     expect(auth.getEmbedAuthToken()).toBeNull();
-    expect(window.location.search).toBe(
-      `?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
-    );
+    expect(window.location.search).toBe(`?${EMBED_TOKEN_QUERY_PARAM}=${token}`);
 
     window.history.replaceState(
       null,
       "",
-      `/mail/inbox?${EMBED_TOKEN_QUERY_PARAM}=unmatched-token`,
+      `/mail/inbox?${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
 
-    expect(auth.getEmbedAuthToken()).toBe("unmatched-token");
+    expect(auth.getEmbedAuthToken()).toBe(token);
     expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
-      "unmatched-token",
+      token,
     );
   });
 
@@ -334,6 +349,83 @@ describe("embed auth client", () => {
       } else {
         delete (window.location as unknown as { origin?: string }).origin;
       }
+    }
+  });
+
+  it("keeps an opaque URL token bound to its original workspace mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/mail",
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    const token = embedTokenForTarget("/inbox", "/mail");
+    const originalUrl = `/mail/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`;
+    window.history.replaceState(null, "", originalUrl);
+    const originalOrigin = Object.getOwnPropertyDescriptor(
+      window.location,
+      "origin",
+    );
+    const setOpaqueOrigin = () =>
+      Object.defineProperty(window.location, "origin", {
+        configurable: true,
+        get: () => "null",
+      });
+    const restoreOrigin = () => {
+      if (originalOrigin) {
+        Object.defineProperty(window.location, "origin", originalOrigin);
+      } else {
+        delete (window.location as unknown as { origin?: string }).origin;
+      }
+    };
+
+    try {
+      setOpaqueOrigin();
+      const auth = await loadEmbedAuth();
+      auth.ensureEmbedAuthFetchInterceptor();
+
+      expect(auth.getEmbedAuthToken()).toBe(token);
+      expect(window.location.search).toContain(
+        `${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+      );
+      expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+        token,
+      );
+
+      restoreOrigin();
+      window.history.replaceState(
+        null,
+        "",
+        `/calendar/month?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+      );
+
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      expect(
+        sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+      ).toBeNull();
+      expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+        token,
+      );
+
+      const unscopedToken = embedTokenForTarget("/inbox");
+      window.history.replaceState(
+        null,
+        "",
+        `/calendar/month?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${unscopedToken}`,
+      );
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      expect(
+        sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+      ).toBeNull();
+
+      window.history.replaceState(null, "", originalUrl);
+      setOpaqueOrigin();
+      const reloaded = await loadEmbedAuth();
+      reloaded.ensureEmbedAuthFetchInterceptor();
+      expect(reloaded.getEmbedAuthToken()).toBe(token);
+    } finally {
+      restoreOrigin();
     }
   });
 
@@ -442,6 +534,7 @@ describe("embed auth client", () => {
   });
 
   it("preserves an enrolled chat bridge while the route has no workspace mount", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
     ).__AGENT_NATIVE_CONFIG__ = {
@@ -451,7 +544,7 @@ describe("embed auth client", () => {
     window.history.replaceState(
       null,
       "",
-      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
 
     const auth = await loadEmbedAuth();
@@ -466,6 +559,7 @@ describe("embed auth client", () => {
   });
 
   it("adopts a chat bridge URL flag when an unmatched route resolves to a mount", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
     ).__AGENT_NATIVE_CONFIG__ = {
@@ -475,7 +569,7 @@ describe("embed auth client", () => {
     window.history.replaceState(
       null,
       "",
-      `/opening?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `/opening?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
 
     const auth = await loadEmbedAuth();
@@ -483,22 +577,20 @@ describe("embed auth client", () => {
 
     expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
     expect(window.location.search).toContain(
-      `${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
     expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
 
     window.history.replaceState(
       null,
       "",
-      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
     );
     auth.ensureEmbedAuthFetchInterceptor();
 
     expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
-    expect(sessionStorage.getItem(`${BRIDGE_STORAGE_KEY}:/mail`)).toBe(
-      "signed-token",
-    );
-    expect(sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe("signed-token");
+    expect(sessionStorage.getItem(`${BRIDGE_STORAGE_KEY}:/mail`)).toBe(token);
+    expect(sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(token);
     expect(window.location.search).toBe(
       `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
     );

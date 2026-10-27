@@ -106,6 +106,7 @@ describe("embed session tokens", () => {
       ownerEmail: "owner@example.com",
       orgId: "org_123",
       targetPath: "/_agent-native/open?view=inbox",
+      targetMount: "/mail",
       ttlSeconds: 60,
     });
 
@@ -115,6 +116,7 @@ describe("embed session tokens", () => {
       expect(verified.claims.ownerEmail).toBe("owner@example.com");
       expect(verified.claims.orgId).toBe("org_123");
       expect(verified.claims.targetPath).toBe("/_agent-native/open?view=inbox");
+      expect(verified.claims.targetMount).toBe("/mail");
     }
   });
 
