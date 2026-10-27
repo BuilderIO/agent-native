@@ -1,6 +1,10 @@
 template: v2
 slug: ai-bug-reporting-tool
 app: clips
+roles:
+  - product
+  - engineering
+  - design
 title: Record bugs with their console and network logs
 seo_title: AI bug reporting tool with console logs
 meta_description: Show the bug in Chrome, and Agent-Native Clips turns your recording into one link with the page's errors and failed requests for your engineer or coding agent.
