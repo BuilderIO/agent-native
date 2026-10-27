@@ -959,6 +959,36 @@ export async function resolveRadarOrganizationId(): Promise<string> {
   return loadedOrganizationId;
 }
 
+export interface RadarCampaignHmacConfig {
+  key: string;
+  functionName: string;
+}
+
+export function resolveRadarCampaignHmacConfig(): RadarCampaignHmacConfig {
+  const values = loadEnv().values;
+  const key = values.ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY;
+  const functionName = values.ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION;
+  if (!key || !functionName) {
+    throw new RadarQueryError(
+      "Secure BigQuery campaign matching requires ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY and ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION.",
+      1,
+    );
+  }
+  const functionParts = functionName.replace(/^`|`$/g, "").split(".");
+  if (
+    functionParts.length !== 3 ||
+    !/^[A-Za-z0-9_-]+$/.test(functionParts[0] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[1] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[2] ?? "")
+  ) {
+    throw new RadarQueryError(
+      "ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION must be a project.dataset.function identifier.",
+      2,
+    );
+  }
+  return { key, functionName: functionParts.join(".") };
+}
+
 export async function resolveRadarFirstPartyBackend(): Promise<{
   sink: "postgres" | "dual" | "bigquery";
   table: string | null;
@@ -1471,13 +1501,7 @@ export async function runBigQuery(
   const key = queryKey("bigquery", query, [...params]);
   const baseUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(project)}`;
   const postUrl = `${baseUrl}/queries`;
-  const payload = {
-    query,
-    useLegacySql: false,
-    timeoutMs: 10_000,
-    parameterMode: params.length ? "NAMED" : undefined,
-    queryParameters: params.length ? encodeParameters(params) : undefined,
-  };
+  const payload = buildBigQueryQueryPayload(query, params, options);
   const dryRun = await bqRequest(postUrl, token, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1589,6 +1613,21 @@ export async function runBigQuery(
   };
   if (cacheEnabled) writeCache(key, result);
   return result;
+}
+
+export function buildBigQueryQueryPayload(
+  query: string,
+  params: readonly BqParameter[],
+  options: { fresh?: boolean } = {},
+): Record<string, unknown> {
+  return {
+    query,
+    useLegacySql: false,
+    useQueryCache: options.fresh !== true,
+    timeoutMs: 10_000,
+    parameterMode: params.length ? "NAMED" : undefined,
+    queryParameters: params.length ? encodeParameters(params) : undefined,
+  };
 }
 
 export async function closeRadarQueries(): Promise<void> {

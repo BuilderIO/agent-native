@@ -8,6 +8,7 @@ import {
   setRadarBigQueryScanBudget,
 } from "./query.ts";
 import {
+  buildBigQueryAppEventCoverageSql,
   buildBigQueryEventStatsSql,
   buildBigQueryUploadRejectionSql,
 } from "./warehouse-sql.ts";
@@ -200,14 +201,13 @@ export function hasBacktestAppCoverage(
   date: string,
   app: string,
   rejectionRows: readonly Record<string, unknown>[],
-  dailyRows: readonly Record<string, unknown>[],
+  activityCoverageRows: readonly Record<string, unknown>[],
 ): boolean {
   return (
     rejectionRows.some((row) => String(row.app ?? "unknown") === app) ||
-    dailyRows.some(
+    activityCoverageRows.some(
       (row) =>
-        dateOf(row.period_start) === date &&
-        String(row.app ?? "unknown") === app,
+        dateOf(row.event_date) === date && String(row.app ?? "unknown") === app,
     )
   );
 }
@@ -228,21 +228,27 @@ export async function runRadarBacktest(
   const eventStart = addDays(CLEAN.start, -7);
   setRadarBigQueryScanBudget(maxTotalGb);
   try {
+    const params = [
+      { name: "start_date", type: "DATE" as const, value: eventStart },
+      { name: "end_date", type: "DATE" as const, value: INCIDENT.end },
+      { name: "org_id", type: "STRING" as const, value: orgId },
+    ];
     const hourly = await runBigQuery(
       buildBigQueryEventStatsSql(table, "HOUR", BACKTEST_EVENT_NAMES),
       {
         maxGb: 100,
         fresh: true,
         cache: false,
-        params: [
-          { name: "start_date", type: "DATE", value: eventStart },
-          { name: "end_date", type: "DATE", value: INCIDENT.end },
-          { name: "org_id", type: "STRING", value: orgId },
-        ],
+        params,
       },
+    );
+    const activityCoverage = await runBigQuery(
+      buildBigQueryAppEventCoverageSql(table),
+      { maxGb: 100, fresh: true, cache: false, params },
     );
     const hourlyRows = hourly.rows;
     const dailyRows = aggregateDailyRows(hourlyRows);
+    const activityCoverageRows = activityCoverage.rows;
     const observations: Observation[] = [];
 
     for (const [label, window] of [
@@ -350,7 +356,7 @@ export async function runRadarBacktest(
             date,
             app,
             rowsForDate,
-            dailyRows,
+            activityCoverageRows,
           );
           observations.push({
             check: "replay-upload-rejection",

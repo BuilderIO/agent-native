@@ -27,17 +27,21 @@ describe("backtestHourOf", () => {
     );
   });
 
-  it("requires app-specific source rows before reporting replay coverage", () => {
-    const dailyRows = [
-      { period_start: "2026-10-12", app: "slides", event_name: "signup" },
+  it("uses all-event app-day coverage for replay checks", () => {
+    const activityCoverageRows = [
+      {
+        event_date: "2026-10-12",
+        app: "slides",
+        event_name: "newsletter_opened",
+      },
     ];
 
-    expect(hasBacktestAppCoverage("2026-10-12", "slides", [], dailyRows)).toBe(
-      true,
-    );
-    expect(hasBacktestAppCoverage("2026-10-12", "design", [], dailyRows)).toBe(
-      false,
-    );
+    expect(
+      hasBacktestAppCoverage("2026-10-12", "slides", [], activityCoverageRows),
+    ).toBe(true);
+    expect(
+      hasBacktestAppCoverage("2026-10-12", "design", [], activityCoverageRows),
+    ).toBe(false);
   });
 
   it("shows insufficient evidence instead of zero fires on an empty source", () => {

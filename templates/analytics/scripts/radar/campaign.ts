@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   RadarQueryError,
   REPO_ROOT,
+  resolveRadarCampaignHmacConfig,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   radarJsonbParam,
@@ -116,8 +117,8 @@ export function campaignPostgresParams(
   return [radarJsonbParam(recipientRows), startDate, endDate, orgId];
 }
 
-function campaignEmailHash(email: string): string {
-  return createHash("sha256").update(email).digest("hex");
+function campaignEmailHash(email: string, key: string): string {
+  return createHmac("sha256", key).update(email).digest("hex");
 }
 
 function normalizeApp(value: string | undefined): string {
@@ -270,6 +271,8 @@ export async function runCampaignFollowup(
   orgId: string,
 ): Promise<CampaignFollowupResult> {
   const backend = await resolveRadarFirstPartyBackend();
+  const hmac =
+    backend.sink === "bigquery" ? resolveRadarCampaignHmacConfig() : undefined;
   const { recipients, skippedRows } = readSentRecipients();
   const firstRecipient = itemAt(recipients, 0);
   if (!firstRecipient) {
@@ -285,42 +288,49 @@ export async function runCampaignFollowup(
   const startDate = dateBefore(oldest.slice(0, 10), 7);
   const observedAt = new Date();
   const endDate = observedAt.toISOString().slice(0, 10);
-  const rows =
-    backend.sink === "bigquery"
-      ? (
-          await runBigQuery(
-            buildBigQueryCampaignFollowupSql(
-              await resolveRadarBigQueryEventsTable(),
+  let rows: Record<string, unknown>[];
+  if (backend.sink === "bigquery") {
+    if (!hmac) {
+      throw new RadarQueryError(
+        "Secure BigQuery campaign matching is not configured.",
+        1,
+      );
+    }
+    const result = await runBigQuery(
+      buildBigQueryCampaignFollowupSql(
+        await resolveRadarBigQueryEventsTable(),
+        hmac.functionName,
+      ),
+      {
+        fresh: true,
+        cache: false,
+        params: [
+          { name: "start_date", type: "DATE", value: startDate },
+          { name: "end_date", type: "DATE", value: endDate },
+          { name: "org_id", type: "STRING", value: orgId },
+          {
+            name: "recipients_json",
+            type: "STRING",
+            value: JSON.stringify(
+              recipients.map((recipient) => ({
+                email_hash: campaignEmailHash(recipient.email, hmac.key),
+                sent_at: recipient.sent_at,
+                app: recipient.app,
+              })),
             ),
-            {
-              fresh: true,
-              cache: false,
-              params: [
-                { name: "start_date", type: "DATE", value: startDate },
-                { name: "end_date", type: "DATE", value: endDate },
-                { name: "org_id", type: "STRING", value: orgId },
-                {
-                  name: "recipients_json",
-                  type: "STRING",
-                  value: JSON.stringify(
-                    recipients.map((recipient) => ({
-                      email_hash: campaignEmailHash(recipient.email),
-                      sent_at: recipient.sent_at,
-                      app: recipient.app,
-                    })),
-                  ),
-                },
-              ],
-            },
-          )
-        ).rows
-      : (
-          await runPostgresQuery(
-            buildCampaignFollowupSql(),
-            campaignPostgresParams(recipients, startDate, endDate, orgId),
-            { fresh: true, cache: false },
-          )
-        ).rows;
+          },
+        ],
+      },
+    );
+    rows = result.rows;
+  } else {
+    const result = await runPostgresQuery(
+      buildCampaignFollowupSql(),
+      campaignPostgresParams(recipients, startDate, endDate, orgId),
+      { fresh: true, cache: false },
+    );
+    rows = result.rows;
+  }
   const byRecipientApp: Record<string, number> = {};
   const aggregateRows = rows.map((row) => {
     const recipientApp = String(row.recipient_app ?? "unknown");

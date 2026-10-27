@@ -274,6 +274,31 @@ event_stats AS (
 SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 }
 
+export function buildBigQueryAppEventCoverageSql(
+  eventsTableRange: string,
+): string {
+  return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
+    columns: {
+      id: false,
+      eventDate: true,
+      sessionId: false,
+      url: false,
+      personKey: false,
+      identityEmail: false,
+      referralSource: false,
+      properties: false,
+    },
+  })},
+app_day_coverage AS (
+  SELECT event_date, app, count(*) AS events
+  FROM base_events
+  GROUP BY event_date, app
+)
+SELECT event_date, app, events
+FROM app_day_coverage
+ORDER BY event_date, app`;
+}
+
 export function buildBigQueryFunnelDailySql(eventsTableRange: string): string {
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
     columns: {
@@ -544,7 +569,18 @@ ORDER BY c.target_date, c.app`;
 
 export function buildBigQueryCampaignFollowupSql(
   eventsTableRange: string,
+  hmacFunction: string,
 ): string {
+  const functionParts = hmacFunction.split(".");
+  if (
+    functionParts.length !== 3 ||
+    !/^[A-Za-z0-9_-]+$/.test(functionParts[0] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[1] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[2] ?? "")
+  ) {
+    throw new Error("A project.dataset.function HMAC identifier is required.");
+  }
+  const hmacFunctionSql = `\`${functionParts.join(".")}\``;
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, {
     startDateParam: "@start_date",
     endDateParam: "@end_date",
@@ -592,7 +628,7 @@ activity AS (
     )) AS campaign_landing
   FROM recipients r
   JOIN base_events e
-    ON lower(to_hex(sha256(cast(lower(trim(e.identity_email)) AS bytes)))) = r.email_hash
+    ON ${hmacFunctionSql}(lower(trim(e.identity_email))) = r.email_hash
     AND e.happened_at >= timestamp_sub(r.sent_at, INTERVAL 7 DAY)
     AND e.happened_at <= current_timestamp()
 ),

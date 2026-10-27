@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bigQueryIdentityExclusionSql,
   bigQueryFirstTouchEventsCte,
+  buildBigQueryAppEventCoverageSql,
   buildBigQueryEventStatsSql,
   buildBigQueryCampaignFollowupSql,
   buildBigQueryFunnelDailySql,
@@ -47,16 +48,20 @@ describe("first-party BigQuery radar SQL", () => {
     );
   });
 
-  it("matches campaign recipients by hash and aggregates only event counts", () => {
-    const sql = buildBigQueryCampaignFollowupSql(range);
+  it("matches campaign recipients through a server-side HMAC function", () => {
+    const sql = buildBigQueryCampaignFollowupSql(
+      range,
+      "project_id.private.hmac_campaign_email",
+    );
     expect(sql).toContain(
       "FROM `project_id.analytics.events_raw_query_range`(@start_date, @end_date)",
     );
     expect(sql).toContain("e.event_date >= @start_date");
     expect(sql).toContain("e.event_date <= @end_date");
     expect(sql).toContain(
-      "lower(to_hex(sha256(cast(lower(trim(e.identity_email)) AS bytes)))) = r.email_hash",
+      "`project_id.private.hmac_campaign_email`(lower(trim(e.identity_email))) = r.email_hash",
     );
+    expect(sql).not.toContain("sha256(");
     expect(sql).toContain("JSON_QUERY_ARRAY(@recipients_json)");
     expect(sql).toContain("'prior_7_days'");
     expect(sql).toContain("outage_recovery_20261026");
@@ -64,6 +69,14 @@ describe("first-party BigQuery radar SQL", () => {
     expect(sql).toContain("'design_ready_viewed'");
     expect(sql).toContain("'recording_ready'");
     expect(sql).not.toContain("identity_email, email_hash");
+  });
+
+  it("reads app-day coverage without limiting event names", () => {
+    const sql = buildBigQueryAppEventCoverageSql(range);
+    expect(sql).toContain("e.event_date >= @start_date");
+    expect(sql).toContain("e.event_date <= @end_date");
+    expect(sql).toContain("GROUP BY event_date, app");
+    expect(sql).not.toContain("event_name IN (");
   });
 
   it("bounds first-party reads to the partitioned table function and org", () => {

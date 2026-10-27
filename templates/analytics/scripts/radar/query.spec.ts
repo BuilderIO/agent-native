@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bqRequest,
   appendBigQueryRows,
+  buildBigQueryQueryPayload,
   bindRadarPostgresParams,
   collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
@@ -24,6 +25,18 @@ import {
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("bypasses the BigQuery server result cache for fresh queries", () => {
+    expect(
+      buildBigQueryQueryPayload("SELECT 1", [], { fresh: true }),
+    ).toMatchObject({
+      query: "SELECT 1",
+      useQueryCache: false,
+    });
+    expect(buildBigQueryQueryPayload("SELECT 1", [])).toMatchObject({
+      useQueryCache: true,
+    });
+  });
+
   it("accepts only non-negative safe integer execution byte counts", () => {
     expect(parseActualBigQueryBytes("1234")).toBe(1234);
     expect(parseActualBigQueryBytes(0)).toBe(0);

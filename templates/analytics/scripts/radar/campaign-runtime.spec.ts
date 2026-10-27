@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resolveRadarBigQueryEventsTable: vi.fn(),
+  resolveRadarCampaignHmacConfig: vi.fn(),
   resolveRadarFirstPartyBackend: vi.fn(),
   runBigQuery: vi.fn(),
   runPostgresQuery: vi.fn(),
@@ -17,6 +19,7 @@ vi.mock("./query.ts", async (importOriginal) => {
 });
 
 import { runCampaignFollowup } from "./campaign.ts";
+import { RadarQueryError } from "./query.ts";
 
 describe("campaign follow-up query privacy", () => {
   let directory: string;
@@ -27,6 +30,10 @@ describe("campaign follow-up query privacy", () => {
     mocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
       "project.analytics.events_raw_query_range",
     );
+    mocks.resolveRadarCampaignHmacConfig.mockReturnValue({
+      key: "test-hmac-key",
+      functionName: "project.private.hmac_email",
+    });
     directory = fs.mkdtempSync(path.join(os.tmpdir(), "radar-campaign-test-"));
     const sentFile = path.join(directory, "sent.jsonl");
     fs.writeFileSync(
@@ -55,7 +62,7 @@ describe("campaign follow-up query privacy", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
-  it("matches BigQuery recipients by hash without sending or returning email addresses", async () => {
+  it("uses keyed campaign hashes without sending emails or the key to BigQuery", async () => {
     mocks.runBigQuery.mockResolvedValue({
       rows: [
         {
@@ -86,17 +93,20 @@ describe("campaign follow-up query privacy", () => {
         "[]",
     ) as Array<Record<string, string>>;
 
-    expect(sql).toContain(
-      "sha256(cast(lower(trim(e.identity_email)) AS bytes))",
-    );
+    expect(sql).toContain("`project.private.hmac_email`");
     expect(sql).not.toContain("recipient@example.test");
     expect(options).toMatchObject({ fresh: true, cache: false });
     expect(options.params.map((param) => param.value).join(" ")).not.toContain(
       "recipient@example.test",
     );
+    expect(options.params.map((param) => param.value).join(" ")).not.toContain(
+      "test-hmac-key",
+    );
     expect(recipientRows).toHaveLength(1);
     expect(recipientRows[0]).toMatchObject({
-      email_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      email_hash: createHmac("sha256", "test-hmac-key")
+        .update("recipient@example.test")
+        .digest("hex"),
       sent_at: "2026-10-26T12:00:00.000Z",
       app: "clips",
     });
@@ -110,6 +120,20 @@ describe("campaign follow-up query privacy", () => {
       }),
     );
     expect(JSON.stringify(result)).not.toContain("recipient@example.test");
+  });
+
+  it("fails closed when a server-side keyed matcher is not configured", async () => {
+    mocks.resolveRadarCampaignHmacConfig.mockImplementation(() => {
+      throw new RadarQueryError(
+        "Secure BigQuery campaign matching is not configured.",
+        1,
+      );
+    });
+
+    await expect(runCampaignFollowup("org-1")).rejects.toThrow(
+      "Secure BigQuery campaign matching is not configured.",
+    );
+    expect(mocks.runBigQuery).not.toHaveBeenCalled();
   });
 
   it("runs PostgreSQL campaign matching with uncached recipient parameters", async () => {
