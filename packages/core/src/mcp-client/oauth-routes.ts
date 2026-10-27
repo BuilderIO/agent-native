@@ -180,9 +180,8 @@ export function resolveMcpOAuthReturnPath(
 ): string {
   if (!connected) return "/settings/integrations";
 
-  // OAuth runs in a popup. Return it to the local completion page so it does
-  // not strand the popup on the app's integration page after authorization.
-  // Keep a caller-provided completion ID for agent connection resumption.
+  // Popup callers opt in to the completion page; same-window flows need their
+  // original return route after authorization.
   if (flow.returnUrl) {
     const returnUrl = new URL(flow.returnUrl, "https://agent-native.invalid");
     if (
@@ -192,9 +191,10 @@ export function resolveMcpOAuthReturnPath(
     ) {
       return `${returnUrl.pathname}${returnUrl.search}`;
     }
+    return flow.returnUrl;
   }
 
-  return "/_agent-native/oauth/popup?complete=workspace-connection";
+  return `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
 }
 
 export function bindMcpOAuthAuthorizationScope(

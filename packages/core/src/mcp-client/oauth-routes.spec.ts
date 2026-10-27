@@ -550,13 +550,19 @@ describe("MCP OAuth callback flow validation", () => {
     );
   });
 
-  it("closes a successful OAuth popup on a connection completion page", () => {
+  it("preserves a supplied return route after a successful OAuth connection", () => {
     expect(
       resolveMcpOAuthReturnPath(true, {
         ...baseFlow,
         returnUrl: "/chat?thread=meeting-actions",
       }),
-    ).toBe("/_agent-native/oauth/popup?complete=workspace-connection");
+    ).toBe("/chat?thread=meeting-actions");
+    expect(resolveMcpOAuthReturnPath(true, { ...baseFlow })).toBe(
+      "/settings/integrations?connected=mcp-linear",
+    );
+  });
+
+  it("preserves the connection completion page for popup OAuth flows", () => {
     expect(
       resolveMcpOAuthReturnPath(true, {
         ...baseFlow,
