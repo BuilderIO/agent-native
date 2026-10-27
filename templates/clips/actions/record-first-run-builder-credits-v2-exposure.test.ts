@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     orgId: "org-1",
   } as Record<string, string | null> | null,
   getRules: vi.fn(),
+  resolveAssignment: vi.fn(),
   recordExposure: vi.fn(),
 }));
 
@@ -22,6 +23,8 @@ vi.mock("@agent-native/core/feature-flags", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => mocks.context,
+  resolveFirstRunBuilderCreditsV2Assignment: (...args: unknown[]) =>
+    mocks.resolveAssignment(...args),
   recordFirstRunBuilderCreditsV2Exposure: (...args: unknown[]) =>
     mocks.recordExposure(...args),
 }));
@@ -43,20 +46,22 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
     mocks.getRules
       .mockReset()
       .mockResolvedValue(normalizeFeatureFlagRules({ mode: "off" }));
+    mocks.resolveAssignment.mockReset();
     mocks.recordExposure.mockReset();
   });
 
-  it("does not persist an assignment while the Clips flag is off", async () => {
+  it("does not resolve or persist an assignment while the shared flag is off", async () => {
     await expect(action.run({})).resolves.toEqual({ assignment: null });
 
     expect(mocks.getRules).toHaveBeenCalledWith("clips-first-run-credits-v2", {
       userEmail: "person@example.test",
       orgId: "org-1",
     });
+    expect(mocks.resolveAssignment).not.toHaveBeenCalled();
     expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 
-  it("uses the client email bucket for percentage rollout exposure", async () => {
+  it("resolves with the client email bucket without persisting before UI confirmation", async () => {
     const flag = "clips-first-run-credits-v2";
     const rules = normalizeFeatureFlagRules({
       mode: "rules",
@@ -74,7 +79,7 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
       }),
     ).toBe(false);
     mocks.getRules.mockResolvedValue(rules);
-    mocks.recordExposure.mockResolvedValue({
+    mocks.resolveAssignment.mockResolvedValue({
       experiment_id: "first_run_builder_credits_v2",
       experiment_variant: "control",
     });
@@ -87,7 +92,8 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
     });
 
     expect(mocks.getRules).toHaveBeenCalledWith(flag, clientScope);
-    expect(mocks.recordExposure).toHaveBeenCalledWith({ flagEnabled: true });
+    expect(mocks.resolveAssignment).toHaveBeenCalledWith({ flagEnabled: true });
+    expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 
   it("propagates flag read failures so exposure can be retried", async () => {
@@ -96,24 +102,29 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
 
     await expect(action.run({})).rejects.toBe(error);
 
+    expect(mocks.resolveAssignment).not.toHaveBeenCalled();
     expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 
-  it("persists only an authenticated user's assignment after exposure", async () => {
+  it("persists the authenticated user's assignment only after UI confirmation", async () => {
     mocks.getRules.mockResolvedValue(normalizeFeatureFlagRules({ mode: "on" }));
     mocks.recordExposure.mockResolvedValue({
       experiment_id: "first_run_builder_credits_v2",
       experiment_variant: "credits",
     });
 
-    await expect(action.run({})).resolves.toEqual({
+    await expect(action.run({ confirmedVariant: "credits" })).resolves.toEqual({
       assignment: {
         experiment_id: "first_run_builder_credits_v2",
         experiment_variant: "credits",
       },
     });
 
-    expect(mocks.recordExposure).toHaveBeenCalledWith({ flagEnabled: true });
+    expect(mocks.recordExposure).toHaveBeenCalledWith({
+      flagEnabled: true,
+      experimentVariant: "credits",
+    });
+    expect(mocks.resolveAssignment).not.toHaveBeenCalled();
   });
 
   it("does not assign when the request has no authenticated user", async () => {
@@ -122,6 +133,7 @@ describe("record-first-run-builder-credits-v2-exposure", () => {
     await expect(action.run({})).resolves.toEqual({ assignment: null });
 
     expect(mocks.getRules).not.toHaveBeenCalled();
+    expect(mocks.resolveAssignment).not.toHaveBeenCalled();
     expect(mocks.recordExposure).not.toHaveBeenCalled();
   });
 });

@@ -6,14 +6,17 @@ import {
 import {
   getRequestContext,
   recordFirstRunBuilderCreditsV2Exposure,
+  resolveFirstRunBuilderCreditsV2Assignment,
 } from "@agent-native/core/server";
 import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG } from "@agent-native/toolkit/app/onboarding/first-run-builder-credits-flag";
 import { z } from "zod";
 
 export default defineAction({
   description:
-    "Persist the signed-in user's first-run credits v2 arm after the setup screen is eligible to appear.",
-  schema: z.object({}),
+    "Resolve a signed-in user's first-run credits v2 arm and persist it after the choice is applied.",
+  schema: z.object({
+    confirmedVariant: z.enum(["control", "credits"]).optional(),
+  }),
   outputSchema: z.object({
     assignment: z
       .object({
@@ -23,7 +26,7 @@ export default defineAction({
       .nullable(),
   }),
   uiOnly: true,
-  run: async () => {
+  run: async ({ confirmedVariant }) => {
     const context = getRequestContext();
     if (!context?.authUserId) return { assignment: null };
 
@@ -42,9 +45,12 @@ export default defineAction({
     );
     if (!flagEnabled) return { assignment: null };
 
-    const assignment = await recordFirstRunBuilderCreditsV2Exposure({
-      flagEnabled,
-    });
+    const assignment = confirmedVariant
+      ? await recordFirstRunBuilderCreditsV2Exposure({
+          flagEnabled,
+          experimentVariant: confirmedVariant,
+        })
+      : await resolveFirstRunBuilderCreditsV2Assignment({ flagEnabled });
     return {
       assignment: assignment
         ? {

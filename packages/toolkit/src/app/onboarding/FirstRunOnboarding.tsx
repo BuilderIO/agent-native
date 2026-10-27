@@ -250,7 +250,7 @@ export function FirstRunOnboarding({
         experiment_variant: string;
       } | null;
     },
-    Record<string, never>
+    { confirmedVariant?: "control" | "credits" }
   >("record-first-run-builder-credits-v2-exposure" as never, {
     uiOnly: true,
     skipActionQueryInvalidation: true,
@@ -432,6 +432,7 @@ export function FirstRunOnboarding({
   const creditsV2ExposureFailedRef = useRef(false);
   const creditsV2ExposureSettledRef = useRef(false);
   const creditsV2ExposureTrackedRef = useRef(false);
+  const creditsV2ExposureConfirmationStartedRef = useRef(false);
   const setupExperimentTimedOutRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
@@ -826,20 +827,42 @@ export function FirstRunOnboarding({
       setupExperimentTimedOutRef.current ||
       setupExperimentDecision !== true ||
       !creditsV2Assignment ||
-      creditsV2ExposureTrackedRef.current
+      creditsV2ExposureTrackedRef.current ||
+      creditsV2ExposureConfirmationStartedRef.current
     ) {
       return;
     }
-    creditsV2ExposureTrackedRef.current = true;
-    trackOnboardingEvent("onboarding_experiment_exposed", {
-      flow: "first_run",
-      step_id: "choice",
-      experiment_id: creditsV2Assignment.experiment_id,
-      experiment_variant: creditsV2Assignment.experiment_variant,
-    });
+    creditsV2ExposureConfirmationStartedRef.current = true;
+    void creditsV2Exposure
+      .mutateAsync({
+        confirmedVariant: creditsV2Assignment.experiment_variant,
+      })
+      .then(({ assignment }) => {
+        if (
+          assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
+          assignment.experiment_variant !==
+            creditsV2Assignment.experiment_variant
+        ) {
+          return;
+        }
+        creditsV2ExposureTrackedRef.current = true;
+        trackOnboardingEvent("onboarding_experiment_exposed", {
+          flow: "first_run",
+          step_id: "choice",
+          experiment_id: creditsV2Assignment.experiment_id,
+          experiment_variant: creditsV2Assignment.experiment_variant,
+        });
+      })
+      .catch((error: unknown) => {
+        console.error(
+          "Failed to confirm first-run Builder credits v2 exposure:",
+          error,
+        );
+      });
   }, [
     creditsV2Assignment,
     creditsV2Enabled,
+    creditsV2Exposure.mutateAsync,
     firstRun,
     previewMode,
     screen,

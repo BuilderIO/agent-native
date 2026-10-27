@@ -1795,7 +1795,7 @@ describe("FirstRunOnboarding", () => {
 
   it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
     mocks.creditsV2FlagState = { status: "ready", enabled: true };
-    mocks.recordCreditsV2Exposure.mockResolvedValueOnce({
+    mocks.recordCreditsV2Exposure.mockResolvedValue({
       assignment: {
         experiment_id: "first_run_builder_credits_v2",
         experiment_variant: "control",
@@ -1850,7 +1850,11 @@ describe("FirstRunOnboarding", () => {
       "record-first-run-builder-credits-v2-exposure",
       { uiOnly: true, skipActionQueryInvalidation: true },
     );
-    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(1, {});
+    expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+      confirmedVariant: "control",
+    });
     expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
       id: "first_run_builder_credits_v2",
       variant: "control",
@@ -1910,7 +1914,7 @@ describe("FirstRunOnboarding", () => {
     "shows the v2 credits actions in %s",
     async (appId) => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
-      mocks.recordCreditsV2Exposure.mockResolvedValueOnce({
+      mocks.recordCreditsV2Exposure.mockResolvedValue({
         assignment: {
           experiment_id: "first_run_builder_credits_v2",
           experiment_variant: "credits",
@@ -3256,7 +3260,7 @@ describe("FirstRunOnboarding", () => {
       mocks.creditsV2FlagState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure
         .mockRejectedValueOnce(new Error("temporary failure"))
-        .mockResolvedValueOnce({
+        .mockResolvedValue({
           assignment: {
             experiment_id: "first_run_builder_credits_v2",
             experiment_variant: "credits",
@@ -3289,7 +3293,7 @@ describe("FirstRunOnboarding", () => {
         await Promise.resolve();
       });
 
-      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(2);
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledTimes(3);
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
         "onboarding_experiment_exposed",
         {
@@ -3569,6 +3573,8 @@ describe("FirstRunOnboarding", () => {
             experiment_id: "first_run_builder_credits_v2",
           }),
         );
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
+        expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledWith({});
       } finally {
         vi.useRealTimers();
       }
@@ -3599,12 +3605,20 @@ describe("FirstRunOnboarding", () => {
             };
           }) => void)
         | undefined;
-      mocks.recordCreditsV2Exposure.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            resolveAssignment = resolve;
-          }),
-      );
+      mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
+        const input = args[0] as { confirmedVariant?: string } | undefined;
+        if (input?.confirmedVariant) {
+          return Promise.resolve({
+            assignment: {
+              experiment_id: "first_run_builder_credits_v2",
+              experiment_variant: input.confirmedVariant,
+            },
+          });
+        }
+        return new Promise((resolve) => {
+          resolveAssignment = resolve;
+        });
+      });
       mocks.trackOnboardingEvent.mockImplementation((name: string) => {
         if (name === "onboarding_experiment_exposed") {
           expect(q("first-run-credits-offer")).not.toBeNull();
@@ -3639,6 +3653,10 @@ describe("FirstRunOnboarding", () => {
             experiment_variant: "credits",
           },
         });
+      });
+
+      expect(mocks.recordCreditsV2Exposure).toHaveBeenNthCalledWith(2, {
+        confirmedVariant: "credits",
       });
 
       expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({

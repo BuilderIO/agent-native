@@ -5,6 +5,7 @@ import {
   FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
   FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
   type FirstRunBuilderCreditsV2RequestAssignment,
+  type FirstRunBuilderCreditsV2Variant,
 } from "../shared/first-run-builder-credits-experiment.js";
 
 function authUserIdForRequest(): string | null {
@@ -50,13 +51,8 @@ function setRequestAssignment(
   context.firstRunBuilderCreditsV2Assignment = assignment;
 }
 
-/**
- * Persist exposure after the caller confirms the first-run credits v2 flag is
- * on.
- * The authenticated id is read from request context and is the only assignment
- * key; no email or anonymous identity can create a row.
- */
-export async function recordFirstRunBuilderCreditsV2Exposure({
+/** Resolve a stable arm without recording exposure before the UI applies it. */
+export async function resolveFirstRunBuilderCreditsV2Assignment({
   flagEnabled,
 }: {
   flagEnabled: boolean;
@@ -66,6 +62,36 @@ export async function recordFirstRunBuilderCreditsV2Exposure({
   if (!authUserId) return null;
   const expected = assignFirstRunBuilderCreditsV2(authUserId);
   if (!expected) return null;
+
+  const existing = await getAssignment(
+    FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+    authUserId,
+  );
+  if (existing) {
+    return requestAssignment(authUserId, existing.variantId);
+  }
+
+  return { ...expected, authUserId };
+}
+
+/** Persist exposure after the client confirms the assigned choice was applied. */
+export async function recordFirstRunBuilderCreditsV2Exposure({
+  flagEnabled,
+  experimentVariant,
+}: {
+  flagEnabled: boolean;
+  experimentVariant: FirstRunBuilderCreditsV2Variant;
+}): Promise<FirstRunBuilderCreditsV2RequestAssignment | null> {
+  if (!flagEnabled) return null;
+  const authUserId = authUserIdForRequest();
+  if (!authUserId) return null;
+  const expected = assignFirstRunBuilderCreditsV2(authUserId);
+  if (!expected) return null;
+  if (experimentVariant !== expected.experiment_variant) {
+    throw new Error(
+      "Confirmed first-run Builder credits v2 assignment disagrees with the authenticated user assignment.",
+    );
+  }
 
   const existing = await getAssignment(
     FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
