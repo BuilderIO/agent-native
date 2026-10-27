@@ -1925,7 +1925,7 @@ export function createAgentChatPlugin(
                 // action sets, so it gets all of them. The route stays the
                 // default POST.
                 console.warn(
-                  `[agent-native] Could not read ${dir}/${file}; it will run only from the app's UI and ask for approval first.`,
+                  `[agent-native] Could not read ${pathMod.relative(cwd, filePath)}; it will run only from the app's UI and ask for approval first.`,
                   error,
                 );
                 sniffed = {
