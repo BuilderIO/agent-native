@@ -590,6 +590,18 @@ export function mergeAgentNativeConfigs(
   } = {},
 ): AgentNativeConfig {
   const arrayStrategy = options.arrayStrategy ?? "merge";
+  const themeFamilies = mergeStringLists(
+    base.themeFamily?.families,
+    override.themeFamily?.families,
+    arrayStrategy,
+  );
+  const inheritedThemeFamilyDefault = base.themeFamily?.defaultFamily;
+  const themeFamilyDefault =
+    override.themeFamily?.defaultFamily ??
+    (inheritedThemeFamilyDefault !== undefined &&
+    themeFamilies?.includes(inheritedThemeFamilyDefault)
+      ? inheritedThemeFamilyDefault
+      : undefined);
 
   return {
     ...(base.version === undefined && override.version === undefined
@@ -698,14 +710,8 @@ export function mergeAgentNativeConfigs(
       base.themeFamily || override.themeFamily
         ? normalizeThemeFamilyConfig(
             {
-              families: mergeStringLists(
-                base.themeFamily?.families,
-                override.themeFamily?.families,
-                arrayStrategy,
-              ),
-              defaultFamily:
-                override.themeFamily?.defaultFamily ??
-                base.themeFamily?.defaultFamily,
+              families: themeFamilies,
+              defaultFamily: themeFamilyDefault,
             },
             "merged Agent-Native config.themeFamily",
           )

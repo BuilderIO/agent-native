@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveThemeFamilyConfig } from "./appearance/theme-family.js";
 import {
   agentNativeConfigEnvName,
   defineAgentNativeConfig,
@@ -150,6 +151,28 @@ describe("agent-native app config", () => {
     expect(mergeAgentNativeConfigs(lowerLayer, override).themeFamily).toEqual({
       families: ["original", "agent-native"],
       defaultFamily: "agent-native",
+    });
+  });
+
+  it("falls back when a replacing family list excludes the inherited default", () => {
+    const lowerLayer = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    const override = normalizeAgentNativeConfig({
+      themeFamily: { families: ["original"] },
+    });
+
+    const merged = mergeAgentNativeConfigs(lowerLayer, override, {
+      arrayStrategy: "replace",
+    });
+
+    expect(merged.themeFamily).toEqual({ families: ["original"] });
+    expect(resolveThemeFamilyConfig(merged.themeFamily)).toEqual({
+      families: ["original"],
+      defaultFamily: "original",
     });
   });
 

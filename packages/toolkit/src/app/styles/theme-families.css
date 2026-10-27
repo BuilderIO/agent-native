@@ -5,10 +5,7 @@
 .dark[data-theme-family="agent-native"][data-appearance] {
   --font-sans: "Inter Variable", "Inter", sans-serif;
   --font-wordmark: "Geist Variable", "Geist", sans-serif;
-  --radius: 0.5rem;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.625rem;
-  --radius-lg: 0.625rem;
+  --radius: 0.75rem;
   --radius-xl: 0.75rem;
   --agent-native-shadow-color: 0 0% 10%;
   --shadow-composer: 0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06);

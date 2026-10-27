@@ -6,6 +6,10 @@ const css = readFileSync(
   new URL("./theme-families.css", import.meta.url),
   "utf8",
 );
+const sharedCss = readFileSync(
+  new URL("./agent-native.css", import.meta.url),
+  "utf8",
+);
 
 describe("theme families", () => {
   it("provides a shared palette for the resolved light and dark modes", () => {
@@ -36,11 +40,11 @@ describe("theme families", () => {
     expect(css).toContain(
       '--font-wordmark: "Geist Variable", "Geist", sans-serif',
     );
-    expect(css).toContain("--radius: 0.5rem");
-    expect(css).toContain("--radius-sm: 0.5rem");
-    expect(css).toContain("--radius-md: 0.625rem");
-    expect(css).toContain("--radius-lg: 0.625rem");
+    expect(css).toContain("--radius: 0.75rem");
     expect(css).toContain("--radius-xl: 0.75rem");
+    expect(sharedCss).toContain("--radius-lg: var(--radius)");
+    expect(sharedCss).toContain("--radius-md: calc(var(--radius) - 2px)");
+    expect(sharedCss).toContain("--radius-sm: calc(var(--radius) - 4px)");
     expect(css).toContain("--agent-kit-composer-radius: 0.75rem");
     expect(css).toContain(
       "--agent-kit-composer-elevation: var(--shadow-composer)",

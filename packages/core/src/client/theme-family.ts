@@ -164,6 +164,7 @@ function subscribe(
   appId: string | null | undefined,
   families: readonly ThemeFamily[],
   defaultFamily: ThemeFamily,
+  onStorageStatusChange: (status: ThemeFamilyStorageStatus) => void,
 ): () => void {
   if (typeof window === "undefined") return () => {};
 
@@ -187,6 +188,7 @@ function subscribe(
     }
 
     const stored = readStoredThemeFamily(appId);
+    onStorageStatusChange(stored.status);
     if (stored.status === "valid" && families.includes(stored.family)) {
       familySnapshots.set(key, stored.family);
       window.document.documentElement.setAttribute(
@@ -195,6 +197,11 @@ function subscribe(
       );
       window.document.documentElement.removeAttribute(
         THEME_FAMILY_STATUS_ATTRIBUTE,
+      );
+    } else if (stored.status === "unreadable") {
+      window.document.documentElement.setAttribute(
+        THEME_FAMILY_STATUS_ATTRIBUTE,
+        "unreadable",
       );
     } else {
       familySnapshots.set(key, defaultFamily);
@@ -326,8 +333,8 @@ export function useThemeFamily(): ThemeFamilyHook {
   const mutationPending = useRef(false);
   const subscribeToFamilyChanges = useCallback(
     (onChange: () => void) =>
-      subscribe(onChange, appId, families, defaultFamily),
-    [appId, defaultFamily, families],
+      subscribe(onChange, appId, families, defaultFamily, setStorageStatus),
+    [appId, defaultFamily, families, setStorageStatus],
   );
   const getFamilySnapshotForRender = useCallback(
     () =>

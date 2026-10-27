@@ -42,7 +42,10 @@ vi.mock("./use-change-version.js", () => ({
   useChangeVersion: () => deps.appStateVersion,
 }));
 
-import { THEME_FAMILY_ATTRIBUTE } from "../appearance/theme-family.js";
+import {
+  THEME_FAMILY_ATTRIBUTE,
+  THEME_FAMILY_STATUS_ATTRIBUTE,
+} from "../appearance/theme-family.js";
 import { useThemeFamily, type ThemeFamilyHook } from "./theme-family.js";
 
 describe("useThemeFamily", () => {
@@ -239,6 +242,46 @@ describe("useThemeFamily", () => {
     expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
       "original",
     );
+  });
+
+  it("preserves the current family when storage becomes unreadable on navigation", async () => {
+    deps.query.data = {
+      family: "agent-native",
+      source: "user-setting",
+      appId: "sample-app",
+    };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root?.render(<Probe />));
+
+    const storageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("Storage access is blocked");
+      },
+    });
+
+    try {
+      act(() => window.history.pushState(null, "", "/preferences"));
+
+      expect(current?.family).toBe("agent-native");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE),
+      ).toBe("agent-native");
+      expect(
+        document.documentElement.getAttribute(THEME_FAMILY_STATUS_ATTRIBUTE),
+      ).toBe("unreadable");
+      expect(current?.storageStatus).toBe("unreadable");
+    } finally {
+      if (storageDescriptor) {
+        Object.defineProperty(window, "localStorage", storageDescriptor);
+      }
+    }
   });
 
   it("reconciles a failed save from a missing setting to the app default", async () => {
