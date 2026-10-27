@@ -171,12 +171,12 @@ async function finish(
   ).toEqual([]);
 }
 
-const AGENT_EDIT_ON_SWITCHED_PAGE = {
+const AGENT_EDIT_GATE_ON = {
   on: {
     lane: "L3",
     outcome: "SF-02",
     reason:
-      "On a switched page the agent's edit-document writes the stored body, not the live copy, so the server answers the typing tab's held collab update not_derived (not_live_copy) and the tab goes back to an update-document save, which shows \"This page changed elsewhere\". No text is lost.",
+      "This scenario creates its page without an explicit per-page switch. In the gate-on run, typing after the metadata save reports live-copy:not_derived:not_live_copy. The routing limitation remains tracked in L3; this case does not establish switched-page coverage. Gate off remains required.",
   },
 } as const;
 
@@ -186,7 +186,7 @@ test.describe(
   () => {
     test(
       "the tab shows the agent's edit once its read lands, and typing after it saves",
-      knownLossOnArm(AGENT_EDIT_ON_SWITCHED_PAGE),
+      knownLossOnArm(AGENT_EDIT_GATE_ON),
       async ({ context }, testInfo) => {
         const started = Date.now();
         const scenario = await titleSaveAfterAgentEdit(
@@ -216,7 +216,7 @@ test.describe(
 
     test(
       "typing while the read lands leaves the tab on the agent's body",
-      knownLossOnArm(AGENT_EDIT_ON_SWITCHED_PAGE),
+      knownLossOnArm(AGENT_EDIT_GATE_ON),
       async ({ context }, testInfo) => {
         const started = Date.now();
         const scenario = await titleSaveAfterAgentEdit(
