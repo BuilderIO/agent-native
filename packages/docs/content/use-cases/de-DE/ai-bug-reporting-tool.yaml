@@ -6,7 +6,7 @@ seo_title: KI-Tool für Fehlerberichte mit Konsolen-Logs
 meta_description: Zeigen Sie den Fehler in Chrome, und Agent-Native Clips macht aus Ihrer Aufnahme einen Link mit den Fehlern und fehlgeschlagenen Anfragen der Seite für Ihren Entwickler oder Coding-Agenten.
 updated: 2026-10-27
 hero:
-  body: Agent-Native Clips macht aus einer Fehleraufnahme einen Link, mit dem Entwickler oder Coding-Agent arbeiten können. Sie zeigen das Problem in Chrome, und die Fehler und fehlgeschlagenen Anfragen der Seite kommen mit.
+  body: Agent-Native Clips macht aus einer Fehleraufnahme einen Link, den Entwickler oder Coding-Agent direkt nutzen. Sie zeigen den Fehler in Chrome, samt Konsolenfehlern und fehlgeschlagenen Anfragen.
   button:
     label: Fehler aufnehmen
     url: https://clips.agent-native.com
