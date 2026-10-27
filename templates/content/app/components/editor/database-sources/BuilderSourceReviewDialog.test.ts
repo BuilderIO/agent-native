@@ -14,8 +14,12 @@ import {
 } from "./BuilderSourceReviewDialog";
 
 function english(message: { key: string; count: number }) {
-  const database = messagesByLocale["en-US"].database as Record<string, string>;
-  return database[message.key].replace("{{count}}", String(message.count));
+  const database = messagesByLocale["en-US"].database as Partial<
+    Record<string, string>
+  >;
+  const text = database[message.key];
+  if (text === undefined) throw new Error(`No English message ${message.key}`);
+  return text.replace("{{count}}", String(message.count));
 }
 
 describe("BuilderSourceReviewDialog publication intent helpers", () => {

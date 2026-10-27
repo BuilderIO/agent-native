@@ -41,6 +41,7 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
@@ -59,6 +60,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { liveCopyHoldsSave } from "../server/live-copy/holds.js";
 import type {
   DocumentUpdateResponse,
@@ -1587,8 +1589,20 @@ const updateDocumentAction = defineAction({
           if (lockedDescriptionChanged)
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
+            assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
+            // Only a browser save takes a switched page's body to its live
+            // copy; it reached here because the gate above chose legacy.
+            const legacy = await lockLegacyBodyWrites(tx, [id], {
+              operation: "update-document",
+              routed: ctx?.caller === "frontend",
+              instead: "Write the body with edit-document.",
+              content: content as string,
+            });
             updates.content = content;
-            updates.bodyRevision = historyBefore.bodyRevision + 1;
+            updates.bodyRevision = legacy.bodyRevision(content as string);
           }
           if (lockedIconChanged)
             updates.icon =

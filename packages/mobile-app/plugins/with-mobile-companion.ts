@@ -78,7 +78,7 @@ export function addIosShortcutRouting(source: string) {
   let contents = CodeGenerator.mergeContents({
     tag: IOS_SHORTCUT_ROUTER_TAG,
     src: source,
-    newSrc: `private enum AgentNativeShortcutRouter {
+    newSrc: `enum AgentNativeShortcutRouter {
   private static let supportedURLs = Set([
 ${supportedUrls}
   ])
@@ -95,11 +95,51 @@ ${supportedUrls}
 
     return URL(string: rawURL)
   }
+
+  static func path(from shortcutItem: UIApplicationShortcutItem?) -> String? {
+    guard let url = url(from: shortcutItem), let host = url.host else {
+      return nil
+    }
+    return "/" + host + url.path
+  }
 }`,
     anchor: /^@(main|UIApplicationMain)$/m,
     offset: 0,
     comment: "//",
   }).contents;
+
+  const sceneBasedDelegate = source.includes("ExpoReactNativeFactoryProvider");
+  if (sceneBasedDelegate) {
+    return CodeGenerator.mergeContents({
+      tag: IOS_SHORTCUT_CALLBACK_TAG,
+      src: contents,
+      newSrc: `  public override func application(
+    _ application: UIApplication,
+    performActionFor shortcutItem: UIApplicationShortcutItem,
+    completionHandler: @escaping (Bool) -> Void
+  ) {
+    guard let path = AgentNativeShortcutRouter.path(from: shortcutItem) else {
+      super.application(
+        application,
+        performActionFor: shortcutItem,
+        completionHandler: completionHandler
+      )
+      return
+    }
+
+    AgentNativeIOSCompanion.enqueueQuickActionPath(path)
+    super.application(
+      application,
+      performActionFor: shortcutItem,
+      completionHandler: { _ in completionHandler(true) }
+    )
+  }
+`,
+      anchor: /^  public override func application\($/m,
+      offset: 0,
+      comment: "//",
+    }).contents;
+  }
 
   contents = CodeGenerator.mergeContents({
     tag: IOS_SHORTCUT_LAUNCH_TAG,
@@ -228,10 +268,10 @@ function withIosCompanion(config: Parameters<ConfigPlugin>[0]) {
     return infoPlistConfig;
   });
 
-  return withAppDelegate(config, (appDelegateConfig) => {
+  config = withAppDelegate(config, (appDelegateConfig) => {
     if (appDelegateConfig.modResults.language !== "swift") {
       throw new Error(
-        "with-mobile-companion requires the Expo SDK 57 Swift AppDelegate template.",
+        "with-mobile-companion requires a Swift AppDelegate template with supported routing anchors.",
       );
     }
     appDelegateConfig.modResults.contents = addIosShortcutRouting(
@@ -239,6 +279,8 @@ function withIosCompanion(config: Parameters<ConfigPlugin>[0]) {
     );
     return appDelegateConfig;
   });
+
+  return config;
 }
 
 function withAndroidCompanion(config: Parameters<ConfigPlugin>[0]) {
@@ -338,5 +380,5 @@ const withMobileCompanion: ConfigPlugin = (config) =>
 export default createRunOncePlugin(
   withMobileCompanion,
   "with-mobile-companion",
-  "1.1.0",
+  "1.2.0",
 );

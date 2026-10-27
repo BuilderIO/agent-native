@@ -135,7 +135,10 @@ so group changes apply to existing shares.
 Workspace apps opt into this flag and use the organization default visibility
 setting. The app creator is the durable `owner_email`, while organization
 owners/admins receive admin access through the registration's
-`canManageAccess` callback.
+`canManageAccess` callback. For these registrations, a direct resource-level
+`admin` share does not override that manager policy; it grants the editor role
+for access checks, while only the creator and callback-approved managers can
+change visibility or manage share grants.
 
 ## Filter list/read queries
 

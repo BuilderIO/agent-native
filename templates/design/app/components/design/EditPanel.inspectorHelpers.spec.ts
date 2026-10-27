@@ -376,8 +376,8 @@ describe("deriveLockedAspectSize", () => {
     expect(deriveLockedAspectSize("height", 150, 2)).toBe(300);
   });
 
-  it("rounds the derived value to one decimal", () => {
-    expect(deriveLockedAspectSize("width", 100, 3)).toBe(33.3);
+  it("lands the derived value on whole pixels", () => {
+    expect(deriveLockedAspectSize("width", 100, 3)).toBe(33);
   });
 
   it("round-trips width -> height -> width back to the original", () => {

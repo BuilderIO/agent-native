@@ -71,7 +71,10 @@ function setupDatabase() {
 beforeEach(() => {
   vi.clearAllMocks();
   setupDatabase();
-  mocks.assertAccess.mockResolvedValue(undefined);
+  mocks.assertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { expiresAt: null },
+  });
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
   mocks.readAppState.mockResolvedValue(null);
   mocks.writeAppState.mockResolvedValue(undefined);
@@ -101,11 +104,14 @@ describe("generate-workflow action", () => {
       });
     });
 
-    const first = action.run({
-      recordingId: "rec_1",
-      kind: "pr",
-      openInChat: true,
-    });
+    const first = action.run(
+      {
+        recordingId: "rec_1",
+        kind: "pr",
+        openInChat: true,
+      },
+      { userEmail: "Owner@Example.com" } as never,
+    );
     await readStarted;
 
     await expect(
@@ -124,6 +130,7 @@ describe("generate-workflow action", () => {
     const workflowState = operations.find(
       (operation: { key: string }) => operation.key === "clips-workflow-rec_1",
     )?.nextValue;
+    expect(workflowState.requestedBy).toBe("owner@example.com");
     const queuedRequest = operations.find(
       (operation: { key: string }) =>
         operation.key === "clips-ai-request-rec_1",
@@ -136,6 +143,7 @@ describe("generate-workflow action", () => {
     );
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
     expect(queuedRequest.requestId).toBe(workflowState.requestId);
+    expect(queuedRequest.requestedBy).toBe("owner@example.com");
     expect(queuedRequest.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );

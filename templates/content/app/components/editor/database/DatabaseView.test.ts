@@ -39,6 +39,7 @@ import {
   databaseBuilderProgressHighWater,
   databaseBuilderExecutionRequiresReconciliation,
   databaseBuilderReviewAfterExecutionError,
+  databaseBuilderReviewAuthoritativeChangeSetIds,
   databaseBuilderReviewBelongsToSource,
   databaseBuilderPreparedReviewSelection,
   databaseBuilderReviewExactSelectionIsValid,
@@ -982,6 +983,49 @@ describe("Builder review source sessions", () => {
         "change-foreign",
       ]),
     ).toBeNull();
+  });
+
+  it("checks a review of a row past the loaded page against the complete or prepared ids", () => {
+    const pageWithoutRow = {
+      ...source,
+      changeSets: [],
+    } as ContentDatabaseSource;
+    const complete = {
+      rows: [{ changeSetId: "change-past-page" }],
+    } as ContentDatabaseSourceReviewPayload;
+    const prepared = {
+      rows: [{ changeSetId: "change-prepared" }],
+    } as ContentDatabaseSourceReviewPayload;
+
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(complete, pageWithoutRow, [
+        "change-past-page",
+      ]),
+    ).toBeNull();
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        complete,
+        pageWithoutRow,
+        ["change-past-page"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared: null,
+          preparedChangeSetIdMap: null,
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-past-page"]);
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        prepared,
+        pageWithoutRow,
+        ["change-prepared"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared,
+          preparedChangeSetIdMap: { "change-past-page": "change-prepared" },
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-prepared"]);
   });
 
   it("requires the prepared review to return exactly the selected ids", () => {

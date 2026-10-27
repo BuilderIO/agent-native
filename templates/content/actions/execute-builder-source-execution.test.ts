@@ -2470,8 +2470,8 @@ describe("Builder unpublished saves", () => {
       method: "PATCH",
       query: { triggerWebhooks: "false" },
     });
-    expect(request?.query).not.toHaveProperty("autoSaveOnly");
-    expect(request?.body).not.toHaveProperty("published");
+    expect(request).not.toHaveProperty("query.autoSaveOnly");
+    expect(request).not.toHaveProperty("body.published");
     expect(deps.reconcileWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         plan: expect.objectContaining({

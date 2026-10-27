@@ -166,9 +166,6 @@ export function useEditorCanvasAndScreens({
     duplicateRecoveryRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionPushedAtRef,
-    dragStartSelectionRef,
     clearRedoStacks,
     historySourceReaderRef,
     syncUndoRedoState,
@@ -181,6 +178,7 @@ export function useEditorCanvasAndScreens({
     designEditorCommandVersion,
     designAccessRole,
     canEditDesign,
+    canPersistDesignSource,
     rawServerFilesByIdRef,
     historyFilesRef,
     pendingLocalFileContentsRef,
@@ -705,6 +703,7 @@ export function useEditorCanvasAndScreens({
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    canPersistDesignSource,
     isSignedIn,
     activeFileId,
     viewMode,
@@ -851,16 +850,6 @@ export function useEditorCanvasAndScreens({
           return next;
         });
         return;
-      }
-      if (state.active && !activeEditorDragRef.current) {
-        // The pointerdown that starts a drag selects just before the drag reports.
-        dragStartSelectionRef.current =
-          historyOrderRef.current[historyOrderRef.current.length - 1] ===
-            "selection" && Date.now() - selectionPushedAtRef.current < 1500
-            ? (selectionUndoStackRef.current[
-                selectionUndoStackRef.current.length - 1
-              ] ?? null)
-            : null;
       }
       activeEditorDragRef.current = state.active;
       activeEditorDragScreenIdRef.current = state.active

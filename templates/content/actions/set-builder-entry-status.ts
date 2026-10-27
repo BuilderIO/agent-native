@@ -4,10 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type {
-  SetBuilderEntryStatusRequest,
-  SetBuilderEntryStatusResponse,
-} from "../shared/api.js";
+import type { SetBuilderEntryStatusResponse } from "../shared/api.js";
 import { withBuilderCmsPublicationIntent } from "./_builder-cms-unpublished-changes.js";
 import { builderCmsWriteSettingsFromJson } from "./_builder-cms-write-settings.js";
 import {
@@ -62,9 +59,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
-  run: async (
-    args: SetBuilderEntryStatusRequest,
-  ): Promise<SetBuilderEntryStatusResponse> => {
+  run: async (args): Promise<SetBuilderEntryStatusResponse> => {
     const database = await resolveDatabaseForSourceMutation({
       databaseId: args.databaseId,
     });
@@ -84,19 +79,19 @@ export default defineAction({
         documentId: args.documentId,
       })
     ).filter((target) => !args.sourceId || target.source.id === args.sourceId);
-    if (targets.length === 0) {
-      fail("This page has no Builder entry in this collection.", {
-        errorCode: "builder_entry_not_found",
-        statusCode: 404,
-      });
-    }
     if (targets.length > 1) {
       fail(
         "This page belongs to more than one Builder source; pass sourceId to pick one.",
         { errorCode: "builder_source_ambiguous", statusCode: 400 },
       );
     }
-    const [target] = targets;
+    const [target = null] = targets;
+    if (!target) {
+      fail("This page has no Builder entry in this collection.", {
+        errorCode: "builder_entry_not_found",
+        statusCode: 404,
+      });
+    }
     const locked = builderEntryStatusLockedReason(target);
     if (locked) {
       fail(LOCKED_MESSAGES[locked], {
@@ -113,7 +108,7 @@ export default defineAction({
       // Turning publication changes off saves the setting before it clears
       // staged picks, so a pick checked earlier could land after the clear.
       // The share lock waits for that save.
-      const [source] = await tx
+      const [source = null] = await tx
         .select({
           capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
           metadataJson: schema.contentDatabaseSources.metadataJson,
@@ -130,7 +125,7 @@ export default defineAction({
           statusCode: 409,
         });
       }
-      const [row] = await tx
+      const [row = null] = await tx
         .select({
           sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
         })

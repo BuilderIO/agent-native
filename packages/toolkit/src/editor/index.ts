@@ -12,6 +12,7 @@ export {
   useCollabReconcile,
   getEditorMarkdown,
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  SNAPSHOT_ADOPTION_MAP,
   type UseCollabReconcileOptions,
   type UseCollabReconcileResult,
 } from "./useCollabReconcile.js";
@@ -73,6 +74,7 @@ export {
   DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR,
   type DragHandleDropContext,
   type DragHandleDropPlacement,
+  type DragHandleMenuRequest,
   type DragHandleOptions,
 } from "./DragHandle.js";
 export {
@@ -82,6 +84,8 @@ export {
   RegistryBlockNodeView,
   useRegistryBlockData,
   type CreateRegistryBlockNodeOptions,
+  type PastedRegistryBlock,
+  type PastedRegistryBlockSource,
   type RegistryBlockDataChangeMeta,
   type RegistryBlockDataValue,
   type RegistryBlockEditSurfaceOptions,

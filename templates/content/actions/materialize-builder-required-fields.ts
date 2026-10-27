@@ -19,6 +19,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   builderReferenceIdSourceValueKey,
@@ -333,6 +334,13 @@ export default defineAction({
         : field;
     });
     await db.transaction(async (tx) => {
+      // Like every other value writer, before it reads which values are
+      // missing, so a guarded write can't fill one between that read and
+      // the insert.
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
       const currentFields = await tx
         .select()
         .from(schema.contentDatabaseSourceFields)

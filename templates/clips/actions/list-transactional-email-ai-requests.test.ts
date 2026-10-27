@@ -53,6 +53,7 @@ vi.mock("../server/db/index.js", () => ({
     recordings: {
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
+      expiresAt: "recordings.expiresAt",
       title: "recordings.title",
       description: "recordings.description",
       visibility: "recordings.visibility",
@@ -176,6 +177,36 @@ beforeEach(() => {
     aiClaimedBy: mocks.claimant,
   });
   setupContextRows();
+});
+
+it.each(["2000-01-01T00:00:00Z", "not-a-date"])(
+  "withholds expired context from a nonowner claimant (%s)",
+  async (expiresAt) => {
+    const rows = contextRows();
+    rows[0] = rows[0].map((row) => ({
+      ...row,
+      ownerEmail: "owner@example.test",
+      expiresAt,
+    }));
+    setupSelectRows(rows);
+    expect(await claimTransactionalEmailAiRequests(mocks.claimant)).toEqual({
+      requests: [],
+    });
+    expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
+  },
+);
+
+it("retains expired context for the actual recording owner", async () => {
+  const rows = contextRows();
+  rows[0] = rows[0].map((row) => ({
+    ...row,
+    ownerEmail: "RECIPIENT@example.test",
+    expiresAt: "2000-01-01T00:00:00Z",
+  }));
+  setupSelectRows(rows);
+  expect(
+    (await claimTransactionalEmailAiRequests(mocks.claimant)).requests,
+  ).toHaveLength(1);
 });
 
 describe("list-transactional-email-ai-requests", () => {

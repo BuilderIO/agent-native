@@ -229,15 +229,20 @@ async function propertyDefinition(args: {
   return definition ?? null;
 }
 
+/**
+ * Call it in a transaction holding the collection's mutation lock, like every
+ * other value write, so a guarded write can't check an empty property while
+ * this inserts one.
+ */
 async function upsertPropertyValues(args: {
-  db?: any;
+  db: ReturnType<typeof getDb>;
   ownerEmail: string;
   documentIds: string[];
   propertyId: string;
   valueJson: string;
   now: string;
 }) {
-  const db = args.db ?? getDb();
+  const db = args.db;
   const existing = await db
     .select({
       id: schema.documentPropertyValues.id,
@@ -251,12 +256,9 @@ async function upsertPropertyValues(args: {
       ),
     );
   const existingByDocumentId = new Map(
-    existing.map((row: { id: string; documentId: string }) => [
-      row.documentId,
-      row.id,
-    ]),
+    existing.map((row) => [row.documentId, row.id]),
   );
-  const existingIds = existing.map((row: { id: string }) => row.id);
+  const existingIds = existing.map((row) => row.id);
   if (existingIds.length > 0) {
     await db
       .update(schema.documentPropertyValues)

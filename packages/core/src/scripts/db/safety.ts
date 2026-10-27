@@ -63,6 +63,8 @@ const SENSITIVE_FRAMEWORK_TABLES = new Set([
   "mcp_oauth_refresh_tokens",
   "mcp_connect_tokens",
   "mcp_device_codes",
+  "mcp_action_approvals",
+  "a2a_approvals",
   "user",
   "users",
   "session",

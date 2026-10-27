@@ -197,6 +197,43 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("refuses a suggestion that would give two videos one id, as it refuses any change to a video", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const video = (id: string, caption: string) =>
+          `<video src="https://example.com/a.mp4" id="${id}">${caption}</video>`;
+        const { id, revision } = await createPage(
+          `Intro\n${video("video-original", "Demo")}\n${video("video-another1", "Other")}`,
+        );
+        for (const [find, replace] of [
+          ["Intro", `Intro\n${video("video-original", "Copy")}`],
+          ['id="video-another1"', 'id="video-original"'],
+        ])
+          await expect(
+            suggestDocumentEdit.run(
+              {
+                id,
+                baseRevision: revision,
+                idempotencyKey: `video-copy-${id}-${find}`,
+                find,
+                replace,
+              },
+              { caller: "mcp" as const, userEmail: ctx.userEmail },
+            ),
+          ).rejects.toMatchObject({
+            errorCode: "suggestion_structure_unsupported",
+            statusCode: 422,
+          });
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: unknown[] };
+        expect(listed.suggestions).toEqual([]);
+      },
+    );
+  });
+
   it("appends another agent edit to an explicit proposal", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
@@ -783,7 +820,7 @@ describe("suggest-document-edit", () => {
     );
   });
 
-  it("attaches the open-suggestion deep link", async () => {
+  it("links the inline review card for every edit the call made", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
@@ -798,7 +835,7 @@ describe("suggest-document-edit", () => {
             replace: "Edited body text.",
           },
           ctx,
-        )) as { suggestionId: string };
+        )) as { suggestionId: string; suggestionIds: string[]; url: string };
         const link = (
           action as unknown as { link: (input: unknown) => unknown }
         ).link({
@@ -806,9 +843,13 @@ describe("suggest-document-edit", () => {
           result,
         });
         expect(link).toEqual({
-          url: `/page/${id}?suggestion=${result.suggestionId}`,
-          label: "Open suggestion",
+          url: `/suggestions/${id}?ids=${result.suggestionIds.join(",")}`,
+          label: "Review suggestion",
         });
+        expect(result.url).toBe(
+          `/page/${id}?suggestion=${result.suggestionId}`,
+        );
+        expect(action.mcpApp?.resource?.html).toBeTruthy();
       },
     );
   });

@@ -788,6 +788,8 @@ export default defineAction({
       ...checkpointField,
     };
   },
+  // A call that threw has no result, and the input names only the file, so
+  // its change reaches the caller alone; naming the design would need a read.
   changeResource: (_input, result) =>
-    designChangeResource(result.designId, result),
+    designChangeResource(result?.designId, result),
 });

@@ -11,6 +11,7 @@ import path from "node:path";
 
 import {
   expect,
+  test,
   type APIRequestContext,
   type BrowserContext,
   type Page,
@@ -37,7 +38,7 @@ import {
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-row-property-ids-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
@@ -180,7 +181,11 @@ export async function signInAccount(
  * mints it first, as the app's client does before its writes.
  */
 export async function presentUiCapability(page: Page): Promise<void> {
-  const response = await page.request.get("/_agent-native/ui-capability");
+  const response = await page.request.get("/_agent-native/ui-capability", {
+    headers: {
+      Origin: new URL(test.info().project.use.baseURL ?? page.url()).origin,
+    },
+  });
   expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
 }
 
@@ -189,10 +194,15 @@ export async function postAction<T = Record<string, unknown>>(
   name: string,
   data: Record<string, unknown>,
   headers: Record<string, string> = ACTION_HEADERS,
+  baseURL?: string,
 ): Promise<T> {
   const response = await page.request.post(`/_agent-native/actions/${name}`, {
     data,
-    headers,
+    headers: {
+      Origin: new URL(baseURL ?? test.info().project.use.baseURL ?? page.url())
+        .origin,
+      ...headers,
+    },
   });
   const text = await response.text();
   expect(response.ok(), `${name} (${response.status()}): ${text}`).toBe(true);
@@ -211,7 +221,10 @@ export async function postUiAction(
   data: Record<string, unknown>,
 ) {
   const capability = await page.request.get("/_agent-native/ui-capability", {
-    headers: ACTION_HEADERS,
+    headers: {
+      ...ACTION_HEADERS,
+      Origin: new URL(test.info().project.use.baseURL ?? page.url()).origin,
+    },
   });
   expect(
     capability.ok(),

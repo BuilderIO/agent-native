@@ -275,8 +275,22 @@ import {
   sanitizeBackfillError,
   startMailAiFilterBackfill,
 } from "./ai-filter-backfill.js";
+import type { RuleEvaluation, RuleMatch } from "./automation-engine.js";
 
 const ownerEmail = "mail-test@example.test";
+
+function ruleEvaluation(
+  matches: Map<string, RuleMatch[]>,
+  failures: RuleEvaluation["failures"] = [],
+): RuleEvaluation {
+  return {
+    matches,
+    evaluatedCount: matches.size,
+    failedCount: failures.length,
+    failures,
+    model: null,
+  };
+}
 
 function rule(id: string): Record<string, any> {
   return {
@@ -756,12 +770,14 @@ describe("startMailAiFilterBackfill", () => {
       },
     ]);
     mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
-      new Map([
-        [
-          aiPriorityEmailKey("available@example.test", "thread-healthy"),
-          [{ ruleId: activeRule.id, confidence: 0.95 }],
-        ],
-      ]),
+      ruleEvaluation(
+        new Map([
+          [
+            aiPriorityEmailKey("available@example.test", "thread-healthy"),
+            [{ ruleId: activeRule.id, match: true, confidence: 0.95 }],
+          ],
+        ]),
+      ),
     );
     mocks.gmailGetThread
       .mockResolvedValueOnce({
@@ -1236,6 +1252,52 @@ describe("startMailAiFilterBackfill", () => {
     expect(JSON.parse(row.stateJson)).not.toHaveProperty("error");
   });
 
+  it("rewinds failed rule evaluations before resuming a saved backfill", async () => {
+    mocks.rules = [rule("rule-a"), rule("rule-b")];
+    const started = await startMailAiFilterBackfill(ownerEmail, [
+      "rule-a",
+      "rule-b",
+    ]);
+    const row = database.rows[0];
+    if (!row) throw new Error("Expected a saved backfill row.");
+    const state: any = backfillState(mocks.rules);
+    state.candidateIndex = 1;
+    state.processedThreads = 1;
+    state.evaluatedCount = 1;
+    state.failedCount = 1;
+    state.incompleteCoverage = true;
+    state.decisionFailures = [
+      { emailId: "thread-a", ruleId: "rule-b", reason: "invalid_response" },
+    ];
+    state.snapshots["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [{ id: "saved-incoming", labels: {} }],
+    };
+    row.status = "failed";
+    row.stateJson = JSON.stringify(state);
+
+    const resumed = await startMailAiFilterBackfill(ownerEmail, [
+      "rule-a",
+      "rule-b",
+    ]);
+
+    expect(resumed).toEqual({ runId: started.runId, status: "queued" });
+    expect(JSON.parse(row.stateJson)).toMatchObject({
+      candidateIndex: 0,
+      processedThreads: 0,
+      evaluatedCount: 0,
+      failedCount: 0,
+      decisionFailures: [],
+      snapshots: state.snapshots,
+    });
+    expect(JSON.parse(row.stateJson)).not.toHaveProperty("incompleteCoverage");
+    expect(JSON.parse(row.stateJson).evaluations).not.toHaveProperty(
+      "local:thread-a",
+    );
+  });
+
   it("rejects concurrent starts whose rule sets overlap", async () => {
     mocks.rules = [rule("rule-a"), rule("rule-b")];
 
@@ -1299,12 +1361,16 @@ describe("startMailAiFilterBackfill", () => {
       ...runningRow([activeRule]),
       stateJson: JSON.stringify(state),
     });
-    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(new Map());
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      ruleEvaluation(new Map()),
+    );
 
     await processMailAiFilterBackfills(ownerEmail);
 
-    expect(database.rows[0].status).toBe("failed");
-    const saved = JSON.parse(database.rows[0].stateJson);
+    const row: (typeof database.rows)[number] | undefined = database.rows[0];
+    if (!row) throw new Error("Expected a saved backfill row.");
+    expect(row.status).toBe("failed");
+    const saved = JSON.parse(row.stateJson);
     expect(saved.evaluations).toEqual({});
     expect(saved.candidateIndex).toBe(0);
     expect(saved.error).toMatch("did not classify every thread");
@@ -1315,13 +1381,32 @@ describe("startMailAiFilterBackfill", () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
     mocks.emails = [localEmail()];
-    const state = { ...backfillState([activeRule]), evaluations: {} };
+    const feedback = [
+      {
+        id: "feedback-a",
+        disposition: "spam" as const,
+        sender: "sender@example.test",
+        subject: "Review needed",
+        createdAt: 1,
+      },
+    ];
+    const baseState = backfillState([activeRule]);
+    const state = {
+      ...baseState,
+      evaluations: {},
+      aiFilterSettings: {
+        ...baseState.aiFilterSettings,
+        feedback,
+      },
+    };
     database.rows.push({
       ...runningRow([activeRule]),
       stateJson: JSON.stringify(state),
     });
     mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
-      new Map([[aiPriorityEmailKey(undefined, "thread-a"), []]]),
+      ruleEvaluation(
+        new Map([[aiPriorityEmailKey(undefined, "thread-a"), []]]),
+      ),
     );
 
     await processMailAiFilterBackfills(ownerEmail);
@@ -1330,6 +1415,486 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(database.rows[0].stateJson);
     expect(saved.evaluations["local:thread-a"]).toEqual([]);
     expect(saved.processedThreads).toBe(1);
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      ownerEmail,
+      feedback,
+    );
+  });
+
+  it("applies successful rule matches while retaining a failed sibling rule", async () => {
+    const matchedRule = rule("rule-a");
+    const failedRule = rule("rule-b");
+    mocks.rules = [matchedRule, failedRule];
+    mocks.emails = [localEmail()];
+    const state = {
+      ...backfillState([matchedRule, failedRule]),
+      evaluations: {},
+    };
+    database.rows.push({
+      ...runningRow([matchedRule, failedRule]),
+      stateJson: JSON.stringify(state),
+    });
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      ruleEvaluation(
+        new Map([
+          [
+            aiPriorityEmailKey(undefined, "thread-a"),
+            [{ ruleId: "rule-a", match: true, confidence: 0.95 }],
+          ],
+        ]),
+        [
+          {
+            emailId: "thread-a",
+            ruleId: "rule-b",
+            reason: "invalid_response",
+            retryable: false,
+          },
+        ],
+      ),
+    );
+    mocks.emails = [localEmail()];
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const row: (typeof database.rows)[number] | undefined = database.rows[0];
+    if (!row) throw new Error("Expected a saved failed backfill row.");
+    expect(row.status).toBe("failed");
+    const saved = JSON.parse(row.stateJson);
+    expect(saved.incompleteCoverage).toBe(true);
+    expect(saved.decisionFailures).toEqual([
+      {
+        emailId: "thread-a",
+        ruleId: "rule-b",
+        reason: "invalid_response",
+        retryable: false,
+      },
+    ]);
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: "rule-a", confidence: 0.95 },
+    ]);
+    expect(saved.processedThreads).toBe(1);
+    expect(saved.appliedThreadKeys).toEqual(["local:thread-a"]);
+    expect(saved.snapshots).toHaveProperty("local:thread-a");
+    expect(mocks.writeLocalEmails).toHaveBeenCalled();
+  });
+
+  it("preserves a successful rule match across retries of its failed sibling", async () => {
+    const matchedRule = rule("rule-a");
+    const retryingRule = rule("rule-b");
+    mocks.rules = [matchedRule, retryingRule];
+    mocks.emails = [localEmail()];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = {
+      ...backfillState([matchedRule, retryingRule]),
+      evaluations: {},
+    };
+    const row = runningRow([matchedRule, retryingRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+          [
+            {
+              emailId: "thread-a",
+              ruleId: retryingRule.id,
+              reason: "provider_error",
+              retryable: true,
+            },
+          ],
+        ),
+      )
+      .mockResolvedValueOnce(
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+          [
+            {
+              emailId: "thread-a",
+              ruleId: retryingRule.id,
+              reason: "provider_error",
+              retryable: true,
+            },
+          ],
+        ),
+      )
+      .mockResolvedValueOnce(
+        ruleEvaluation(
+          new Map([
+            [key, [{ ruleId: matchedRule.id, match: true, confidence: 0.95 }]],
+          ]),
+        ),
+      );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    let saved = JSON.parse(row.stateJson);
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: matchedRule.id, confidence: 0.95 },
+    ]);
+    saved.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(saved);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    saved = JSON.parse(row.stateJson);
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: matchedRule.id, confidence: 0.95 },
+    ]);
+    saved.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(saved);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("completed");
+    saved = JSON.parse(row.stateJson);
+    expect(saved.appliedThreadKeys).toEqual(["local:thread-a"]);
+    expect(saved.decisionFailures).toEqual([]);
+    expect(mocks.writeLocalEmails).toHaveBeenCalled();
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops stale positive matches that retry negative while retaining a failed sibling", async () => {
+    const previouslyMatchedRule = rule("rule-a");
+    const stillFailedRule = rule("rule-b");
+    mocks.rules = [previouslyMatchedRule, stillFailedRule];
+    mocks.emails = [localEmail()];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state: any = {
+      ...backfillState([previouslyMatchedRule, stillFailedRule]),
+      evaluations: {
+        "local:thread-a": [
+          { ruleId: previouslyMatchedRule.id, confidence: 0.95 },
+          { ruleId: stillFailedRule.id, confidence: 0.9 },
+        ],
+      },
+      evaluatedCount: 1,
+      failedCount: 1,
+      decisionFailures: [
+        {
+          emailId: "thread-a",
+          ruleId: stillFailedRule.id,
+          reason: "provider_error",
+          retryable: true,
+        },
+      ],
+      incompleteCoverage: true,
+      retryCount: 1,
+    };
+    const row = runningRow([previouslyMatchedRule, stillFailedRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    const retry = ruleEvaluation(new Map([[key, []]]), [
+      {
+        emailId: "thread-a",
+        ruleId: stillFailedRule.id,
+        reason: "provider_error",
+        retryable: true,
+      },
+    ]);
+    retry.evaluatedCount = 1;
+    retry.failedCount = 1;
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(retry);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("completed");
+    expect(saved.evaluations["local:thread-a"]).toEqual([
+      { ruleId: stillFailedRule.id, confidence: 0.9 },
+    ]);
+    expect(saved.decisionFailures).toEqual([]);
+    expect(saved.evaluatedCount).toBe(2);
+    expect(saved.failedCount).toBe(0);
+    expect(saved.retryCount).toBe(0);
+  });
+
+  it("resets the retry budget after a successful decision batch despite incomplete coverage", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = backfillState([activeRule]);
+    const template = state.candidates[0];
+    const firstCandidate = {
+      ...template,
+      key: "local:thread-a",
+      threadId: "thread-a",
+      email: { ...template.email, id: "thread-a", threadId: "thread-a" },
+    };
+    const secondCandidate = {
+      ...template,
+      key: "local:thread-b",
+      threadId: "thread-b",
+      email: { ...template.email, id: "thread-b", threadId: "thread-b" },
+    };
+    state.candidates = [firstCandidate, secondCandidate];
+    state.candidateIndex = 1;
+    state.evaluations = {
+      [firstCandidate.key]: [],
+      [secondCandidate.key]: [],
+    };
+    state.decisionFailures = [
+      {
+        emailId: firstCandidate.email.id,
+        ruleId: activeRule.id,
+        reason: "invalid_response",
+        retryable: false,
+      },
+      {
+        emailId: secondCandidate.email.id,
+        ruleId: activeRule.id,
+        reason: "provider_error",
+        retryable: true,
+      },
+    ];
+    state.incompleteCoverage = true;
+    state.retryCount = 5;
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      ruleEvaluation(
+        new Map([[aiPriorityEmailKey(undefined, "thread-b"), []]]),
+      ),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.candidateIndex).toBe(2);
+    expect(saved.retryCount).toBe(0);
+    expect(saved.incompleteCoverage).toBe(true);
+    expect(saved.decisionFailures).toEqual([
+      expect.objectContaining({
+        emailId: "thread-a",
+        retryable: false,
+      }),
+    ]);
+  });
+
+  it("keeps replenishing the retry budget as later batches recover", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = backfillState([activeRule]);
+    const template = state.candidates[0];
+    state.candidates = Array.from({ length: 70 }, (_, index) => {
+      const threadId = `thread-${index}`;
+      return {
+        ...template,
+        key: `local:${threadId}`,
+        threadId,
+        email: { ...template.email, id: threadId, threadId },
+      };
+    });
+    state.evaluations = Object.fromEntries(
+      state.candidates.map((candidate: any) => [candidate.key, []]),
+    );
+    state.decisionFailures = [
+      {
+        emailId: "thread-0",
+        ruleId: activeRule.id,
+        reason: "invalid_response",
+        retryable: false,
+      },
+    ];
+    state.incompleteCoverage = true;
+    const retryCandidates = Array.from(
+      { length: 7 },
+      (_, index) => state.candidates[index * 10 + 1],
+    );
+    for (const candidate of retryCandidates) {
+      if (!candidate) throw new Error("Expected a retry candidate.");
+      delete state.evaluations[candidate.key];
+    }
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+
+    for (const candidate of retryCandidates) {
+      if (!candidate) throw new Error("Expected a retry candidate.");
+      const key = aiPriorityEmailKey(undefined, candidate.email.id);
+      mocks.evaluateAiFilterBackfillRules
+        .mockResolvedValueOnce(
+          ruleEvaluation(new Map([[key, []]]), [
+            {
+              emailId: candidate.email.id,
+              ruleId: activeRule.id,
+              reason: "provider_error",
+              retryable: true,
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(ruleEvaluation(new Map([[key, []]])));
+
+      await processMailAiFilterBackfills(ownerEmail);
+      const retry = JSON.parse(row.stateJson);
+      expect(row.status).toBe("queued");
+      expect(retry.retryCount).toBe(1);
+      retry.retryAfterAt = Date.now() - 1;
+      row.stateJson = JSON.stringify(retry);
+
+      await processMailAiFilterBackfills(ownerEmail);
+      const progressed = JSON.parse(row.stateJson);
+      expect(progressed.retryCount).toBe(0);
+      expect(progressed.candidateIndex).toBeGreaterThanOrEqual(10);
+      if (progressed.candidateIndex < 70) {
+        expect(row.status).toBe("running");
+      }
+      if (progressed.candidateIndex < 70) {
+        row.stateJson = JSON.stringify(progressed);
+      }
+    }
+
+    expect(row.status).toBe("failed");
+    const completed = JSON.parse(row.stateJson);
+    expect(completed.candidateIndex).toBe(70);
+    expect(completed.retryCount).toBe(0);
+    expect(completed.decisionFailures).toEqual([
+      expect.objectContaining({
+        emailId: "thread-0",
+        retryable: false,
+      }),
+    ]);
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(14);
+  });
+
+  it("retries transient decision failures before advancing candidates", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = { ...backfillState([activeRule]), evaluations: {} };
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(
+        ruleEvaluation(new Map([[key, []]]), [
+          {
+            emailId: "thread-a",
+            ruleId: "rule-a",
+            reason: "provider_error",
+            retryable: true,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(ruleEvaluation(new Map([[key, []]])));
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const retry = JSON.parse(row.stateJson);
+    expect(retry.candidateIndex).toBe(0);
+    expect(retry.processedThreads).toBe(0);
+    expect(retry.retryCount).toBe(1);
+    expect(retry.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(retry.decisionFailures).toEqual([
+      expect.objectContaining({ reason: "provider_error", retryable: true }),
+    ]);
+
+    retry.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(retry);
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("completed");
+    const completed = JSON.parse(row.stateJson);
+    expect(completed.candidateIndex).toBe(1);
+    expect(completed.processedThreads).toBe(1);
+    expect(completed.decisionFailures).toEqual([]);
+    expect(completed.failedCount).toBe(0);
+    expect(completed).not.toHaveProperty("retryAfterAt");
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(2);
+  });
+
+  it("terminalizes retryable decision failures after the backfill retry budget", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state: any = {
+      ...backfillState([activeRule]),
+      evaluations: {},
+      retryCount: 6,
+    };
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      ruleEvaluation(new Map([[key, []]]), [
+        {
+          emailId: "thread-a",
+          ruleId: "rule-a",
+          reason: "provider_error",
+          retryable: true,
+        },
+      ]),
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("failed");
+    const terminal = JSON.parse(row.stateJson);
+    expect(terminal.candidateIndex).toBe(1);
+    expect(terminal.processedThreads).toBe(1);
+    expect(terminal.retryCount).toBe(6);
+    expect(terminal.decisionFailures).toEqual([
+      expect.objectContaining({ reason: "provider_error", retryable: true }),
+    ]);
+    expect(terminal).not.toHaveProperty("retryAfterAt");
+  });
+
+  it("retries a candidate when only one of its failed rules is retryable", async () => {
+    const retryingRule = rule("rule-a");
+    const terminalRule = rule("rule-b");
+    mocks.rules = [retryingRule, terminalRule];
+    const key = aiPriorityEmailKey(undefined, "thread-a");
+    const state = {
+      ...backfillState([retryingRule, terminalRule]),
+      evaluations: {},
+    };
+    const row = runningRow([retryingRule, terminalRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    const partialEvaluation = ruleEvaluation(new Map([[key, []]]), [
+      {
+        emailId: "thread-a",
+        ruleId: "rule-a",
+        reason: "provider_error",
+        retryable: true,
+      },
+      {
+        emailId: "thread-a",
+        ruleId: "rule-b",
+        reason: "invalid_response",
+        retryable: false,
+      },
+    ]);
+    mocks.evaluateAiFilterBackfillRules
+      .mockResolvedValueOnce(partialEvaluation)
+      .mockResolvedValueOnce(partialEvaluation);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const retry = JSON.parse(row.stateJson);
+    expect(row.status).toBe("queued");
+    expect(retry.candidateIndex).toBe(0);
+    expect(retry.retryCount).toBe(1);
+
+    retry.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(retry);
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const retried = JSON.parse(row.stateJson);
+    expect(retried.candidateIndex).toBe(0);
+    expect(retried.retryCount).toBe(2);
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledTimes(2);
   });
 
   it("persists non-mutating progress once per backfill batch", async () => {
@@ -1354,11 +1919,13 @@ describe("startMailAiFilterBackfill", () => {
       stateJson: JSON.stringify(state),
     });
     mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
-      new Map(
-        state.candidates.map((candidate: any) => [
-          aiPriorityEmailKey(undefined, candidate.email.id),
-          [],
-        ]),
+      ruleEvaluation(
+        new Map(
+          state.candidates.map((candidate: any) => [
+            aiPriorityEmailKey(undefined, candidate.email.id),
+            [],
+          ]),
+        ),
       ),
     );
     database.resetStateJsonWrites();
@@ -1396,13 +1963,15 @@ describe("startMailAiFilterBackfill", () => {
       stateJson: JSON.stringify(state),
     });
     mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
-      new Map([
-        [aiPriorityEmailKey("first@example.test", "thread-shared"), []],
-        [
-          aiPriorityEmailKey("second@example.test", "thread-shared"),
-          [{ ruleId: activeRule.id, confidence: 0.95 }],
-        ],
-      ]),
+      ruleEvaluation(
+        new Map([
+          [aiPriorityEmailKey("first@example.test", "thread-shared"), []],
+          [
+            aiPriorityEmailKey("second@example.test", "thread-shared"),
+            [{ ruleId: activeRule.id, match: true, confidence: 0.95 }],
+          ],
+        ]),
+      ),
     );
     mocks.getClientsWithErrors.mockResolvedValue({
       clients: [

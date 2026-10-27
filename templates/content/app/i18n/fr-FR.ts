@@ -2,6 +2,7 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  fitToWidth: "Ajuster à la largeur",
   githubLinkTitle: "Lier un dossier GitHub",
   githubNewCollectionTitle: "Nouvelle collection à partir d’un dossier GitHub",
   githubLinkDescription:
@@ -138,6 +139,8 @@ const database = {
     "Récupération des modifications : {{done}} fichiers sur {{total}}",
   githubPicturesWaiting:
     "Certaines images ne s’afficheront pas tant qu’un administrateur de l’espace de travail n’aura pas configuré le stockage de fichiers.",
+  githubPicturesNotSaved:
+    "Certaines images n’ont pas pu être enregistrées dans le stockage de fichiers. Chaque synchronisation réessaie.",
   githubReconnect: "Reconnecter GitHub",
   githubProblemConnection:
     "Mises à jour arrêtées : GitHub vous demande de vous reconnecter.",
@@ -378,6 +381,8 @@ const database = {
   failedToCreateRow: "Échec de la création de la ligne",
   pageCreatedCollectionRefreshFailed:
     "La page a été créée, mais cette collection n'a pas pu être actualisée. Rechargez pour la voir.",
+  builderPushResultNotLoaded:
+    "La mise à jour est arrivée dans Builder, mais cette révision n'a pas pu charger le résultat. Rechargez pour le voir.",
   failedToDeleteRow: "Échec de la suppression de la ligne",
   failedToDeleteSelectedRows:
     "Échec de la suppression des lignes sélectionnées",
@@ -472,6 +477,65 @@ const database = {
   unfreezeColumns: "Libérer les colonnes",
   selectAllLoadedRows: "Sélectionner toutes les lignes chargées",
   clearSelectedRows: "Désélectionner les lignes",
+  filterOperatorContains: "Contient",
+  filterOperatorDoesNotContain: "Ne contient pas",
+  filterOperatorStartsWith: "Commence par",
+  filterOperatorEndsWith: "Se termine par",
+  filterOperatorIs: "Est",
+  filterOperatorIsNot: "N'est pas",
+  filterOperatorGreaterThan: "Supérieur à",
+  filterOperatorLessThan: "Inférieur à",
+  filterOperatorGreaterThanOrEqual: "Supérieur ou égal à",
+  filterOperatorLessThanOrEqual: "Inférieur ou égal à",
+  filterOperatorBefore: "Avant",
+  filterOperatorAfter: "Après",
+  filterOperatorOnOrBefore: "Antérieur ou égal à",
+  filterOperatorOnOrAfter: "Postérieur ou égal à",
+  filterOperatorBetween: "Entre",
+  filterOperatorIsWithin: "Se situe dans",
+  filterOperatorIsEmpty: "Est vide",
+  filterOperatorIsNotEmpty: "N'est pas vide",
+  filterOperatorChecked: "Coché",
+  filterOperatorUnchecked: "Non coché",
+  filterDateExact: "Date exacte",
+  filterDateToday: "Aujourd'hui",
+  filterDateTomorrow: "Demain",
+  filterDateYesterday: "Hier",
+  filterDatePast: "Passé",
+  filterDateThis: "En cours",
+  filterDateNext: "À venir",
+  filterDateDays_zero: "jours",
+  filterDateDays_one: "jour",
+  filterDateDays_two: "jours",
+  filterDateDays_few: "jours",
+  filterDateDays_many: "jours",
+  filterDateDays_other: "jours",
+  filterDateWeeks_zero: "semaines",
+  filterDateWeeks_one: "semaine",
+  filterDateWeeks_two: "semaines",
+  filterDateWeeks_few: "semaines",
+  filterDateWeeks_many: "semaines",
+  filterDateWeeks_other: "semaines",
+  filterDateMonths_zero: "mois",
+  filterDateMonths_one: "mois",
+  filterDateMonths_two: "mois",
+  filterDateMonths_few: "mois",
+  filterDateMonths_many: "mois",
+  filterDateMonths_other: "mois",
+  filterDateYears_zero: "années",
+  filterDateYears_one: "année",
+  filterDateYears_two: "années",
+  filterDateYears_few: "années",
+  filterDateYears_many: "années",
+  filterDateYears_other: "années",
+  filterDatePastRange: "Depuis {{count}} {{unit}}",
+  filterDateNextRange: "D'ici {{count}} {{unit}}",
+  filterDateThisWeek: "Cette semaine",
+  filterDateThisMonth: "Ce mois-ci",
+  filterDateThisYear: "Cette année",
+  filterDateRangeValue: "{{start}} au {{end}}",
+  filterChooseDates: "Choisir des dates",
+  filterChooseOption: "Choisir une option",
 };
 
 const databaseExactEnglish = {
@@ -662,6 +726,16 @@ const editor = {
     purple: "Violet",
     pink: "Rose",
     red: "Rouge",
+    defaultText: "Texte par défaut",
+    defaultBackground: "Arrière-plan par défaut",
+    textChoice: "Texte : {{color}}",
+    backgroundChoice: "Arrière-plan : {{color}}",
+  },
+  blockMenu: {
+    label: "Actions du bloc",
+    duplicate: "Dupliquer",
+    delete: "Supprimer",
+    insertBelow: "Insérer un bloc en dessous",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
@@ -1259,6 +1333,10 @@ const comments = {
   proposalEditCount_other: "{{count}} modifications",
   acceptRemaining: "Accepter le reste",
   rejectRemaining: "Rejeter le reste",
+  acceptAll: "Tout accepter",
+  rejectAll: "Tout rejeter",
+  suggestionReviewReadOnly:
+    "Seules les personnes qui peuvent modifier cette page peuvent accepter ou rejeter ses suggestions.",
   typeFilter: "Type",
   statusFilter: "Statut",
   authorFilter: "Personne",
@@ -1356,6 +1434,14 @@ const exactEnglish = {
       "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
     proposalUnplaceable:
       "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
+    suggestionAcceptFailed: "Impossible d’accepter la suggestion",
+    suggestionRejectFailed: "Impossible de refuser la suggestion",
+    proposalAcceptFailed: "Impossible d’accepter les suggestions",
+    proposalRejectFailed: "Impossible de refuser les suggestions",
+    suggestionDecisionReverted:
+      "Elle est de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
+    proposalDecisionReverted:
+      "Elles sont de nouveau en attente. Tout ce que vous avez saisi depuis est conservé.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
@@ -1716,6 +1802,13 @@ const overrides = {
   comments: {
     add: "Ajouter un commentaire...",
     cancel: "Annuler",
+    discardCommentQuestion: "Abandonner le commentaire ?",
+    discardReplyQuestion: "Abandonner la réponse ?",
+    discardEditQuestion: "Abandonner les modifications ?",
+    discardDescription: "Ce que vous avez écrit sera perdu.",
+    discardEditDescription: "Votre commentaire restera tel quel.",
+    discard: "Abandonner",
+    keepEditing: "Continuer à modifier",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",

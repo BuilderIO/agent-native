@@ -519,11 +519,10 @@ export function BuilderSourceReviewDialog({
         ) {
           continue;
         }
-        next[changeSetId] = {
-          publicationTransition,
-          confirmUnpublish:
-            publicationTransition === "unpublish" ? false : undefined,
-        };
+        next[changeSetId] =
+          publicationTransition === "unpublish"
+            ? { publicationTransition, confirmUnpublish: false }
+            : { publicationTransition };
       }
       return Object.keys(next).length === Object.keys(current).length &&
         Object.entries(next).every(

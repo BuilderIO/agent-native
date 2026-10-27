@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -139,6 +140,8 @@ const databaseMessages = {
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
+  githubPicturesNotSaved:
+    "Some pictures couldn’t be saved to file storage. Each sync tries them again.",
   githubReconnect: "Reconnect GitHub",
   githubProblemConnection:
     "Stopped updating: GitHub needs you to sign in again.",
@@ -250,6 +253,8 @@ const databaseMessages = {
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
     "The page was created, but this collection could not refresh. Reload to see it.",
+  builderPushResultNotLoaded:
+    "The update reached Builder, but this review could not load the result. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -294,6 +299,7 @@ const databaseMessages = {
   drag: "Drag",
   headerColumn: "Header column",
   headerRow: "Header row",
+  fitToWidth: "Fit to width",
   hideEmptyGroups: "Hide empty groups",
   insertAbove: "Insert above",
   insertBelow: "Insert below",
@@ -553,6 +559,65 @@ const databaseMessages = {
   filterEmpty: "Filter empty",
   filterNotEmpty: "Filter not empty",
   filterUnchecked: "Filter unchecked",
+  filterOperatorContains: "Contains",
+  filterOperatorDoesNotContain: "Does not contain",
+  filterOperatorStartsWith: "Starts with",
+  filterOperatorEndsWith: "Ends with",
+  filterOperatorIs: "Is",
+  filterOperatorIsNot: "Is not",
+  filterOperatorGreaterThan: "Greater than",
+  filterOperatorLessThan: "Less than",
+  filterOperatorGreaterThanOrEqual: "Greater than or equal to",
+  filterOperatorLessThanOrEqual: "Less than or equal to",
+  filterOperatorBefore: "Before",
+  filterOperatorAfter: "After",
+  filterOperatorOnOrBefore: "On or before",
+  filterOperatorOnOrAfter: "On or after",
+  filterOperatorBetween: "Between",
+  filterOperatorIsWithin: "Is within",
+  filterOperatorIsEmpty: "Is empty",
+  filterOperatorIsNotEmpty: "Is not empty",
+  filterOperatorChecked: "Checked",
+  filterOperatorUnchecked: "Unchecked",
+  filterDateExact: "Exact date",
+  filterDateToday: "Today",
+  filterDateTomorrow: "Tomorrow",
+  filterDateYesterday: "Yesterday",
+  filterDatePast: "Past",
+  filterDateThis: "This",
+  filterDateNext: "Next",
+  filterDateDays_zero: "days",
+  filterDateDays_one: "day",
+  filterDateDays_two: "days",
+  filterDateDays_few: "days",
+  filterDateDays_many: "days",
+  filterDateDays_other: "days",
+  filterDateWeeks_zero: "weeks",
+  filterDateWeeks_one: "week",
+  filterDateWeeks_two: "weeks",
+  filterDateWeeks_few: "weeks",
+  filterDateWeeks_many: "weeks",
+  filterDateWeeks_other: "weeks",
+  filterDateMonths_zero: "months",
+  filterDateMonths_one: "month",
+  filterDateMonths_two: "months",
+  filterDateMonths_few: "months",
+  filterDateMonths_many: "months",
+  filterDateMonths_other: "months",
+  filterDateYears_zero: "years",
+  filterDateYears_one: "year",
+  filterDateYears_two: "years",
+  filterDateYears_few: "years",
+  filterDateYears_many: "years",
+  filterDateYears_other: "years",
+  filterDatePastRange: "Past {{count}} {{unit}}",
+  filterDateNextRange: "Next {{count}} {{unit}}",
+  filterDateThisWeek: "This week",
+  filterDateThisMonth: "This month",
+  filterDateThisYear: "This year",
+  filterDateRangeValue: "{{start}} to {{end}}",
+  filterChooseDates: "Choose dates",
+  filterChooseOption: "Choose option",
   keepTheDatabaseRowsAndLocalPropertiesButRemoveSource:
     "Keep the collection rows and local properties, but remove source mappings, row identity, and pending source changes.",
   latest: "Latest",
@@ -1426,6 +1491,14 @@ const enUS = {
       "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
     proposalUnplaceable:
       "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
+    suggestionAcceptFailed: "Couldn't accept this suggestion",
+    suggestionRejectFailed: "Couldn't reject this suggestion",
+    proposalAcceptFailed: "Couldn't accept these suggestions",
+    proposalRejectFailed: "Couldn't reject these suggestions",
+    suggestionDecisionReverted:
+      "It's back to pending. Anything you typed since is kept.",
+    proposalDecisionReverted:
+      "They're back to pending. Anything you typed since is kept.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
@@ -1450,6 +1523,16 @@ const enUS = {
       purple: "Purple",
       pink: "Pink",
       red: "Red",
+      defaultText: "Default text",
+      defaultBackground: "Default background",
+      textChoice: "{{color}} text",
+      backgroundChoice: "{{color}} background",
+    },
+    blockMenu: {
+      label: "Block actions",
+      duplicate: "Duplicate",
+      delete: "Delete",
+      insertBelow: "Insert block below",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -1698,6 +1781,13 @@ const enUS = {
       "Could not confirm saving. Check this thread before trying again.",
     backToList: "Back to comments",
     cancel: "Cancel",
+    discardCommentQuestion: "Discard comment?",
+    discardReplyQuestion: "Discard reply?",
+    discardEditQuestion: "Discard changes?",
+    discardDescription: "What you've written will be lost.",
+    discardEditDescription: "Your comment will stay as it was.",
+    discard: "Discard",
+    keepEditing: "Keep editing",
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
@@ -1779,6 +1869,10 @@ const enUS = {
     proposalEditCount_other: "{{count}} edits",
     acceptRemaining: "Accept remaining",
     rejectRemaining: "Reject remaining",
+    acceptAll: "Accept all",
+    rejectAll: "Reject all",
+    suggestionReviewReadOnly:
+      "Only people who can edit this page can accept or reject its suggestions.",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -2037,6 +2131,7 @@ const enUS = {
   },
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
+  clipEmbed: clipEmbedMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2100,6 +2195,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
     contentImport: enUS.contentImport,
+    clipEmbed: enUS.clipEmbed,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2619,6 +2715,7 @@ function mergeMessagesForLocale(
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
+    clipEmbed: clipEmbedMessagesByLocale[locale],
   };
 }
 

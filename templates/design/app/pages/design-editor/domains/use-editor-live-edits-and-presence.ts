@@ -44,20 +44,17 @@ import {
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-  useMemo,
-} from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { componentInstanceHasLocalOverrides } from "@/components/design/edit-panel/component-section";
 import { isOutlineDrawingEligible } from "@/components/design/edit-panel/motion-controls";
+import {
+  resolveMotionNativeStyleIdentity,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
 import {
   type MotionDockLiveState,
   type MotionDockTrack,
@@ -80,6 +77,7 @@ import {
 } from "../editor-state";
 import { runAdoptDbFileContent } from "../effects/adopt-db-file-content";
 import { runObserveCollabText } from "../effects/observe-collab-text";
+import { usePublishActiveSourceContent } from "../effects/publish-active-source-content";
 import { runSeedCollabContent } from "../effects/seed-collab-content";
 import { useSyncLatestActiveContent } from "../effects/sync-latest-active-content";
 import { forwardYjsUndoStackItemMeta, MAX_DESIGN_UNDO_STACK } from "../history";
@@ -155,6 +153,7 @@ export function useEditorLiveEditsAndPresence({
     generating,
     pendingGenerationActive,
     canEditDesign,
+    canPersistDesignSource,
     canEditLiveScreens,
     publicVisualEdit,
     rawServerFilesByIdRef,
@@ -225,6 +224,8 @@ export function useEditorLiveEditsAndPresence({
   const [motionNativeStyles, setMotionNativeStyles] = useState<
     MotionNativeStyleInstance[]
   >([]);
+  const [motionNativeStyleSelection, setMotionNativeStyleSelection] =
+    useState<MotionNativeStyleIdentity | null>(null);
   const [motionAudioClips, setMotionAudioClips] = useState<MotionAudioClip[]>(
     [],
   );
@@ -245,7 +246,53 @@ export function useEditorLiveEditsAndPresence({
       previewing: false,
       selectedTrackId: null,
       selectedKeyframeIds: [],
+      selectedEasingSegment: null,
     });
+  const motionEasingSelectionClearRef = useRef<(() => void) | null>(null);
+  const canvasSelectionTargetNodeId =
+    selectedElement?.sourceLayerIdentity?.nodeId ??
+    selectedElement?.sourceId ??
+    selectedElement?.id ??
+    null;
+  const previousCanvasSelectionTargetNodeIdRef = useRef(
+    canvasSelectionTargetNodeId,
+  );
+  const registerMotionEasingSelectionClear = useCallback(
+    (clear: (() => void) | null) => {
+      motionEasingSelectionClearRef.current = clear;
+    },
+    [],
+  );
+  const handleMotionEasingSegmentBack = useCallback(() => {
+    motionEasingSelectionClearRef.current?.();
+    setMotionDockLiveState((current) =>
+      current.selectedEasingSegment
+        ? { ...current, selectedEasingSegment: null }
+        : current,
+    );
+  }, []);
+  useEffect(() => {
+    if (
+      previousCanvasSelectionTargetNodeIdRef.current ===
+      canvasSelectionTargetNodeId
+    ) {
+      return;
+    }
+    previousCanvasSelectionTargetNodeIdRef.current =
+      canvasSelectionTargetNodeId;
+    const selectedEasingTargetNodeId =
+      motionDockLiveState.selectedEasingSegment?.targetNodeId;
+    if (
+      selectedEasingTargetNodeId &&
+      selectedEasingTargetNodeId !== canvasSelectionTargetNodeId
+    ) {
+      handleMotionEasingSegmentBack();
+    }
+  }, [
+    canvasSelectionTargetNodeId,
+    handleMotionEasingSegmentBack,
+    motionDockLiveState.selectedEasingSegment?.targetNodeId,
+  ]);
   const handleMotionDockLiveStateChange = useCallback(
     (next: MotionDockLiveState) => {
       setMotionDockLiveState((current) =>
@@ -255,7 +302,22 @@ export function useEditorLiveEditsAndPresence({
           next.selectedKeyframeIds.length &&
         current.selectedKeyframeIds.every(
           (key, index) => key === next.selectedKeyframeIds[index],
-        )
+        ) &&
+        current.selectedEasingSegment?.trackId ===
+          next.selectedEasingSegment?.trackId &&
+        current.selectedEasingSegment?.targetNodeId ===
+          next.selectedEasingSegment?.targetNodeId &&
+        current.selectedEasingSegment?.property ===
+          next.selectedEasingSegment?.property &&
+        current.selectedEasingSegment?.label ===
+          next.selectedEasingSegment?.label &&
+        current.selectedEasingSegment?.isTextAnimation ===
+          next.selectedEasingSegment?.isTextAnimation &&
+        current.selectedEasingSegment?.fromT ===
+          next.selectedEasingSegment?.fromT &&
+        current.selectedEasingSegment?.toT ===
+          next.selectedEasingSegment?.toT &&
+        current.selectedEasingSegment?.ease === next.selectedEasingSegment?.ease
           ? current
           : next,
       );
@@ -662,21 +724,16 @@ export function useEditorLiveEditsAndPresence({
       }
     },
   });
-  useLayoutEffect(() => {
-    if (activeFile?.id && rawActiveContent !== activeContent)
-      publishCanonicalContent(
-        activeFile.id,
-        rawActiveContent,
-        activeFile.fileType,
-      );
-  }, [
-    activeFile?.id,
-    activeFile?.fileType,
-    rawActiveContent,
+  usePublishActiveSourceContent({
+    activeFile,
     activeContent,
-    publishCanonicalContent,
+    rawActiveContent,
     canEditDesign,
-  ]);
+    canPersistDesignSource,
+    isSynced,
+    publishCanonicalContent,
+    ydoc,
+  });
   useSyncLatestActiveContent({
     activeContent,
     activeFile,
@@ -998,6 +1055,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionTracks([]);
     setMotionAnimationStyles([]);
     setMotionNativeStyles([]);
+    setMotionNativeStyleSelection(null);
     setMotionAudioClips([]);
     setMotionEasingVariables([]);
     setMotionTextDocument(null);
@@ -1300,6 +1358,29 @@ export function useEditorLiveEditsAndPresence({
     selectedElement?.tagName,
     selectedElementIsOutlineDrawable,
   ]);
+  const previousMotionSelectionTargetRef = useRef(motionSelectedTarget?.nodeId);
+  useEffect(() => {
+    const targetChanged =
+      previousMotionSelectionTargetRef.current !== motionSelectedTarget?.nodeId;
+    previousMotionSelectionTargetRef.current = motionSelectedTarget?.nodeId;
+    const resolvedSelection = resolveMotionNativeStyleIdentity(
+      motionNativeStyles,
+      motionSelectedTarget?.nodeId,
+      targetChanged ? null : motionNativeStyleSelection,
+    );
+    if (
+      resolvedSelection?.key === motionNativeStyleSelection?.key &&
+      resolvedSelection?.sourceInstanceId ===
+        motionNativeStyleSelection?.sourceInstanceId
+    ) {
+      return;
+    }
+    setMotionNativeStyleSelection(resolvedSelection);
+  }, [
+    motionNativeStyles,
+    motionNativeStyleSelection,
+    motionSelectedTarget?.nodeId,
+  ]);
   const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
@@ -1535,6 +1616,8 @@ export function useEditorLiveEditsAndPresence({
     setMotionAnimationStyles,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionAudioClips,
     setMotionAudioClips,
     motionEasingVariables,
@@ -1549,6 +1632,8 @@ export function useEditorLiveEditsAndPresence({
     motionPlayhead,
     setMotionPlayhead,
     motionDockLiveState,
+    registerMotionEasingSelectionClear,
+    handleMotionEasingSegmentBack,
     handleMotionDockLiveStateChange,
     motionAutoKeyframeEnabled,
     setMotionAutoKeyframeEnabled,

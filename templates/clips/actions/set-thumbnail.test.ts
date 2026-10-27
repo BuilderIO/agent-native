@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
+}));
+
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   uploadFile: vi.fn(),
@@ -24,7 +29,8 @@ vi.mock("../server/lib/upload-recording-media.js", () => ({
 vi.mock("../server/lib/video-storage.js", () => ({
   requiresConfiguredVideoStorage: () => false,
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
   isNull: (...args: unknown[]) => args,
@@ -35,8 +41,12 @@ vi.mock("../server/lib/recording-media-cleanup.js", () => ({
   deleteSupersededHostedMedia: (...args: unknown[]) =>
     mocks.deleteSuperseded(...args),
 }));
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
+  })),
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -78,6 +88,8 @@ const hostedRow = {
 
 describe("set-thumbnail", () => {
   beforeEach(() => {
+    expiryAccess.role = "editor";
+    expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mocks.row = screenshotRow;
     mocks.updateRows = [[{ id: "rec-1" }]];
@@ -95,6 +107,32 @@ describe("set-thumbnail", () => {
       url: "https://bucket.example/clips/rec-1/new.png",
     });
   });
+
+  it.each([false, true])(
+    "rechecks thumbnail expiry after upload (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mocks.row = hostedRow;
+      mocks.uploadFile.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { url: "https://example.test/fake-thumbnail.png" };
+      });
+      const pending = action.run({
+        recordingId: "rec-1",
+        kind: "upload",
+        dataUrl: "data:image/png;base64,AAAA",
+      });
+      if (owner) await expect(pending).resolves.toMatchObject({ id: "rec-1" });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mocks.update).not.toHaveBeenCalled();
+        expect(mocks.deleteSuperseded).toHaveBeenCalledWith(
+          "https://example.test/fake-thumbnail.png",
+          expect.any(Object),
+        );
+      }
+    },
+  );
 
   it("refuses a screenshot, whose thumbnail is the picture viewers see", async () => {
     await expect(

@@ -179,6 +179,27 @@ describe("embedded Agent-Native helpers", () => {
       orgId: "org-2",
     });
     expect(auth?.mountGoogleOAuthRoutes).toBe(false);
+    expect(auth?.getBrowserSession).toBeUndefined();
+  });
+
+  it("normalizes an explicitly declared cookie-only host session separately", async () => {
+    const getSession = vi.fn(async () => ({ email: "agent@example.com" }));
+    const getBrowserSession = vi.fn(async () => ({
+      userId: "browser-owner",
+      organizationId: "browser-org",
+    }));
+    const auth = createAgentNativeEmbeddedAuthOptions({
+      getSession,
+      getBrowserSession,
+    });
+    await expect(auth?.getBrowserSession?.({} as never)).resolves.toMatchObject(
+      {
+        email: "browser-owner",
+        orgId: "browser-org",
+      },
+    );
+    expect(getSession).not.toHaveBeenCalled();
+    expect(getBrowserSession).toHaveBeenCalledOnce();
   });
 
   it("applies explicit embedded database environment", async () => {

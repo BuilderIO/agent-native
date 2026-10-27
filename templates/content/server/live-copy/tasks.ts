@@ -7,9 +7,11 @@ import {
   initProseMirrorDoc,
   prosemirrorToYXmlFragment,
   updateYFragment,
+  yXmlFragmentToProseMirrorRootNode,
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
+import { commentAnchorTextOf } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { bodyHoldsChanges } from "../../shared/document-intent-merge.js";
 import {
@@ -28,7 +30,11 @@ import {
   type ApplySuggestionInput,
 } from "./apply-suggestion-edit.js";
 import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
-import { CONTENT_HOLDS_BODY_TASK, type HoldsBodyResult } from "./task-names.js";
+import {
+  CONTENT_ANCHOR_TEXT_TASK,
+  CONTENT_HOLDS_BODY_TASK,
+  type HoldsBodyResult,
+} from "./task-names.js";
 
 // The worker half of Content's live copy: every handler here runs in the
 // bounded task runner, so import only what a worker bundle can carry.
@@ -102,18 +108,30 @@ function buildBody(markdown: string): PMNode | LiveCopyTaskRefusal {
 
 function replaceBodyInput(
   input: unknown,
-): { content: string; expected?: string } | LiveCopyTaskRefusal {
+):
+  | { content: string; expected?: string; keepLiveEdits?: true }
+  | LiveCopyTaskRefusal {
   if (typeof input !== "object" || input === null) {
-    return refused("invalid_input", "expected { content, expected? }");
+    return refused(
+      "invalid_input",
+      "expected { content, expected?, keepLiveEdits? }",
+    );
   }
-  const { content, expected } = input as Record<string, unknown>;
+  const { content, expected, keepLiveEdits } = input as Record<string, unknown>;
   if (typeof content !== "string") {
     return refused("invalid_input", "content must be a string");
   }
   if (expected !== undefined && typeof expected !== "string") {
     return refused("invalid_input", "expected must be a string");
   }
-  return expected === undefined ? { content } : { content, expected };
+  if (keepLiveEdits !== undefined && keepLiveEdits !== true) {
+    return refused("invalid_input", "keepLiveEdits must be true");
+  }
+  return {
+    content,
+    ...(expected === undefined ? {} : { expected }),
+    ...(keepLiveEdits ? { keepLiveEdits } : {}),
+  };
 }
 
 type BodyEdit = {
@@ -243,7 +261,9 @@ const liveCopyTasks = defineLiveCopyTasks({
     /**
      * Makes the body `content`, editing only the blocks that differ so open
      * editors keep their place. With `expected`, refuses `base_changed`
-     * unless the current body is exactly that text.
+     * unless the current body is exactly that text. With `keepLiveEdits`,
+     * refuses `live_edits` unless the current body already reads as
+     * `content` does in the editor, so the edit removes nothing a tab typed.
      */
     "replace-body"(doc, field, input) {
       const parsed = replaceBodyInput(input);
@@ -255,6 +275,17 @@ const liveCopyTasks = defineLiveCopyTasks({
       }
       const root = buildBody(parsed.content);
       if (isRefusal(root)) return root;
+      if (parsed.keepLiveEdits) {
+        const current = deriveBody(doc, field);
+        // An empty copy was never seeded. The editor keeps at least one
+        // block, so a tab that deleted everything left an empty paragraph,
+        // which is compared below.
+        if (isRefusal(current)) {
+          if (current.reason !== "empty") return current;
+        } else if (current !== docToNfm(root.toJSON())) {
+          return refused("live_edits");
+        }
+      }
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());
       updateYFragment(doc, fragment, root, meta);
@@ -308,5 +339,24 @@ export const tasks = {
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";
+  },
+  /** The text comment quotes on a live copy were captured from; see `liveCopyAnchorText`. */
+  async [CONTENT_ANCHOR_TEXT_TASK](input: unknown): Promise<string | null> {
+    const state = (input as { state?: unknown } | null)?.state;
+    if (!(state instanceof Uint8Array)) {
+      throw new TypeError("expected { state } as a Uint8Array");
+    }
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, state);
+      const fragment = doc.getXmlFragment(LIVE_BODY_FIELD);
+      if (fragment.length === 0) return null;
+      // The tree an editor shows, after the schema drops what it rejects.
+      return commentAnchorTextOf(
+        yXmlFragmentToProseMirrorRootNode(fragment, schema()).toJSON(),
+      );
+    } finally {
+      doc.destroy();
+    }
   },
 };

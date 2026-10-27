@@ -1,5 +1,8 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 
+import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
+import type { AgentEngine } from "../agent/engine/types.js";
+import type { AgentChatEvent } from "../agent/types.js";
 import { observabilityConfig } from "../app-config/observability.js";
 import {
   registerTrackingProvider,
@@ -1514,8 +1517,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       },
     });
 
+    const engine = { name: "ai-sdk:anthropic" } as AgentEngine;
+    tagEngineLlmConnectionSource(engine, "env");
     const loopOpts: any = {
-      engine: { name: "anthropic" },
+      engine,
       model: "claude-test",
       systemPrompt: "",
       tools: [],
@@ -1572,6 +1577,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       $ai_provider: "anthropic",
       $ai_is_error: false,
       $session_id: "browser-session-1",
+      llm_connection: "anthropic",
+      llm_engine: "ai-sdk:anthropic",
+      llm_connection_source: "env",
     });
     expect(traces[0]?.properties).not.toHaveProperty("$ai_error");
 
@@ -2148,6 +2156,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         duration_ms: expect.any(Number),
         status: "error",
         error_class: "tool_error",
+        outcome: "no_side_effect",
       },
       {
         name: "read",
@@ -2155,11 +2164,90 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         duration_ms: expect.any(Number),
         status: "success",
         error_class: null,
+        outcome: "no_side_effect",
       },
     ]);
     expect(JSON.stringify(events[0]?.properties?.tools)).not.toContain(
       "private",
     );
+  });
+
+  it("classifies each tool call's failure and what it did", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+    const done = (
+      id: string,
+      fields: Partial<Extract<AgentChatEvent, { type: "tool_done" }>>,
+    ): AgentChatEvent => ({
+      type: "tool_done",
+      id,
+      tool: "patch",
+      result: "result",
+      ...fields,
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        for (const id of ["invalid", "rejected", "unknown", "saved"]) {
+          send({ type: "tool_start", id, tool: "patch", input: {} });
+        }
+        send(
+          done("invalid", {
+            isError: true,
+            completedSideEffect: false,
+            errorClass: "input_invalid",
+          }),
+        );
+        send(
+          done("rejected", {
+            isError: true,
+            completedSideEffect: false,
+            errorClass: "rejected",
+          }),
+        );
+        send(done("unknown", { isError: true, outcomeUnknown: true }));
+        send(done("saved", { completedSideEffect: true }));
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts: {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-tool-classes",
+      threadId: "thread-tool-classes",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const tools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(
+      tools.map(({ error_class, outcome }) => ({ error_class, outcome })),
+    ).toEqual([
+      { error_class: "input_invalid", outcome: "no_side_effect" },
+      { error_class: "rejected", outcome: "no_side_effect" },
+      { error_class: "tool_error", outcome: "unknown" },
+      { error_class: null, outcome: "completed" },
+    ]);
   });
 
   it("caps tracked tool detail while retaining complete rollup counts", async () => {

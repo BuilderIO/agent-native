@@ -110,6 +110,58 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
     expect(slugs).toContain("skill-recap-tools--references-canvas");
   });
 
+  it("keeps slug and query lookups inside the bundled corpus, including the filesystem fallback", async () => {
+    fs.writeFileSync(
+      path.join(tplDir, "AGENTS.md"),
+      "BUNDLED_APP_INSTRUCTIONS",
+    );
+    const privatePaths = [
+      "memory/MEMORY.md",
+      "resources/private.md",
+      "skills/private/SKILL.md",
+      "workspace-files/private.md",
+    ];
+    for (const relative of privatePaths) {
+      const absolute = path.join(tplDir, relative);
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, "PRIVATE_USER_CORPUS_SENTINEL");
+    }
+    mocks.loadAgentsBundle.mockResolvedValue(readAgentsBundleFromFs(tplDir));
+
+    const corpus = await loadAllDocs("user@example.test");
+    expect(corpus.find((doc) => doc.slug === "agents-template")?.body).toBe(
+      "BUNDLED_APP_INSTRUCTIONS",
+    );
+    expect(
+      corpus.find((doc) => doc.slug === "skill-recap-tools")?.body,
+    ).toContain("# Recap Tools");
+    expect(corpus.map((doc) => doc.body).join("\n")).not.toContain(
+      "PRIVATE_USER_CORPUS_SENTINEL",
+    );
+
+    for (const slug of [
+      ...privatePaths,
+      "../memory/MEMORY.md",
+      path.join(tplDir, "resources/private.md"),
+      "skill-private",
+      "agents-personal",
+    ]) {
+      const output = await runDocsSearch(["--slug", slug]);
+      expect(output).toContain(`Doc not found: ${slug}`);
+      expect(output).not.toContain("PRIVATE_USER_CORPUS_SENTINEL");
+    }
+    const privateQuery = await runDocsSearch([
+      "--query",
+      "PRIVATE_USER_CORPUS_SENTINEL",
+    ]);
+    expect(privateQuery).toContain(
+      'No docs found matching "PRIVATE_USER_CORPUS_SENTINEL".',
+    );
+    expect(
+      await runDocsSearch(["--query", "BUNDLED_APP_INSTRUCTIONS"]),
+    ).toContain("agents-template");
+  });
+
   it("hides Lab-gated skills from docs-search for disabled users", async () => {
     const gatedSkillDir = path.join(
       tplDir,

@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { measuredPositionValue } from "@/components/design/edit-panel/position-layout-properties";
 import type { ElementInfo } from "@/components/design/types";
 
 import { withMeasuredGeometry } from "./editor-helpers";
@@ -153,5 +154,75 @@ describe("withMeasuredGeometry clipboard placement", () => {
       height: 40,
     });
     expect(measured.absoluteSiblingVisualOrigin).toEqual({ x: 45, y: 57 });
+  });
+});
+
+describe("withMeasuredGeometry during a move drag", () => {
+  function mountDraggedLayer(options: { moveActive: boolean }) {
+    const frame = document.createElement("iframe");
+    frame.dataset.designPreviewIframe = "";
+    frame.dataset.screenIframeId = "screen-1";
+    document.body.append(frame);
+    frames.push(frame);
+
+    const preview = frame.contentDocument!;
+    const parent = preview.createElement("div");
+    parent.style.cssText = "position:relative;width:1200px;height:760px";
+    mockRect(parent, { x: 0, y: 0, width: 1200, height: 760 });
+    const target = preview.createElement("div");
+    target.dataset.agentNativeNodeId = "ellipse";
+    // The bridge's first move tick already wrote the dragged position.
+    target.style.cssText =
+      "position:absolute;left:340px;top:420px;width:120px;height:120px";
+    mockRect(target, { x: 340, y: 420, width: 120, height: 120 });
+    parent.append(target);
+    preview.body.append(parent);
+    (
+      frame.contentWindow as Window & {
+        __agentNativeLayerMoveActive?: boolean;
+      }
+    ).__agentNativeLayerMoveActive = options.moveActive;
+
+    // The selection the bridge posted on pointerdown, before the layer moved.
+    const selection: ElementInfo = {
+      tagName: "div",
+      selector: '[data-agent-native-node-id="ellipse"]',
+      sourceId: "ellipse",
+      classes: [],
+      computedStyles: { position: "absolute", left: "320px", top: "400px" },
+      boundingRect: { x: 320, y: 400, width: 120, height: 120 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    return withMeasuredGeometry(selection, "screen-1");
+  }
+
+  it("measures the dragged layer where its selection says it started", () => {
+    const measured = mountDraggedLayer({ moveActive: true });
+
+    expect(measured.boundingRect).toEqual({
+      x: 320,
+      y: 400,
+      width: 120,
+      height: 120,
+    });
+    // Baseline plus the bridge's live offset reads the live position, once.
+    const live = { left: "360px", top: "440px" };
+    expect(measuredPositionValue(measured, "x", live)).toBe("360px");
+    expect(measuredPositionValue(measured, "y", live)).toBe("440px");
+    // Esc restores the layer and clears the live offset.
+    expect(measuredPositionValue(measured, "x")).toBe("320px");
+    expect(measuredPositionValue(measured, "y")).toBe("400px");
+  });
+
+  it("measures the layer where it renders when no move drag runs", () => {
+    const measured = mountDraggedLayer({ moveActive: false });
+
+    expect(measured.boundingRect).toEqual({
+      x: 340,
+      y: 420,
+      width: 120,
+      height: 120,
+    });
   });
 });

@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { parseSpaceIds, stringifySpaceIds } from "../server/lib/recordings.js";
 
 const MAX_CAS_ATTEMPTS = 5;
@@ -21,7 +22,9 @@ export default defineAction({
       .describe("Whether to add or remove the space"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 

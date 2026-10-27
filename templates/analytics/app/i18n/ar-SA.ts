@@ -1352,13 +1352,23 @@ export default {
     drilldownHideSql: "إخفاء SQL",
     drilldownDownloadCsv: "تنزيل CSV",
     drilldownShowing: "عرض {{shown}} من {{total}} سجل",
+    drilldownShowingLoaded:
+      "عرض {{shown}} من {{loaded}} سجل تم تحميلها؛ العدد الإجمالي غير معروف.",
+    drilldownCsvTruncatedUnknownTotal:
+      "اكتمال التصدير غير معروف؛ يتضمن هذا الملف {{exported}} من أصل {{loaded}} سجلًا محمّلًا بعد التصفية.",
     drilldownCsvTruncated:
       "تصدير غير مكتمل: عثر الاستعلام على {{total}} سجلًا، لكن تم تحميل أول {{loaded}} فقط؛ يحتوي هذا الملف على {{exported}} بعد التصفية.",
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
     drilldownAggregateOnly:
       "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
     drilldownNoRecords: "لا توجد سجلات مطابقة",
+    drilldownNoRecordsIncomplete:
+      "لم يتم تحميل أي سجلات. النتيجة غير مكتملة، لذا قد تكون هناك سجلات مطابقة.",
+    drilldownNoLoadedMatches:
+      "لا توجد سجلات محمّلة مطابقة، لكن قد تتضمن النتيجة الكاملة سجلات لم يتم تحميلها.",
     drilldownLoadFailed: "تعذّر تحميل السجلات",
+    drilldownOverByteCap:
+      "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
@@ -1425,12 +1435,26 @@ export default {
     columnFormatCurrency: "عملة",
     columnFormatPercent: "نسبة مئوية",
     columnFormatDate: "تاريخ",
+    columnFormatDuration: "المدة (بالثواني)",
     columnRename: "إعادة تسمية العمود",
     columnHide: "إخفاء العمود",
     columnShow: 'إظهار "{{name}}"',
     columnShowHidden: "إظهار الأعمدة المخفية",
     columnName: "اسم العمود",
     columnResize: "تغيير حجم العمود",
+    metricComparisonVs: "مقارنةً مع {{period}}",
+    metricComparisonPreviousPeriod: "الفترة السابقة",
+    metricComparisonNoChange: "بلا تغيير",
+    metricComparisonPoints: "{{value}} نقطة",
+    metricComparisonUp: "ارتفاع بمقدار {{change}} عن {{previous}}، {{period}}",
+    metricComparisonDown:
+      "انخفاض بمقدار {{change}} عن {{previous}}، {{period}}",
+    metricComparisonFlat: "بلا تغيير عن {{previous}}، {{period}}",
+    metricComparisonBetter: "{{comparison}} (أفضل)",
+    metricComparisonWorse: "{{comparison}} (أسوأ)",
+    calloutSeverityCritical: "حرج",
+    calloutSeverityWarning: "تحذير",
+    calloutSeverityInfo: "معلومات",
     rowBreakdownBy: "التقسيم حسب",
     rowBreakdownAll: "الكل",
     rowBreakdownOther: "أخرى",

@@ -15,7 +15,11 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import {
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
+import { firstRow } from "../server/lib/first-row.js";
 import type {
   ContentDatabase,
   ContentDatabaseBodyHydration,
@@ -1190,6 +1194,14 @@ class BuilderBodyHydrationError extends Error {
 }
 
 export function builderBodyHydrationFailureEvidence(error: unknown) {
+  if (isUnsupportedBodyWriter(error)) {
+    return {
+      reason: "unsupported_content" as const,
+      providerStatus: "live_copy",
+      retryable: false,
+      message: error.message,
+    };
+  }
   if (
     error instanceof BuilderCmsContentEntryReadError ||
     error instanceof BuilderBodyHydrationError
@@ -2255,23 +2267,21 @@ async function processBuilderBodyHydrationJob(
   let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues(bodyEntry),
   );
-  const sourceRow =
+  const [sourceRow = undefined] =
     preloaded?.sourceRow != null
-      ? (preloaded.sourceRow ?? undefined)
-      : (
-          await db
-            .select()
-            .from(schema.contentDatabaseSourceRows)
-            .where(
-              and(
-                eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
-                eq(
-                  schema.contentDatabaseSourceRows.databaseItemId,
-                  row.databaseItemId,
-                ),
+      ? [preloaded.sourceRow]
+      : await db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, row.sourceId),
+              eq(
+                schema.contentDatabaseSourceRows.databaseItemId,
+                row.databaseItemId,
               ),
-            )
-        )[0];
+            ),
+          );
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
@@ -2479,7 +2489,7 @@ async function processBuilderBodyHydrationJob(
         activeSourceEntryJson,
       );
       const markPendingIfReplaced = async () => {
-        const [replacedByNewerJob] = await tx
+        const [replacedByNewerJob = null] = await tx
           .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
           .from(schema.contentDatabaseBodyHydrationQueue)
           .where(eq(schema.contentDatabaseBodyHydrationQueue.id, row.id));
@@ -2495,7 +2505,7 @@ async function processBuilderBodyHydrationJob(
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
       };
       if (emptyBodyRead?.state === "empty_body") {
-        const [stillOwnsQueueRow] = await tx
+        const [stillOwnsQueueRow = null] = await tx
           .update(schema.contentDatabaseBodyHydrationQueue)
           .set({ updatedAt: now })
           .where(queueRowCas)
@@ -2515,7 +2525,7 @@ async function processBuilderBodyHydrationJob(
         // The next refresh compares the version with the row as written.
         const writtenEntry = {
           ...emptyBodyRead.entry,
-          updatedAt: emptyBodyRead.entry.updatedAt ?? now,
+          updatedAt: emptyBodyRead.entry.updatedAt,
           // Only a row that stores no Builder body gets here: a body Builder
           // emptied comes back known-empty and is written like any other. The
           // page keeps its body, and the review can offer to push it.
@@ -2530,7 +2540,7 @@ async function processBuilderBodyHydrationJob(
             nextContent: "",
           }),
         };
-        const [updatedSourceRow] = await tx
+        const [updatedSourceRow = null] = await tx
           .update(schema.contentDatabaseSourceRows)
           .set({
             sourceValuesJson: JSON.stringify(writtenEntry.sourceValues),
@@ -2557,7 +2567,7 @@ async function processBuilderBodyHydrationJob(
           ],
           now,
         });
-        const [deleted] = await tx
+        const [deleted = null] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -2592,7 +2602,7 @@ async function processBuilderBodyHydrationJob(
         return;
       }
       if (builderBodyHydrationAttemptIsTerminal(attempts)) {
-        const [deleted] = await tx
+        const [deleted = null] = await tx
           .delete(schema.contentDatabaseBodyHydrationQueue)
           .where(queueRowCas)
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -2612,9 +2622,7 @@ async function processBuilderBodyHydrationJob(
             bodyHydrationError:
               reason === "not_found"
                 ? "Builder no longer returns this source entry. Refresh the source or retry after restoring access."
-                : reason === "conversion_failed"
-                  ? "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body."
-                  : null,
+                : "Content could not construct a Builder body from the retained source record. Refresh the source to recover the authoritative body.",
             bodyHydrationVersion: builderBodyUnavailableVersion(entryWithBody),
             bodyHydrationReason: reason,
             bodyHydrationProviderStatus: emptyBodyRead
@@ -2627,7 +2635,7 @@ async function processBuilderBodyHydrationJob(
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
         return;
       }
-      const [stillOwnsQueueRow] = await tx
+      const [stillOwnsQueueRow = null] = await tx
         .update(schema.contentDatabaseBodyHydrationQueue)
         .set({
           lastAttemptedAt: null,
@@ -2736,11 +2744,15 @@ async function processBuilderBodyHydrationJob(
             ? isNull(schema.documents.content)
             : eq(schema.documents.content, documentContent)
           : eq(schema.documents.content, currentContent);
+      const legacy = await lockLegacyBodyWrites(tx, [row.documentId], {
+        operation: "Builder body hydration",
+        content: nextContent,
+      });
       const [updatedDocument] = await tx
         .update(schema.documents)
         .set({
           content: nextContent,
-          bodyRevision: bodyRevisionForContent(nextContent),
+          bodyRevision: legacy.bodyRevision(nextContent),
           updatedAt: now,
         })
         .where(and(eq(schema.documents.id, row.documentId), contentCas))
@@ -2758,9 +2770,14 @@ async function processBuilderBodyHydrationJob(
       return;
     }
     // The next refresh compares the version with the row as written.
+    // A queued entry is JSON the queue stored, so its time can be missing.
+    const queuedUpdatedAt = entryWithBody.updatedAt as
+      | string
+      | null
+      | undefined;
     const writtenEntry = {
       ...entryWithBody,
-      updatedAt: entryWithBody.updatedAt ?? now,
+      updatedAt: queuedUpdatedAt ?? now,
       sourceValues: nextValues,
     };
     const [updatedSourceRow] = await tx
@@ -2914,7 +2931,7 @@ async function materializeBodyReadFieldValues(
     now: string;
   },
 ) {
-  await materializeSourceFieldPropertyValues({
+  await materializeLockedSourceFieldPropertyValues(tx, {
     database: { ownerEmail: args.ownerEmail },
     sourceId: args.sourceId,
     fields: await tx
@@ -2923,7 +2940,6 @@ async function materializeBodyReadFieldValues(
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId)),
     documentIds: args.rows.map((row) => row.documentId),
     now: args.now,
-    db: tx,
     previousSourceValuesByDocumentId: new Map(
       args.rows.map((row) => [row.documentId, row.previousSourceValues]),
     ),
@@ -3047,7 +3063,7 @@ function builderBodyHydrationSourceRowFilter(
 
 /** Keeps a job queued, with the reason this attempt skipped its write. */
 async function leaveBuilderBodyHydrationPending(
-  tx: any,
+  tx: Pick<ReturnType<typeof getDb>, "update">,
   args: {
     row: ContentDatabaseBodyHydrationQueueRowDb;
     queueRowCas: ReturnType<typeof builderBodyHydrationQueueOwnershipFilter>;
@@ -3055,7 +3071,7 @@ async function leaveBuilderBodyHydrationPending(
     error: string;
   },
 ) {
-  const [stillQueued] = await tx
+  const [stillQueued = null] = await tx
     .update(schema.contentDatabaseBodyHydrationQueue)
     .set({ lastError: args.error, updatedAt: args.now })
     .where(args.queueRowCas)
@@ -3194,11 +3210,29 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             value: row.content,
           })),
         );
+        const legacy = await lockLegacyBodyWrites(
+          tx,
+          batch.map((row) => row.job.documentId),
+          {
+            operation: "Builder body hydration",
+            content: new Map(
+              batch.map((row) => [row.job.documentId, row.content]),
+            ),
+          },
+        ).catch((error: unknown) => {
+          // The per-row path below refuses that page's job on its own.
+          if (isUnsupportedBodyWriter(error)) {
+            throw new PristineBuilderBodyHydrationCasMiss(
+              "A Builder body hydration page takes body writes through its live copy.",
+            );
+          }
+          throw error;
+        });
         const updatedDocuments = await tx
           .update(schema.documents)
           .set({
             content: hydratedContent,
-            bodyRevision: bodyRevisionForContent(hydratedContent),
+            bodyRevision: legacy.bodyRevision(hydratedContent),
             updatedAt: now,
           })
           .where(
@@ -5166,9 +5200,28 @@ async function loadSourceSnapshot(
         options.documentIds !== undefined
           ? and(
               eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
-              inArray(
-                schema.contentDatabaseSourceChangeSets.documentId,
-                options.documentIds,
+              or(
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.documentId,
+                  options.documentIds,
+                ),
+                // Execution and reconciliation also find a change set by its
+                // row's item alone, so a page holds those too.
+                and(
+                  isNull(schema.contentDatabaseSourceChangeSets.documentId),
+                  inArray(
+                    schema.contentDatabaseSourceChangeSets.databaseItemId,
+                    db
+                      .select({ id: schema.contentDatabaseItems.id })
+                      .from(schema.contentDatabaseItems)
+                      .where(
+                        inArray(
+                          schema.contentDatabaseItems.documentId,
+                          options.documentIds,
+                        ),
+                      ),
+                  ),
+                ),
               ),
             )
           : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
@@ -6607,7 +6660,7 @@ export async function replaceMockSourceRows(args: {
       : lockRows;
     await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
-    const [source] = await tx
+    const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -6629,7 +6682,7 @@ export async function replaceMockSourceRows(args: {
     if (args.materializeFields && rows.length > 0) {
       // Under the membership lock, so a property saved during the refresh's
       // Builder read is compared, not overwritten.
-      await materializeSourceFieldPropertyValues({
+      await materializeLockedSourceFieldPropertyValues(tx, {
         database: { ownerEmail: args.ownerEmail },
         sourceId: args.sourceId,
         fields: await tx
@@ -6640,7 +6693,6 @@ export async function replaceMockSourceRows(args: {
           ),
         documentIds: rows.map((row) => row.documentId),
         now: args.now,
-        db: tx,
         previousSourceValuesByDocumentId: existingBuilderRows
           ? new Map(
               Array.from(existingBuilderRows.values(), (row) => [
@@ -6752,7 +6804,7 @@ async function refreshBuilderPageTitles(
 }
 
 async function lockedExistingBuilderRows(
-  tx: any,
+  tx: Pick<ReturnType<typeof getDb>, "select">,
   scope: SQL | undefined,
   readBeforeLock: Map<string, ExistingBuilderSourceRowIdentity>,
 ) {
@@ -6814,7 +6866,7 @@ export function sourceValuesForSeededSourceRow(args: {
 function builderSourceValuesWithPreservedBodyBaseline(args: {
   incoming: Record<string, DocumentPropertyValue>;
   existing?: Record<string, DocumentPropertyValue> | null;
-  existingLastSourceUpdatedAt?: string | null;
+  existingLastSourceUpdatedAt?: string | null | undefined;
 }) {
   const existing = args.existing;
   if (!existing) return args.incoming;
@@ -6890,150 +6942,191 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
   return next;
 }
 
-/**
- * Writes a source's row values into the collection's properties. A refresh
- * passes the values its rows held before it: a property that no longer
- * matches them is Content's unsaved edit, so it stays, and the row records
- * the field when Builder changed it too.
- */
 export async function materializeSourceFieldPropertyValues(args: {
-  database: Pick<ContentDatabaseRow, "ownerEmail">;
+  database: ContentDatabaseRow;
   sourceId: string;
   fields: ContentDatabaseSourceFieldRowDb[];
   documentIds?: string[];
   now: string;
-  db?: any;
-  previousSourceValuesByDocumentId?: Map<
-    string,
-    Record<string, DocumentPropertyValue>
-  >;
 }) {
   const boundFields = args.fields.filter((field) => field.propertyId);
   if (boundFields.length === 0) return;
-  const db = args.db ?? getDb();
-  const documentIdSet =
-    args.documentIds && args.documentIds.length > 0
-      ? new Set(args.documentIds)
-      : null;
+  const db = getDb();
+  // The scan runs without the lock, so reading every source row of a full
+  // refresh holds up no other writer. It only finds the pages to look at.
+  const candidates = await sourceFieldValueWrites(
+    db,
+    args,
+    boundFields,
+    args.documentIds && args.documentIds.length > 0 ? args.documentIds : null,
+  );
+  if (candidates.values.length === 0) return;
+
+  // Only the write takes the collection's mutation lock, like every other
+  // value write. Under it, the writes for those pages are worked out again
+  // from their bindings, source rows, definitions and values as they are now,
+  // so a refresh, unbinding or guarded write that landed since the scan isn't
+  // overwritten with what it replaced.
+  await db.transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, args.database.id);
+    const stillBound = (
+      await tx
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId),
+            inArray(
+              schema.contentDatabaseSourceFields.id,
+              boundFields.map((field) => field.id),
+            ),
+          ),
+        )
+    ).filter((field) => field.propertyId);
+    if (stillBound.length === 0) return;
+    const { values } = await sourceFieldValueWrites(
+      tx,
+      args,
+      stillBound,
+      Array.from(new Set(candidates.values.map((write) => write.documentId))),
+    );
+    await upsertSourcePropertyValues(tx, values);
+  });
+}
+
+/**
+ * Writes these pages' source row values into the collection's properties.
+ * Call it in a transaction that holds the collections' locks
+ * (`lockSourceCollections`) and the rows' membership locks, after their
+ * source rows are written. A refresh passes the values its rows held before
+ * it: a property that no longer matches them is Content's unsaved edit, so it
+ * stays, and the row records the field when Builder changed it too.
+ */
+async function materializeLockedSourceFieldPropertyValues(
+  tx: ReturnType<typeof getDb>,
+  args: {
+    database: Pick<ContentDatabaseRow, "ownerEmail">;
+    sourceId: string;
+    fields: ContentDatabaseSourceFieldRowDb[];
+    documentIds: string[];
+    now: string;
+    previousSourceValuesByDocumentId?: Map<
+      string,
+      Record<string, DocumentPropertyValue>
+    >;
+  },
+) {
+  const boundFields = args.fields.filter((field) => field.propertyId);
+  if (boundFields.length === 0 || args.documentIds.length === 0) return;
+  const { values, editConflicts } = await sourceFieldValueWrites(
+    tx,
+    args,
+    boundFields,
+    args.documentIds,
+  );
+  for (const batch of chunks(editConflicts, bulkChunkSizeForColumnCount(3))) {
+    await tx
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: hydrationCaseSql(
+          schema.contentDatabaseSourceRows.id,
+          schema.contentDatabaseSourceRows.sourceValuesJson,
+          batch,
+        ),
+        updatedAt: args.now,
+      })
+      .where(
+        inArray(
+          schema.contentDatabaseSourceRows.id,
+          batch.map((update) => update.id),
+        ),
+      );
+  }
+  await upsertSourcePropertyValues(tx, values);
+}
+
+/**
+ * The value writes that would make these pages' bound fields hold what the
+ * source says, for every page the source has when documentIds is null. When
+ * two source rows name the same page, the later one wins. A value already
+ * stored keeps its id, so the write updates it in place. With a page's
+ * previous source values, a field edited in Content gets no write, and
+ * `editConflicts` holds each row whose recorded edit conflicts change.
+ */
+async function sourceFieldValueWrites(
+  db: ReturnType<typeof getDb>,
+  args: {
+    database: Pick<ContentDatabaseRow, "ownerEmail">;
+    sourceId: string;
+    now: string;
+    previousSourceValuesByDocumentId?: Map<
+      string,
+      Record<string, DocumentPropertyValue>
+    >;
+  },
+  boundFields: ContentDatabaseSourceFieldRowDb[],
+  documentIds: string[] | null,
+): Promise<{
+  values: (typeof schema.documentPropertyValues.$inferInsert)[];
+  editConflicts: Array<{ id: string; value: string }>;
+}> {
   const propertyIds = Array.from(
     new Set(boundFields.map((field) => field.propertyId!)),
   );
-  const definitions: Array<
-    typeof schema.documentPropertyDefinitions.$inferSelect
-  > = await db
+  const definitions = await db
     .select()
     .from(schema.documentPropertyDefinitions)
     .where(inArray(schema.documentPropertyDefinitions.id, propertyIds));
   const definitionById = new Map(
     definitions.map((definition) => [definition.id, definition]),
   );
+  const sourceRows = schema.contentDatabaseSourceRows;
   const scopedRows: Array<{
     id: string;
     documentId: string;
     sourceValuesJson: string;
   }> = [];
-  if (documentIdSet) {
-    for (const idChunk of chunks(Array.from(documentIdSet), idChunkSize())) {
-      scopedRows.push(
-        ...(await db
-          .select({
-            id: schema.contentDatabaseSourceRows.id,
-            documentId: schema.contentDatabaseSourceRows.documentId,
-            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-          })
-          .from(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
-              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
-            ),
-          )
-          .orderBy(
-            asc(schema.contentDatabaseSourceRows.updatedAt),
-            asc(schema.contentDatabaseSourceRows.createdAt),
-            asc(schema.contentDatabaseSourceRows.id),
-          )),
-      );
-    }
-  } else {
+  // Each page's rows fall in one chunk, so a later row still wins.
+  for (const idChunk of documentIds
+    ? chunks(documentIds, idChunkSize())
+    : [null]) {
     scopedRows.push(
       ...(await db
         .select({
-          id: schema.contentDatabaseSourceRows.id,
-          documentId: schema.contentDatabaseSourceRows.documentId,
-          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          id: sourceRows.id,
+          documentId: sourceRows.documentId,
+          sourceValuesJson: sourceRows.sourceValuesJson,
         })
-        .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))
+        .from(sourceRows)
+        .where(
+          and(
+            eq(sourceRows.sourceId, args.sourceId),
+            idChunk ? inArray(sourceRows.documentId, idChunk) : undefined,
+          ),
+        )
         .orderBy(
-          asc(schema.contentDatabaseSourceRows.updatedAt),
-          asc(schema.contentDatabaseSourceRows.createdAt),
-          asc(schema.contentDatabaseSourceRows.id),
+          asc(sourceRows.updatedAt),
+          asc(sourceRows.createdAt),
+          asc(sourceRows.id),
         )),
     );
   }
-  if (scopedRows.length === 0) return;
+  if (scopedRows.length === 0) return { values: [], editConflicts: [] };
 
-  const existingValues: Array<
-    typeof schema.documentPropertyValues.$inferSelect
-  > = [];
-  const scopedExistingValueChunkSize = documentIdSet
-    ? bulkChunkSizeForColumnCount(2)
-    : idChunkSize();
-  for (const propertyIdChunk of chunks(
+  const stored = await readStoredSourceFieldValues(
+    db,
     propertyIds,
-    scopedExistingValueChunkSize,
-  )) {
-    if (documentIdSet) {
-      for (const documentIdChunk of chunks(
-        Array.from(documentIdSet),
-        scopedExistingValueChunkSize,
-      )) {
-        existingValues.push(
-          ...(await db
-            .select()
-            .from(schema.documentPropertyValues)
-            .where(
-              and(
-                inArray(
-                  schema.documentPropertyValues.propertyId,
-                  propertyIdChunk,
-                ),
-                inArray(
-                  schema.documentPropertyValues.documentId,
-                  documentIdChunk,
-                ),
-              ),
-            )),
-        );
-      }
-    } else {
-      existingValues.push(
-        ...(await db
-          .select()
-          .from(schema.documentPropertyValues)
-          .where(
-            inArray(schema.documentPropertyValues.propertyId, propertyIdChunk),
-          )),
-      );
-    }
-  }
-  const existingByDocumentAndProperty = new Map(
-    existingValues.map((value) => [
-      `${value.documentId}\0${value.propertyId}`,
-      value,
-    ]),
+    documentIds,
   );
-  const upsertsByDocumentAndProperty = new Map<
+  const desired = new Map<
     string,
-    typeof schema.documentPropertyValues.$inferInsert
+    { documentId: string; propertyId: string; valueJson: string }
   >();
-
   const boundSourceFieldKeys = new Set(
     boundFields.map((field) => field.sourceFieldKey),
   );
-  const editConflictUpdates: Array<{ id: string; value: string }> = [];
-
+  const editConflicts: Array<{ id: string; value: string }> = [];
   for (const row of scopedRows) {
     const sourceValues =
       parseObject<Record<string, DocumentPropertyValue>>(
@@ -7053,7 +7146,7 @@ export async function materializeSourceFieldPropertyValues(args: {
       const type = definition.type as DocumentProperty["definition"]["type"];
       const options = parsePropertyOptions(definition.optionsJson);
       const key = `${row.documentId}\0${propertyId}`;
-      const existing = existingByDocumentAndProperty.get(key);
+      const existing = stored.get(key);
       if (previousSourceValues && existing) {
         const localValue = parsePropertyValue(existing.valueJson);
         const previousValue = builderSourceFieldComparisonValue(
@@ -7091,6 +7184,7 @@ export async function materializeSourceFieldPropertyValues(args: {
           ) {
             conflicts.add(field.sourceFieldKey);
           }
+          desired.delete(key);
           continue;
         }
       }
@@ -7100,16 +7194,10 @@ export async function materializeSourceFieldPropertyValues(args: {
         options,
       );
       if (normalized === null) continue;
-      const valueJson = serializePropertyValue(normalized);
-      if (existing?.valueJson === valueJson) continue;
-      upsertsByDocumentAndProperty.set(key, {
-        id: existing?.id ?? nanoid(),
-        ownerEmail: existing?.ownerEmail ?? args.database.ownerEmail,
+      desired.set(key, {
         documentId: row.documentId,
         propertyId,
-        valueJson,
-        createdAt: existing?.createdAt ?? args.now,
-        updatedAt: args.now,
+        valueJson: serializePropertyValue(normalized),
       });
     }
     if (!previousSourceValues) continue;
@@ -7121,39 +7209,95 @@ export async function materializeSourceFieldPropertyValues(args: {
       stableValueString(nextSourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY]) !==
       stableValueString(sourceValues[BUILDER_CMS_EDIT_CONFLICTS_KEY])
     ) {
-      editConflictUpdates.push({
+      editConflicts.push({
         id: row.id,
         value: JSON.stringify(nextSourceValues),
       });
     }
   }
-  for (const batch of chunks(
-    editConflictUpdates,
-    bulkChunkSizeForColumnCount(3),
-  )) {
-    await db
-      .update(schema.contentDatabaseSourceRows)
-      .set({
-        sourceValuesJson: hydrationCaseSql(
-          schema.contentDatabaseSourceRows.id,
-          schema.contentDatabaseSourceRows.sourceValuesJson,
-          batch,
-        ),
-        updatedAt: args.now,
-      })
-      .where(
-        inArray(
-          schema.contentDatabaseSourceRows.id,
-          batch.map((update) => update.id),
-        ),
-      );
+  const values: (typeof schema.documentPropertyValues.$inferInsert)[] = [];
+  for (const [key, want] of desired) {
+    const current = stored.get(key);
+    if (current?.valueJson === want.valueJson) continue;
+    values.push({
+      id: current?.id ?? nanoid(),
+      ownerEmail: current?.ownerEmail ?? args.database.ownerEmail,
+      documentId: want.documentId,
+      propertyId: want.propertyId,
+      valueJson: want.valueJson,
+      createdAt: current?.createdAt ?? args.now,
+      updatedAt: args.now,
+    });
   }
-  for (const chunk of chunks(
-    Array.from(upsertsByDocumentAndProperty.values()),
-    bulkChunkSizeForColumnCount(7),
-  )) {
+  return { values, editConflicts };
+}
+
+type StoredSourceFieldValue = Pick<
+  typeof schema.documentPropertyValues.$inferSelect,
+  "id" | "ownerEmail" | "valueJson" | "createdAt"
+>;
+
+/** Stored values of these properties, keyed by page and property. */
+async function readStoredSourceFieldValues(
+  db: ReturnType<typeof getDb>,
+  propertyIds: string[],
+  documentIds: string[] | null,
+): Promise<Map<string, StoredSourceFieldValue>> {
+  const values = schema.documentPropertyValues;
+  const columns = {
+    id: values.id,
+    ownerEmail: values.ownerEmail,
+    documentId: values.documentId,
+    propertyId: values.propertyId,
+    valueJson: values.valueJson,
+    createdAt: values.createdAt,
+  };
+  const rows: Array<
+    StoredSourceFieldValue & { documentId: string; propertyId: string }
+  > = [];
+  const chunkSize = documentIds
+    ? bulkChunkSizeForColumnCount(2)
+    : idChunkSize();
+  for (const propertyIdChunk of chunks(propertyIds, chunkSize)) {
+    if (!documentIds) {
+      rows.push(
+        ...(await db
+          .select(columns)
+          .from(values)
+          .where(inArray(values.propertyId, propertyIdChunk))),
+      );
+      continue;
+    }
+    for (const documentIdChunk of chunks(documentIds, chunkSize)) {
+      rows.push(
+        ...(await db
+          .select(columns)
+          .from(values)
+          .where(
+            and(
+              inArray(values.propertyId, propertyIdChunk),
+              inArray(values.documentId, documentIdChunk),
+            ),
+          )),
+      );
+    }
+  }
+  return new Map(
+    rows.map((row) => [`${row.documentId}\0${row.propertyId}`, row]),
+  );
+}
+
+/**
+ * Writes source-managed values in chunked upserts. Pass each existing value's
+ * own id, so a value already stored is updated in place.
+ */
+async function upsertSourcePropertyValues(
+  tx: ReturnType<typeof getDb>,
+  upserts: (typeof schema.documentPropertyValues.$inferInsert)[],
+) {
+  for (const chunk of chunks(upserts, bulkChunkSizeForColumnCount(7))) {
     if (chunk.length === 0) continue;
-    await db
+    await tx
       .insert(schema.documentPropertyValues)
       .values(chunk)
       .onConflictDoUpdate({
@@ -8583,7 +8727,7 @@ export async function storeSecondarySourceRows(args: {
     await tx
       .delete(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-    const [source] = await tx
+    const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, args.sourceId));
@@ -8608,8 +8752,8 @@ export async function storeSecondarySourceRows(args: {
           entry.id || index + 1
         }`,
         sourceDisplayKey:
-          entry.title?.trim() || `${args.sourceTable}-${index + 1}`,
-        sourceValuesJson: JSON.stringify(entry.sourceValues ?? {}),
+          entry.title.trim() || `${args.sourceTable}-${index + 1}`,
+        sourceValuesJson: JSON.stringify(entry.sourceValues),
         provenance:
           args.sourceType === "notion-database"
             ? "Notion database read adapter"
@@ -8737,11 +8881,11 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   message: string | null;
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
-  activeReadSourceRowIds?: string[];
+  activeReadSourceRowIds?: string[] | undefined;
   syncState?: ContentDatabaseSourceSyncState;
-  builderModelFields?: BuilderCmsModelFieldSummary[];
+  builderModelFields?: BuilderCmsModelFieldSummary[] | undefined;
   suspiciousEmpty?: boolean;
-  refreshClaimId?: string;
+  refreshClaimId?: string | undefined;
 }) {
   const db = getDb();
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -8929,6 +9073,11 @@ const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
   "red",
 ];
 
+/** A new source's color, cycling through the palette. */
+function sourceOptionColor(index: number): DocumentPropertyOptionColor {
+  return SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length] ?? "gray";
+}
+
 export function sourcePropertyOptionsForSources(
   sources: Array<{ id: string; sourceName: string }>,
   priorOptions: DocumentPropertyOption[],
@@ -8942,9 +9091,7 @@ export function sourcePropertyOptionsForSources(
     ...sources.map((source, index) => ({
       id: source.id,
       name: source.sourceName,
-      color:
-        priorById.get(source.id)?.color ??
-        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+      color: priorById.get(source.id)?.color ?? sourceOptionColor(index),
       ...retainDescription(source.id),
     })),
     {
@@ -8969,14 +9116,7 @@ export async function ensureDatabaseSourceProperty(args: {
     return;
   }
   const db = getDb();
-  const sources = await db
-    .select({
-      id: schema.contentDatabaseSources.id,
-      sourceName: schema.contentDatabaseSources.sourceName,
-    })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+  const sources = await readDatabaseSourceNames(db, args.database.id);
   if (sources.length < 2) return;
 
   const [existing] = await db
@@ -8990,19 +9130,9 @@ export async function ensureDatabaseSourceProperty(args: {
       ),
     );
 
-  const priorOptions = existing
-    ? (parsePropertyOptions(existing.optionsJson).options ?? [])
-    : [];
-  const options = sourcePropertyOptionsForSources(sources, priorOptions);
-  const optionsJson = serializePropertyOptions({ options });
-
   let propertyId: string;
   if (existing) {
     propertyId = existing.id;
-    await db
-      .update(schema.documentPropertyDefinitions)
-      .set({ optionsJson, updatedAt: args.now })
-      .where(eq(schema.documentPropertyDefinitions.id, existing.id));
   } else {
     propertyId = crypto.randomUUID();
     await withPositionLock(
@@ -9022,7 +9152,9 @@ export async function ensureDatabaseSourceProperty(args: {
           name: SOURCE_PROPERTY_NAME,
           type: "select",
           visibility: "always_show",
-          optionsJson,
+          optionsJson: serializePropertyOptions({
+            options: sourcePropertyOptionsForSources(sources, []),
+          }),
           position: nextAppendPosition(maxPos?.max),
           createdAt: args.now,
           updatedAt: args.now,
@@ -9031,58 +9163,173 @@ export async function ensureDatabaseSourceProperty(args: {
     );
   }
 
-  const rows = await db
-    .select({
-      documentId: schema.contentDatabaseSourceRows.documentId,
-      sourceId: schema.contentDatabaseSourceRows.sourceId,
-    })
-    .from(schema.contentDatabaseSourceRows)
-    .where(
-      inArray(
-        schema.contentDatabaseSourceRows.sourceId,
-        sources.map((source) => source.id),
-      ),
+  // As in materializeSourceFieldPropertyValues, the scan runs without the
+  // lock and only finds the rows to look at. Under the lock the column's
+  // options and those rows' Source are both worked out again from the
+  // sources, links and memberships as they are now. So a row moved to another
+  // source, or one whose source was attached, since the scan isn't set back,
+  // and every Source value has its option. A row the scan found correct can
+  // still move before the lock, so the scan runs again after each locked pass,
+  // until one finds nothing to change. The options are set first, under the
+  // lock, so a fill always ends on such a scan, and a move after it waits for
+  // the next fill, like one made after this fill returns.
+  if (!(await lockedSourcePropertyPass(args, propertyId, []))) return;
+  for (let pass = 0; pass < SOURCE_FILL_MAX_PASSES; pass += 1) {
+    const scanSources = await readDatabaseSourceNames(db, args.database.id);
+    if (scanSources.length < 2) return;
+    const candidates = await sourcePropertyWrites(
+      db,
+      args,
+      propertyId,
+      scanSources,
+      null,
     );
-  const ownerSourceIdByDocumentId = new Map<string, string>();
-  for (const row of rows) {
-    if (row.documentId)
-      ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
+    if (candidates.length === 0) return;
+    const stillFilled = await lockedSourcePropertyPass(
+      args,
+      propertyId,
+      candidates.map((write) => write.documentId),
+    );
+    if (!stillFilled) return;
   }
+}
 
-  const items = await db
-    .select({ documentId: schema.contentDatabaseItems.documentId })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
-  for (const item of items) {
-    const optionId =
-      ownerSourceIdByDocumentId.get(item.documentId) ?? SOURCE_LOCAL_OPTION_ID;
-    const valueJson = serializePropertyValue(optionId);
-    const [existingValue] = await db
-      .select({ id: schema.documentPropertyValues.id })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, item.documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
+/** Scans the Source fill makes before it leaves later moves to the next fill. */
+const SOURCE_FILL_MAX_PASSES = 3;
+
+/**
+ * Under the collection's lock, sets the Source column's options and these
+ * rows' Source from the sources as they are now. False when the collection
+ * no longer has two sources or the column is gone, so nothing was written.
+ */
+async function lockedSourcePropertyPass(
+  args: { database: ContentDatabaseRow; now: string },
+  propertyId: string,
+  documentIds: string[],
+): Promise<boolean> {
+  return getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    await lockContentDatabaseMutation(tx, args.database.id);
+    const currentSources = await readDatabaseSourceNames(tx, args.database.id);
+    if (currentSources.length < 2) return false;
+    const definitions = schema.documentPropertyDefinitions;
+    const definition = firstRow(
+      await tx
+        .select({ optionsJson: definitions.optionsJson })
+        .from(definitions)
+        .where(eq(definitions.id, propertyId)),
+    );
+    if (!definition) return false;
+    await tx
+      .update(definitions)
+      .set({
+        optionsJson: serializePropertyOptions({
+          options: sourcePropertyOptionsForSources(
+            currentSources,
+            parsePropertyOptions(definition.optionsJson).options ?? [],
+          ),
+        }),
+        updatedAt: args.now,
+      })
+      .where(eq(definitions.id, propertyId));
+    if (documentIds.length > 0) {
+      await upsertSourcePropertyValues(
+        tx,
+        await sourcePropertyWrites(
+          tx,
+          args,
+          propertyId,
+          currentSources,
+          documentIds,
         ),
       );
-    if (existingValue) {
-      await db
-        .update(schema.documentPropertyValues)
-        .set({ valueJson, updatedAt: args.now })
-        .where(eq(schema.documentPropertyValues.id, existingValue.id));
-    } else {
-      await db.insert(schema.documentPropertyValues).values({
-        id: crypto.randomUUID(),
-        ownerEmail: args.database.ownerEmail,
-        documentId: item.documentId,
+    }
+    return true;
+  });
+}
+
+/** A collection's sources, oldest first, as the Source column lists them. */
+function readDatabaseSourceNames(
+  db: ReturnType<typeof getDb>,
+  databaseId: string,
+) {
+  return db
+    .select({
+      id: schema.contentDatabaseSources.id,
+      sourceName: schema.contentDatabaseSources.sourceName,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+}
+
+/**
+ * The writes that would set these rows' Source, every row's when documentIds
+ * is null: the source that owns the row, else Local.
+ */
+async function sourcePropertyWrites(
+  db: ReturnType<typeof getDb>,
+  args: { database: ContentDatabaseRow; now: string },
+  propertyId: string,
+  sources: Array<{ id: string }>,
+  documentIds: string[] | null,
+): Promise<(typeof schema.documentPropertyValues.$inferInsert)[]> {
+  const links = schema.contentDatabaseSourceRows;
+  const items = schema.contentDatabaseItems;
+  const ownerSourceIdByDocumentId = new Map<string, string>();
+  const memberIds: string[] = [];
+  for (const idChunk of documentIds
+    ? chunks(documentIds, idChunkSize())
+    : [null]) {
+    for (const link of await db
+      .select({ documentId: links.documentId, sourceId: links.sourceId })
+      .from(links)
+      .where(
+        and(
+          inArray(
+            links.sourceId,
+            sources.map((source) => source.id),
+          ),
+          idChunk ? inArray(links.documentId, idChunk) : undefined,
+        ),
+      )) {
+      if (link.documentId)
+        ownerSourceIdByDocumentId.set(link.documentId, link.sourceId);
+    }
+    for (const item of await db
+      .select({ documentId: items.documentId })
+      .from(items)
+      .where(
+        and(
+          eq(items.databaseId, args.database.id),
+          idChunk ? inArray(items.documentId, idChunk) : undefined,
+        ),
+      ))
+      memberIds.push(item.documentId);
+  }
+  const stored = await readStoredSourceFieldValues(
+    db,
+    [propertyId],
+    documentIds,
+  );
+  return memberIds.flatMap((documentId) => {
+    const valueJson = serializePropertyValue(
+      ownerSourceIdByDocumentId.get(documentId) ?? SOURCE_LOCAL_OPTION_ID,
+    );
+    const current = stored.get(`${documentId}\0${propertyId}`);
+    if (current?.valueJson === valueJson) return [];
+    return [
+      {
+        id: current?.id ?? crypto.randomUUID(),
+        ownerEmail: current?.ownerEmail ?? args.database.ownerEmail,
+        documentId,
         propertyId,
         valueJson,
-        createdAt: args.now,
+        createdAt: current?.createdAt ?? args.now,
         updatedAt: args.now,
-      });
-    }
-  }
+      },
+    ];
+  });
 }
 
 export async function getSourceRows(sourceId: string) {

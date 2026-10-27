@@ -155,9 +155,8 @@ export function builderEntryStatusLockedReason(
 export function builderEntryStatusChoices(
   targets: BuilderEntryStatusTarget[],
 ): BuilderEntryStatusChoice[] | null {
-  if (targets.length !== 1) return null;
-  const [target] = targets;
-  if (builderEntryStatusLockedReason(target)) return null;
+  const target = targets.length === 1 ? targets[0] : null;
+  if (!target || builderEntryStatusLockedReason(target)) return null;
   const sourceValues = parseBuilderEntrySourceValues(
     target.row.sourceValuesJson,
   );
@@ -202,7 +201,7 @@ export async function clearStagedBuilderPublicationChanges(args: {
     );
     // The setting is saved before this runs, so it can be turned back on and
     // a new pick staged first. Staging takes the same locks in this order.
-    const [source] = await tx
+    const [source = null] = await tx
       .select({
         capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
         metadataJson: schema.contentDatabaseSources.metadataJson,

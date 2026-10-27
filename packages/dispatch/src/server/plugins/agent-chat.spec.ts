@@ -30,6 +30,7 @@ describe("Dispatch agent chat plugin", () => {
           "list-dispatch-usage-metrics",
         ]),
         mcp: {
+          appApprovalPage: true,
           connectorCatalog: expect.arrayContaining([
             "start-workspace-app-creation",
             "list-dispatch-usage-metrics",

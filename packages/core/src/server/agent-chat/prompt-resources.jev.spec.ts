@@ -74,7 +74,10 @@ vi.mock("../../resources/store.js", () => ({
   ensurePersonalDefaults: vi.fn(),
 }));
 vi.mock("../../framework-tools.js", () => ({
-  frameworkGroupEnabled: () => true,
+  frameworkGroupEnabled: (
+    disabled: ReadonlySet<string> | undefined,
+    group: string,
+  ) => !disabled?.has(group),
 }));
 vi.mock("../../tracking/registry.js", () => ({ track: mocks.track }));
 vi.mock("../agent-discovery.js", () => ({
@@ -129,6 +132,78 @@ describe("preloadJevContextForPrompt", () => {
       agents: [],
       directory: { status: "available" },
     });
+  });
+
+  it.each([false, true])(
+    "projects delegated resource context without dead runtime hints (compact: %s)",
+    async (compact) => {
+      const owner = "user@example.test";
+      mocks.loadAgentsBundle.mockResolvedValue({
+        skills: {},
+        agentsMd: "",
+        runtimeAgentsMd: "STATIC_APP_RULE ".repeat(5_000),
+      });
+      mocks.resourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          path === "memory/INSTRUCTIONS.md"
+            ? { content: "PERSONAL_MEMORY_RULE ".repeat(5_000) }
+            : null,
+      );
+      const instruction = {
+        id: "instruction",
+        owner,
+        path: "instructions/workflow.md",
+        mimeType: "text/markdown",
+      };
+      mocks.resourceList.mockImplementation(
+        async (resourceOwner: string, prefix?: string) =>
+          resourceOwner === owner && prefix === "instructions/"
+            ? [instruction]
+            : [],
+      );
+      mocks.resourceGet.mockResolvedValue({
+        ...instruction,
+        content: "EAGER_WORKFLOW_RULE",
+      });
+
+      const prompt = await loadResourcesForPrompt(
+        owner,
+        compact,
+        undefined,
+        null,
+        {
+          runtimeToolHints: false,
+          skillReadTool: "docs-search",
+          disabledFrameworkGroups: new Set(["workspaceApps"]),
+        },
+      );
+      expect(prompt).toContain("STATIC_APP_RULE");
+      expect(prompt).toContain('docs-search --slug "agents-template"');
+      expect(prompt).toContain("PERSONAL_MEMORY_RULE");
+      expect(prompt).toContain("EAGER_WORKFLOW_RULE");
+      expect(prompt).not.toContain("`resources`");
+      expect(prompt).not.toContain("<instruction-resources");
+      expect(prompt).not.toContain("<workspace-resources");
+      expect(prompt).not.toContain("<available-apps>");
+      expect(prompt).not.toContain("call-agent");
+    },
+  );
+
+  it("includes bundled skill text eagerly when a delegated registry has no static reader", async () => {
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      null,
+      {
+        runtimeToolHints: false,
+        skillReadTool: null,
+        disabledFrameworkGroups: new Set(["workspaceApps"]),
+      },
+    );
+    expect(prompt).toContain("Lead with the customer outcome.");
+    expect(prompt).not.toContain("docs-search");
+    expect(prompt).not.toContain("`resources`");
   });
 
   it("ranks workspace apps deterministically before applying the 30-app prompt limit", async () => {
@@ -355,7 +430,7 @@ describe("preloadJevContextForPrompt", () => {
         request,
         appRequest: request,
         selfAppId,
-        apiKey: "jev-test-key",
+        directApiKey: "org-jev-test-key",
       });
 
       expect(result.appSelection?.selectedIds.slice(0, 3)).toContain("qr");
@@ -365,6 +440,7 @@ describe("preloadJevContextForPrompt", () => {
           request,
           candidateStateKey: "candidate_app",
           answerKey: "best_app",
+          directApiKey: "org-jev-test-key",
         }),
       );
     },

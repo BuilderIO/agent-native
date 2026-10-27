@@ -1,5 +1,5 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import type { ActionAutomationContext, ActionCaller } from "../action.js";
+import { type ActionAutomationContext, type ActionCaller } from "../action.js";
 import {
   CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -45,6 +45,7 @@ import {
   markAgentExecutionStepDispatched,
   insertRun,
   tryClaimRunSlot,
+  retryRunThreadProjection,
   releaseBackgroundRunBeforeStart,
   type AgentExecutionStepIntent,
 } from "../agent/run-store.js";
@@ -84,6 +85,7 @@ import {
 import { withDbExec, type DbExec } from "../db/client.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import { isFrameworkRuntimeAction } from "../mcp/action-eligibility.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -117,6 +119,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryProjectionDeferredError,
   AutomationRecoveryStorageError,
   deliveryNoteForEvents,
   readAutomationRecoveryEvents,
@@ -646,6 +649,7 @@ export async function runBackgroundAutomation(
     if (
       err instanceof StaleExecutionFenceError ||
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
       err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
         (err.errorCode === "background_automation_claim_lost" ||
@@ -798,6 +802,15 @@ export async function runJobRunner(
   let hardTimer: ReturnType<typeof setTimeout> | undefined;
   let result: JobRunnerResult;
   try {
+    if (automation.meta.mcpManaged) {
+      const messages = await automationOutcomeMessagesForUser(
+        options.ownerEmail,
+      );
+      throw new BackgroundAutomationRunError(
+        messages.mcpApprovalUnavailable,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
     const runner = getJobRunner(runnerId);
     if (!runner)
       throw new BackgroundAutomationRunError(
@@ -860,6 +873,8 @@ export async function runJobRunner(
   } catch (err) {
     if (
       err instanceof AutomationSchedulerLeaseLostError ||
+      err instanceof AutomationRecoveryProjectionDeferredError ||
+      err instanceof AutomationRecoveryStorageError ||
       (err instanceof BackgroundAutomationRunError &&
         err.errorCode === "background_automation_history_write_failed")
     )
@@ -1224,6 +1239,7 @@ async function confirmAutomationWork(
       );
     }
 
+    await assertConfiguredDeliveryAllowed(automation, ownerEmail);
     await markAgentExecutionStepDispatched(deliveryIntent);
     await adapter.sendMessageToTarget(outgoing, target);
     await completeAgentExecutionStep(
@@ -1254,9 +1270,11 @@ async function confirmAutomationWork(
  */
 async function assertDeliveryTargetSupported(
   automation: BackgroundAutomationContext,
+  ownerEmail: string,
 ): Promise<void> {
   const { deliveryPlatform, deliveryDestination } = automation.meta;
   if (!deliveryPlatform || !deliveryDestination) return;
+  await assertConfiguredDeliveryAllowed(automation, ownerEmail);
   const { getDefaultAdapter } =
     await import("../integrations/adapters/index.js");
   if (!getDefaultAdapter(deliveryPlatform)?.sendMessageToTarget) {
@@ -1265,6 +1283,18 @@ async function assertDeliveryTargetSupported(
       CONFIG_INVALID_ERROR_CODE,
     );
   }
+}
+
+async function assertConfiguredDeliveryAllowed(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+): Promise<void> {
+  if (!automation.meta.mcpManaged) return;
+  const messages = await automationOutcomeMessagesForUser(ownerEmail);
+  throw new BackgroundAutomationRunError(
+    messages.mcpApprovalUnavailable,
+    CONFIG_INVALID_ERROR_CODE,
+  );
 }
 
 async function resolveUsableBackgroundEngine(
@@ -1377,8 +1407,23 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       let noOpReason: string | undefined;
       const messages = await automationOutcomeMessagesForUser(ownerEmail);
+      const registeredActions = await deps.getActions(automation);
       const baseActions: Record<string, ActionEntry> = {
-        ...(await deps.getActions(automation)),
+        ...(automation.meta.mcpManaged
+          ? Object.fromEntries(
+              Object.entries(registeredActions)
+                .filter(
+                  ([name, entry]) =>
+                    entry.agentTool !== false &&
+                    entry.uiOnly !== true &&
+                    !isFrameworkRuntimeAction(name, entry),
+                )
+                .map(([name, entry]) => [
+                  name,
+                  { ...entry, allowPersistentApproval: false },
+                ]),
+            )
+          : registeredActions),
         [AUTOMATION_NO_OP_TOOL]: {
           ...automationNoOpAction,
           agentTool: true,
@@ -1426,14 +1471,15 @@ async function executeBackgroundAutomation(
       ) {
         initialToolNames.push(AUTOMATION_NO_OP_TOOL);
       }
-      const actions = initialToolNames
-        ? attachToolSearch({ ...baseActions })
-        : baseActions;
+      const actions =
+        initialToolNames || automation.meta.mcpManaged
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
       const availableTools = actionsToEngineTools(actions);
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       assertHardDeadline(options.hardDeadlineAt);
-      await assertDeliveryTargetSupported(automation);
+      await assertDeliveryTargetSupported(automation, ownerEmail);
       const engine = await resolveUsableBackgroundEngine(
         { ownerEmail, orgId },
         deps,
@@ -1461,11 +1507,30 @@ async function executeBackgroundAutomation(
       const systemPrompt = `${baseSystemPrompt}${workspaceAppContext ? `\n\n${workspaceAppContext}` : ""}\n\n${messages.noOpInstruction}`;
       assertHardDeadline(options.hardDeadlineAt);
       const resume = options.resume;
+      if (resume) {
+        const projection = await withAutomationRecoveryStorage(() =>
+          retryRunThreadProjection(resume.previousRunId),
+        );
+        switch (projection.state) {
+          case "deferred":
+            throw new AutomationRecoveryProjectionDeferredError(
+              resume.previousRunId,
+            );
+          case "untracked":
+            // Inspection found this run before retention pruned its cleared
+            // projection marker; a pending marker prevents that pruning.
+            break;
+          case "projected":
+          case "already_projected":
+            break;
+        }
+      }
       const thread = resume
         ? await withAutomationRecoveryStorage(() => getThread(resume.threadId))
         : await createThread(ownerEmail, {
             title: threadTitle,
             orgId: orgId ?? null,
+            ...(deps.appId ? { source: { appId: deps.appId } } : {}),
           });
       if (!thread)
         throw new Error(
@@ -1716,7 +1781,10 @@ async function executeBackgroundAutomation(
               ownerEmail,
               orgId,
               appId: deps.appId,
-              actionCaller: options.actionCaller,
+              actionCaller: automation.meta.mcpManaged
+                ? "mcp"
+                : options.actionCaller,
+              requireWriteApproval: automation.meta.mcpManaged === true,
               automation: options.actionAutomation,
               ...(options.resume
                 ? { recoverCompletedExecutionSteps: true }

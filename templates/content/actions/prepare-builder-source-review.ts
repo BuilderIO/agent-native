@@ -459,7 +459,7 @@ async function approveChangeSetForReview(args: {
         ),
       )
     : args.changeSet.id;
-  const [inserted] = await db
+  const [inserted = null] = await db
     .insert(schema.contentDatabaseSourceChangeSets)
     .values({
       id: changeSetId,
@@ -485,7 +485,7 @@ async function approveChangeSetForReview(args: {
   if (!inserted) {
     // A review prepared at the same time for the same payload picks the same
     // id, so its approval stands for this one.
-    const [concurrent] = await db
+    const [concurrent = null] = await db
       .select()
       .from(schema.contentDatabaseSourceChangeSets)
       .where(

@@ -173,7 +173,7 @@ describe("DesktopTerminalSurface", () => {
       null,
     );
     expect(providerItem?.classList.contains("gap-2")).toBe(true);
-    expect(providerItem?.querySelector("svg.ms-auto")).not.toBeNull();
+    expect(providerItem?.querySelector(".ms-auto > svg")).not.toBeNull();
     expect(
       Array.from(
         document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),

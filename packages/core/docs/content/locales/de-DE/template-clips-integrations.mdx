@@ -157,49 +157,9 @@ Sobald Ihr Arbeitsbereich Brain verbindet, sendet Clips fertige Transkripte auto
 
 ### CRM-Anrufnachweise
 
-CRM-Tools benötigen manchmal einen Nachweis, dass ein Anruf stattgefunden hat, ohne die vollständige Aufnahme. Clips gibt nur eine intransparente Clip-ID und einen dauerhaften Link weiter, niemals das Video oder ein Transkript. Das funktioniert nur für eine Aufnahme, die Sie bereits sehen können, und nur, wenn Sie danach fragen oder eine genehmigte Automatisierung es auslöst.
+CRM-Tools benötigen manchmal einen Nachweis, dass ein Anruf stattgefunden hat, ohne die vollständige Aufnahme. Clips gibt nur eine intransparente Clip-ID und einen dauerhaften Link weiter, niemals das Video oder ein Transkript. Das funktioniert nur für eine Aufnahme, die Sie bereits sehen können, und nur, wenn Sie danach fragen.
 
-<Diagram id="doc-block-clips-crm" title="CRM-Anrufnachweis" summary={"Eine clip.created-Automatisierung übergibt einem CRM-Workflow einen dauerhaften Link, niemals die Mediendatei selbst."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Aufnahme fertig</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted"
-      >genehmigte Automatisierung</small
-    >
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Nachweislink</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM-Datensatz</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+Das Einrichten von Anrufautomatisierungen von CRM zu Clips ist noch nicht verfügbar.
 
 ### Delegation in natürlicher Sprache über Dispatch
 

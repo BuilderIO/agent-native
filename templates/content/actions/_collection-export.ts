@@ -1,5 +1,8 @@
 import { fail } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestTimezone,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
@@ -14,7 +17,10 @@ import type {
   CollectionExportRecord,
 } from "../shared/database-collection-export.js";
 import { databasePropertyValueText } from "../shared/database-csv-export.js";
-import { applyContentDatabaseTableQuery } from "../shared/database-query.js";
+import {
+  applyContentDatabaseTableQuery,
+  contentDatabaseFilterToday,
+} from "../shared/database-query.js";
 import {
   evaluatePropertyFormula,
   formulaValueText,
@@ -766,6 +772,8 @@ export async function buildCollectionExportProjection(
     ...(personalQuery ? [personalQuery] : []),
     ...(transientQuery ? [{ ...transientQuery, sorts: [] }] : []),
   ];
+  const timeZone = getRequestTimezone();
+  const today = contentDatabaseFilterToday(timeZone);
   const assertBodiesReady = (
     items: ContentDatabaseItem[],
     itemCandidates: Candidate[],
@@ -819,6 +827,7 @@ export async function buildCollectionExportProjection(
         pageItems,
         requiredProperties,
         { ...query, sorts: [] },
+        { today, timeZone },
       );
     }
     const remainingIds = new Set(pageItems.map((item) => item.document.id));

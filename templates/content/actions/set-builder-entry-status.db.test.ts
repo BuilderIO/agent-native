@@ -15,7 +15,13 @@ import {
 } from "./_builder-cms-unpublished-changes";
 
 const membershipLock = vi.hoisted(() => ({
-  beforeNextLock: null as null | ((tx: any) => Promise<void>),
+  beforeNextLock: null as
+    | null
+    | ((
+        tx: Parameters<
+          typeof import("./_database-membership-lock.js").lockDatabaseMemberships
+        >[0],
+      ) => Promise<void>),
 }));
 
 vi.mock("./_database-membership-lock.js", async (importOriginal) => {
@@ -23,11 +29,13 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
     await importOriginal<typeof import("./_database-membership-lock.js")>();
   return {
     ...actual,
-    async lockDatabaseMemberships(tx: any, itemIds: string[]) {
+    async lockDatabaseMemberships(
+      ...args: Parameters<typeof actual.lockDatabaseMemberships>
+    ) {
       const beforeLock = membershipLock.beforeNextLock;
       membershipLock.beforeNextLock = null;
-      await beforeLock?.(tx);
-      return actual.lockDatabaseMemberships(tx, itemIds);
+      await beforeLock?.(args[0]);
+      return actual.lockDatabaseMemberships(...args);
     },
   };
 });
@@ -47,7 +55,7 @@ const TRANSITIONS_ON = JSON.stringify({
   allowPublicationTransitions: true,
 });
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let utils: typeof import("./_database-source-utils.js");
 let statusModule: typeof import("./_builder-status-property.js");
@@ -82,7 +90,9 @@ function entry(
   documentId: string,
   sourceValues: BuilderCmsSourceEntry["sourceValues"],
 ): [string, BuilderCmsSourceEntry] {
-  const title = rows.find((row) => row.documentId === documentId)!.title;
+  const fixture = rows.find((row) => row.documentId === documentId);
+  if (!fixture) throw new Error(`No fixture row for ${documentId}`);
+  const title = fixture.title;
   return [
     documentId,
     {
@@ -208,7 +218,7 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
-  await plugin(undefined as any);
+  await plugin(undefined as never);
   utils = await import("./_database-source-utils.js");
   statusModule = await import("./_builder-status-property.js");
   setStatus = (await import("./set-builder-entry-status.js")).default;
@@ -496,11 +506,11 @@ it("gives a repeated publish or unpublish a review id of its own", async () => {
   try {
     for (let push = 0; push < 3; push += 1) {
       const id = await reviewedId();
-      expect(id).toBeTruthy();
+      if (!id) throw new Error("No reviewed change set to push.");
       expect(pushed).not.toContain(id);
-      pushed.push(id!);
+      pushed.push(id);
       await db.insert(schema.contentDatabaseSourceChangeSets).values({
-        id: id!,
+        id,
         ownerEmail: OWNER,
         sourceId: SOURCE_ID,
         databaseItemId: "item_doc_entry_draft",
@@ -545,9 +555,11 @@ it("blocks an approved publish-only push once its pick is cleared", async () => 
       (candidate) => candidate.id === approvedId,
     );
     expect(changeSet?.state).toBe("approved");
+    if (!snapshot || !changeSet)
+      throw new Error("The approved push left the source.");
     return buildBuilderCmsExecutionPlan({
-      source: snapshot!,
-      changeSet: changeSet!,
+      source: snapshot,
+      changeSet,
       publicationTransition: "publish",
     }).payload.safety.blockers;
   };

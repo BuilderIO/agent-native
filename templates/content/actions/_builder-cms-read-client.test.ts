@@ -2653,8 +2653,10 @@ describe("Builder CMS read client", () => {
       // An empty body Builder returned, which the save records as such.
       "__builder.body.blockCount": 0,
     });
-    const fields =
-      fetchImpl.mock.calls[0]![0].searchParams.get("fields")!.split(",");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const fields = (
+      fetchImpl.mock.lastCall?.[0].searchParams.get("fields") ?? ""
+    ).split(",");
     expect(fields).toEqual(
       expect.arrayContaining([
         "data.blurb",

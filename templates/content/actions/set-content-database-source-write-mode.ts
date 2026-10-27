@@ -99,7 +99,7 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
-    let allowPublicationTransitions = false;
+    let allowPublicationTransitions = false as boolean;
     await mutateContentDatabaseSourceMetadata({
       sourceId: source.id,
       now,

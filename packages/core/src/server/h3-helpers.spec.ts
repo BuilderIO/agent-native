@@ -90,6 +90,16 @@ describe("readBodyWithSizeLimit", () => {
     expect(event.res.status).toBe(413);
   });
 
+  it("measures streamed bytes when Content-Length understates the body", async () => {
+    const event = eventWithJsonBody('{"ok":true}') as any;
+    event.req.headers.set("content-length", "1");
+
+    await expect(readBodyWithSizeLimit(event, 8)).rejects.toMatchObject({
+      statusCode: 413,
+    });
+    expect(event.res.status).toBe(413);
+  });
+
   it("parses a streamed JSON body within the byte cap", async () => {
     const event = eventWithJsonBody('{"ok":true}');
 

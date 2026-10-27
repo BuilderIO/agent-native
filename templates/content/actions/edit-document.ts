@@ -20,10 +20,15 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import {
@@ -468,6 +473,7 @@ export default defineAction({
       );
       return { applied: 0, total: edits.length, results };
     }
+    assertNoNewlySharedVideoIds(existing.content, content);
 
     let linkedLocalPersistence:
       | {
@@ -599,6 +605,12 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        // The page may have switched since its write path was checked.
+        await lockLegacyBodyWrites(tx, [id], {
+          operation: "edit-document",
+          routed: !isLinkedLocalSource,
+          content: null,
+        });
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -622,8 +634,9 @@ export default defineAction({
             .from(schema.documents)
             .where(eq(schema.documents.id, id));
           assertEditableDocument(current);
-          throw new Error(
-            "The document changed before Content history could be updated.",
+          throw new ActionContractError(
+            "The document changed before this edit could be written. Read it again and retry.",
+            { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
         for (const field of primaryBlocksFields) {
@@ -663,6 +676,22 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      if (isUnsupportedBodyWriter(error)) {
+        // The page left its file and took its live copy while the file took
+        // the edit, so the file has it and the page doesn't.
+        throw new ActionContractError(
+          `Wrote this edit to local file ${linkedLocalPersistence.path}, but page ${id} now takes body writes through its live copy, so the page doesn't have it.`,
+          {
+            errorCode: error.errorCode,
+            statusCode: 409,
+            details: {
+              documentId: id,
+              operation: "edit-document",
+              sourcePath: linkedLocalPersistence.path,
+            },
+          },
+        );
+      }
       countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,

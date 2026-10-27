@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { BubbleMenuView } from "@tiptap/extension-bubble-menu";
 import type { Transaction } from "@tiptap/pm/state";
-import { Editor } from "@tiptap/react";
+import { Editor, Node } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -26,6 +26,11 @@ import {
   NotionSpanMark,
 } from "./extensions/NotionExtensions";
 import { isLocalEditorEdit } from "./VisualEditor";
+
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -376,6 +381,42 @@ describe("BubbleToolbar", () => {
     expect(onComment).toHaveBeenCalledOnce();
     expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
     expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+  });
+
+  it("quotes a selection across paragraphs as its anchor text", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Alpha ends here.</p><p>Bravo starts</p>",
+    });
+    editor.commands.setTextSelection({ from: 12, to: 24 });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(<BubbleToolbar editor={editor!} onComment={onComment} />),
+    );
+    act(() => {
+      editor!.view.dom.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onComment).toHaveBeenCalledOnce();
+    const [quotedText, , anchor, range] = onComment.mock.calls[0]!;
+    // The highlight's text, which the comment card checks the quote against.
+    expect(quotedText).toBe("here.Bravo");
+    expect(anchor.quotedText).toBe(quotedText);
+    expect(range).toEqual({ from: 12, to: 24 });
   });
 
   it("offers only Comment for text selected on a read-only page", () => {
@@ -990,6 +1031,42 @@ describe("BubbleToolbar", () => {
     expect(
       editor.state.doc.nodeAt(1)?.marks.map((mark) => mark.type.name),
     ).toEqual(["notionSpan", "code"]);
+  });
+
+  it("stays hidden while a registry block is selected", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    const RegistryBlock = Node.create({
+      name: "registryBlock",
+      group: "block",
+      atom: true,
+      selectable: true,
+      parseHTML: () => [{ tag: "div[data-registry-block]" }],
+      renderHTML: () => ["div", { "data-registry-block": "" }],
+    });
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, RegistryBlock],
+      content: "<p>Notes</p><div data-registry-block></div>",
+    });
+    const toolbarButton = document.createElement("button");
+    toolbarElement.append(toolbarButton);
+    toolbarButton.focus();
+    const shows = (from: number, to: number) =>
+      shouldShowBubbleToolbar({
+        editor: defined(editor),
+        element: defined(toolbarElement),
+        state: defined(editor).state,
+        from,
+        to,
+      });
+
+    expect(shows(1, 6)).toBe(true);
+    editor.commands.setNodeSelection(7);
+    expect(shows(editor.state.selection.from, editor.state.selection.to)).toBe(
+      false,
+    );
   });
 
   it("hides the color control when a selection contains no text", () => {

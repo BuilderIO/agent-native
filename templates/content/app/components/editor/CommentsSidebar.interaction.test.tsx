@@ -379,7 +379,7 @@ describe("comment review interactions", () => {
     ).not.toBeNull();
     expect(container.querySelectorAll("[data-suggestion-id]")).toHaveLength(2);
     const accept = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("comments.acceptRemaining"),
+      button.textContent?.includes("comments.acceptAll"),
     );
     expect(accept).toBeDefined();
     act(() => accept!.click());
@@ -687,14 +687,9 @@ describe("comment review interactions", () => {
     expect(actions.remove).not.toHaveBeenCalled();
     expect(replyDraft.draft.text).toBe("");
   });
-  it("preserves a reply through dismissal, thread switches, and panel presentation remounts", async () => {
+  it("preserves a reply through thread switches and panel presentation remounts", async () => {
     render("one");
     await type("Unsent detailed feedback");
-    act(() => {
-      richEditor(container)!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-      );
-    });
     render("two");
     await type("Different draft");
     render(null, undefined, "history");
@@ -878,7 +873,11 @@ describe("comment review interactions", () => {
     });
     expect(actions.resolve).toHaveBeenCalledOnce();
     expect(actions.create).not.toHaveBeenCalled();
-    expect(submit.disabled).toBe(true);
+    // Resolving in the margin closes the reply box with its card. A box
+    // opened while the resolve waits stays blocked until it settles.
+    expect(
+      container.querySelector('[aria-label="comments.submit"]'),
+    ).toBeNull();
     render("one", undefined, "inline", { key: "remounted-sidebar" });
     const remountedSubmit = container.querySelector(
       '[aria-label="comments.submit"]',

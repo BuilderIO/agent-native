@@ -3,7 +3,12 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isMutationScopePath } from "./lib/mutation-scope.ts";
 import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
+
+const EXECUTION_LEASE_MODEL_PREFIX = "verification/execution-lease/";
+const EXECUTION_LEASE_MANIFEST = `${EXECUTION_LEASE_MODEL_PREFIX}manifest.json`;
+const EXECUTION_LEASE_CHECK_SCRIPT = "scripts/verify-execution-lease.ts";
 
 const DOCS_PATH_PREFIXES = [
   "docs/",
@@ -576,6 +581,8 @@ const CHECK_NAMES = [
   "slides_authoring_e2e",
   "slides_oracle",
   "changeset",
+  "verify_execution_lease",
+  "core_mutation",
 ] as const;
 
 const SLOW_APP_CHECKS = [
@@ -792,6 +799,24 @@ export const QUERY_BUDGET_SHARD_COUNT = 2;
 // every one; a template change rebuilds only that template.
 export const SSR_BOOT_APPS = ["content", "plan", "clips", "assets"] as const;
 
+// Slides authoring runs as these jobs, inside the prebuilt image in
+// docker/ci-slides-authoring. The `--authoring` parity suite is the longest
+// single command, so each browser runs it as three slices.
+export const SLIDES_AUTHORING_SHARDS = [
+  "chromium-1",
+  "chromium-2",
+  "chromium-3",
+  "webkit-1",
+  "webkit-2",
+  "webkit-3",
+  "corpus",
+  "fuzz",
+] as const;
+
+export function slidesAuthoringMatrix(): { include: { shard: string }[] } {
+  return { include: SLIDES_AUTHORING_SHARDS.map((shard) => ({ shard })) };
+}
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 const GLOBAL_RUNTIME_INPUTS = new Set([
@@ -875,6 +900,7 @@ export type ChangeScope = {
   changedPaths: string[];
   designCanvasE2eSpecs: string[];
   designCanvasE2eDiagnosticSpecs: string[];
+  designCanvasE2eDiagnosticShards: string[];
   designCanvasE2eSpecCount: number;
   designCanvasBroadWorkflowShards: string[];
   docsOnly: boolean;
@@ -957,6 +983,13 @@ export function isDocsPath(path: string): boolean {
 // README-only change set still has to reach the guards job.
 function isReadmePath(path: string): boolean {
   return basename(normalizeChangedPath(path)) === "README.md";
+}
+
+function isMarkdownPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  // Any change under the execution-lease model keeps running its verifier.
+  if (normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX)) return false;
+  return /\.mdx?$/iu.test(normalized);
 }
 
 export function isInstructionPath(path: string): boolean {
@@ -1650,6 +1683,10 @@ function isSlidesAuthoringPath(path: string): boolean {
   return (
     SLIDES_TEXT_AUTHORING_FILES.has(path) ||
     isSlidesEditFidelityHarnessPath(path) ||
+    // The image and the actions that run the shards are what the job executes.
+    path.startsWith("docker/ci-slides-authoring/") ||
+    path.startsWith(".github/actions/slides-authoring-image/") ||
+    path.startsWith(".github/actions/slides-authoring-shard/") ||
     [
       "templates/slides/agent-native.config.ts",
       "templates/slides/agent-native.json",
@@ -2138,6 +2175,33 @@ function trustedAcceptanceAppsFor(
   );
 }
 
+// The full Design suite needs 48 shards to fit the 30-minute diagnostic job
+// (about 22 tests each). Shards are sized for half that load, so a change that
+// selects a few specs does not pay for 48 runners of setup.
+const DESIGN_DIAGNOSTIC_MAX_SHARDS = 48;
+const DESIGN_DIAGNOSTIC_TESTS_PER_SHARD = 11;
+
+export function designCanvasE2eDiagnosticShardsFor(
+  specs: readonly string[],
+  repositoryRoot: string,
+): string[] {
+  if (specs.length === 0) return [];
+  const tests = specs.reduce((total, spec) => {
+    const path = join(repositoryRoot, spec);
+    // Deleted specs are dropped again at run time; they hold no tests.
+    if (!existsSync(path)) return total;
+    return (
+      total +
+      (readFileSync(path, "utf8").match(/^\s*test(?:\.\w+)?\(/gm)?.length ?? 0)
+    );
+  }, 0);
+  const count = Math.min(
+    DESIGN_DIAGNOSTIC_MAX_SHARDS,
+    Math.max(1, Math.ceil(tests / DESIGN_DIAGNOSTIC_TESTS_PER_SHARD)),
+  );
+  return Array.from({ length: count }, (_, index) => `changed-${index + 1}`);
+}
+
 function designCanvasBroadWorkflowShardsFor(
   specs: readonly string[],
   changedPaths: readonly string[],
@@ -2341,6 +2405,7 @@ function buildChecks(
   const contentDbCoreChanged = changedPaths.some(isContentDbCoreRuntimePath);
   const contentDbChanged =
     contentDbCoreChanged || changedPaths.some(isContentDbRuntimePath);
+  const executionLeaseCovered = executionLeaseCoveredFiles();
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -2420,7 +2485,47 @@ function buildChecks(
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
+    verify_execution_lease: changedPaths.some((path) =>
+      isExecutionLeasePath(path, executionLeaseCovered),
+    ),
+    core_mutation: changedPaths.some(isMutationScopePath),
   };
+}
+
+// The model is checked against the code its manifest records as covered, so
+// the manifest is read here rather than copied into this file. It is read from
+// this script's own checkout, not the classified repositoryRoot, because the
+// model belongs to the classifier. A missing or malformed manifest throws: the
+// classifier must not quietly drop the lane.
+function executionLeaseCoveredFiles(): Set<string> {
+  const manifest = JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL(`../${EXECUTION_LEASE_MANIFEST}`, import.meta.url)),
+      "utf8",
+    ),
+  ) as { coverage?: { code?: { file: string }[] } };
+  const covered = manifest.coverage?.code;
+  if (
+    !Array.isArray(covered) ||
+    covered.some((entry) => typeof entry?.file !== "string")
+  ) {
+    throw new Error(
+      `${EXECUTION_LEASE_MANIFEST} has no coverage.code file list`,
+    );
+  }
+  return new Set(covered.map((entry) => normalizeChangedPath(entry.file)));
+}
+
+export function isExecutionLeasePath(
+  path: string,
+  coveredFiles: ReadonlySet<string>,
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized.startsWith(EXECUTION_LEASE_MODEL_PREFIX) ||
+    normalized === EXECUTION_LEASE_CHECK_SCRIPT ||
+    coveredFiles.has(normalized)
+  );
 }
 
 export function classifyChangedPaths(
@@ -2436,8 +2541,19 @@ export function classifyChangedPaths(
     sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
   );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
-  const workspaceFilters = workspaceFiltersForPaths(changedPaths);
-  const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
+  // Markdown can't fail a build, typecheck, or test, so a change set that is
+  // all markdown (skills, agent instructions, their factory copies) runs lint,
+  // plus the guards that read instructions (doc budgets, skill sync, template
+  // layers, hook docs) when any of it is outside the docs tree.
+  const markdownOnly =
+    changedPaths.length > 0 &&
+    changedPaths.every((path) => isDocsPath(path) || isMarkdownPath(path));
+  const workspaceFilters = markdownOnly
+    ? []
+    : workspaceFiltersForPaths(changedPaths);
+  const testWorkspaceFilters = markdownOnly
+    ? []
+    : testWorkspaceFiltersForPaths(changedPaths);
   const allDesignCanvasE2eSpecs = designCanvasE2eSpecsForPaths(
     changedPaths,
     repositoryRoot,
@@ -2450,16 +2566,18 @@ export function classifyChangedPaths(
     (path) => path !== PRE_AUTH_SESSION_REPLAY_E2E_SPEC,
   );
   const full =
-    changedPaths.length === 0 ||
-    changedPaths.some(isFullPath) ||
-    (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0);
+    !markdownOnly &&
+    (changedPaths.length === 0 ||
+      changedPaths.some(isFullPath) ||
+      (changedPaths.some(isWorkspacePath) && workspaceFilters.length === 0));
 
-  const checks = docsOnly
+  const checks = markdownOnly
     ? (Object.fromEntries(
         CHECK_NAMES.map((name) => [
           name,
           name === "lint" ||
-            (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "guards" &&
+              (!docsOnly || changedPaths.some(isReadmePath))) ||
             (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
@@ -2491,6 +2609,10 @@ export function classifyChangedPaths(
     changedPaths,
     designCanvasE2eSpecs,
     designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
+    designCanvasE2eDiagnosticShards: designCanvasE2eDiagnosticShardsFor(
+      changedDesignDiagnosticSpecs,
+      repositoryRoot,
+    ),
     designCanvasE2eSpecCount: designCanvasE2eSpecs.length,
     designCanvasBroadWorkflowShards,
     docsOnly,
@@ -2620,6 +2742,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
+      `design_canvas_e2e_diagnostic_shards=${JSON.stringify(scope.designCanvasE2eDiagnosticShards)}`,
       `design_canvas_broad_workflow_shards=${JSON.stringify(scope.designCanvasBroadWorkflowShards)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
@@ -2628,6 +2751,7 @@ function writeOutputs(scope: ChangeScope): void {
       `scaffold_workspace=${scope.scaffoldWorkspace ? "true" : "false"}`,
       `scaffold_workspace_apps=${JSON.stringify(scope.scaffoldWorkspaceApps)}`,
       `ssr_boot_apps=${JSON.stringify(scope.ssrBootApps)}`,
+      `slides_authoring_matrix=${JSON.stringify(slidesAuthoringMatrix())}`,
       `trusted_acceptance_apps=${JSON.stringify(scope.trustedAcceptanceApps)}`,
       `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
