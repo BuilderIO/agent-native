@@ -1,0 +1,99 @@
+template: v2
+slug: ask-your-database
+app: analytics
+title: 普段の言葉でデータに質問
+seo_title: SQLなしでデータベースに質問
+meta_description: BigQueryのデータについて質問すると、Agent-Native Analyticsが確認できる読み取り専用のSQLで答え、繰り返し聞く質問はダッシュボードに残します。
+updated: 2026-10-27
+hero:
+  body: Agent-Native AnalyticsがBigQueryのデータから答え、繰り返し聞く質問はダッシュボードに残します。エージェントが書くのは、確認できる読み取り専用のSQLです。
+  button:
+    label: データに質問する
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: 「質問」を開いたAnalytics。エージェントが先週の登録数についての質問に、プラン別の棒グラフと集計元の表で答えています。その下の追加の質問では、Proが最も伸びたことがわかります。
+how_to:
+  heading: 普段の言葉でデータベースに質問する方法
+  steps:
+    - title: データウェアハウスを接続する
+      body: '**データソース**ページでBigQueryを開きます。BigQuery Data ViewerとBigQuery Job Userのロールを持つサービスアカウントのJSONキーをアップロードし、プロジェクトIDを入力して、**認証情報の保存**と**接続をテスト**をクリックします。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: データソースページのBigQueryカードの拡大図。「接続済み」と表示され、プロジェクトIDとサービスアカウントが設定済みで、「接続成功」と表示されています。
+    - title: 普段の言葉で質問する
+      body: '**質問**で、同僚に聞くように質問を入力します。たとえば「先週登録したアカウント数をプラン別に教えて」。エージェントが適切なテーブルを探してクエリを実行し、グラフで答えます。'
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: 「質問」チャットの拡大図。エージェントがBigQueryのスキーマを検索してクエリを1回実行し、登録数723件とプラン別の棒グラフで答えています。
+    - title: 答えをダッシュボードに残す
+      body: エージェントに「これをダッシュボードに追加して」と頼みます。エージェントがパネルを作り、SQLが動くことを確認してダッシュボードを保存します。ダッシュボードは、チームメンバーや組織全体に共有するまで非公開です。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: 新しい「週次登録数」ダッシュボード。プラン別登録数のパネルと週別登録数のグラフがあります。横のエージェントチャットには、両方のパネルをBigQueryで確認したと表示されています。
+features:
+  heading: データベースから答えを得るために必要な機能がすべて揃っています
+  items:
+    - title: すべての答えの裏にあるSQL
+      body: ダッシュボードのグラフで**SQLを見る**を開くか、チャットで聞けば、エージェントが書いたクエリを確認でき、コピーして自分で実行できます。
+    - title: チームの指標の定義
+      body: 「アクティブ」や「登録」の意味を、管理者が**セマンティックレイヤー**ページに書いておけます。エージェントはSQLを書く前にそれを読みます。
+    - title: データを変更できないクエリ
+      body: BigQueryでは、エージェントのSQLは挿入・更新・削除ができません。接続には、テーブルの読み取りとクエリの実行しかできないサービスアカウントを使います。
+    - title: エージェントが編集するダッシュボード
+      body: チャットでパネルやフィルター、プラン別の内訳を頼めば、共有しているすべての人に向けてエージェントがダッシュボードを変更します。
+    - title: ツールをまたいだ質問
+      body: ウェアハウスのテーブルと、Stripeの売上、HubSpotの取引、PostHogのイベントを組み合わせた質問が1つでできます。
+    - title: ダッシュボードを受信トレイに
+      body: 指定した時刻にダッシュボードを毎日メールで受け取れます。グラフと表はメール本文に入り、最大5人まで届けられます。
+integrations:
+  heading: いつものツールとAnalyticsを連携
+  cards:
+    - title: ウェアハウスと指標
+      logos:
+        - name: BigQuery
+      body: AnalyticsはBigQueryのテーブルにクエリを実行し、チームが**セマンティックレイヤー**に書いた指標の定義に沿って答えます。
+    - title: 売上と製品のデータを追加
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: Stripe、HubSpot、PostHogを接続すれば、データベースの数値を売上、取引、製品イベントと並べて答えられます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Analyticsでできるその他のこと
+  cards:
+    - title: スタートアップのKPIダッシュボードを作成
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: スタートアップの売上、パイプライン、製品の利用状況を、質問もできる1つのダッシュボードで追えます。
+    - title: 新規ユーザーの離脱ポイントを見つける
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 登録が止まるステップを見つけ、その裏にあるセッションリプレイを確認できます。
+    - title: HubSpotとGongのデータで営業パイプラインを確認
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: CRMと録音した営業通話から得た答えで、取引の進み具合を確認できます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Analyticsは無料ですか？
+      a: はい、Agent-Native Analyticsは無料のオープンソースです。ホスト版のアプリを使うことも、自分でコピーを動かすこともできます。エージェントにはBuilder.ioかご自身のモデルキーによるAI接続が必要なため、AIを無制限に使えるわけではありません。Analyticsはアルファ版のため、今後変更される可能性があります。
+    - q: SQLの知識は必要ですか？
+      a: いいえ。普段の言葉で質問すれば、エージェントがSQLを書きます。最初に、データに詳しい人が[BigQueryを接続](https://www.agent-native.com/docs/template-analytics-connectors/)する必要があるかもしれません。管理者が**セマンティックレイヤー**ページに[指標の定義](https://www.agent-native.com/docs/template-analytics-dashboards/)を追加しておけば、エージェントが正しいテーブルと列を選べます。
+    - q: Postgres、Supabase、Neonでも使えますか？
+      a: はい、SupabaseまたはNeon上のPostgresなら使えます。チャットの+メニューから[MCPで接続](https://www.agent-native.com/docs/mcp-clients/)し、チャットで質問してください。ダッシュボードのパネルはまだPostgresにクエリを実行できないため、その答えはチャット内に残ります。それ以外のPostgresデータベースにはまだクエリを実行できないため、このページの手順ではBigQueryを使っています。
+    - q: エージェントがデータを変更することはありますか？
+      a: BigQueryではありません。Analyticsは、BigQueryのデータを挿入、更新、削除、破棄しようとするエージェントのクエリをすべて拒否します。また、設定時には読み取り専用ロールのサービスアカウントを求めるため、テーブルの読み取りとクエリの実行はできても、データの変更はできません。SupabaseやNeon経由の場合、エージェントはその接続で許可した操作を行えます。
+    - q: 答えが正しいかどうかはどうすればわかりますか？
+      a: 裏にあるクエリを確認しましょう。エージェントにSQLを見せるよう頼むか、ダッシュボードのグラフで**SQLを見る**を開きます。どのテーブルやフィルターを使ったかを聞くこともできます。ライブクエリが実行されなかった数値には、エージェントが**Unverified**と印を付けます。
+    - q: CSVをエクスポートしてChatGPTに聞くのと何が違いますか？
+      a: チャットアシスタントはエクスポートしたファイルから答えるので、新しい質問のたびにエクスポートし直すことになります。Analyticsはウェアハウスに直接クエリを実行し、チームの指標の定義を使い、また必要になる答えはダッシュボードに残します。これが[エージェント型アプリ](https://www.agent-native.com/articles/what-is-an-agent-native-app/)です。エージェントの頭脳と、アプリの直感的な使いやすさを兼ね備えています。

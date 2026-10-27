@@ -1,0 +1,99 @@
+template: v2
+slug: ask-your-database
+app: analytics
+title: 用日常语言向你的数据提问
+seo_title: 不写 SQL，直接向数据库提问
+meta_description: 就你的 BigQuery 数据提个问题，Agent-Native Analytics 会用可检查的只读 SQL 回答，并把反复问到的问题保留在仪表板上。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics 根据你的 BigQuery 数据回答，并把你反复问的问题保留在仪表板上。agent 编写的是你可以检查的只读 SQL。
+  button:
+    label: 向你的数据提问
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: 打开“提问”页面的 Analytics。agent 用按套餐划分的柱状图和计数所依据的表格，回答了关于上周注册数的问题。下方的追问显示 Pro 套餐增长最多。
+how_to:
+  heading: 如何用日常语言向数据库提问
+  steps:
+    - title: 连接你的数据仓库
+      body: 在 **数据源** 页面打开 BigQuery。上传一个具有 BigQuery Data Viewer 和 BigQuery Job User 角色的服务账号 JSON 密钥，输入你的项目 ID，然后点击 **保存凭证** 和 **测试连接**。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: 数据源页面上 BigQuery 卡片的特写，标为 Connected，项目 ID 和服务账号标为 Configured，并显示“Connection successful”。
+    - title: 用日常语言提出你的问题
+      body: 在 **提问** 中，像问同事一样输入问题：“上周各套餐分别有多少账号注册？”agent 会找到合适的表，运行查询，并用图表回答。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: “提问”聊天的特写。agent 搜索了 BigQuery 架构，运行了一次查询，并用 723 个注册和按套餐划分的柱状图作答。
+    - title: 把答案保留在仪表板上
+      body: 让 agent“把这个加到仪表板”。它会搭建面板，检查 SQL 能否运行，然后保存仪表板。在你分享给同事或整个组织之前，仪表板仅你可见。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: 一个新的“每周注册”仪表板，包含按套餐的注册面板和按周的注册图表。旁边的 agent 聊天说两个面板都已对照 BigQuery 检查过。
+features:
+  heading: 从数据库获取答案所需的一切
+  items:
+    - title: 每个答案背后的 SQL
+      body: 在任意仪表板图表上打开 **查看 SQL**，或在聊天中询问，就能看到 agent 编写的查询，并复制下来自己运行。
+    - title: 团队的指标定义
+      body: 管理员在 **语义层** 页面写明“活跃”或“注册”的含义。agent 编写 SQL 前会先读取这些定义。
+    - title: 无法修改数据的查询
+      body: 在 BigQuery 中，agent 的 SQL 无法插入、更新或删除数据，而且它通过只能读取表和运行查询的服务账号连接。
+    - title: agent 帮你编辑的仪表板
+      body: 在聊天中要求再加一个面板、一个筛选条件或按套餐拆分，agent 会为你分享过的所有人修改这个仪表板。
+    - title: 跨工具提问
+      body: 一个问题就能把数据仓库里的表与 Stripe 收入、HubSpot 商机或 PostHog 事件结合起来。
+    - title: 仪表板发到收件箱
+      body: 每天在你选定的时间通过邮件接收仪表板，图表和表格直接显示在邮件中，最多可发给五个人。
+integrations:
+  heading: 把 Analytics 连接到你已经在用的工具
+  cards:
+    - title: 你的数据仓库和指标
+      logos:
+        - name: BigQuery
+      body: Analytics 查询你的 BigQuery 表，并按团队在 **语义层** 中维护的指标定义来回答。
+    - title: 加入收入和产品数据
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: 连接 Stripe、HubSpot 或 PostHog，让答案把数据库里的数字与收入、商机或产品事件放在一起。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Analytics 还能做的其他事
+  cards:
+    - title: 为你的创业公司搭建 KPI 仪表板
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 在一个可以提问的仪表板上，跟踪创业公司的收入、管道和产品使用情况。
+    - title: 找出新用户在哪一步流失
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 找到注册卡住的那一步，并查看背后的会话回放。
+    - title: 用 HubSpot 和 Gong 数据复盘销售管道
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: 根据 CRM 和销售通话录音给出的答案，查看商机的推进情况。
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Analytics 免费吗？
+      a: 是的，Agent-Native Analytics 免费且开源。你可以使用托管版应用，也可以自己运行一份。agent 需要通过 Builder.io 或你自己的模型密钥连接 AI，所以 AI 用量不是无限的。Analytics 目前处于 alpha 阶段，可能还会有变化。
+    - q: 我需要懂 SQL 吗？
+      a: 不需要。你用日常语言提问，agent 编写 SQL。可能需要熟悉数据的人先[连接 BigQuery](https://www.agent-native.com/docs/template-analytics-connectors/)。管理员可以在 **语义层** 页面添加你们的[指标定义](https://www.agent-native.com/docs/template-analytics-dashboards/)，让 agent 选对表和列。
+    - q: 支持 Postgres、Supabase 或 Neon 吗？
+      a: 支持 Supabase 或 Neon 上的 Postgres。从聊天的 + 菜单[通过 MCP](https://www.agent-native.com/docs/mcp-clients/) 连接它，然后在聊天中提问。这些答案只留在聊天里，因为仪表板面板还不能查询 Postgres。其他 Postgres 数据库暂时还不能查询，所以本页的步骤使用 BigQuery。
+    - q: agent 会修改我的数据吗？
+      a: 在 BigQuery 中不会。Analytics 会拒绝 agent 在那里插入、更新、删除或清除数据的任何查询。设置时还要求使用只读角色的服务账号，它能读取表和运行查询，但不能修改它们。通过 Supabase 或 Neon，agent 能做的就是你允许该连接做的事。
+    - q: 我怎么知道答案是对的？
+      a: 查看它背后的查询。让 agent 展示它的 SQL，或在仪表板图表上打开 **查看 SQL**。你也可以问它用了哪些表和筛选条件。如果没有运行实时查询，agent 会把数字标为 **Unverified**。
+    - q: 这和把 CSV 导出后问 ChatGPT 有什么不同？
+      a: 聊天助手根据你导出的文件回答，所以每个新问题都要重新导出。Analytics 直接查询你的数据仓库，使用团队的指标定义，并把你还会用到的答案保留在仪表板上。这就是[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：既有 agent 的智能，又有应用的直观易用。

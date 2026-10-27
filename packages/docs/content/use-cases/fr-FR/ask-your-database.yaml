@@ -1,0 +1,99 @@
+template: v2
+slug: ask-your-database
+app: analytics
+title: Interrogez vos données en langage courant
+seo_title: Interrogez votre base de données sans SQL
+meta_description: "Posez une question sur vos données BigQuery : Agent-Native Analytics répond en SQL lecture seule vérifiable et garde vos questions récurrentes en tableau de bord."
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics répond depuis vos données BigQuery et garde vos questions récurrentes en tableau de bord. L'agent écrit un SQL en lecture seule vérifiable.
+  button:
+    label: Interrogez vos données
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: Analytics ouvert sur Demander. L'agent répond à une question sur les inscriptions de la semaine dernière avec un graphique en barres par offre et le tableau dont il a tiré son décompte. En dessous, une question de suivi montre que Pro a le plus progressé.
+how_to:
+  heading: Comment interroger votre base de données en langage courant
+  steps:
+    - title: Connectez votre entrepôt de données
+      body: Dans la page **Sources de données**, ouvrez BigQuery. Importez la clé JSON d'un compte de service doté des rôles BigQuery Data Viewer et BigQuery Job User, saisissez l'ID de votre projet, puis cliquez sur **Enregistrer les informations d'identification** et **Tester la connexion**.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: Gros plan sur la carte BigQuery dans Sources de données, marquée Connecté, avec l'ID du projet et le compte de service configurés, et « Connexion réussie ».
+    - title: Posez votre question en langage courant
+      body: "Dans **Demander**, tapez votre question comme vous la poseriez à un collègue : « Combien de comptes se sont inscrits la semaine dernière, par offre ? » L'agent trouve les bonnes tables, exécute la requête et répond avec un graphique."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: Gros plan sur le chat de Demander. L'agent a parcouru le schéma BigQuery, exécuté une requête et répondu avec 723 inscriptions et un graphique en barres par offre.
+    - title: Gardez la réponse dans un tableau de bord
+      body: Demandez à l'agent d'« ajouter ça à un tableau de bord ». Il crée le panneau, vérifie que son SQL s'exécute et enregistre le tableau de bord. Celui-ci reste privé jusqu'à ce que vous le partagiez avec un collègue ou toute votre organisation.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: Un nouveau tableau de bord Inscriptions hebdomadaires avec le panneau des inscriptions par offre et un graphique des inscriptions par semaine. Le chat de l'agent, à côté, indique que les deux panneaux ont été vérifiés sur BigQuery.
+features:
+  heading: Tout ce qu'il faut pour obtenir des réponses de votre base de données
+  items:
+    - title: Le SQL derrière chaque réponse
+      body: Ouvrez **Voir SQL** sur un graphique du tableau de bord, ou demandez dans le chat, pour voir la requête écrite par l'agent et la copier pour l'exécuter vous-même.
+    - title: Les définitions de métriques de votre équipe
+      body: Un admin note ce que « actif » ou « inscription » veut dire dans la page **Couche sémantique**. L'agent la lit avant d'écrire du SQL.
+    - title: Des requêtes qui ne peuvent pas modifier les données
+      body: Dans BigQuery, le SQL de l'agent ne peut ni insérer, ni modifier, ni supprimer, et il se connecte via un compte de service qui peut seulement lire les tables et exécuter des requêtes.
+    - title: Des tableaux de bord que l'agent modifie
+      body: Demandez dans le chat un autre panneau, un filtre ou une ventilation par offre, et l'agent modifie le tableau de bord pour tous ceux avec qui vous l'avez partagé.
+    - title: Des questions qui croisent vos outils
+      body: Posez une seule question qui croise les tables de votre entrepôt avec les revenus Stripe, les deals HubSpot ou les événements PostHog.
+    - title: Le tableau de bord dans votre boîte mail
+      body: Recevez un tableau de bord par e-mail chaque jour à l'heure choisie, avec ses graphiques et tableaux dans l'e-mail, jusqu'à cinq personnes.
+integrations:
+  heading: Connectez Analytics aux outils que vous utilisez déjà
+  cards:
+    - title: Votre entrepôt et vos métriques
+      logos:
+        - name: BigQuery
+      body: Analytics interroge vos tables BigQuery et répond avec les définitions de métriques que votre équipe tient à jour dans **Couche sémantique**.
+    - title: Ajoutez revenus et données produit
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: Connectez Stripe, HubSpot ou PostHog, pour qu'une réponse place les chiffres de votre base à côté des revenus, des deals ou des événements produit.
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+other_uses:
+  heading: Autres usages d'Agent-Native Analytics
+  cards:
+    - title: Créez le tableau de bord KPI de votre startup
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: Suivez revenus, pipeline et usage produit de votre startup dans un seul tableau de bord que vous pouvez interroger.
+    - title: Trouvez où décrochent vos nouveaux inscrits
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: Repérez l'étape où les inscriptions bloquent, et regardez les replays de session qui l'expliquent.
+    - title: Passez en revue votre pipeline avec HubSpot et Gong
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: Voyez comment avancent vos deals, avec des réponses tirées de votre CRM et de vos appels commerciaux enregistrés.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Analytics est-il gratuit ?
+      a: "Oui, Agent-Native Analytics est gratuit et open source. Utilisez l'app hébergée ou faites tourner votre propre copie. L'agent a besoin d'une connexion IA, via Builder.io ou votre propre clé de modèle, donc l'usage de l'IA n'est pas illimité. Analytics est en alpha : attendez-vous à des changements."
+    - q: Faut-il connaître le SQL ?
+      a: Non. Vous posez votre question en langage courant et l'agent écrit le SQL. Une personne qui connaît vos données devra peut-être d'abord [connecter BigQuery](https://www.agent-native.com/docs/template-analytics-connectors/). Un admin peut ajouter vos [définitions de métriques](https://www.agent-native.com/docs/template-analytics-dashboards/) dans la page **Couche sémantique**, pour que l'agent choisisse les bonnes tables et colonnes.
+    - q: Est-ce que ça marche avec Postgres, Supabase ou Neon ?
+      a: Oui, pour Postgres sur Supabase ou Neon. Connectez-le [via MCP](https://www.agent-native.com/docs/mcp-clients/) depuis le menu + du chat et posez votre question dans le chat. Ces réponses restent dans le chat, car les panneaux de tableau de bord ne peuvent pas encore interroger Postgres. Les autres bases Postgres ne peuvent pas encore être interrogées, c'est pourquoi les étapes de cette page utilisent BigQuery.
+    - q: L'agent peut-il modifier mes données ?
+      a: Pas dans BigQuery. Analytics y rejette toute requête de l'agent qui insérerait, modifierait, supprimerait ou effacerait des données. La configuration demande aussi un compte de service aux rôles en lecture seule, qui peut lire vos tables et exécuter des requêtes, mais pas les modifier. Via Supabase ou Neon, l'agent peut faire ce que vous autorisez à cette connexion.
+    - q: Comment savoir si une réponse est juste ?
+      a: Vérifiez la requête qui se trouve derrière. Demandez à l'agent d'afficher son SQL, ou ouvrez **Voir SQL** sur un graphique du tableau de bord. Vous pouvez aussi lui demander quelles tables et quels filtres il a utilisés. L'agent marque un chiffre **Unverified** quand aucune requête en direct n'a été exécutée.
+    - q: En quoi est-ce différent de demander à ChatGPT d'analyser un export CSV ?
+      a: "Un assistant de chat répond à partir du fichier exporté, donc chaque nouvelle question commence par un nouvel export. Analytics interroge directement votre entrepôt, utilise les définitions de métriques de votre équipe et garde dans un tableau de bord les réponses dont vous aurez encore besoin. C'est une [application agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, l'intuitivité d'une application."
