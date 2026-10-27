@@ -328,12 +328,16 @@ Keep the recap short and written for Steve:
 
 ```md
 ## Feedback sweep - <date, Pacific>
-Fixed and merged (N): <one line each, with Slack thread link> · PR <link> (this run's PR only)
+Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
+Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who>
 Still open from earlier runs (N): <why>
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
+
+"Fixed and merged" is this run's PR only; reports you closed out for an
+earlier run's merged PR go under "Closed out from earlier runs".
 
 If the run came from an automation, append the same recap to that
 automation's `memory.md`.
