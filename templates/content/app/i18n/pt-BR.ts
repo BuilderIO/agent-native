@@ -1387,6 +1387,14 @@ const exactEnglish = {
       "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
     proposalUnplaceable:
       "Uma destas sugestões não pode ser aplicada porque o texto ao redor dela mudou, então nenhuma foi aplicada. Todas continuam pendentes: aceite ou rejeite uma de cada vez.",
+    suggestionAcceptFailed: "Não foi possível aceitar a sugestão",
+    suggestionRejectFailed: "Não foi possível rejeitar a sugestão",
+    proposalAcceptFailed: "Não foi possível aceitar as sugestões",
+    proposalRejectFailed: "Não foi possível rejeitar as sugestões",
+    suggestionDecisionReverted:
+      "Ela voltou a ficar pendente. Tudo o que você digitou depois foi mantido.",
+    proposalDecisionReverted:
+      "Elas voltaram a ficar pendentes. Tudo o que você digitou depois foi mantido.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",

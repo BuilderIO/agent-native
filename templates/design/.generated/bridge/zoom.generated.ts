@@ -8,14 +8,19 @@ export const zoomBridgeScript: string = `"use strict";
   (function() {
     var target = document.documentElement || document.body || document;
     var interactionMode = false;
+    var overviewForwardsWheels = false;
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent || !e.data) return;
       if (e.data.type === "set-interaction-mode") {
         interactionMode = e.data.interact === true;
       }
+      if (e.data.type === "embedded-canvas-gesture-mode") {
+        overviewForwardsWheels = e.data.wheelEnabled === true;
+      }
     });
     function onWheel(e) {
-      if (interactionMode || !(e.ctrlKey || e.metaKey)) return;
+      if (interactionMode || overviewForwardsWheels) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
       if (e.cancelable) e.preventDefault();
       try {
         window.parent.postMessage(

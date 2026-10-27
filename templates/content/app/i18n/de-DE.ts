@@ -1397,6 +1397,14 @@ const exactEnglish = {
       "Der Text um diesen Vorschlag hat sich geändert, daher kann er nicht übernommen werden. Er bleibt offen: Lehnen Sie ihn ab oder schlagen Sie die Änderung erneut vor.",
     proposalUnplaceable:
       "Einer dieser Vorschläge kann nicht übernommen werden, weil sich der Text um ihn herum geändert hat. Daher wurde keiner übernommen. Alle bleiben offen: Nehmen Sie sie einzeln an oder lehnen Sie sie einzeln ab.",
+    suggestionAcceptFailed: "Vorschlag konnte nicht angenommen werden",
+    suggestionRejectFailed: "Vorschlag konnte nicht abgelehnt werden",
+    proposalAcceptFailed: "Vorschläge konnten nicht angenommen werden",
+    proposalRejectFailed: "Vorschläge konnten nicht abgelehnt werden",
+    suggestionDecisionReverted:
+      "Er ist wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
+    proposalDecisionReverted:
+      "Sie sind wieder offen. Alles, was Sie seitdem eingegeben haben, bleibt erhalten.",
     suggestionAmendmentFailed: "Vorschlag konnte nicht gespeichert werden",
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",

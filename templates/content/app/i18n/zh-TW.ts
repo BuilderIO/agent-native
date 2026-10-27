@@ -360,6 +360,12 @@ const overrides = {
       "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
     proposalUnplaceable:
       "其中一則建議周圍的文字已變更，無法套用，因此所有建議均未套用。它們仍在待處理狀態：請逐則接受或拒絕。",
+    suggestionAcceptFailed: "無法接受此建議",
+    suggestionRejectFailed: "無法拒絕此建議",
+    proposalAcceptFailed: "無法接受這些建議",
+    proposalRejectFailed: "無法拒絕這些建議",
+    suggestionDecisionReverted: "它已恢復為待處理。之後輸入的內容都已保留。",
+    proposalDecisionReverted: "它們已恢復為待處理。之後輸入的內容都已保留。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",

@@ -16,6 +16,7 @@ const sweepHarness = vi.hoisted(() => ({
   } as { scanned: number; reaped: number; failed: number; truncated: boolean },
   staleReapError: null as Error | null,
   runAccess: true,
+  stripMountPrefix: false,
 }));
 
 const inboxHarness = vi.hoisted(() => ({
@@ -63,10 +64,21 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
     awaitBootstrap: () => Promise.resolve(),
     getH3App: (nitroApp: any) => ({
       use(path: string, handler: any) {
-        nitroApp.h3App.all(
-          path.endsWith("/runs") ? `${path}/**` : path,
-          handler,
-        );
+        if (!path.endsWith("/runs")) {
+          nitroApp.h3App.all(path, handler);
+          return;
+        }
+        nitroApp.h3App.all(`${path}/**`, (event: any) => {
+          // Like the real shim on a host with no Node request (Netlify): the
+          // handler sees only the path below its mount. These requests come
+          // through `h3App.fetch`, so `event.node` is unset and h3's
+          // `event.path` getter reads `event.url`: the handler reads the
+          // stripped path.
+          if (sweepHarness.stripMountPrefix) {
+            event.url.pathname = event.url.pathname.slice(path.length) || "/";
+          }
+          return handler(event);
+        });
       },
     }),
     markDefaultPluginProvided: vi.fn(),
@@ -351,6 +363,7 @@ import {
   retryRunThreadProjection,
   tryClaimRunSlot,
   updateRunStatus,
+  updateRunStatusIfRunning,
 } from "../agent/run-store.js";
 import {
   consumeAgentToolApproval,
@@ -440,6 +453,7 @@ describe("queued submission inbox recurring sweep", () => {
     };
     sweepHarness.staleReapError = null;
     sweepHarness.runAccess = true;
+    sweepHarness.stripMountPrefix = false;
     inboxHarness.admissions.length = 0;
     inboxHarness.admissionOwnerContexts.length = 0;
     inboxHarness.admissionAttempts.length = 0;
@@ -2912,6 +2926,94 @@ describe("queued submission inbox recurring sweep", () => {
       await expect(response.json()).resolves.toMatchObject({
         ok: false,
         threadProjectionErrorCode: "tool_call_journal_unreadable",
+      });
+    }, 20_000);
+  });
+
+  describe("run state routes", () => {
+    const threadId = "thread-run-state";
+    const turnId = "turn-run-state";
+    const runId = "run-run-state";
+
+    const get = (app: ReturnType<typeof createApp>, route: string) =>
+      app.fetch(
+        new Request(
+          `http://example.test/_agent-native/agent-chat/runs/${route}`,
+        ),
+      );
+
+    beforeEach(async () => {
+      await insertRun(runId, threadId, turnId, { dispatchMode: "foreground" });
+      await updateRunStatusIfRunning(runId, "truncated", {
+        terminalReason: "run_timeout",
+      });
+    });
+
+    it.each([
+      { host: "Node", stripMountPrefix: false },
+      { host: "a host that strips the mount prefix", stripMountPrefix: true },
+    ])(
+      "reports a time-limit stop as truncated on $host",
+      async ({ stripMountPrefix }) => {
+        sweepHarness.stripMountPrefix = stripMountPrefix;
+        const h3App = await mountAgentChatRoutes();
+
+        const response = await get(
+          h3App,
+          `latest?threadId=${threadId}&turnId=${turnId}`,
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+          runId,
+          turnId,
+          status: "truncated",
+          terminalReason: "run_timeout",
+        });
+      },
+      20_000,
+    );
+
+    it("does not answer for a run outside the thread", async () => {
+      sweepHarness.stripMountPrefix = true;
+      const h3App = await mountAgentChatRoutes();
+
+      const response = await get(
+        h3App,
+        `latest?threadId=${threadId}&runId=run-elsewhere`,
+      );
+
+      expect(response.status).toBe(404);
+    }, 20_000);
+
+    it("refuses a runs path it does not serve", async () => {
+      sweepHarness.stripMountPrefix = true;
+      inboxHarness.activeRun = { runId, threadId, turnId, status: "completed" };
+      const h3App = await mountAgentChatRoutes();
+
+      const response = await get(h3App, `unknown?threadId=${threadId}`);
+
+      expect(response.status).toBe(405);
+    }, 20_000);
+
+    it("serves the active run on a host that strips the mount prefix", async () => {
+      sweepHarness.stripMountPrefix = true;
+      inboxHarness.activeRun = {
+        runId,
+        threadId,
+        turnId,
+        status: "completed",
+        inFlight: false,
+      };
+      const h3App = await mountAgentChatRoutes();
+
+      const response = await get(h3App, `active?threadId=${threadId}`);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        active: false,
+        runId,
+        status: "completed",
       });
     }, 20_000);
   });

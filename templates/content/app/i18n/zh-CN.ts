@@ -1422,6 +1422,12 @@ const exactEnglish = {
       "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
     proposalUnplaceable:
       "其中一条建议周围的文本已更改，无法应用，因此所有建议均未应用。它们仍处于待处理状态：请逐条接受或拒绝。",
+    suggestionAcceptFailed: "无法接受此建议",
+    suggestionRejectFailed: "无法拒绝此建议",
+    proposalAcceptFailed: "无法接受这些建议",
+    proposalRejectFailed: "无法拒绝这些建议",
+    suggestionDecisionReverted: "它已恢复为待处理。之后输入的内容都已保留。",
+    proposalDecisionReverted: "它们已恢复为待处理。之后输入的内容都已保留。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",

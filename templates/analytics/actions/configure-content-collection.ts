@@ -8,6 +8,7 @@ import { z } from "zod";
 import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
   contentCollectionConfigSchema,
+  ga4PropertyIdSchema,
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
@@ -38,6 +39,12 @@ export default defineAction({
     ga4: cliBoolean
       .optional()
       .describe("Collect daily GA4 pageviews for each blog article."),
+    ga4PropertyId: ga4PropertyIdSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Numeric GA4 property ID that measures the blog. Required for this collection's pageviews; never falls back to the shared GA4_PROPERTY_ID. Omit to keep the saved value or pass null to clear it.",
+      ),
     searchConsole: cliBoolean
       .optional()
       .describe(
@@ -57,7 +64,15 @@ export default defineAction({
       ),
   }),
   run: async (
-    { enabled, builderBlog, ga4, searchConsole, searchConsoleSites, signups },
+    {
+      enabled,
+      builderBlog,
+      ga4,
+      ga4PropertyId,
+      searchConsole,
+      searchConsoleSites,
+      signups,
+    },
     ctx,
   ) => {
     const admin = await requireAnalyticsAdminContext({
@@ -72,7 +87,11 @@ export default defineAction({
       ...(builderBlog === undefined
         ? {}
         : { builderBlog: { enabled: builderBlog } }),
-      ...(ga4 === undefined ? {} : { ga4: { enabled: ga4 } }),
+      ga4: {
+        enabled: ga4 ?? saved.ga4.enabled,
+        propertyId:
+          ga4PropertyId === undefined ? saved.ga4.propertyId : ga4PropertyId,
+      },
       searchConsole: {
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,

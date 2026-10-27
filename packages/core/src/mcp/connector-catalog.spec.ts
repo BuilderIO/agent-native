@@ -910,7 +910,8 @@ describe("connector-catalog tier", () => {
         { headers, mcpConfig: declaringConfig },
       );
       const names: string[] = listed.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-exec");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
       expect(names).not.toContain("open-plan-inspector");
 
       const called = await call(
@@ -939,8 +940,10 @@ describe("connector-catalog tier", () => {
       const names: string[] = out.result.tools.map((t: any) => t.name);
 
       expect(names).toContain("create-plan");
-      expect(names).toContain("db-exec");
-      expect(names).toContain("seed-kitchen-sink");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
     });
 
     it("allows non-catalog tool call when catalog_scope: 'full'", async () => {
@@ -951,7 +954,7 @@ describe("connector-catalog tier", () => {
         jsonrpc: "2.0",
         id: 7,
         method: "tools/call",
-        params: { name: "db-exec", arguments: {} },
+        params: { name: "public-read", arguments: {} },
       };
       const out = await call(rpc, {
         headers: { authorization: `Bearer ${token}` },
@@ -978,8 +981,10 @@ describe("connector-catalog tier", () => {
           },
         });
         const names: string[] = out.result.tools.map((t: any) => t.name);
-        expect(names).toContain("db-exec");
-        expect(names).toContain("seed-kitchen-sink");
+        expect(names).not.toContain("db-exec");
+        expect(names).toContain("public-read");
+        expect(names).not.toContain("seed-kitchen-sink");
+        expect(names).toContain("create-plan");
       } finally {
         delete process.env.BETTER_AUTH_SECRET;
       }
@@ -995,8 +1000,10 @@ describe("connector-catalog tier", () => {
         headers: { authorization: `Bearer ${token}` },
       });
       const names: string[] = out.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-exec");
-      expect(names).toContain("seed-kitchen-sink");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
     });
   });
 });
@@ -1199,8 +1206,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       mcpConfig: configWithoutCatalog,
     });
     const names: string[] = out.result.tools.map((t: any) => t.name);
-    expect(names).toContain("db-exec");
-    expect(names).toContain("seed-kitchen-sink");
+    expect(names).not.toContain("db-exec");
+    expect(names).toContain("public-read");
+    expect(names).not.toContain("seed-kitchen-sink");
+    expect(names).toContain("create-plan");
   });
 
   it("auto-advertises authenticated read actions without exposing writes", async () => {
@@ -1291,7 +1300,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       connectorCatalog: undefined,
       actions,
       productionActions: actions,
-      externalAgents: { denyActions: ["compact-widget", "db-exec"] },
+      externalAgents: { denyActions: ["compact-widget", "public-read"] },
     };
 
     async function listAndCall(
@@ -1345,10 +1354,11 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
 
     it("keeps a denied action out of the full catalog and its calls", async () => {
       process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
-      const { names, called } = await listAndCall("db-exec");
-      expect(names).toContain("seed-kitchen-sink");
+      const { names, called } = await listAndCall("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
       expect(names).toContain("ask-agent");
-      expect(names).not.toContain("db-exec");
+      expect(names).not.toContain("public-read");
       expect(called.isError).toBe(true);
       expect(called.content[0].text).toContain("Unknown tool");
     });
@@ -1362,7 +1372,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
           { message: "hello" },
           { ...denyConfig, externalAgents: { denyActions: [denied] } },
         );
-        expect(names).toContain("seed-kitchen-sink");
+        expect(names).not.toContain("seed-kitchen-sink");
+        expect(names).toContain("create-plan");
         expect(names).not.toContain("ask-agent");
         expect(called.isError).toBe(true);
         expect(called.content[0].text).toContain("Unknown tool");
@@ -1453,7 +1464,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       }
     });
 
-    it("still serves db-query / seed-demo-data when explicitly listed in connectorCatalog", async () => {
+    it("refuses db-query / seed-demo-data even when explicitly listed in connectorCatalog", async () => {
       const explicitConfig = {
         ...connectorConfig,
         connectorCatalog: ["db-query", "seed-demo-data"],
@@ -1470,8 +1481,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         },
       );
       const names: string[] = listOut.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-query");
-      expect(names).toContain("seed-demo-data");
+      expect(names).not.toContain("db-query");
+      expect(names).not.toContain("seed-demo-data");
 
       for (const name of ["db-query", "seed-demo-data"]) {
         const callOut = await call(
@@ -1486,7 +1497,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
             mcpConfig: explicitConfig,
           },
         );
-        expect(callOut.result.isError).toBeFalsy();
+        expect(callOut.result.isError).toBe(true);
+        expect(callOut.result.content[0].text).toBe(`Unknown tool: ${name}`);
       }
     });
   });
@@ -1513,7 +1525,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       },
     };
 
-    it("advertises exactly the app's own registry, flat", async () => {
+    it("advertises the app's eligible registry, flat", async () => {
       const token = await signA2AToken("alice@example.com");
       const out = await call(
         { jsonrpc: "2.0", id: 40, method: "tools/list", params: {} },
@@ -1525,10 +1537,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
 
       expect(out.error).toBeUndefined();
       const names = out.result.tools.map((t: any) => t.name).sort();
-      expect(names).toEqual(Object.keys(fullActions).sort());
+      expect(names).toEqual([
+        "create-plan",
+        "get-plan",
+        "navigate",
+        "public-read",
+        "public-write",
+      ]);
     });
 
-    it("ignores the declared connectorCatalog and makes excluded tools callable", async () => {
+    it("ignores the connectorCatalog but refuses excluded runtime tools", async () => {
       const token = await signA2AToken("alice@example.com");
       const out = await call(
         {
@@ -1544,7 +1562,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       );
 
       expect(out.error).toBeUndefined();
-      expect(out.result.isError).toBeFalsy();
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toBe("Unknown tool: db-exec");
     });
 
     it("still honors externalAgents.denyActions", async () => {

@@ -128,7 +128,11 @@ export default defineAction({
       target.database.deletedAt ||
       target.document.spaceId !== target.database.spaceId
     ) {
-      throw new Error(`Open local-folder conflict "${changeSetId}" not found`);
+      // A sync that finds a deleted file again retires its deletion proposal.
+      throw new ActionContractError(
+        `Open local-folder conflict "${changeSetId}" not found`,
+        { errorCode: "LOCAL_FOLDER_CONFLICT_NOT_FOUND", statusCode: 404 },
+      );
     }
     const targetSpaceId = target.database.spaceId;
     await resolveContentSpaceAccess(targetSpaceId, "editor");
@@ -219,8 +223,9 @@ export default defineAction({
         )
         .returning({ id: schema.contentDatabaseSourceChangeSets.id });
       if (claimedChangeSets.length !== 1) {
-        throw new Error(
+        throw new ActionContractError(
           `Open local-folder conflict "${changeSetId}" changed before resolution`,
+          { errorCode: "LOCAL_FOLDER_CONFLICT_CHANGED", statusCode: 409 },
         );
       }
       if (decision === "accept_source" && sourceDeletion) {

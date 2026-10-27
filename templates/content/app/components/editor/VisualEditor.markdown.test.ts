@@ -496,6 +496,19 @@ describe("suggestion replacement intent", () => {
   });
 });
 
+// The server's accepted text reaches the editor as a content load, never as
+// typing, which can't touch the words an accepted suggestion is replacing.
+function loadAcceptedContent(editor: Editor, markdown: string) {
+  editor
+    .chain()
+    .command(({ tr }) => {
+      tr.setMeta("addToHistory", false);
+      return true;
+    })
+    .setContent(nfmToDoc(markdown))
+    .run();
+}
+
 function createMarkdownEditor(content: string) {
   return new Editor({
     extensions: [
@@ -1951,7 +1964,7 @@ describe("live suggestion presentation", () => {
       ).toHaveLength(1);
       expect(docToNfm(editor.getJSON() as any)).toBe(before);
 
-      editor.commands.setContent(nfmToDoc(readback));
+      loadAcceptedContent(editor, readback);
       apply(
         presentations.filter((presentation) => presentation.id !== "unrelated"),
       );
@@ -2091,7 +2104,7 @@ describe("live suggestion presentation", () => {
           beforeText: "Before\n",
         }),
       ).toBe(false);
-      editor.commands.setContent(nfmToDoc(after));
+      loadAcceptedContent(editor, after);
       expect(
         editor.view.dom.querySelector(".suggestion-settling-text"),
       ).toBeNull();

@@ -1457,6 +1457,14 @@ const enUS = {
       "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
     proposalUnplaceable:
       "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
+    suggestionAcceptFailed: "Couldn't accept this suggestion",
+    suggestionRejectFailed: "Couldn't reject this suggestion",
+    proposalAcceptFailed: "Couldn't accept these suggestions",
+    proposalRejectFailed: "Couldn't reject these suggestions",
+    suggestionDecisionReverted:
+      "It's back to pending. Anything you typed since is kept.",
+    proposalDecisionReverted:
+      "They're back to pending. Anything you typed since is kept.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
