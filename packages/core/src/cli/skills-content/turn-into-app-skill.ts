@@ -38,11 +38,11 @@ shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ### Ask where the app runs
 
-On an interactive local host, after showing the plan (step 2) and before
-installing anything, ask once: **On your machine** (some setup) or **Hosted
-with Builder** (just a free Builder account). Skip it on browser hosts, when
-the person already chose, when resuming, or headless (build here; say so).
-Details: [where the app runs](references/where-it-runs.md).
+On an interactive local host, after the plan (step 2) and before installing
+anything, ask once: **On your machine** (some setup) or **Hosted with Builder**
+(a free Builder account). Skip it on browser hosts, when the person already
+chose, or when resuming; in Local File Mode or headless, build here and say
+why. Details: [where it runs](references/where-it-runs.md).
 
 ### Pick the source
 
@@ -172,7 +172,7 @@ Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
 repeated title, or stat strip over visible data. Show the brief with its App
 design in your message (a saved file is not shown), then ask where the app runs
-and wait, or continue without waiting when that is skipped.
+and wait, unless that question is skipped.
 
 ### 3. Create the real scaffold
 
@@ -2635,7 +2635,9 @@ files per [the attachment reference](attachments.md). Two things differ on a
 local host:
 
 - Attach the source files the brief relies on from disk, verbatim, instead of
-  from context. A workbook still goes as a bounded CSV rendering.
+  from context. A workbook still goes as a bounded CSV rendering. Never attach
+  \`.env\` files, keys, tokens, or other credentials, even when the source uses
+  them; name what the app will need instead.
 - Run nothing for the app: no \`npm\`, \`pnpm\`, scaffold, or dev server. The only
   commands allowed are the Dispatch connector setup below.
 

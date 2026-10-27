@@ -51,7 +51,9 @@ files per [the attachment reference](attachments.md). Two things differ on a
 local host:
 
 - Attach the source files the brief relies on from disk, verbatim, instead of
-  from context. A workbook still goes as a bounded CSV rendering.
+  from context. A workbook still goes as a bounded CSV rendering. Never attach
+  `.env` files, keys, tokens, or other credentials, even when the source uses
+  them; name what the app will need instead.
 - Run nothing for the app: no `npm`, `pnpm`, scaffold, or dev server. The only
   commands allowed are the Dispatch connector setup below.
 
