@@ -4407,6 +4407,40 @@ describe("Brain connector smoke coverage", () => {
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
   });
 
+  it("logs a Zoom run-creation timeout before a run record exists", async () => {
+    const timeout = Object.assign(
+      new Error("DB query timed out after 15000ms (connection terminated)"),
+      { name: "DbTimeoutError" },
+    );
+    mocks.db.update.mockImplementationOnce(() => {
+      throw timeout;
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const source = seedSource({
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    try {
+      await expect(runConnectorSync(source as never)).rejects.toBe(timeout);
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        "[brain] Zoom sync step failed",
+        {
+          sourceId: source.id,
+          runId: null,
+          stage: "sync run creation",
+          elapsedMs: expect.any(Number),
+        },
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mocks.rows.syncRuns).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it.each([
     { stage: "run lease renewal", databaseTimeout: true },
     { stage: "imported capture lookup", databaseTimeout: true },

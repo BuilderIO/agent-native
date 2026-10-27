@@ -3113,7 +3113,19 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     );
   }
 
-  const run = await createRun(source);
+  const createRunStartedAt = performance.now();
+  let run: ConnectorSyncRunLease;
+  try {
+    run = await createRun(source);
+  } catch (error) {
+    console.error("[brain] Zoom sync step failed", {
+      sourceId: source.id,
+      runId: null,
+      stage: "sync run creation",
+      elapsedMs: Math.round(performance.now() - createRunStartedAt),
+    });
+    throw error;
+  }
   const { runId } = run;
   const db = getDb();
   const runStartedAt = Date.now();
