@@ -4,6 +4,10 @@
    utility again. */
 @layer components {
   :where(.agentkit-chat, .agentkit-tokens) {
+    /* 14px text on a 20px line, so text-driven heights land on the 4px grid.
+       Declared here rather than as a fallback because the chat template's
+       unlayered `.agent-markdown` reads it too. */
+    --agentkit-transcript-message-line-height: 1.25rem;
     --agentkit-canvas: var(
       --agentkit-chat-background,
       var(--agent-kit-recessed-surface, Canvas)
@@ -701,7 +705,7 @@
       --agentkit-transcript-font-family,
       var(--font-sans, inherit)
     );
-    line-height: var(--agentkit-transcript-message-line-height, 1.52);
+    line-height: var(--agentkit-transcript-message-line-height, 1.25rem);
   }
 
   /* A user message's footer overlays the 24px zone under its bubble on hover
@@ -713,7 +717,7 @@
       calc(1.5rem + var(--agentkit-transcript-message-gap, 1.5rem));
     line-height: var(
       --agentkit-user-bubble-line-height,
-      var(--agentkit-transcript-message-line-height, 1.52)
+      var(--agentkit-transcript-message-line-height, 1.25rem)
     );
   }
 
@@ -1109,8 +1113,11 @@
     font-family: var(--font-mono, ui-monospace, monospace);
   }
 
+  /* A code span's own line, on a different font's baseline, would stretch
+   its line past the 20px grid. */
   .agentkit-markdown :not(pre) > code {
     padding: 0.125rem 0.25rem;
+    line-height: 1;
     border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
     background: var(--agentkit-subtle);
     font-size: 0.875em;
