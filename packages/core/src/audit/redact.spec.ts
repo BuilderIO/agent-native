@@ -127,6 +127,15 @@ describe("redactArgsToJson", () => {
       "Authorization:\nfake-token\nBody: visible",
       "Authorization:\n[redacted]\nBody: visible",
     ],
+    [
+      "Authorization:\n   \nBody: visible",
+      "Authorization:\n   \nBody: visible",
+    ],
+    ["Authorization:   \nBody: visible", "Authorization:   \nBody: visible"],
+    [
+      "Authorization:\n\nfake-token\nBody: visible",
+      "Authorization:\n\n[redacted]\nBody: visible",
+    ],
     ["password:\nBody: visible", "password:\nBody: visible"],
     ["password:\nfake-phrase\nvisible", "password:\n[redacted]\nvisible"],
     ["token=\nfake-value next=visible", "token=\n[redacted] next=visible"],
