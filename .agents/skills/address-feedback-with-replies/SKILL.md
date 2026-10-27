@@ -91,14 +91,16 @@ you reasonably can, fix, and verify as `verifying-changes` describes (a test
 that fails before and passes after, or the flow working in the running app).
 Timebox one item to about 30 minutes; if it doesn't yield, it becomes 🎫 with a
 line on what you learned. Put the fixes in one PR and run `/ship` through the
-merge. Only Steve's own PRs get pushed, merged, or commented on.
+merge, with every fixed thread's Slack link in the PR body's `Reports`
+section. Only Steve's own PRs get pushed, merged, or commented on.
 
 ## 5. Close the loop
 
-After the merge, for every thread you put 👀 on, post the single reply from
+`/ship` closes out the fixed threads listed under `Reports` (✅ plus the
+"fixed (PR linked), on beta shortly" reply), so don't reply on those again.
+For every other thread you put 👀 on, post the single reply from
 `review-latest-feedback` and add the matching reaction:
 
-- Merged fix: ✅ and "fixed (PR linked) and will be on beta shortly".
 - Needs a person: 🎫 and what's needed from whom, as a plain name.
 - Couldn't reproduce: 🎫 and one specific question.
 

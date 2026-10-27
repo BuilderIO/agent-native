@@ -114,8 +114,9 @@ the invocation gives), plus 14 days for open items.
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
-  message's own `ts`, never on a thread reply that was also sent to the
-  channel. Read the thread for every root
+  message's own `ts`. A channel-history row whose `thread_ts` differs from its
+  `ts` is a reply that was also sent to the channel: use its `thread_ts`
+  parent instead. Read the thread for every root
   that looks like a report. Open screenshots and attachments, since the error
   text in a screenshot is often the whole diagnosis.
 - **Other sources.** Unread or failing sources are reported as

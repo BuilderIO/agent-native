@@ -121,8 +121,9 @@ and don't rotate.
 - Confirm `origin/main` contains the merge commit.
 - Close GitHub issues the PR fixes with a short thank-you that links the PR.
 - If the PR body has a `Reports` section (from `/review-latest-feedback`),
-  this step *is* that skill's step 5 for those threads, so it runs once. For
-  each listed thread, re-read it first and:
+  this step *is* that skill's step 5 for those threads, so it runs once. Write
+  only as the connected Slack profile (Steve), and only in that skill's
+  feedback channels. Re-read each listed thread first, then:
   - skip it if Steve has since marked it `:mag:`, a person has taken it over,
     or a newer human reply says it's still broken (leave that for the next
     sweep);
