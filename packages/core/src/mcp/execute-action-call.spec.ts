@@ -686,6 +686,8 @@ describe("executeMcpActionCall sanitizing", () => {
   const disguisedEmbedStarts = [
     "embed/start?ticket=secret-ticket",
     "./embed/start?ticket=secret-ticket",
+    EMBED_START.replace("/start", "/./start"),
+    EMBED_START.replace("/start", "/././start"),
     EMBED_START.replace("_", "&UnderBar;"),
     EMBED_START.replace("_agent", "_ag&Tab;ent"),
     EMBED_START.replace("_agent", "_ag&NewLine;ent"),

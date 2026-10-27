@@ -1079,6 +1079,7 @@ describe("direct tools/call embed credential redaction", () => {
   // embed route.
   const nestedEmbedStarts = [
     "embed/start?ticket=leaked-ticket",
+    "embed/./start?ticket=leaked-ticket",
     `https://redirect.example/?next=${EMBED_START}`,
     `https://redirect.example/?next=${encodeURIComponent(EMBED_START)}`,
     `https://redirect.example/?next=${encodeURIComponent(encodeURIComponent(EMBED_START))}`,

@@ -118,8 +118,8 @@ function resolvedPaths(text: string): string {
 
 /**
  * The letters, digits and path separators of `text`, as written and with its
- * paths resolved, each read two ways. The exact reading only folds case, so its paths resolve
- * as a browser's do. The loose reading also folds compatibility forms such as
+ * paths resolved, each read two ways. The exact reading only folds case, so
+ * its paths resolve as a browser's do. The loose reading also folds compatibility forms such as
  * full-width letters and drops every escape still in the text, so an escape
  * nothing here decodes cannot keep the letters on either side of it apart.
  */
@@ -127,10 +127,7 @@ function readings(text: string): string[] {
   const exact = text.toLowerCase();
   const loose = text.normalize("NFKC").toLowerCase().replace(UNREAD_ESCAPE, "");
   return (loose === exact ? [exact] : [exact, loose])
-    .flatMap((variant) =>
-      // Resolving changes a path's letters only through `..` or `%2e`.
-      /\.\.|%2e/.test(variant) ? [variant, resolvedPaths(variant)] : [variant],
-    )
+    .flatMap((variant) => [variant, resolvedPaths(variant)])
     .map((reading) =>
       reading.replace(/\\/g, "/").replace(NOT_ROUTE_CHARACTER, ""),
     );
