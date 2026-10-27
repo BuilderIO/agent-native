@@ -35,6 +35,7 @@ import {
   AI_FILTER_LABEL,
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
+  type AiFilterDecisionFailureReason,
   type AiFilterPreviewEmail,
   type AiFilterPreviewRule,
   type AiFilterDecision,
@@ -113,7 +114,7 @@ type StoredDecisionFailure = {
   emailId: string;
   accountEmail?: string;
   ruleId: string;
-  reason: "invalid_response" | "refusal" | "invalid_input";
+  reason: AiFilterDecisionFailureReason;
   retryable?: boolean;
 };
 type BackfillAiFilterSettings = Pick<
@@ -1824,6 +1825,7 @@ async function ensureEvaluations(
     batch.map((candidate) => candidate.email),
     state.rules,
     ownerEmail,
+    state.aiFilterSettings.feedback,
   );
   const matchMap = evaluation.matches;
   if (matchMap.size !== batch.length) {

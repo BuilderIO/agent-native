@@ -1381,7 +1381,24 @@ describe("startMailAiFilterBackfill", () => {
     const activeRule = rule("rule-a");
     mocks.rules = [activeRule];
     mocks.emails = [localEmail()];
-    const state = { ...backfillState([activeRule]), evaluations: {} };
+    const feedback = [
+      {
+        id: "feedback-a",
+        disposition: "spam" as const,
+        sender: "sender@example.test",
+        subject: "Review needed",
+        createdAt: 1,
+      },
+    ];
+    const baseState = backfillState([activeRule]);
+    const state = {
+      ...baseState,
+      evaluations: {},
+      aiFilterSettings: {
+        ...baseState.aiFilterSettings,
+        feedback,
+      },
+    };
     database.rows.push({
       ...runningRow([activeRule]),
       stateJson: JSON.stringify(state),
@@ -1398,6 +1415,12 @@ describe("startMailAiFilterBackfill", () => {
     const saved = JSON.parse(database.rows[0].stateJson);
     expect(saved.evaluations["local:thread-a"]).toEqual([]);
     expect(saved.processedThreads).toBe(1);
+    expect(mocks.evaluateAiFilterBackfillRules).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      ownerEmail,
+      feedback,
+    );
   });
 
   it("marks a partial rule evaluation as an incomplete backfill", async () => {

@@ -111,11 +111,27 @@ export const aiFilterPreviewMatchSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+export const aiFilterDecisionFailureReasonSchema = z.enum([
+  "invalid_response",
+  "refusal",
+  "invalid_input",
+  "timeout",
+  "credentials_unavailable",
+  "unsupported_input",
+  "unverified_capability",
+  "provider_error",
+  "missing_credentials",
+]);
+
+export type AiFilterDecisionFailureReason = z.infer<
+  typeof aiFilterDecisionFailureReasonSchema
+>;
+
 export const aiFilterPreviewFailureSchema = z.object({
   emailId: z.string().min(1).max(256),
   accountEmail: z.string().email().optional(),
   ruleId: z.string().min(1).max(64),
-  reason: z.enum(["invalid_response", "refusal", "invalid_input"]),
+  reason: aiFilterDecisionFailureReasonSchema,
   retryable: z.boolean().optional(),
 });
 

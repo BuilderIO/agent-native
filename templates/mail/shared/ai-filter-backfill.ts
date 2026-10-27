@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { aiFilterDecisionFailureReasonSchema } from "./ai-filter.js";
+
 export const AI_FILTER_BACKFILL_MAX_THREADS = 200;
 export const AI_FILTER_BACKFILL_WINDOW_DAYS = 14;
 export const AI_FILTER_BACKFILL_MAX_RULES = 32;
@@ -44,7 +46,7 @@ export const aiFilterBackfillStatusSchema = z.object({
         emailId: z.string().min(1).max(256),
         accountEmail: z.string().email().optional(),
         ruleId: z.string().min(1).max(64),
-        reason: z.enum(["invalid_response", "refusal", "invalid_input"]),
+        reason: aiFilterDecisionFailureReasonSchema,
         retryable: z.boolean().optional(),
       }),
     )

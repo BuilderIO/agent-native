@@ -378,6 +378,67 @@ describe("Mail decision automation routing", () => {
     expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
   });
 
+  it("includes only the latest twenty saved feedback examples in rule input", async () => {
+    const feedback = Array.from({ length: 25 }, (_, index) => ({
+      id: `feedback-${index}`,
+      disposition: index % 2 === 0 ? ("spam" as const) : ("not_spam" as const),
+      sender: `sender-${index}@example.test`,
+      subject: `Subject ${index}`,
+      comment: `Note ${index}`,
+      createdAt: index,
+    }));
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        input,
+        questions,
+      }: {
+        input: Array<{
+          value: {
+            feedback: Array<Record<string, unknown>>;
+          };
+        }>;
+        questions: Array<{
+          name: string;
+          type: string;
+          instructions: string;
+        }>;
+      }) => {
+        expect(input[0]?.value.feedback).toEqual(
+          feedback
+            .slice(-20)
+            .map(({ disposition, sender, subject, comment }) => ({
+              decision: disposition === "spam" ? "unwanted" : "keep",
+              sender,
+              subject,
+              comment,
+            })),
+        );
+        expect(questions[0]?.instructions).toContain("user-confirmed feedback");
+        expect(
+          new TextEncoder().encode(JSON.stringify({ input, questions }))
+            .byteLength,
+        ).toBeLessThanOrEqual(MAX_DECISION_PAYLOAD_BYTES);
+        return decisionResult(questions);
+      },
+    );
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+  });
+
   it("reports a single rule above the payload limit without aborting evaluation", async () => {
     const result = await previewAutomationRules(
       [email],
@@ -509,6 +570,7 @@ describe("Mail decision automation routing", () => {
         },
       ],
       "owner@example.com",
+      [],
     );
 
     expect(result.model).toEqual({ provider: "openai", model: "gpt-6-luna" });
@@ -542,6 +604,7 @@ describe("Mail decision automation routing", () => {
       [email],
       rules,
       "owner@example.com",
+      [],
     );
 
     expect(result.evaluatedCount).toBe(rules.length);
@@ -1477,6 +1540,81 @@ describe("Mail decision automation routing", () => {
     expect(
       mocks.userSettings.get("owner@example.com:automation-processed-ids"),
     ).toMatchObject({ ids: ["partial"] });
+  });
+
+  it("queues every pair in a batch after a top-level decision failure", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([{ type: "star" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [{ message: { id: "failed", labelIds: ["INBOX"] } }],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "failed",
+        data: {
+          id: "failed",
+          threadId: "thread-failed",
+          internalDate: String(now + 1_000),
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+    mocks.decide.mockResolvedValueOnce({
+      status: "failed",
+      reason: "provider_error",
+      provider: "jev",
+    });
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result).toMatchObject({
+      errors: 1,
+      decisionFailures: [
+        {
+          emailId: "failed",
+          accountEmail: "mailbox@example.com",
+          ruleId: "tag-rule",
+          reason: "provider_error",
+          retryable: true,
+        },
+      ],
+    });
+    expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({
+      pendingMessageIds: ["failed"],
+      pendingDecisionAttempts: { failed: 1 },
+    });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: [] });
   });
 
   it("executes successful rule matches before terminalizing an oversized rule", async () => {
