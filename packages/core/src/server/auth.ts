@@ -47,6 +47,7 @@ import {
 import {
   createConsentHandler,
   createConsentRegionHandler,
+  requestAllowsConsentCategory,
 } from "./consent-route.js";
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
@@ -184,6 +185,7 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   addSignupAttributionHeader,
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
@@ -276,6 +278,12 @@ import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
 } from "./magic-link-attribution.js";
+import {
+  filterMcpSignupAttributionByConsent,
+  hasMcpSignupAttributionCookie,
+  MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME,
+  readMcpSignupContextFromCookieHeader,
+} from "./mcp-signup-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getDeploySettingsRequiredHtml,
@@ -5421,11 +5429,33 @@ async function mountBetterAuthRoutes(
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
-        const signupAttribution = signupAttributionFromCookieHeader(
-          getHeader(event, "cookie") ?? null,
+        const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const targetingAllowed = requestAllowsConsentCategory(
+          event,
+          "targeting",
         );
-        const signupAnonymousId = readAnalyticsAnonymousId(
-          getHeader(event, "cookie") ?? null,
+        const performanceAllowed = requestAllowsConsentCategory(
+          event,
+          "performance",
+        );
+        const signupAttribution = targetingAllowed
+          ? signupAttributionFromCookieHeader(signupCookieHeader)
+          : undefined;
+        const signupAnonymousId = performanceAllowed
+          ? readAnalyticsAnonymousId(signupCookieHeader)
+          : undefined;
+        const signupSessionId = performanceAllowed
+          ? readAnalyticsSessionId(signupCookieHeader)
+          : undefined;
+        const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+          hasMcpSignupAttributionCookie(signupCookieHeader)
+            ? readMcpSignupContextFromCookieHeader(
+                signupCookieHeader,
+                getAuthSecret(),
+              )
+            : undefined,
+          signupCookieHeader,
+          { performance: performanceAllowed, targeting: targetingAllowed },
         );
         const state = encodeOAuthState({
           redirectUri,
@@ -5439,7 +5469,19 @@ async function mountBetterAuthRoutes(
           desktopBrowserBindingHash,
           signupAttribution,
           signupAnonymousId,
+          signupSessionId,
+          mcpSignupAttribution: mcpSignupAttribution ?? undefined,
         });
+        const mcpSignupCookie = hasMcpSignupAttributionCookie(
+          signupCookieHeader,
+        )
+          ? (() => {
+              deleteCookie(event, MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME, {
+                path: "/",
+              });
+              return event.res.headers.getSetCookie().at(-1);
+            })()
+          : undefined;
         const oauthState = wrapNetlifyPreviewGoogleOAuthState(event, state);
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -5471,9 +5513,11 @@ async function mountBetterAuthRoutes(
           // 200 status (no Location header), which broke the popup-based
           // Google sign-in in production. Web `Response` is the proven idiom
           // here — `oauthCallbackResponse`/`oauthErrorPage` use it and work.
+          const headers = new Headers({ Location: authUrl });
+          if (mcpSignupCookie) headers.append("Set-Cookie", mcpSignupCookie);
           return new Response(null, {
             status: 302,
-            headers: { Location: authUrl },
+            headers,
           });
         }
         return { url: authUrl };
@@ -5521,6 +5565,8 @@ async function mountBetterAuthRoutes(
             desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
+            signupSessionId,
+            mcpSignupAttribution,
           } = state;
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
@@ -5674,6 +5720,8 @@ async function mountBetterAuthRoutes(
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
               signupAnonymousId,
+              signupSessionId,
+              mcpSignupAttribution: mcpSignupAttribution ?? undefined,
               isNewUser: isNewGoogleUser,
             },
           });
@@ -6967,12 +7015,61 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const signupContext = signupAttributionContextFromCookieHeader(
-          getHeader(event, "cookie") ?? null,
+        const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const performanceAllowed = requestAllowsConsentCategory(
+          event,
+          "performance",
         );
-        const attributionToken = signupContext
-          ? encodeMagicLinkSignupAttribution(signupContext, getAuthSecret())
+        const targetingAllowed = requestAllowsConsentCategory(
+          event,
+          "targeting",
+        );
+        const browserSignupContext =
+          signupAttributionContextFromCookieHeader(signupCookieHeader);
+        const signupContext = browserSignupContext
+          ? {
+              ...(performanceAllowed
+                ? {
+                    ...(browserSignupContext.anonymousId
+                      ? { anonymousId: browserSignupContext.anonymousId }
+                      : {}),
+                    ...(browserSignupContext.sessionId
+                      ? { sessionId: browserSignupContext.sessionId }
+                      : {}),
+                  }
+                : {}),
+              ...(targetingAllowed
+                ? { attribution: browserSignupContext.attribution }
+                : {}),
+            }
           : undefined;
+        const hasSignupContext =
+          signupContext && Object.keys(signupContext).length > 0;
+        const hasMcpSignupCookie =
+          hasMcpSignupAttributionCookie(signupCookieHeader);
+        const mcpSignupAttribution = hasMcpSignupCookie
+          ? filterMcpSignupAttributionByConsent(
+              readMcpSignupContextFromCookieHeader(
+                signupCookieHeader,
+                getAuthSecret(),
+              ),
+              signupCookieHeader,
+              {
+                performance: performanceAllowed,
+                targeting: targetingAllowed,
+              },
+            )
+          : undefined;
+        const attributionToken =
+          hasSignupContext || mcpSignupAttribution
+            ? encodeMagicLinkSignupAttribution(
+                {
+                  ...(hasSignupContext ? signupContext : {}),
+                  ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
+                },
+                getAuthSecret(),
+              )
+            : undefined;
         const newUserCallbackUrl = new URL(
           `${getAppBasePath()}${publicFrameworkPath("/_agent-native/auth/magic-link/new-user")}?return=${encodeURIComponent(callbackPath)}`,
           getOrigin(event),
@@ -6995,6 +7092,11 @@ async function mountBetterAuthRoutes(
           },
           headers: event.headers,
         });
+        if (hasMcpSignupCookie) {
+          deleteCookie(event, MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME, {
+            path: "/",
+          });
+        }
         return {
           ok: true,
           ...(desktopFlow ?? {}),
