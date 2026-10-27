@@ -2206,66 +2206,12 @@ describe("Neon background HTTP statement budgets", () => {
   });
 });
 
-describe("isTransientDatabaseError", () => {
-  it("classifies Neon connection exhaustion as retryable", async () => {
-    const { isConnectionError, isTransientDatabaseError } =
-      await import("./client.js");
-    const error = {
-      code: "EMAXCONN",
-      message: "(EMAXCONN) max client connections reached, limit: 200",
-      stack:
-        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
-    };
-
-    expect(isConnectionError(error)).toBe(true);
-    expect(isTransientDatabaseError(error)).toBe(true);
-    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
-  });
-
-  it("classifies statement timeouts without making them connection retries", async () => {
-    const { isTransientDatabaseError, isConnectionError } =
-      await import("./client.js");
-    const error = new Error("canceling statement due to statement timeout");
-
-    expect(isTransientDatabaseError(error)).toBe(true);
-    expect(isConnectionError(error)).toBe(false);
-  });
-
-  it("classifies pool checkout timeouts", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(isTransientDatabaseError({ code: "ECHECKOUTTIMEOUT" })).toBe(true);
-  });
-
-  it("does not misclassify generic provider network failures", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(
-      isTransientDatabaseError({
-        code: "ECONNRESET",
-        stack: "Error: socket hang up\n at providerFetch (gong.ts:42:7)",
-      }),
-    ).toBe(false);
-  });
-
-  it("classifies database-driver connection failures", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(
-      isTransientDatabaseError({
-        code: "ECONNRESET",
-        stack: "Error: connection reset\n at @neondatabase/serverless/index.js",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not classify ordinary database errors as transient", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(isTransientDatabaseError(new Error("duplicate key value"))).toBe(
-      false,
-    );
-  });
+// oracle-change: classifier assertions move unchanged to db/errors.spec.ts with their extracted owner; public exports remain checked here.
+it("preserves the db/client error-classifier exports", async () => {
+  const client = await import("./client.js");
+  const errors = await import("./errors.js");
+  expect(client.isConnectionError).toBe(errors.isConnectionError);
+  expect(client.isTransientDatabaseError).toBe(errors.isTransientDatabaseError);
 });
 
 describe("annotateMissingTable", () => {
