@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   RadarQueryError,
   closeRadarQueries,
+  radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -33,18 +34,11 @@ experiment_events AS (
     coalesce(properties ->> 'flow', '') AS flow,
     coalesce(properties ->> 'experiment_id', '') AS experiment_id
   FROM base_events
-  WHERE event_name IN (
-    'onboarding_experiment_exposed', 'onboarding_method_clicked',
-    'onboarding_method_outcome', 'onboarding_completed', 'app_entered',
-    'onboarding_app_entered', 'generation_started', 'design_prompt_submitted',
-    'recording_started', 'deck_created', 'design_ready_viewed', 'recording_ready',
-    'pageview'
-  )
+  WHERE event_name = 'onboarding_experiment_exposed'
     AND nullif(properties ->> 'experiment_variant', '') IS NOT NULL
-    AND (event_name <> 'onboarding_experiment_exposed' OR (
-      coalesce(properties ->> 'flow', '') = 'first_run'
-      AND coalesce(properties ->> 'experiment_id', '') = '${EXPERIMENT_ID}'
-    ))
+    AND coalesce(properties ->> 'flow', '') = 'first_run'
+    AND coalesce(properties ->> 'experiment_id', '') = '${EXPERIMENT_ID}'
+    AND happened_at <= $4::timestamptz
 ),
 ranked_exposures AS (
   SELECT person_key, variant, app AS exposure_app, happened_at AS exposed_at,
@@ -62,11 +56,13 @@ flags AS (
       AND e.properties ->> 'outcome' IN ('connected', 'already_connected')) AS connected,
     bool_or(e.event_name IN ('builder_connect_succeeded', 'builder connect succeeded')) AS builder_connected,
     bool_or(e.event_name = 'onboarding_completed') AS onboarding_completed,
-    bool_or(e.event_name IN ('app_entered', 'onboarding_app_entered')) AS entered_any,
+    bool_or(e.event_name = 'onboarding_app_entered') AS entered_any,
     bool_or(e.event_name IN ('generation_started', 'design_prompt_submitted', 'recording_started')) AS first_run_any,
     bool_or(e.event_name IN ('deck_created', 'design_ready_viewed', 'recording_ready')) AS first_output_any,
-    x.exposed_at <= now() - interval '24 hours' AS d1_mature,
-    x.exposed_at <= now() - interval '7 days' AS d7_mature,
+    x.exposed_at + interval '48 hours'
+      <= LEAST($4::timestamptz, ($2::date + 1)::timestamptz) AS d1_mature,
+    x.exposed_at + interval '8 days'
+      <= LEAST($4::timestamptz, ($2::date + 1)::timestamptz) AS d7_mature,
     bool_or(e.event_name IN ('pageview', 'app_entered', 'onboarding_app_entered')
       AND e.happened_at >= x.exposed_at + interval '24 hours'
       AND e.happened_at < x.exposed_at + interval '48 hours') AS d1_return,
@@ -76,12 +72,13 @@ flags AS (
   FROM exposed x
   LEFT JOIN base_events e ON e.person_key = x.person_key
     AND e.happened_at >= x.exposed_at
+    AND e.happened_at <= $4::timestamptz
     AND e.event_name <> 'onboarding_experiment_exposed'
   GROUP BY x.person_key, x.variant, x.exposure_app, x.exposed_at
 ),
 app_flags AS (
   SELECT x.person_key, x.variant, x.exposure_app AS app,
-    bool_or(e.event_name IN ('app_entered', 'onboarding_app_entered')
+    bool_or(e.event_name = 'onboarding_app_entered'
       AND e.app = x.exposure_app) AS entered,
     bool_or(((x.exposure_app = 'slides' AND e.event_name = 'generation_started') OR
       (x.exposure_app = 'design' AND e.event_name = 'design_prompt_submitted') OR
@@ -94,6 +91,7 @@ app_flags AS (
   FROM exposed x
   LEFT JOIN base_events e ON e.person_key = x.person_key
     AND e.happened_at >= x.exposed_at
+    AND e.happened_at <= $4::timestamptz
     AND e.event_name <> 'onboarding_experiment_exposed'
   GROUP BY x.person_key, x.variant, x.exposure_app
 )`;
@@ -124,7 +122,11 @@ SELECT variant, app, count(*)::int AS exposed,
 FROM app_flags GROUP BY variant, app
 ORDER BY variant, app`;
 
-function buildBigQueryAbSql(eventsTableRange: string): string {
+export function buildPostgresAbSql(): string {
+  return AB_SQL;
+}
+
+export function buildBigQueryAbSql(eventsTableRange: string): string {
   const cte = bigQueryFirstTouchEventsCte(eventsTableRange, {
     includeAllApps: true,
   });
@@ -138,18 +140,11 @@ experiment_events AS (
     coalesce(json_value(properties, '$.flow'), '') AS flow,
     coalesce(json_value(properties, '$.experiment_id'), '') AS experiment_id
   FROM base_events
-  WHERE event_name IN (
-    'onboarding_experiment_exposed', 'onboarding_method_clicked',
-    'onboarding_method_outcome', 'onboarding_completed', 'app_entered',
-    'onboarding_app_entered', 'generation_started', 'design_prompt_submitted',
-    'recording_started', 'deck_created', 'design_ready_viewed', 'recording_ready',
-    'pageview', 'builder_connect_succeeded', 'builder connect succeeded'
-  )
+  WHERE event_name = 'onboarding_experiment_exposed'
     AND nullif(json_value(properties, '$.experiment_variant'), '') IS NOT NULL
-    AND (event_name != 'onboarding_experiment_exposed' OR (
-      coalesce(json_value(properties, '$.flow'), '') = 'first_run'
-      AND coalesce(json_value(properties, '$.experiment_id'), '') = '${EXPERIMENT_ID}'
-    ))
+    AND coalesce(json_value(properties, '$.flow'), '') = 'first_run'
+    AND coalesce(json_value(properties, '$.experiment_id'), '') = '${EXPERIMENT_ID}'
+    AND happened_at <= @as_of
 ),
 ranked_exposures AS (
   SELECT person_key, variant, app AS exposure_app, happened_at AS exposed_at,
@@ -167,11 +162,13 @@ flags AS (
       AND json_value(e.properties, '$.outcome') IN ('connected', 'already_connected')) AS connected,
     logical_or(e.event_name IN ('builder_connect_succeeded', 'builder connect succeeded')) AS builder_connected,
     logical_or(e.event_name = 'onboarding_completed') AS onboarding_completed,
-    logical_or(e.event_name IN ('app_entered', 'onboarding_app_entered')) AS entered_any,
+    logical_or(e.event_name = 'onboarding_app_entered') AS entered_any,
     logical_or(e.event_name IN ('generation_started', 'design_prompt_submitted', 'recording_started')) AS first_run_any,
     logical_or(e.event_name IN ('deck_created', 'design_ready_viewed', 'recording_ready')) AS first_output_any,
-    x.exposed_at <= timestamp_sub(current_timestamp(), INTERVAL 24 HOUR) AS d1_mature,
-    x.exposed_at <= timestamp_sub(current_timestamp(), INTERVAL 7 DAY) AS d7_mature,
+    timestamp_add(x.exposed_at, INTERVAL 48 HOUR)
+      <= LEAST(@as_of, timestamp(date_add(@end_date, INTERVAL 1 DAY))) AS d1_mature,
+    timestamp_add(x.exposed_at, INTERVAL 8 DAY)
+      <= LEAST(@as_of, timestamp(date_add(@end_date, INTERVAL 1 DAY))) AS d7_mature,
     logical_or(e.event_name IN ('pageview', 'app_entered', 'onboarding_app_entered')
       AND e.happened_at >= timestamp_add(x.exposed_at, INTERVAL 24 HOUR)
       AND e.happened_at < timestamp_add(x.exposed_at, INTERVAL 48 HOUR)) AS d1_return,
@@ -181,12 +178,13 @@ flags AS (
   FROM exposed x
   LEFT JOIN base_events e ON e.person_key = x.person_key
     AND e.happened_at >= x.exposed_at
+    AND e.happened_at <= @as_of
     AND e.event_name != 'onboarding_experiment_exposed'
   GROUP BY x.person_key, x.variant, x.exposure_app, x.exposed_at
 ),
 app_flags AS (
   SELECT x.person_key, x.variant, x.exposure_app AS app,
-    logical_or(e.event_name IN ('app_entered', 'onboarding_app_entered')
+    logical_or(e.event_name = 'onboarding_app_entered'
       AND e.app = x.exposure_app) AS entered,
     logical_or(((x.exposure_app = 'slides' AND e.event_name = 'generation_started') OR
       (x.exposure_app = 'design' AND e.event_name = 'design_prompt_submitted') OR
@@ -199,6 +197,7 @@ app_flags AS (
   FROM exposed x
   LEFT JOIN base_events e ON e.person_key = x.person_key
     AND e.happened_at >= x.exposed_at
+    AND e.happened_at <= @as_of
     AND e.event_name != 'onboarding_experiment_exposed'
   GROUP BY x.person_key, x.variant, x.exposure_app
 )
@@ -258,6 +257,7 @@ export interface AbReadout {
   experiment: string;
   startDate: string;
   endDate: string;
+  dataCutoff: string;
   minimumArmSize: number;
   sampleRatioMismatch: { pValue: number; flagged: boolean };
   arms: AbArmSummary[];
@@ -348,6 +348,7 @@ export async function runAbReadout(
     experiment?: string;
     startDate?: string;
     endDate?: string;
+    asOf?: string;
   } = {},
 ): Promise<AbReadout> {
   const experiment = options.experiment ?? EXPERIMENT_ID;
@@ -369,6 +370,22 @@ export async function runAbReadout(
       2,
     );
   }
+  const endExclusive = new Date(`${endDate}T00:00:00.000Z`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  const requestedCutoff = options.asOf ? new Date(options.asOf) : endExclusive;
+  if (!Number.isFinite(requestedCutoff.getTime())) {
+    throw new RadarQueryError("--as-of must be a valid timestamp.", 2);
+  }
+  const cutoffDate = new Date(
+    Math.min(requestedCutoff.getTime(), Date.now(), endExclusive.getTime()),
+  );
+  if (cutoffDate < new Date(`${startDate}T00:00:00.000Z`)) {
+    throw new RadarQueryError(
+      "The A/B data cutoff must be on or after --start.",
+      2,
+    );
+  }
+  const dataCutoff = cutoffDate.toISOString();
   const orgId = await resolveRadarOrganizationId();
   const backend = await resolveRadarFirstPartyBackend();
   const result =
@@ -380,14 +397,19 @@ export async function runAbReadout(
               { name: "start_date", type: "DATE", value: startDate },
               { name: "end_date", type: "DATE", value: endDate },
               { name: "org_id", type: "STRING", value: orgId },
+              { name: "as_of", type: "TIMESTAMP", value: dataCutoff },
             ],
             fresh: true,
             cache: false,
           },
         )
-      : await runPostgresQuery(AB_SQL, [startDate, endDate, orgId], {
-          fresh: true,
-        });
+      : await runPostgresQuery(
+          buildPostgresAbSql(),
+          [startDate, endDate, orgId, dataCutoff],
+          {
+            fresh: true,
+          },
+        );
   const { rows } = result;
   const overall = rows.filter((row) => String(row.app) === "all");
   const appRows = rows.filter((row) => String(row.app) !== "all");
@@ -501,6 +523,7 @@ export async function runAbReadout(
     experiment,
     startDate,
     endDate,
+    dataCutoff,
     minimumArmSize: MIN_ARM_SIZE,
     sampleRatioMismatch: {
       pValue: sampleRatioP,
@@ -521,7 +544,7 @@ export function formatAbMarkdown(result: AbReadout): string {
   const lines = [
     `# A/B readout: ${result.experiment}`,
     "",
-    `Window: ${result.startDate} through ${result.endDate} (inclusive). Minimum arm size: ${result.minimumArmSize}.`,
+    `Window: ${result.startDate} through ${result.endDate} (inclusive), data cutoff ${result.dataCutoff}. Minimum arm size: ${result.minimumArmSize}.`,
     `Sample ratio mismatch p=${result.sampleRatioMismatch.pValue.toFixed(4)}; flagged=${result.sampleRatioMismatch.flagged}.`,
     "",
     "| Variant | Exposed | Connected | Onboarding complete | D1 return | D7 return |",
@@ -554,7 +577,7 @@ export function formatAbMarkdown(result: AbReadout): string {
   }
   lines.push(
     "",
-    "Downstream activity is assigned to the user's first-exposure variant and counted after exposure. D1 and D7 use mature exposure cohorts and fixed 24-hour return windows.",
+    "Downstream activity is assigned to the user's first-exposure variant and counted after exposure. D1 and D7 include only cohorts whose full 48-hour and 8-day observation windows fit inside the data cutoff.",
   );
   return lines.join("\n");
 }
@@ -564,10 +587,12 @@ async function main(): Promise<void> {
   let experiment = EXPERIMENT_ID;
   let startDate: string | undefined;
   let endDate: string | undefined;
+  let asOf: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--experiment") experiment = args[++index] ?? "";
     else if (args[index] === "--start") startDate = args[++index];
     else if (args[index] === "--end") endDate = args[++index];
+    else if (args[index] === "--as-of") asOf = args[++index];
     else throw new RadarQueryError(`Unknown argument: ${args[index]}`, 2);
   }
   try {
@@ -575,6 +600,7 @@ async function main(): Promise<void> {
       experiment,
       ...(startDate !== undefined ? { startDate } : {}),
       ...(endDate !== undefined ? { endDate } : {}),
+      ...(asOf !== undefined ? { asOf } : {}),
     });
     console.log(formatAbMarkdown(result));
     console.log(JSON.stringify(result));
@@ -582,7 +608,7 @@ async function main(): Promise<void> {
     console.error(
       error instanceof Error ? error.message : "A/B readout could not run.",
     );
-    process.exitCode = error instanceof RadarQueryError ? error.exitCode : 1;
+    process.exitCode = radarRunCliExitCode(error);
   } finally {
     await closeRadarQueries();
   }

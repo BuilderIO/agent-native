@@ -14,6 +14,7 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_GB = 20;
 const MAX_BQ_ROWS = 50_000;
 const MAX_BQ_PAGE_SIZE = 10_000;
+const MAX_BQ_RESULT_BYTES = 20 * 1024 * 1024;
 const MAX_POSTGRES_ROWS = 50_000;
 const MAX_POSTGRES_RESULT_BYTES = 20 * 1024 * 1024;
 
@@ -271,19 +272,28 @@ export function isReadOnlySql(sql: string): boolean {
         !/[A-Za-z0-9_$]/.test(sql[index - 2] ?? "");
       index += 1;
       let closed = false;
+      let quotedIdentifier = "";
       while (index < sql.length) {
         if (escapeBackslashes && sql[index] === "\\") {
           index += 2;
         } else if (sql[index] === quote && sql[index + 1] === quote) {
+          if (quote === '"') quotedIdentifier += quote;
           index += 2;
         } else if (sql[index] === quote) {
           index += 1;
           closed = true;
           break;
-        } else index += 1;
+        } else {
+          if (quote === '"') quotedIdentifier += sql[index];
+          index += 1;
+        }
       }
       if (!closed) return false;
-      tokens.push("<quoted>");
+      tokens.push(
+        quote === '"'
+          ? `<identifier:${quotedIdentifier.toLowerCase()}>`
+          : "<quoted>",
+      );
       continue;
     }
     if (char === "$") {
@@ -374,7 +384,15 @@ export function isReadOnlySql(sql: string): boolean {
     "pg_notify",
     "pg_advisory_lock",
     "pg_try_advisory_lock",
+    "pg_advisory_unlock",
+    "pg_try_advisory_unlock",
+    "pg_advisory_lock_shared",
+    "pg_try_advisory_lock_shared",
+    "pg_advisory_unlock_shared",
+    "pg_try_advisory_unlock_shared",
     "pg_advisory_xact_lock",
+    "pg_advisory_xact_lock_shared",
+    "pg_advisory_unlock_all",
     "nextval",
     "setval",
     "pg_reload_conf",
@@ -390,11 +408,17 @@ export function isReadOnlySql(sql: string): boolean {
     "pg_stat_reset_single_table_counters",
     "pg_stat_reset_single_function_counters",
   ]);
-  return !tokens.some(
-    (token, index) =>
-      forbidden.has(token) ||
-      (forbiddenFunctions.has(token) && tokens[index + 1] === "("),
-  );
+  return !tokens.some((token, index) => {
+    const quotedIdentifier = token.startsWith("<identifier:")
+      ? token.slice("<identifier:".length, -1)
+      : undefined;
+    const keyword = quotedIdentifier === undefined ? token : "";
+    const functionName = quotedIdentifier ?? token;
+    return (
+      forbidden.has(keyword) ||
+      (forbiddenFunctions.has(functionName) && tokens[index + 1] === "(")
+    );
+  });
 }
 
 function queryKey(source: string, sql: string, params: unknown[]): string {
@@ -492,12 +516,23 @@ function readCache(key: string, ttlMs: number): RadarQueryResult | undefined {
         );
       }
     }
+    if (fileStat.size > MAX_BQ_RESULT_BYTES * 2) return undefined;
     const cached = JSON.parse(fs.readFileSync(file, "utf8")) as {
       cachedAt: number;
       bytesProcessed: number | null;
       rows: Record<string, unknown>[];
     };
     if (Date.now() - cached.cachedAt > ttlMs) return undefined;
+    if (!Array.isArray(cached.rows) || cached.rows.length > MAX_BQ_ROWS) {
+      return undefined;
+    }
+    let cachedResultBytes = 0;
+    for (const row of cached.rows) {
+      const serialized = JSON.stringify(row);
+      if (typeof serialized !== "string") return undefined;
+      cachedResultBytes += Buffer.byteLength(serialized, "utf8");
+      if (cachedResultBytes > MAX_BQ_RESULT_BYTES) return undefined;
+    }
     return {
       rows: cached.rows,
       bytesProcessed: cached.bytesProcessed,
@@ -781,11 +816,28 @@ export async function resolveRadarFirstPartyBackend(): Promise<{
   return loadedFirstPartyBackend;
 }
 
+export function parseRadarBigQueryTableParts(
+  configured: string | null | undefined,
+): string[] {
+  const raw = configured?.trim().replace(/^`|`$/g, "");
+  const parts = raw ? raw.split(".") : [];
+  if (
+    parts.length !== 0 &&
+    ((parts.length !== 2 && parts.length !== 3) ||
+      parts.some((part) => part.length === 0))
+  ) {
+    throw new RadarQueryError(
+      "Analytics first-party BigQuery table reference is invalid.",
+      2,
+    );
+  }
+  return parts;
+}
+
 export async function resolveRadarBigQueryEventsTable(): Promise<string> {
   const backend = await resolveRadarFirstPartyBackend();
+  const parts = parseRadarBigQueryTableParts(backend.table);
   const { project } = await getBigQueryAuth();
-  const raw = backend.table?.trim().replace(/^`|`$/g, "");
-  const parts = raw ? raw.split(".") : [];
   let projectId = project;
   let datasetId = "analytics";
   let tableId = "first_party_analytics_events_raw";
@@ -1107,6 +1159,54 @@ function convertBigQueryRows(
   );
 }
 
+export interface BigQueryRowsAccumulator {
+  rows: Record<string, unknown>[];
+  bytes: number;
+}
+
+function appendBigQueryPayloadRows(
+  accumulator: BigQueryRowsAccumulator,
+  fields: BqField[],
+  rows: BqRow[],
+): void {
+  for (const row of rows) {
+    appendBigQueryRows(accumulator, convertBigQueryRows(fields, [row]));
+  }
+}
+
+export function appendBigQueryRows(
+  accumulator: BigQueryRowsAccumulator,
+  rows: readonly Record<string, unknown>[],
+  limits: { maxRows?: number; maxBytes?: number } = {},
+): void {
+  const maxRows = limits.maxRows ?? MAX_BQ_ROWS;
+  const maxBytes = limits.maxBytes ?? MAX_BQ_RESULT_BYTES;
+  for (const row of rows) {
+    let rowBytes: number;
+    try {
+      const serialized = JSON.stringify(row);
+      if (typeof serialized !== "string") throw new TypeError();
+      rowBytes = Buffer.byteLength(serialized, "utf8");
+    } catch {
+      throw new RadarQueryError(
+        "BigQuery returned a row that cannot be measured safely.",
+        1,
+      );
+    }
+    if (
+      accumulator.rows.length >= maxRows ||
+      accumulator.bytes + rowBytes > maxBytes
+    ) {
+      throw new RadarQueryError(
+        `BigQuery result exceeded the ${maxRows}-row or ${Math.floor(maxBytes / (1024 * 1024))}-MiB safety cap; aggregate in SQL.`,
+        1,
+      );
+    }
+    accumulator.rows.push(row);
+    accumulator.bytes += rowBytes;
+  }
+}
+
 export async function runBigQuery(
   query: string,
   options: {
@@ -1173,7 +1273,9 @@ export async function runBigQuery(
   }
 
   const fields = first.schema?.fields ?? [];
-  const rows = convertBigQueryRows(fields, first.rows ?? []);
+  const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
+  appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
+  const rows = accumulator.rows;
   let pageToken = first.pageToken as string | undefined;
   let jobComplete = first.jobComplete === true;
   let location = first.jobReference?.location as string | undefined;
@@ -1204,7 +1306,7 @@ export async function runBigQuery(
     if (page.schema?.fields) {
       fields.splice(0, fields.length, ...page.schema.fields);
     }
-    rows.push(...convertBigQueryRows(fields, page.rows ?? []));
+    appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
     pageToken = page.pageToken as string | undefined;
     jobComplete = page.jobComplete === true;
     location = page.jobReference?.location ?? location;
@@ -1228,6 +1330,10 @@ export async function closeRadarQueries(): Promise<void> {
 
 export function radarCliExitCode(error: unknown): 1 | 2 {
   return error instanceof RadarQueryError ? error.exitCode : 1;
+}
+
+export function radarRunCliExitCode(_error: unknown): 2 {
+  return 2;
 }
 
 function parseCliArgs(args: string[]): {

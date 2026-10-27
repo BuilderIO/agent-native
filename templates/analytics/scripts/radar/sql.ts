@@ -1,3 +1,5 @@
+import { radarEventLabelSql } from "./event-labels.ts";
+
 const APPS = ["design", "slides", "clips"] as const;
 export const CAMPAIGN_APPS = [
   "analytics",
@@ -298,7 +300,8 @@ SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 export function buildFunnelDailySql(): string {
   return `${buildFirstTouchEventsCte({ startDate: "$1", endDate: "$2", orgId: "$3" })},
 signup_cohort AS (
-  SELECT person_key, app, event_date AS signup_date, min(happened_at) AS signup_at
+  SELECT person_key, app, event_date AS signup_date, min(happened_at) AS signup_at,
+    max(coalesce(properties::jsonb ->> 'first_touch_path', '')) AS first_touch_path
   FROM base_events
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key, app, event_date
@@ -309,26 +312,27 @@ funnel_events AS (
   WHERE event_name IN (
     'onboarding_completed', 'app_entered', 'onboarding_app_entered',
     'generation_started', 'deck_created', 'design_prompt_submitted',
-    'design_ready_viewed', 'recording_started', 'recording_ready'
+    'design_ready_viewed', 'recording_started', 'recording_ready',
+    'agent_connected', '$mcp_tool_call', 'design_created'
   )
 ),
 stages AS (
-  SELECT c.person_key, c.app, c.signup_date, c.signup_at,
+  SELECT c.person_key, c.app, c.signup_date, c.signup_at, c.first_touch_path,
     min(e.happened_at) FILTER (WHERE e.event_name = 'onboarding_completed'
       AND e.happened_at >= c.signup_at
       AND e.happened_at < c.signup_at + interval '24 hours') AS completed_at
   FROM signup_cohort c
   LEFT JOIN funnel_events e ON e.person_key = c.person_key AND e.app = c.app
-  GROUP BY c.person_key, c.app, c.signup_date, c.signup_at
+  GROUP BY c.person_key, c.app, c.signup_date, c.signup_at, c.first_touch_path
 ),
 entered_stages AS (
   SELECT s.*,
-    min(e.happened_at) FILTER (WHERE e.event_name IN ('app_entered', 'onboarding_app_entered')
+    min(e.happened_at) FILTER (WHERE e.event_name = 'onboarding_app_entered'
       AND e.happened_at >= s.completed_at
       AND e.happened_at < s.signup_at + interval '24 hours') AS entered_at
   FROM stages s
   LEFT JOIN funnel_events e ON e.person_key = s.person_key AND e.app = s.app
-  GROUP BY s.person_key, s.app, s.signup_date, s.signup_at, s.completed_at
+  GROUP BY s.person_key, s.app, s.signup_date, s.signup_at, s.first_touch_path, s.completed_at
 ),
 prompt_stages AS (
   SELECT s.*,
@@ -342,7 +346,7 @@ prompt_stages AS (
     AND e.happened_at >= s.entered_at
     AND e.happened_at < s.signup_at + interval '24 hours'
   GROUP BY s.person_key, s.app, s.signup_date, s.signup_at,
-    s.completed_at, s.entered_at
+    s.first_touch_path, s.completed_at, s.entered_at
 ),
 output_stages AS (
   SELECT s.*,
@@ -356,19 +360,77 @@ output_stages AS (
     AND e.happened_at >= s.prompt_at
     AND e.happened_at < s.signup_at + interval '24 hours'
   GROUP BY s.person_key, s.app, s.signup_date, s.signup_at,
-    s.completed_at, s.entered_at, s.prompt_at
+    s.first_touch_path, s.completed_at, s.entered_at, s.prompt_at
+),
+clips_activation AS (
+  SELECT o.person_key, o.signup_date,
+    bool_or(e.event_name = 'recording_ready'
+      AND e.happened_at >= o.signup_at
+      AND e.happened_at < o.signup_at + interval '24 hours') AS activated
+  FROM output_stages o
+  LEFT JOIN funnel_events e ON e.person_key = o.person_key AND e.app = 'clips'
+  WHERE o.app = 'clips'
+  GROUP BY o.person_key, o.signup_date
+),
+design_mcp_connected AS (
+  SELECT c.person_key, c.signup_date, c.signup_at,
+    min(e.happened_at) FILTER (WHERE e.event_name = 'agent_connected') AS connected_at
+  FROM signup_cohort c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.signup_at
+    AND e.event_name = 'agent_connected'
+  WHERE c.app = 'design' AND c.first_touch_path LIKE '/mcp/oauth%'
+  GROUP BY c.person_key, c.signup_date, c.signup_at
+),
+design_mcp_called AS (
+  SELECT c.person_key, c.signup_date, c.signup_at, c.connected_at,
+    min(e.happened_at) FILTER (WHERE e.event_name = '$mcp_tool_call') AS first_tool_call_at
+  FROM design_mcp_connected c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.connected_at
+    AND e.event_name = '$mcp_tool_call'
+  GROUP BY c.person_key, c.signup_date, c.signup_at, c.connected_at
+),
+design_mcp_created AS (
+  SELECT c.person_key, c.signup_date, c.connected_at, c.first_tool_call_at,
+    bool_or(e.event_name = 'design_created') AS design_created
+  FROM design_mcp_called c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.first_tool_call_at
+    AND e.event_name = 'design_created'
+  GROUP BY c.person_key, c.signup_date, c.connected_at, c.first_tool_call_at
+),
+design_mcp_daily AS (
+  SELECT signup_date, count(*)::int AS signups,
+    count(*) FILTER (WHERE connected_at IS NOT NULL)::int AS connected,
+    count(*) FILTER (WHERE first_tool_call_at IS NOT NULL)::int AS first_tool_call,
+    count(*) FILTER (WHERE design_created)::int AS design_created
+  FROM design_mcp_created
+  GROUP BY signup_date
 )
-SELECT signup_date, app,
+SELECT o.signup_date, o.app,
+  CASE WHEN o.app = 'design' THEN 'design_web' ELSE 'first_touch' END AS journey_type,
   count(*)::int AS signups,
-  count(*) FILTER (WHERE completed_at IS NOT NULL)::int AS completed,
-  count(*) FILTER (WHERE entered_at IS NOT NULL)::int AS entered,
-  count(*) FILTER (WHERE prompt_at IS NOT NULL)::int AS prompted,
-  count(*) FILTER (WHERE output_at IS NOT NULL)::int AS output,
+  count(*) FILTER (WHERE o.completed_at IS NOT NULL)::int AS completed,
+  count(*) FILTER (WHERE o.entered_at IS NOT NULL)::int AS entered,
+  count(*) FILTER (WHERE o.prompt_at IS NOT NULL)::int AS prompted,
+  count(*) FILTER (WHERE o.output_at IS NOT NULL)::int AS output,
   percentile_cont(0.9) WITHIN GROUP (
-    ORDER BY extract(epoch FROM output_at - prompt_at)
-  ) FILTER (WHERE prompt_at IS NOT NULL AND output_at IS NOT NULL) AS prompt_output_p90_seconds
-FROM output_stages
-GROUP BY signup_date, app
+    ORDER BY extract(epoch FROM o.output_at - o.prompt_at)
+  ) FILTER (WHERE o.prompt_at IS NOT NULL AND o.output_at IS NOT NULL) AS prompt_output_p90_seconds,
+  count(*) FILTER (WHERE o.app = 'clips' AND coalesce(c.activated, false))::int AS clips_activated_24h
+FROM output_stages o
+LEFT JOIN clips_activation c ON c.person_key = o.person_key AND c.signup_date = o.signup_date
+WHERE o.app <> 'design' OR o.first_touch_path NOT LIKE '/mcp/oauth%'
+GROUP BY o.signup_date, o.app
+UNION ALL
+SELECT signup_date, 'design_mcp' AS app, 'design_mcp' AS journey_type,
+  sum(signups)::int AS signups, sum(connected)::int AS completed,
+  sum(first_tool_call)::int AS entered, 0::int AS prompted,
+  sum(design_created)::int AS output, null::numeric AS prompt_output_p90_seconds,
+  0::int AS clips_activated_24h
+FROM design_mcp_daily
+GROUP BY signup_date
 ORDER BY signup_date, app`;
 }
 
@@ -566,7 +628,7 @@ session_summary AS (
     bool_or(e.event_name IN ('deck_created', 'design_ready_viewed', 'recording_ready')) AS output_ready,
     bool_or(e.event_name = 'onboarding_abandoned') AS onboarding_abandoned,
     string_agg(
-      format('%s +%ss x%s', e.event_name,
+      format('%s +%ss x%s', ${radarEventLabelSql("e.event_name")},
         greatest(0, round(extract(epoch FROM e.first_at - s.signup_at))::int), e.event_count),
       ' | ' ORDER BY e.first_at
     ) FILTER (WHERE e.event_name NOT IN ('pageview') AND e.event_count > 0) AS timeline
@@ -579,18 +641,20 @@ trouble_labels AS (
     string_agg(DISTINCT concat_ws(':', t.label, nullif(t.status, '')), ', ' ORDER BY concat_ws(':', t.label, nullif(t.status, ''))) AS labels
   FROM analytics_session_trouble t
   WHERE t.org_id = $3
+    AND t.session_id IN (SELECT session_id FROM signup_sessions)
   GROUP BY t.session_id
 ),
 friction AS (
   SELECT f.session_id, max(f.dead_clicks + f.error_toasts + f.retry_loops + f.error_then_leave + f.stalled_requests) AS signals
   FROM session_recording_friction f
   WHERE f.org_id = $3
+    AND f.session_id IN (SELECT session_id FROM signup_sessions)
   GROUP BY f.session_id
 ),
 indexed_timeline AS (
   SELECT limited.session_id,
     string_agg(
-      format('%s +%ss x%d', limited.event_name,
+      format('%s +%ss x%d', ${radarEventLabelSql("limited.event_name")},
         greatest(0, round(extract(epoch FROM limited.first_at::timestamptz - limited.signup_at))::int), limited.event_count),
       ' | ' ORDER BY limited.first_at::timestamptz
     ) AS timeline
@@ -614,6 +678,7 @@ performance AS (
     max(p.slow_requests)::int AS slow_requests
   FROM analytics_session_performance p
   WHERE p.org_id = $3
+    AND p.session_id IN (SELECT session_id FROM signup_sessions)
   GROUP BY p.session_id
 )
 SELECT s.session_id, r.recording_id, s.app,
@@ -683,7 +748,7 @@ export function buildTriageMetadataSql(): string {
     AND i.first_at::timestamptz < $3::timestamptz
 ), indexed_timeline AS (
   SELECT session_id,
-    string_agg(format('%s +%ss x%s', event_name,
+    string_agg(format('%s +%ss x%s', ${radarEventLabelSql("event_name")},
       greatest(0, round(extract(epoch FROM first_at::timestamptz - signup_at))::int), event_count),
       ' | ' ORDER BY first_at::timestamptz) AS timeline
   FROM limited_index WHERE event_number <= 18

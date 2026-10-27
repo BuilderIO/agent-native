@@ -17,11 +17,12 @@ import {
   type RadarCheckDefinition,
   type RadarCheckResult,
 } from "./checks.ts";
+import { safeRadarEventLabel } from "./event-labels.ts";
 import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
-  radarCliExitCode,
+  radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -46,6 +47,13 @@ interface QueryRow extends Record<string, unknown> {
   app?: unknown;
   event_name?: unknown;
   period_start?: unknown;
+  signup_date?: unknown;
+  journey_type?: unknown;
+}
+
+interface JourneyRow extends QueryRow {
+  app: string;
+  journey_type: string;
 }
 
 export interface RadarWatchOptions {
@@ -62,6 +70,7 @@ export interface RadarWatchRun {
   hour?: number;
   exitCode: 0 | 1 | 2;
   checks: RadarCheckResult[];
+  journeyRows: JourneyRow[];
   campaignFollowup?: CampaignFollowupResult;
   campaignAnnotations: Array<{ app: string; campaigns: string[] }>;
   issues: Array<{
@@ -74,6 +83,7 @@ export interface RadarWatchRun {
     eventSourceCoverage: Record<string, { runs: number; sourceTagged: number }>;
     campaignRecipients?: number;
     campaignSkippedRows?: number;
+    campaignFollowupAvailable?: boolean;
   };
   queryCount: number;
 }
@@ -276,6 +286,7 @@ function createEventChecks(
   targetHour: string,
   window: "hourly" | "daily",
   campaign?: CampaignFollowupResult,
+  campaignUnavailable = false,
 ): {
   checks: RadarCheckResult[];
   annotations: Array<{ app: string; campaigns: string[] }>;
@@ -790,14 +801,21 @@ function createEventChecks(
   for (const app of ["design", "slides", "clips"]) {
     const target = funnelRows.find(
       (row) =>
-        asDate(row.signup_date) === targetDate && String(row.app) === app,
+        asDate(row.signup_date) === targetDate &&
+        String(row.app) === app &&
+        String(row.journey_type) ===
+          (app === "design" ? "design_web" : "first_touch"),
     );
     for (const stage of funnelStages) {
       const numerator = numeric(target, stage.child);
       const denominator = numeric(target, stage.parent);
       const baselineRows = periodDays.map((date) =>
         funnelRows.find(
-          (row) => asDate(row.signup_date) === date && String(row.app) === app,
+          (row) =>
+            asDate(row.signup_date) === date &&
+            String(row.app) === app &&
+            String(row.journey_type) ===
+              (app === "design" ? "design_web" : "first_touch"),
         ),
       );
       const baselineN = baselineRows.reduce(
@@ -896,7 +914,7 @@ function createEventChecks(
           baseResult(eventDef, app, "fired", {
             value: currentCount,
             numerator: currentCount,
-            detail: `${eventName} was first seen in the 30 day window (${currentCount} events).`,
+            detail: `${safeRadarEventLabel(eventName)} was first seen in the 30 day window (${currentCount} events).`,
           }),
         );
       } else if (change === "went_to_zero") {
@@ -905,7 +923,7 @@ function createEventChecks(
             value: 0,
             baseline: previous / 7,
             numerator: 0,
-            detail: `${eventName} had ${previous} events in the previous seven days and none on ${targetDate}.`,
+            detail: `${safeRadarEventLabel(eventName)} had ${previous} events in the previous seven days and none on ${targetDate}.`,
           }),
         );
       }
@@ -965,6 +983,14 @@ function createEventChecks(
         detail: `${campaign.sentRecipients} accepted recipients counted; ${campaign.skippedRows} rows were not accepted sends.`,
       }),
     );
+  } else if (campaignUnavailable) {
+    const campaignDef = requireCheckDefinition("campaign-followup");
+    checks.push(
+      baseResult(campaignDef, "*", "unavailable", {
+        detail:
+          "Campaign follow-up data could not be read; the remaining daily checks completed.",
+      }),
+    );
   }
 
   return { checks, annotations, issues, sourceCoverage };
@@ -1020,6 +1046,7 @@ export async function runWatch(
   let issueRows: QueryRow[] = [];
   let sloRows: QueryRow[] = [];
   let campaign: CampaignFollowupResult | undefined;
+  let campaignUnavailable = false;
   let additionalQueries = 0;
 
   if (window === "daily") {
@@ -1077,8 +1104,12 @@ export async function runWatch(
     sloRows = slo.rows as QueryRow[];
     additionalQueries = 5;
     if (options.includeCampaign !== false) {
-      campaign = await runCampaignFollowup(orgId);
       additionalQueries += 1;
+      try {
+        campaign = await runCampaignFollowup(orgId);
+      } catch {
+        campaignUnavailable = true;
+      }
     }
   }
 
@@ -1092,6 +1123,7 @@ export async function runWatch(
     hourKey,
     window,
     campaign,
+    campaignUnavailable,
   );
   if (window === "daily") {
     const sloDefinition = requireCheckDefinition("prompt-output-p90");
@@ -1116,6 +1148,19 @@ export async function runWatch(
     }
   }
   const exitCode = radarExitCode(evaluated.checks);
+  const journeyRows = funnelRows
+    .filter(
+      (row) =>
+        asDate(row.signup_date) === date &&
+        ((row.journey_type === "design_web" && row.app === "design") ||
+          row.journey_type === "design_mcp" ||
+          (row.journey_type === "first_touch" && row.app === "clips")),
+    )
+    .map((row) => ({
+      ...row,
+      app: String(row.app),
+      journey_type: String(row.journey_type),
+    }));
   return {
     generatedAt: new Date().toISOString(),
     window,
@@ -1123,6 +1168,7 @@ export async function runWatch(
     ...(window === "hourly" ? { hour } : {}),
     exitCode,
     checks: evaluated.checks,
+    journeyRows,
     ...(campaign ? { campaignFollowup: campaign } : {}),
     campaignAnnotations: evaluated.annotations,
     issues: evaluated.issues,
@@ -1133,6 +1179,9 @@ export async function runWatch(
             campaignRecipients: campaign.sentRecipients,
             campaignSkippedRows: campaign.skippedRows,
           }
+        : {}),
+      ...(window === "daily" && options.includeCampaign !== false
+        ? { campaignFollowupAvailable: campaign !== undefined }
         : {}),
     },
     queryCount: queryCount + additionalQueries,
@@ -1205,6 +1254,26 @@ function formatWatchMarkdown(run: RadarWatchRun): string {
       `| ${check.status} | ${check.id} | ${check.app} | ${check.value == null ? "n/a" : Number(check.value).toFixed(3)} | ${check.baseline == null ? "n/a" : Number(check.baseline).toFixed(3)} | ${check.detail ?? check.message} |`,
     );
   }
+  lines.push("", "## First-touch journeys", "");
+  if (run.window === "hourly") {
+    lines.push("Journey funnels are included in daily watch runs.");
+  } else {
+    const designWeb = run.journeyRows.find(
+      (row) => row.journey_type === "design_web",
+    );
+    const designMcp = run.journeyRows.find(
+      (row) => row.journey_type === "design_mcp",
+    );
+    const clips = run.journeyRows.find(
+      (row) => row.journey_type === "first_touch" && row.app === "clips",
+    );
+    lines.push(
+      `- Design web: ${numeric(designWeb, "signups")} signups → ${numeric(designWeb, "completed")} onboarding completed → ${numeric(designWeb, "entered")} app entered → ${numeric(designWeb, "prompted")} prompted → ${numeric(designWeb, "output")} ready output.`,
+      `- Design MCP: ${numeric(designMcp, "signups")} signups → ${numeric(designMcp, "completed")} agent connected → ${numeric(designMcp, "entered")} first tool call → ${numeric(designMcp, "output")} design created.`,
+      `- Clips activation: ${numeric(clips, "clips_activated_24h")}/${numeric(clips, "signups")} signups reached recording_ready within 24 hours.`,
+      "- Clips definition break: 2026-10-21; recording_started before this date included local-only recordings, so compare activation by recording_ready instead.",
+    );
+  }
   if (run.campaignFollowup) {
     lines.push(
       "",
@@ -1222,10 +1291,10 @@ function formatWatchMarkdown(run: RadarWatchRun): string {
     }
     lines.push(
       "",
+      "Recipient-level matching uses identified email fields. Anonymous landings cannot be assigned to a recipient.",
+      "",
       "| Period | Activity app | Recipients | Any visit | UTM landing | Builder connect | First output |",
       "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
-      "",
-      "Recipient-level matching uses identified email fields. Anonymous landings cannot be assigned to a recipient.",
     );
     for (const summary of summarizeCampaignByActivityApp(
       run.campaignFollowup,
@@ -1301,7 +1370,7 @@ async function main(): Promise<void> {
     const message =
       error instanceof Error ? error.message : "Radar watch could not run.";
     console.error(message);
-    process.exitCode = radarCliExitCode(error);
+    process.exitCode = radarRunCliExitCode(error);
   } finally {
     await closeRadarQueries();
   }

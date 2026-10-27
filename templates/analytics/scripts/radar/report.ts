@@ -14,7 +14,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
-  radarCliExitCode,
+  radarRunCliExitCode,
 } from "./query.ts";
 import { runTriage, type TriageRun } from "./triage.ts";
 import { runWatch, type RadarWatchRun } from "./watch.ts";
@@ -32,6 +32,30 @@ interface ReportIssue {
   detail: string;
   firedOn: string[];
 }
+
+export interface AcquisitionContextNote {
+  effectiveAt: string;
+  app: string;
+  change: string;
+}
+
+const ACQUISITION_CONTEXT: AcquisitionContextNote[] = [
+  {
+    effectiveAt: "2026-10-16",
+    app: "slides",
+    change: "Slides ads were off after this date.",
+  },
+  {
+    effectiveAt: "2026-10-20 21:00 UTC",
+    app: "clips, design",
+    change: "Bing CPC ended around this time.",
+  },
+  {
+    effectiveAt: "2026-10-21",
+    app: "all paid",
+    change: "Google paid spend was about 45% lower from this date.",
+  },
+];
 
 export interface RadarWeeklyReport {
   generatedAt: string;
@@ -51,6 +75,7 @@ export interface RadarWeeklyReport {
   abReadout: AbReadout | null;
   campaignFollowup: CampaignFollowupResult | null;
   campaignAnnotations: RadarWatchRun["campaignAnnotations"];
+  acquisitionContext: AcquisitionContextNote[];
   firedIssues: ReportIssue[];
   recovery: {
     available: boolean;
@@ -65,6 +90,17 @@ export interface RadarWeeklyReport {
   };
   feedback: { status: "agent_required"; skill: "feedback-ingest" };
   exitCode: 0 | 1 | 2;
+}
+
+export function acquisitionContextForWeek(
+  week: string,
+  weekEnd: string,
+): AcquisitionContextNote[] {
+  const contextStart = addDays(week, -7);
+  return ACQUISITION_CONTEXT.filter((note) => {
+    const effectiveDate = note.effectiveAt.slice(0, 10);
+    return effectiveDate >= contextStart && effectiveDate <= weekEnd;
+  });
 }
 
 function addDays(date: string, amount: number): string {
@@ -368,6 +404,7 @@ export async function buildWeeklyReport(
     abReadout,
     campaignFollowup,
     campaignAnnotations,
+    acquisitionContext: acquisitionContextForWeek(week, weekEnd),
     firedIssues,
     recovery: {
       available: prior !== null && lastDayChecks !== undefined,
@@ -401,6 +438,39 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
         `| ${entry.date} | ${entry.run.exitCode} | ${entry.run.checks.filter((check) => check.status === "fired").length} | ${entry.run.checks.filter((check) => check.status === "unavailable").length} | - |`,
       );
   }
+  lines.push("", "## First-touch journeys", "");
+  for (const entry of report.dailyRuns) {
+    if (!entry.run) {
+      lines.push(
+        `- ${entry.date}: journey data unavailable (${entry.error ?? "daily watch failed"}).`,
+      );
+      continue;
+    }
+    const rows = entry.run.journeyRows;
+    const designWeb = rows.find((row) => row.journey_type === "design_web");
+    const designMcp = rows.find((row) => row.journey_type === "design_mcp");
+    const clips = rows.find(
+      (row) => row.journey_type === "first_touch" && row.app === "clips",
+    );
+    lines.push(
+      `- ${entry.date} Design web signup → onboarding → app entry → prompt → ready: ${Number(designWeb?.signups ?? 0)} → ${Number(designWeb?.completed ?? 0)} → ${Number(designWeb?.entered ?? 0)} → ${Number(designWeb?.prompted ?? 0)} → ${Number(designWeb?.output ?? 0)}.`,
+      `- ${entry.date} Design MCP signup → agent connected → first $mcp_tool_call → design created: ${Number(designMcp?.signups ?? 0)} → ${Number(designMcp?.completed ?? 0)} → ${Number(designMcp?.entered ?? 0)} → ${Number(designMcp?.output ?? 0)}.`,
+      `- ${entry.date} Clips signup → recording_ready within 24h: ${Number(clips?.signups ?? 0)} → ${Number(clips?.clips_activated_24h ?? 0)}.`,
+    );
+  }
+  lines.push(
+    "",
+    "Clips activation uses signup → recording_ready within 24 hours. The 2026-10-21 event-definition break removed local-only recordings; recording_started counts before that date are not comparable.",
+  );
+  lines.push("", "## Paid acquisition context", "");
+  if (report.acquisitionContext.length) {
+    lines.push("Known changes supplied with the radar research:");
+    for (const note of report.acquisitionContext)
+      lines.push(`- ${note.effectiveAt} (${note.app}): ${note.change}`);
+  } else
+    lines.push(
+      "No known paid-acquisition changes in the report window or prior-week baseline.",
+    );
   lines.push("", "## Top fired checks", "");
   if (!report.firedIssues.length)
     lines.push("No checks fired during the week.");
@@ -438,10 +508,10 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     }
     lines.push(
       "",
+      "Recipient-level matching uses identified email fields. Anonymous landings cannot be assigned to a recipient.",
+      "",
       "| Period | Activity app | Recipients | Any visit | UTM landing | Builder connect | First output |",
       "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
-      "",
-      "Recipient-level matching uses identified email fields. Anonymous landings cannot be assigned to a recipient.",
     );
     for (const summary of summarizeCampaignByActivityApp(
       report.campaignFollowup,
@@ -513,7 +583,7 @@ async function main(): Promise<void> {
     console.error(
       error instanceof Error ? error.message : "Weekly report could not run.",
     );
-    process.exitCode = radarCliExitCode(error);
+    process.exitCode = radarRunCliExitCode(error);
   } finally {
     await closeRadarQueries();
   }

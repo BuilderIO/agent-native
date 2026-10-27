@@ -7,7 +7,7 @@ import {
   RadarQueryError,
   RADAR_TMP_DIR,
   closeRadarQueries,
-  radarCliExitCode,
+  radarRunCliExitCode,
   resolveRadarBigQueryEventsTable,
   resolveRadarFirstPartyBackend,
   resolveRadarOrganizationId,
@@ -313,7 +313,7 @@ async function main(): Promise<void> {
     console.error(
       error instanceof Error ? error.message : "Replay triage could not run.",
     );
-    process.exitCode = radarCliExitCode(error);
+    process.exitCode = radarRunCliExitCode(error);
   } finally {
     await closeRadarQueries();
   }

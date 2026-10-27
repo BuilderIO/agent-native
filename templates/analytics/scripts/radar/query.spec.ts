@@ -6,15 +6,53 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   bqRequest,
+  appendBigQueryRows,
   collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
   isReadOnlySql,
   parseBigQueryTimestamp,
+  parseRadarBigQueryTableParts,
   radarCliExitCode,
+  radarRunCliExitCode,
   RadarQueryError,
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("rejects malformed configured BigQuery table references instead of defaulting", () => {
+    expect(parseRadarBigQueryTableParts(undefined)).toEqual([]);
+    expect(parseRadarBigQueryTableParts("analytics.events")).toEqual([
+      "analytics",
+      "events",
+    ]);
+    expect(parseRadarBigQueryTableParts("project.analytics.events")).toEqual([
+      "project",
+      "analytics",
+      "events",
+    ]);
+    expect(() => parseRadarBigQueryTableParts("events")).toThrow(
+      RadarQueryError,
+    );
+    expect(() =>
+      parseRadarBigQueryTableParts("project.analytics.events.extra"),
+    ).toThrow(RadarQueryError);
+    expect(() => parseRadarBigQueryTableParts("project..events")).toThrow(
+      RadarQueryError,
+    );
+  });
+
+  it("caps BigQuery results by serialized bytes before accumulating pages", () => {
+    const accumulator = { rows: [] as Record<string, unknown>[], bytes: 0 };
+    appendBigQueryRows(accumulator, [{ value: "a" }], { maxBytes: 20 });
+    expect(accumulator.rows).toEqual([{ value: "a" }]);
+    expect(accumulator.bytes).toBeGreaterThan(0);
+    expect(() =>
+      appendBigQueryRows(accumulator, [{ value: "a long value" }], {
+        maxBytes: accumulator.bytes + 1,
+      }),
+    ).toThrow(/BigQuery result exceeded/);
+    expect(accumulator.rows).toHaveLength(1);
+  });
+
   it("accepts one select or CTE and ignores keywords inside quoted literals", () => {
     expect(
       isReadOnlySql(
@@ -48,6 +86,17 @@ describe("radar query safety", () => {
     expect(isReadOnlySql("SELECT set_config('x', 'y', true)")).toBe(false);
     expect(isReadOnlySql("SELECT nextval('sequence')")).toBe(false);
     expect(isReadOnlySql("SELECT pg_stat_reset()")).toBe(false);
+    expect(isReadOnlySql("SELECT pg_advisory_unlock_shared(1, 2)")).toBe(false);
+    expect(isReadOnlySql("SELECT pg_advisory_xact_lock_shared(1, 2)")).toBe(
+      false,
+    );
+    expect(isReadOnlySql("SELECT pg_advisory_unlock_all()")).toBe(false);
+    expect(isReadOnlySql("SELECT \"pg_read_file\"('/etc/passwd')")).toBe(false);
+    expect(isReadOnlySql('SELECT "pg_advisory_unlock_shared"(1, 2)')).toBe(
+      false,
+    );
+    expect(isReadOnlySql('SELECT "delete" FROM records')).toBe(true);
+    expect(isReadOnlySql('"select" SELECT 1')).toBe(false);
     expect(
       isReadOnlySql("SELECT * FROM dblink('remote', 'UPDATE t SET x=1')"),
     ).toBe(false);
@@ -166,5 +215,7 @@ describe("radar query safety", () => {
     expect(radarCliExitCode(new RadarQueryError("missing", 2))).toBe(2);
     expect(radarCliExitCode(new RadarQueryError("query failed", 1))).toBe(1);
     expect(radarCliExitCode(new Error("unknown"))).toBe(1);
+    expect(radarRunCliExitCode(new RadarQueryError("query failed", 1))).toBe(2);
+    expect(radarRunCliExitCode(new Error("unknown"))).toBe(2);
   });
 });

@@ -49,11 +49,11 @@ describe("campaign follow-up query privacy", () => {
     mocks.runBigQuery.mockResolvedValue({
       rows: [
         {
+          period: "after_send",
+          recipient_app: "clips",
           activity_app: "clips",
-          campaign_landing: true,
-          event_name: "pageview",
-          happened_at_values: ["2026-10-26T12:30:00.000Z"],
-          identity_email: "recipient@example.test",
+          metric: "campaign_landing",
+          recipients_with_activity: "1",
         },
       ],
       bytesProcessed: 10,
@@ -79,7 +79,15 @@ describe("campaign follow-up query privacy", () => {
         cache: boolean;
       },
     ];
-    expect(sql).toContain("ARRAY_AGG(happened_at) AS happened_at_values");
+    expect(sql).toContain("to_hex(sha256(lower(trim(e.identity_email))))");
+    const outputSql = sql.slice(
+      sql.lastIndexOf("SELECT period, recipient_app"),
+    );
+    expect(outputSql).not.toContain("identity_email");
+    expect(outputSql).not.toMatch(/^SELECT[^\n]*email_hash/im);
+    expect(outputSql).toContain(
+      "count(DISTINCT email_hash) AS recipients_with_activity",
+    );
     expect(options.params).toEqual([
       { name: "start_date", type: "DATE", value: "2026-10-19" },
       {
@@ -88,10 +96,32 @@ describe("campaign follow-up query privacy", () => {
         value: new Date().toISOString().slice(0, 10),
       },
       { name: "org_id", type: "STRING", value: "org-1" },
+      {
+        name: "recipients_json",
+        type: "STRING",
+        value: expect.any(String),
+      },
+      { name: "observed_at", type: "TIMESTAMP", value: expect.any(String) },
     ]);
     expect(JSON.stringify(options.params)).not.toContain(
       "recipient@example.test",
     );
+    const rosterJson = options.params.find(
+      (param) => param.name === "recipients_json",
+    )?.value;
+    expect(typeof rosterJson).toBe("string");
+    const roster = JSON.parse(String(rosterJson)) as Array<{
+      email_hash: string;
+      sent_at: string;
+      recipient_app: string;
+    }>;
+    expect(roster).toHaveLength(1);
+    expect(roster[0]).toMatchObject({
+      email_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      sent_at: "2026-10-26T12:00:00.000Z",
+      recipient_app: "clips",
+    });
+    expect(rosterJson).not.toContain("recipient@example.test");
     expect(options).toMatchObject({ fresh: true, cache: false });
     expect(mocks.runPostgresQuery).not.toHaveBeenCalled();
     expect(result.sentRecipients).toBe(1);

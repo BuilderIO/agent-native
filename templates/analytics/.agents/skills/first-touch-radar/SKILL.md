@@ -27,16 +27,23 @@ scope: dev
    day. Never send Slack or email.
 7. Keep recipient emails and prompt text out of logs, reports, Telegram, and
    commits. The campaign check reads its mode-0600 recipient file in memory and
-   emits aggregate counts only. With a BigQuery sink, the read-only query returns
-   only identity, app, event, timestamp, and campaign-match fields for local
-   in-memory matching; recipient identifiers are not BigQuery parameters, local
-   query caching is disabled, and per-run HMACs are never persisted. With a
-   PostgreSQL sink, recipient identifiers are parameters to the read-only query
-   and caching is disabled. Unknown signup campaign labels are grouped as
-   `other`. Anonymous landings cannot be assigned to a recipient; do not
-   interpret identified counts as a complete click total.
+   emits aggregate counts only. With a BigQuery sink, the read-only query joins
+   against recipient email digests and returns aggregate counts only; query
+   caching is disabled. With a PostgreSQL sink, recipient identifiers are
+   parameters to the read-only query and caching is disabled. Unknown signup
+   campaign labels are grouped as `other`. Anonymous landings cannot be
+   assigned to a recipient; do not interpret identified counts as a complete
+   click total.
 8. This radar changes scripts and skills only. Do not make user-visible UI
    changes. If UI work becomes necessary, stop that scope and request Steve's
    screenshot approval before implementing it.
 9. A fired metric may create a local brief through `fix-brief`; no fix starts
    until Steve approves it.
+10. Interpret the first-touch journeys separately: Design web excludes
+    `/mcp/oauth%` signup paths; Design MCP is signup → `agent_connected` → first
+    `$mcp_tool_call` → `design_created`. Clips activation is signup →
+    `recording_ready` within 24 hours. Treat 2026-10-21 as a definition break:
+    `recording_started` before then includes local-only recordings.
+11. Read the weekly paid-acquisition notes alongside signup counts: Slides ads
+    stopped after 2026-10-16, Bing CPC ended around 2026-10-20 21:00 UTC for
+    Clips/Design, and Google paid spend was about 45% lower from 2026-10-21.

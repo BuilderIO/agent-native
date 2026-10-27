@@ -1,3 +1,5 @@
+import { radarEventLabelSql } from "./event-labels.ts";
+
 const ZERO_WIDTH_SPACE = String.fromCharCode(0x200b);
 const CAMPAIGN_APPS = [
   "analytics",
@@ -222,7 +224,8 @@ SELECT * FROM event_stats ORDER BY period_start, app, event_name`;
 export function buildBigQueryFunnelDailySql(eventsTableRange: string): string {
   return `${bigQueryFirstTouchEventsCte(eventsTableRange)},
 signup_cohort AS (
-  SELECT person_key, app, event_date AS signup_date, min(happened_at) AS signup_at
+  SELECT person_key, app, event_date AS signup_date, min(happened_at) AS signup_at,
+    max(coalesce(json_value(properties, '$.first_touch_path'), '')) AS first_touch_path
   FROM base_events
   WHERE event_name = 'signup' AND person_key IS NOT NULL
   GROUP BY person_key, app, signup_date
@@ -233,26 +236,27 @@ funnel_events AS (
   WHERE event_name IN (
     'onboarding_completed', 'app_entered', 'onboarding_app_entered',
     'generation_started', 'deck_created', 'design_prompt_submitted',
-    'design_ready_viewed', 'recording_started', 'recording_ready'
+    'design_ready_viewed', 'recording_started', 'recording_ready',
+    'agent_connected', '$mcp_tool_call', 'design_created'
   )
 ),
 stages AS (
-  SELECT c.person_key, c.app, c.signup_date, c.signup_at,
+  SELECT c.person_key, c.app, c.signup_date, c.signup_at, c.first_touch_path,
     min(if(e.event_name = 'onboarding_completed'
       AND e.happened_at >= c.signup_at
       AND e.happened_at < timestamp_add(c.signup_at, INTERVAL 24 HOUR), e.happened_at, null)) AS completed_at
   FROM signup_cohort c
   LEFT JOIN funnel_events e ON e.person_key = c.person_key AND e.app = c.app
-  GROUP BY c.person_key, c.app, c.signup_date, c.signup_at
+  GROUP BY c.person_key, c.app, c.signup_date, c.signup_at, c.first_touch_path
 ),
 entered_stages AS (
   SELECT s.*,
-    min(if(e.event_name IN ('app_entered', 'onboarding_app_entered')
+    min(if(e.event_name = 'onboarding_app_entered'
       AND e.happened_at >= s.completed_at
       AND e.happened_at < timestamp_add(s.signup_at, INTERVAL 24 HOUR), e.happened_at, null)) AS entered_at
   FROM stages s
   LEFT JOIN funnel_events e ON e.person_key = s.person_key AND e.app = s.app
-  GROUP BY s.person_key, s.app, s.signup_date, s.signup_at, s.completed_at
+  GROUP BY s.person_key, s.app, s.signup_date, s.signup_at, s.first_touch_path, s.completed_at
 ),
 prompt_stages AS (
   SELECT s.*,
@@ -264,7 +268,7 @@ prompt_stages AS (
   FROM entered_stages s
   LEFT JOIN funnel_events e ON e.person_key = s.person_key AND e.app = s.app
   GROUP BY s.person_key, s.app, s.signup_date, s.signup_at,
-    s.completed_at, s.entered_at
+    s.first_touch_path, s.completed_at, s.entered_at
 ),
 output_stages AS (
   SELECT s.*,
@@ -276,21 +280,74 @@ output_stages AS (
   FROM prompt_stages s
   LEFT JOIN funnel_events e ON e.person_key = s.person_key AND e.app = s.app
   GROUP BY s.person_key, s.app, s.signup_date, s.signup_at,
-    s.completed_at, s.entered_at, s.prompt_at
+    s.first_touch_path, s.completed_at, s.entered_at, s.prompt_at
+),
+clips_activation AS (
+  SELECT o.person_key, o.signup_date,
+    logical_or(e.event_name = 'recording_ready'
+      AND e.happened_at >= o.signup_at
+      AND e.happened_at < timestamp_add(o.signup_at, INTERVAL 24 HOUR)) AS activated
+  FROM output_stages o
+  LEFT JOIN funnel_events e ON e.person_key = o.person_key AND e.app = 'clips'
+  WHERE o.app = 'clips'
+  GROUP BY o.person_key, o.signup_date
+),
+design_mcp_connected AS (
+  SELECT c.person_key, c.signup_date, c.signup_at,
+    min(if(e.event_name = 'agent_connected', e.happened_at, null)) AS connected_at
+  FROM signup_cohort c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.signup_at
+    AND e.event_name = 'agent_connected'
+  WHERE c.app = 'design' AND c.first_touch_path LIKE '/mcp/oauth%'
+  GROUP BY c.person_key, c.signup_date, c.signup_at
+),
+design_mcp_called AS (
+  SELECT c.person_key, c.signup_date, c.signup_at, c.connected_at,
+    min(if(e.event_name = '$mcp_tool_call', e.happened_at, null)) AS first_tool_call_at
+  FROM design_mcp_connected c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.connected_at
+    AND e.event_name = '$mcp_tool_call'
+  GROUP BY c.person_key, c.signup_date, c.signup_at, c.connected_at
+),
+design_mcp_created AS (
+  SELECT c.person_key, c.signup_date, c.connected_at, c.first_tool_call_at,
+    logical_or(e.event_name = 'design_created') AS design_created
+  FROM design_mcp_called c
+  LEFT JOIN base_events e ON e.person_key = c.person_key
+    AND e.app = 'design' AND e.happened_at >= c.first_tool_call_at
+    AND e.event_name = 'design_created'
+  GROUP BY c.person_key, c.signup_date, c.connected_at, c.first_tool_call_at
+),
+design_mcp_daily AS (
+  SELECT signup_date, count(*) AS signups,
+    countif(connected_at IS NOT NULL) AS connected,
+    countif(first_tool_call_at IS NOT NULL) AS first_tool_call,
+    countif(design_created) AS design_created
+  FROM design_mcp_created
+  GROUP BY signup_date
 ),
 counts AS (
-  SELECT signup_date, app, count(*) AS signups,
-    countif(completed_at IS NOT NULL) AS completed,
-    countif(entered_at IS NOT NULL) AS entered,
-    countif(prompt_at IS NOT NULL) AS prompted,
-    countif(output_at IS NOT NULL) AS output
-  FROM output_stages GROUP BY signup_date, app
+  SELECT o.signup_date, o.app,
+    IF(o.app = 'design', 'design_web', 'first_touch') AS journey_type,
+    count(*) AS signups,
+    countif(o.completed_at IS NOT NULL) AS completed,
+    countif(o.entered_at IS NOT NULL) AS entered,
+    countif(o.prompt_at IS NOT NULL) AS prompted,
+    countif(o.output_at IS NOT NULL) AS output,
+    countif(o.app = 'clips' AND coalesce(a.activated, false)) AS clips_activated_24h
+  FROM output_stages o
+  LEFT JOIN clips_activation a ON a.person_key = o.person_key AND a.signup_date = o.signup_date
+  WHERE o.app <> 'design' OR o.first_touch_path NOT LIKE '/mcp/oauth%'
+  GROUP BY o.signup_date, o.app, journey_type
 ),
 durations AS (
   SELECT signup_date, app,
     timestamp_diff(output_at, prompt_at, MILLISECOND) / 1000.0 AS seconds
   FROM output_stages
   WHERE output_at IS NOT NULL AND prompt_at IS NOT NULL
+    AND (app <> 'design' OR first_touch_path NOT LIKE '/mcp/oauth%')
 ),
 percentiles AS (
   SELECT DISTINCT signup_date, app,
@@ -300,6 +357,12 @@ percentiles AS (
 SELECT c.*, p.prompt_output_p90_seconds
 FROM counts c
 LEFT JOIN percentiles p USING (signup_date, app)
+UNION ALL
+SELECT signup_date, 'design_mcp' AS app, 'design_mcp' AS journey_type,
+  signups, connected AS completed, first_tool_call AS entered,
+  0 AS prompted, design_created AS output, 0 AS clips_activated_24h,
+  CAST(NULL AS FLOAT64) AS prompt_output_p90_seconds
+FROM design_mcp_daily
 ORDER BY signup_date, app`;
 }
 
@@ -342,28 +405,65 @@ export function buildBigQueryCampaignActivitySql(
   eventsTableRange: string,
 ): string {
   return `${bigQueryFirstTouchEventsCte(eventsTableRange, { includeAllApps: true })},
+campaign_recipients AS (
+  SELECT JSON_VALUE(recipient, '$.email_hash') AS email_hash,
+    TIMESTAMP(JSON_VALUE(recipient, '$.sent_at')) AS sent_at,
+    JSON_VALUE(recipient, '$.recipient_app') AS recipient_app
+  FROM UNNEST(JSON_QUERY_ARRAY(@recipients_json)) AS recipient
+  WHERE nullif(JSON_VALUE(recipient, '$.email_hash'), '') IS NOT NULL
+    AND nullif(JSON_VALUE(recipient, '$.recipient_app'), '') IS NOT NULL
+),
 campaign_activity AS (
-  SELECT identity_email, app AS activity_app, event_name, happened_at,
-    (event_name = 'pageview' AND (
-      lower(replace(coalesce(json_value(properties, '$.utm_campaign'), ''), '${ZERO_WIDTH_SPACE}', '')) = 'outage_recovery_20261026'
+  SELECT r.recipient_app, e.app AS activity_app, e.event_name, e.happened_at,
+    r.email_hash,
+    e.happened_at >= r.sent_at AS after_send,
+    (e.event_name = 'pageview' AND (
+      lower(replace(coalesce(json_value(e.properties, '$.utm_campaign'), ''), '${ZERO_WIDTH_SPACE}', '')) = 'outage_recovery_20261026'
       OR regexp_contains(lower(concat(
-        coalesce(json_value(properties, '$.search'), ''), '&', coalesce(url, ''), '&',
-        coalesce(json_value(properties, '$.url'), '')
+        coalesce(json_value(e.properties, '$.search'), ''), '&', coalesce(e.url, ''), '&',
+        coalesce(json_value(e.properties, '$.url'), '')
       )), r'(^|[?&#])utm_campaign=outage_recovery_20261026([&#]|$)')
     )) AS campaign_landing
-  FROM base_events
-  WHERE identity_email IS NOT NULL
-    AND event_name IN ('pageview', 'builder_connect_succeeded', 'builder connect succeeded',
+  FROM base_events e
+  JOIN campaign_recipients r
+    ON to_hex(sha256(lower(trim(e.identity_email)))) = r.email_hash
+  WHERE e.identity_email IS NOT NULL
+    AND e.happened_at >= timestamp_sub(r.sent_at, INTERVAL 7 DAY)
+    AND e.happened_at < @observed_at
+    AND e.event_name IN ('pageview', 'builder_connect_succeeded', 'builder connect succeeded',
       'deck_created', 'design_ready_viewed', 'recording_ready')
 ),
-grouped_activity AS (
-  SELECT identity_email, activity_app, event_name, campaign_landing,
-    ARRAY_AGG(happened_at) AS happened_at_values
+metric_activity AS (
+  SELECT recipient_app, activity_app,
+    IF(after_send, 'after_send', 'prior_7_days') AS period,
+    email_hash, 'any_visit' AS metric
   FROM campaign_activity
-  GROUP BY identity_email, activity_app, event_name, campaign_landing
+  WHERE event_name = 'pageview'
+  UNION ALL
+  SELECT recipient_app, activity_app,
+    IF(after_send, 'after_send', 'prior_7_days') AS period,
+    email_hash, 'campaign_landing' AS metric
+  FROM campaign_activity
+  WHERE event_name = 'pageview' AND campaign_landing
+  UNION ALL
+  SELECT recipient_app, activity_app,
+    IF(after_send, 'after_send', 'prior_7_days') AS period,
+    email_hash, 'builder_connect_succeeded' AS metric
+  FROM campaign_activity
+  WHERE event_name IN ('builder_connect_succeeded', 'builder connect succeeded')
+  UNION ALL
+  SELECT recipient_app, activity_app,
+    IF(after_send, 'after_send', 'prior_7_days') AS period,
+    email_hash, 'first_output' AS metric
+  FROM campaign_activity
+  WHERE (activity_app = 'slides' AND event_name = 'deck_created')
+    OR (activity_app = 'design' AND event_name = 'design_ready_viewed')
+    OR (activity_app = 'clips' AND event_name = 'recording_ready')
 )
-SELECT identity_email, activity_app, event_name, happened_at_values, campaign_landing
-FROM grouped_activity`;
+SELECT period, recipient_app, activity_app, metric,
+  count(DISTINCT email_hash) AS recipients_with_activity
+FROM metric_activity
+GROUP BY period, recipient_app, activity_app, metric`;
 }
 
 export function buildBigQueryTriageEventsSql(eventsTableRange: string): string {
@@ -390,7 +490,7 @@ session_summary AS (
     logical_or(e.event_name IN ('deck_created', 'design_ready_viewed', 'recording_ready')) AS output_ready,
     logical_or(e.event_name = 'onboarding_abandoned') AS onboarding_abandoned,
     string_agg(if(e.event_name != 'pageview',
-      format('%s +%ds x%d', e.event_name,
+      format('%s +%ds x%d', ${radarEventLabelSql("e.event_name")},
         greatest(0, timestamp_diff(e.first_at, s.signup_at, SECOND)), e.event_count), null),
       ' | ' ORDER BY e.first_at LIMIT 18) AS timeline
   FROM signup_sessions s

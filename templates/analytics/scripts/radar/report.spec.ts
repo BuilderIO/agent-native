@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RadarCheckResult } from "./checks.ts";
-import { recoveryStateForIssue } from "./report.ts";
+import { acquisitionContextForWeek, recoveryStateForIssue } from "./report.ts";
 
 const check = (status: RadarCheckResult["status"]): RadarCheckResult => ({
   id: "setup-exposure",
@@ -41,5 +41,16 @@ describe("weekly recovery evidence", () => {
     expect(
       recoveryStateForIssue([check("observed")], "setup-exposure|clips"),
     ).toBe("recovered");
+  });
+});
+
+describe("weekly paid-acquisition context", () => {
+  it("includes changes during the report week and preceding baseline week", () => {
+    expect(acquisitionContextForWeek("2026-10-19", "2026-10-25")).toEqual([
+      expect.objectContaining({ effectiveAt: "2026-10-16", app: "slides" }),
+      expect.objectContaining({ effectiveAt: "2026-10-20 21:00 UTC" }),
+      expect.objectContaining({ effectiveAt: "2026-10-21" }),
+    ]);
+    expect(acquisitionContextForWeek("2026-11-02", "2026-11-08")).toEqual([]);
   });
 });

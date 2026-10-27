@@ -76,16 +76,39 @@ describe("first-party BigQuery radar SQL", () => {
     expect(slo).toContain("percentile_cont(seconds, 0.9)");
   });
 
-  it("selects only identified campaign activity without recipient parameters", () => {
+  it("splits Design web and MCP signups and measures Clips 24-hour activation", () => {
+    const funnel = buildBigQueryFunnelDailySql(range);
+    expect(funnel).toContain("first_touch_path NOT LIKE '/mcp/oauth%'");
+    expect(funnel).toContain("'design_web'");
+    expect(funnel).toContain("'design_mcp'");
+    expect(funnel).toContain("'$mcp_tool_call'");
+    expect(funnel).toContain("'design_created'");
+    expect(funnel).toContain("clips_activated_24h");
+    expect(funnel).toContain("INTERVAL 24 HOUR");
+  });
+
+  it("joins campaign activity to hashed recipients and returns aggregate counts only", () => {
     const campaign = buildBigQueryCampaignActivitySql(range);
-    expect(campaign).toContain("identity_email IS NOT NULL");
-    expect(campaign).toContain("ARRAY_AGG(happened_at) AS happened_at_values");
+    expect(campaign).toContain("JSON_QUERY_ARRAY(@recipients_json)");
+    expect(campaign).toContain(
+      "to_hex(sha256(lower(trim(e.identity_email)))) = r.email_hash",
+    );
+    expect(campaign).toContain(
+      "count(DISTINCT email_hash) AS recipients_with_activity",
+    );
     expect(campaign).toContain("outage_recovery_20261026");
+    expect(campaign).toContain("@observed_at");
     expect(campaign).toContain("@start_date");
     expect(campaign).toContain("@end_date");
     expect(campaign).toContain("@org_id");
-    expect(campaign).not.toContain("@recipients_json");
-    expect(campaign).not.toContain("email_hash");
+    const output = campaign.slice(
+      campaign.lastIndexOf("SELECT period, recipient_app"),
+    );
+    expect(output).not.toContain("identity_email");
+    expect(output).not.toMatch(/^SELECT[^\n]*email_hash/im);
+    expect(output).toContain(
+      "count(DISTINCT email_hash) AS recipients_with_activity",
+    );
   });
 
   it("bounds selected BigQuery triage sessions and excludes their identity fields", () => {
@@ -93,6 +116,7 @@ describe("first-party BigQuery radar SQL", () => {
     expect(triage).toContain("@window_start");
     expect(triage).toContain("LIMIT 500");
     expect(triage).toContain("LIMIT 18");
+    expect(triage).toContain("ELSE 'unreviewed_event' END");
     const triageOutput = triage.slice(
       triage.lastIndexOf("SELECT session_id, app, signup_at"),
     );
