@@ -7,7 +7,9 @@ import {
   IconX,
 } from "@tabler/icons-react";
 
+import { Button } from "../ui/button.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
+import { realtimeVoiceToolLabel } from "./realtime-voice-transcript.js";
 import type { RealtimeVoiceModeApi } from "./useRealtimeVoiceMode.js";
 import { VoiceLevelWaveform } from "./voice-waveform.js";
 
@@ -55,6 +57,13 @@ export interface RealtimeVoiceModeCopy {
     >;
   };
   status: Record<RealtimeVoiceModeState, string>;
+  /** Shown while working with no tool running: the model is deciding. */
+  thinking: string;
+  approval: {
+    question: (toolLabel: string) => string;
+    approve: string;
+    deny: string;
+  };
   errors: {
     unsupported: string;
     responseFailed: string;
@@ -115,9 +124,39 @@ export function RealtimeVoiceComposerControls({
     ? copy.unmuteMicrophone
     : copy.muteMicrophone;
 
+  const approval = state === "ending" ? undefined : voice.approvals[0];
+
   return (
     <>
-      {state !== "error" ? (
+      {approval ? (
+        <div
+          data-agent-composer-slot="voice-chat-approval"
+          className="flex min-w-0 shrink items-center gap-1"
+        >
+          <span
+            role="status"
+            aria-live="polite"
+            className="min-w-0 truncate ps-1 agent-kit-caption-copy text-foreground"
+          >
+            {copy.approval.question(realtimeVoiceToolLabel(approval.toolName))}
+          </span>
+          <Button
+            type="button"
+            size="xs"
+            onClick={() => void voice.resolveApproval(approval.callId, true)}
+          >
+            {copy.approval.approve}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={() => void voice.resolveApproval(approval.callId, false)}
+          >
+            {copy.approval.deny}
+          </Button>
+        </div>
+      ) : state !== "error" ? (
         <div
           data-agent-composer-slot="voice-chat-status"
           data-voice-speaker={
@@ -157,7 +196,11 @@ export function RealtimeVoiceComposerControls({
             aria-live="polite"
             className="min-w-0 truncate agent-kit-caption-copy text-muted-foreground"
           >
-            {copy.status[state]}
+            {state === "working"
+              ? voice.currentToolName
+                ? realtimeVoiceToolLabel(voice.currentToolName)
+                : copy.thinking
+              : copy.status[state]}
           </span>
         </div>
       ) : null}

@@ -1,8 +1,13 @@
-import { execFile, execFileSync, spawnSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import fs from "fs";
+import { Readable, Transform, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
+
+import { EnvHttpProxyAgent, fetch as fetchWithProxy } from "undici";
 
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
@@ -42,6 +47,9 @@ const __dirname = path.dirname(__filename);
 
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
+const MAX_TEMPLATE_ARCHIVE_BYTES = 512 * 1024 * 1024;
+const MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES = 1024 * 1024 * 1024;
+const MAX_COMMUNITY_ARCHIVE_ENTRIES = 100_000;
 const PGLITE_DEPENDENCY_VERSION = "^0.5.8";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const DRIZZLE_DEPENDENCY_VERSION = "^0.45.3";
@@ -2551,6 +2559,7 @@ export {
   communityTemplateTarballUrl as _communityTemplateTarballUrl,
   assertCommunityTemplateRoot as _assertCommunityTemplateRoot,
   assertSafeCommunityArchiveListing as _assertSafeCommunityArchiveListing,
+  assertCommunityArchiveLogicalSize as _assertCommunityArchiveLogicalSize,
   validateCommunityArchive as _validateCommunityArchive,
   resolveCommunityTemplateSource as _resolveCommunityTemplateSource,
   discoverCommunityWorkspaceApps as _discoverCommunityWorkspaceApps,
@@ -2724,29 +2733,6 @@ function materializeArchiveSymlinks(
   }
 }
 
-function execFileBuffer(
-  command: string,
-  args: string[],
-  options: { maxBuffer: number },
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      command,
-      args,
-      { ...options, encoding: "buffer" },
-      (error, stdout, stderr) => {
-        if (error) {
-          const detail = stderr?.toString().trim();
-          if (detail) error.message = `${error.message}: ${detail}`;
-          reject(error);
-          return;
-        }
-        resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
-      },
-    );
-  });
-}
-
 function extractTarball(
   tarPath: string,
   destDir: string,
@@ -2774,7 +2760,89 @@ function extractTarball(
   }
 }
 
-async function downloadAndExtract(
+export async function _downloadToFile(
+  url: string,
+  tarPath: string,
+  maxBytes = MAX_TEMPLATE_ARCHIVE_BYTES,
+): Promise<void> {
+  const fallbackProxy = process.env.all_proxy ?? process.env.ALL_PROXY;
+  const httpProxy = normalizeProxyUrl(
+    process.env.http_proxy ?? process.env.HTTP_PROXY ?? fallbackProxy,
+  );
+  const httpsProxy = normalizeProxyUrl(
+    process.env.https_proxy ?? process.env.HTTPS_PROXY ?? fallbackProxy,
+  );
+  const noProxy = process.env.no_proxy ?? process.env.NO_PROXY;
+  const proxyTunnel = new URL(url).protocol === "https:";
+  const dispatcher = new EnvHttpProxyAgent({
+    ...(httpProxy ? { httpProxy } : {}),
+    ...(httpsProxy ? { httpsProxy } : {}),
+    ...(noProxy !== undefined ? { noProxy } : {}),
+    proxyTunnel,
+  });
+  const controller = new AbortController();
+  const connectTimeout = setTimeout(() => controller.abort(), 10_000);
+  let downloadTimeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const response = await fetchWithProxy(url, {
+      signal: controller.signal,
+      dispatcher,
+    });
+    clearTimeout(connectTimeout);
+    downloadTimeout = setTimeout(() => controller.abort(), 120_000);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`Archive download failed with HTTP ${response.status}.`);
+    }
+    if (!response.body) {
+      throw new Error("Archive download returned an empty response.");
+    }
+
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      await response.body.cancel();
+      throw new Error(`Archive download exceeds the ${maxBytes}-byte limit.`);
+    }
+
+    let downloadedBytes = 0;
+    const sizeLimit = new Transform({
+      transform(chunk: Uint8Array, _encoding, callback) {
+        downloadedBytes += chunk.byteLength;
+        if (downloadedBytes > maxBytes) {
+          callback(
+            new Error(`Archive download exceeds the ${maxBytes}-byte limit.`),
+          );
+          return;
+        }
+        callback(null, chunk);
+      },
+    });
+
+    await pipeline(
+      Readable.fromWeb(
+        response.body as unknown as import("node:stream/web").ReadableStream,
+      ),
+      sizeLimit,
+      fs.createWriteStream(tarPath),
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    fs.rmSync(tarPath, { force: true });
+    throw error;
+  } finally {
+    clearTimeout(connectTimeout);
+    clearTimeout(downloadTimeout);
+    await dispatcher.close();
+  }
+}
+
+function normalizeProxyUrl(proxy: string | undefined): string | undefined {
+  const value = proxy?.trim();
+  if (!value) return undefined;
+  return /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `http://${value}`;
+}
+
+export async function _downloadAndExtract(
   url: string,
   destDir: string,
   options: {
@@ -2783,38 +2851,97 @@ async function downloadAndExtract(
   } = {},
 ): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
-  const tarball = await execFileBuffer(
-    "curl",
-    [
-      "--fail-with-body",
-      "--connect-timeout",
-      "10",
-      "--max-time",
-      "120",
-      "-sSL",
-      url,
-    ],
-    { maxBuffer: 100 * 1024 * 1024 },
-  );
   const tarPath = path.join(destDir, ".download.tar.gz");
-  fs.writeFileSync(tarPath, tarball);
   try {
+    await _downloadToFile(url, tarPath);
     if (options.untrustedCommunityArchive) {
-      validateCommunityArchive(tarPath);
+      await validateCommunityArchive(tarPath);
     }
     extractTarball(tarPath, destDir, options);
   } finally {
-    fs.unlinkSync(tarPath);
+    fs.rmSync(tarPath, { force: true });
   }
 }
 
-function validateCommunityArchive(tarPath: string): void {
+async function validateCommunityArchive(
+  tarPath: string,
+  limits: {
+    maxExpandedBytes?: number;
+    maxEntries?: number;
+  } = {},
+): Promise<void> {
+  const maxExpandedBytes =
+    limits.maxExpandedBytes ?? MAX_COMMUNITY_ARCHIVE_EXPANDED_BYTES;
+  await assertCommunityArchiveExpandedSize(tarPath, maxExpandedBytes);
   const listing = execFileSync(resolveTarExecutable(), ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: TAR_LISTING_MAX_BUFFER,
   });
+  const entries = listing.split(/\r?\n/).filter((line) => line.trim());
+  const maxEntries = limits.maxEntries ?? MAX_COMMUNITY_ARCHIVE_ENTRIES;
+  if (entries.length > maxEntries) {
+    throw new ValidationError(
+      `Community template archive exceeds the ${maxEntries}-entry limit.`,
+    );
+  }
+  assertCommunityArchiveLogicalSize(listing, maxExpandedBytes);
   assertSafeCommunityArchiveListing(listing);
+}
+
+function assertCommunityArchiveLogicalSize(
+  listing: string,
+  maxBytes: number,
+): void {
+  let logicalBytes = 0;
+  for (const line of listing.split(/\r?\n/)) {
+    if (!line.startsWith("-") && !line.startsWith("S")) continue;
+    const fields = line.trim().split(/\s+/);
+    const isBsdTar = /^\d+$/.test(fields[1] ?? "");
+    const sizeText = fields[isBsdTar ? 4 : 2];
+    if (!sizeText || !/^\d+$/.test(sizeText)) {
+      throw new ValidationError(
+        "Could not determine a regular file's logical size in the community template archive.",
+      );
+    }
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(size)) {
+      throw new ValidationError(
+        "Community template archive contains an invalid regular file size.",
+      );
+    }
+    if (size > maxBytes - logicalBytes) {
+      throw new ValidationError(
+        "Community template archive exceeds its logical-size limit.",
+      );
+    }
+    logicalBytes += size;
+  }
+}
+
+async function assertCommunityArchiveExpandedSize(
+  tarPath: string,
+  maxBytes: number,
+): Promise<void> {
+  let expandedBytes = 0;
+  await pipeline(
+    fs.createReadStream(tarPath),
+    createGunzip(),
+    new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        expandedBytes += chunk.byteLength;
+        if (expandedBytes > maxBytes) {
+          callback(
+            new ValidationError(
+              "Community template archive exceeds its expanded-size limit.",
+            ),
+          );
+          return;
+        }
+        callback();
+      },
+    }),
+  );
 }
 
 function assertSafeCommunityArchiveListing(listing: string): void {
@@ -2875,7 +3002,7 @@ async function downloadGitHubSubdir(
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      await downloadAndExtract(tarUrl, tmpDir, {
+      await _downloadAndExtract(tarUrl, tmpDir, {
         skipAgentSymlinks: repo === REPO,
       });
       const srcDir = path.join(tmpDir, subdir);
@@ -2909,7 +3036,7 @@ async function downloadGitHubRepo(
   const errors: string[] = [];
   for (const ref of refs) {
     try {
-      await downloadAndExtract(
+      await _downloadAndExtract(
         communityTemplateTarballUrl(repo, ref),
         targetDir,
         { untrustedCommunityArchive: true },

@@ -11,6 +11,7 @@ import type {
   BuilderCmsModelFieldSummary,
   BuilderCmsModelSummary,
   BuilderCmsModelsResponse,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import {
   builderBlocksHash,
@@ -18,6 +19,8 @@ import {
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
 import {
+  builderCmsReferenceIdSourceValues,
+  builderEntryHasAutosaves,
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
@@ -53,6 +56,9 @@ export interface BuilderCmsEntryLiveState {
   lastUpdated: number | string | null;
   blocksHash: string | null;
   id: string | null;
+  /** The entry's source values, normalized as a refresh stores them. */
+  values?: Record<string, DocumentPropertyValue> | null;
+  hasAutosaves?: boolean | null;
 }
 
 export interface BuilderCmsEntryFidelitySummary {
@@ -224,6 +230,7 @@ const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "published",
   "lastUpdated",
   "createdDate",
+  "meta.hasAutosaves",
   "data.title",
   "data.handle",
   "data.url",
@@ -269,7 +276,8 @@ function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   }
   if (
     normalized.includes(".") &&
-    !normalized.toLowerCase().startsWith("data.")
+    !lower.startsWith("data.") &&
+    !BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(lower)
   ) {
     return null;
   }
@@ -319,16 +327,20 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   return Array.from(fields.values()).join(",");
 }
 
-const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
-const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
-
-function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+function applyBuilderCmsBodyEntryReadParams(
+  url: URL,
+  publicKey: string,
+  fieldPaths: readonly string[] = [],
+) {
   url.searchParams.set("apiKey", publicKey);
   url.searchParams.set("includeUnpublished", "true");
   url.searchParams.set("enrich", "true");
   url.searchParams.set("noCache", "true");
   url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  url.searchParams.set(
+    "fields",
+    `${builderCmsListEntryFields(fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+  );
 }
 
 function builderContentApiHost() {
@@ -388,10 +400,20 @@ function stringOrNumberFromUnknown(value: unknown) {
   return stringFromUnknown(value);
 }
 
-function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
+function liveSourceValues(record: Record<string, unknown>, model: string) {
+  const sourceValues = normalizeBuilderCmsApiEntry(record, model)?.sourceValues;
+  return sourceValues
+    ? { ...sourceValues, ...builderCmsReferenceIdSourceValues(record.data) }
+    : null;
+}
+
+function liveStateFromBuilderEntry(
+  value: unknown,
+  model: string,
+): BuilderCmsEntryLiveState {
   if (Array.isArray(value)) {
     return value.length > 0
-      ? liveStateFromBuilderEntry(value[0])
+      ? liveStateFromBuilderEntry(value[0], model)
       : {
           exists: false,
           published: null,
@@ -412,7 +434,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
 
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.results)) {
-    return liveStateFromBuilderEntry(record.results);
+    return liveStateFromBuilderEntry(record.results, model);
   }
   if (Object.keys(record).length === 0) {
     return {
@@ -456,6 +478,8 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       stringOrNumberFromUnknown(data.updatedAt),
     blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
     id,
+    values: liveSourceValues(record, model),
+    hasAutosaves: builderEntryHasAutosaves(record),
   };
 }
 
@@ -1744,6 +1768,11 @@ function builderGeneralEntryRequestFailure(error: unknown) {
 export async function readBuilderCmsEntryLiveState(args: {
   model: string;
   entryId: string;
+  /**
+   * Fields a save will write. The public-key read is projected, and a field
+   * it leaves out would read as absent from the live entry.
+   */
+  fieldPaths?: readonly string[];
   expectedSourceSpace?: string | null;
   expectedSourceConnectionId?: string | null;
   requireBoundOAuth?: boolean;
@@ -1793,7 +1822,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     }
     const json = (await response.json()) as unknown;
     const { results } = parseBuilderGeneralQueryDataResponse(json);
-    if (results.length === 0) return liveStateFromBuilderEntry([]);
+    if (results.length === 0) return liveStateFromBuilderEntry([], args.model);
     const entry = normalizeBuilderCmsApiEntry(results[0], args.model);
     if (!entry || entry.id !== args.entryId) {
       fail(
@@ -1801,7 +1830,7 @@ export async function readBuilderCmsEntryLiveState(args: {
         { errorCode: "builder_response_invalid", statusCode: 424 },
       );
     }
-    return liveStateFromBuilderEntry(entry.rawEntry);
+    return liveStateFromBuilderEntry(entry.rawEntry, args.model);
   }
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (!publicKey) {
@@ -1816,7 +1845,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  applyBuilderCmsBodyEntryReadParams(url, publicKey);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey, args.fieldPaths);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -1839,7 +1868,7 @@ export async function readBuilderCmsEntryLiveState(args: {
   }
 
   const json = (await response.json()) as unknown;
-  return liveStateFromBuilderEntry(json);
+  return liveStateFromBuilderEntry(json, args.model);
 }
 
 export async function readBuilderCmsContentEntry(args: {

@@ -1248,6 +1248,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Carregar",
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" tem {{size}} MB; imagens acima de {{limit}} MB não podem ser anexadas. Use uma imagem menor.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" tem {{megapixels}} megapixels; imagens acima de {{limit}} megapixels não podem ser anexadas. Use uma imagem menor.',
   "composer.fileTooLarge":
     "Este arquivo é maior que o limite de upload de {{size}} MB.",
   "composer.sessionExpired":

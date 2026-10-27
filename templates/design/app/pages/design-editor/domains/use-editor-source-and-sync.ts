@@ -240,9 +240,7 @@ export function useEditorSourceAndSync({
     remoteVisualEditPending,
   } = editorFilesAndSaving;
   const {
-    setLocalhostWriteConsentOpen,
-    setLocalhostWriteConsentPayload,
-    setLocalhostConsentConnectionId,
+    localhostWriteConsent,
     activeFile,
     activeOverviewScreen,
     activeScreenBridgeUrl,
@@ -254,6 +252,7 @@ export function useEditorSourceAndSync({
     handleZoomOut,
     handleCycleFile,
   } = editorActiveScreenAndGeometry;
+  const { openLocalConsent } = localhostWriteConsent;
   const {
     localhostConnectionRootPathByIdRef,
     setHoveredElementScreenId,
@@ -1788,15 +1787,14 @@ export function useEditorSourceAndSync({
           : undefined) ??
         connectionId;
 
-      setLocalhostConsentConnectionId(connectionId);
-      setLocalhostWriteConsentPayload({
+      openLocalConsent({
+        connectionId,
         rootPath,
         files: opts.files,
         onGranted: opts.onGranted,
-        onCancel: opts.onCancel ?? (() => {}),
+        onCancel: opts.onCancel,
         onError: opts.onError,
       });
-      setLocalhostWriteConsentOpen(true);
       return "opened";
     },
     [
@@ -1806,6 +1804,7 @@ export function useEditorSourceAndSync({
       canEditDesign,
       id,
       localhostConnectionRootPathByIdRef,
+      openLocalConsent,
     ],
   );
   requestLocalhostWriteRef.current = requestLocalhostWrite;
@@ -1847,8 +1846,8 @@ export function useEditorSourceAndSync({
   const handleWorkbenchLocalWriteConsent = useCallback(
     (connectionId: string, retry: () => void, filePath?: string) => {
       if (!id || !canEditDesign) return;
-      setLocalhostConsentConnectionId(connectionId);
-      setLocalhostWriteConsentPayload({
+      openLocalConsent({
+        connectionId,
         rootPath:
           workbenchLocalhostConnections.find(
             (connection) => connection.connectionId === connectionId,
@@ -1859,11 +1858,9 @@ export function useEditorSourceAndSync({
           connectionId,
         files: filePath ? [filePath] : [],
         onGranted: () => retry(),
-        onCancel: () => {},
       });
-      setLocalhostWriteConsentOpen(true);
     },
-    [canEditDesign, id, workbenchLocalhostConnections],
+    [canEditDesign, id, openLocalConsent, workbenchLocalhostConnections],
   );
 
   return {

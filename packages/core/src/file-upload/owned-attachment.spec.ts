@@ -1,9 +1,14 @@
+import { randomFillSync } from "node:crypto";
+
+import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_INLINE_IMAGE_BASE64_CHARS } from "./inline-attachment-limits.js";
 import {
+  describeOwnedImageReadFailure,
   hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
-  MAX_OWNED_INLINE_IMAGE_BYTES,
+  MAX_OWNED_IMAGE_FETCH_BYTES,
 } from "./owned-attachment.js";
 import { JPEG_BASE64 } from "./test-image-fixtures.js";
 
@@ -123,7 +128,7 @@ describe("hydrateOwnedImageUrl", () => {
           new ReadableStream<Uint8Array>({
             start(controller) {
               controller.enqueue(
-                new Uint8Array(MAX_OWNED_INLINE_IMAGE_BYTES + 1),
+                new Uint8Array(MAX_OWNED_IMAGE_FETCH_BYTES + 1),
               );
               controller.close();
             },
@@ -136,6 +141,32 @@ describe("hydrateOwnedImageUrl", () => {
     await expect(
       hydrateOwnedImageUrl("https://storage.example/image.png", "image/png"),
     ).resolves.toEqual({ kind: "failed", code: "image-too-large" });
+  });
+
+  it("hydrates a storage image above the inline limit so it can be downscaled", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const png = await sharp(randomFillSync(new Uint8Array(1500 * 1500 * 3)), {
+      raw: { width: 1500, height: 1500, channels: 3 },
+    })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(png, { headers: { "content-type": "image/png" } }),
+      ),
+    );
+
+    const result = await hydrateOwnedImageUrl(
+      "https://storage.example/image.png",
+      "image/png",
+    );
+
+    expect(result).toMatchObject({ kind: "hydrated", mediaType: "image/png" });
+    expect(
+      result.kind === "hydrated" ? result.dataUrl.length : 0,
+    ).toBeGreaterThan(MAX_INLINE_IMAGE_BASE64_CHARS);
   });
 
   it("charges successful reads to a shared aggregate byte budget", async () => {
@@ -251,5 +282,13 @@ describe("hydrateOwnedImageUrl", () => {
     ).resolves.toEqual({ kind: "failed", code: "invalid-url" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(findProviderMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("describeOwnedImageReadFailure", () => {
+  it("names the upload cap in megabytes for oversized images", () => {
+    expect(describeOwnedImageReadFailure("image-too-large")).toBe(
+      "the image exceeds the 25 MB upload limit",
+    );
   });
 });

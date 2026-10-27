@@ -689,6 +689,7 @@
     "linkedom": "catalog:",
     "lowlight": "catalog:",
     "next-themes": "catalog:",
+    "openai": "^7.43.0",
     "qrcode.react": "4.2.0",
     "react-day-picker": "^10.0.1",
     "react-hook-form": "^7.80.0",

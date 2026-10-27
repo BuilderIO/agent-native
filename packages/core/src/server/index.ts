@@ -101,6 +101,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  getBrowserCookieSession,
   isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
@@ -124,6 +125,8 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,
@@ -237,7 +240,10 @@ export {
   type CurrentTurnRunEvent,
 } from "../agent/run-store.js";
 export { callerHasThreadAccess } from "../agent/run-ownership.js";
-export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
+export {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -247,6 +253,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,

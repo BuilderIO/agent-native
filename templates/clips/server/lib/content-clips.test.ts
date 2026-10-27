@@ -35,6 +35,7 @@ const state = vi.hoisted(() => {
   return {
     db: null as unknown as PgliteDatabase,
     blobs: new Map<string, unknown>(),
+    beforeClipOpens: null as (() => Promise<void>) | null,
   };
 });
 
@@ -55,6 +56,18 @@ vi.mock("./s3-upload-provider.js", async (importOriginal) => ({
   // database lacks, and its error would mask the provider fetch under test.
   fetchS3ObjectByUrl: async () => null,
 }));
+vi.mock("./context-footage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./context-footage.js")>();
+  return {
+    ...actual,
+    contextClipIdForFootage: async (
+      ...args: Parameters<typeof actual.contextClipIdForFootage>
+    ) => {
+      await state.beforeClipOpens?.();
+      return actual.contextClipIdForFootage(...args);
+    },
+  };
+});
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async () => null,
   notifyRecordingReaction: async () => null,
@@ -75,10 +88,14 @@ const { signA2AToken } = await import("@agent-native/core/a2a");
 const { withDbExec } = await import("@agent-native/core/db");
 const { schema } = await import("../db/index.js");
 const {
+  CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
+  CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_GRANT_EXPIRED,
+  CONTENT_CLIP_MAX_COMMENT_THREADS,
   CONTENT_CLIP_NOT_CONFIGURED,
   CONTENT_CLIP_PLAYBACK_GRANT_SECONDS,
   CONTENT_CLIP_PUBLIC_READER,
+  CONTENT_CLIP_RECORDING_TITLE_CHARS,
   CONTENT_CLIP_SCOPES: SCOPES,
 } = await import("../../shared/content-clip-contract.js");
 const { __resetContentClipRateLimitsForTests } =
@@ -353,10 +370,17 @@ function playback(recordingId: string, bearer?: string) {
   );
 }
 
-function listComments(recordingId: string, bearer?: string) {
+function listComments(
+  recordingId: string,
+  bearer?: string,
+  limit: string | null = "500",
+) {
+  const query = limit === null ? "" : `?limit=${limit}`;
   return respond(
     listCommentsRoute,
-    peerEvent(`/api/content-clips/${recordingId}/comments`, { bearer }),
+    peerEvent(`/api/content-clips/${recordingId}/comments${query}`, {
+      bearer,
+    }),
   );
 }
 
@@ -498,6 +522,15 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
   it("refuses a reader once the doc's binding is trashed", async () => {
     await setBindingState("binding-doc-1", "trashed");
     expect((await playback("rec-upload", await token())).status).toBe(404);
+  });
+
+  it("cuts the Clip's title to the contract's length", async () => {
+    await updateRecording("rec-upload", { title: "T".repeat(5_000) });
+    const result = await playback("rec-upload", await token());
+    expect(result.status).toBe(200);
+    expect(result.body.recording.title).toBe(
+      "T".repeat(CONTENT_CLIP_RECORDING_TITLE_CHARS),
+    );
   });
 
   it("stops serving an issued playback URL once the binding is trashed", async () => {
@@ -1085,6 +1118,130 @@ describe("video comments through a doc", () => {
     ).toBe(false);
   });
 
+  it("cuts a listed comment's text and author to the contract's lengths", async () => {
+    await seedComment("long", {
+      authorEmail: `${"e".repeat(400)}@example.test`,
+      authorName: "N".repeat(400),
+      content: "C".repeat(5_000),
+    });
+    const listed = await listComments("rec-upload", await token());
+    expect(listed.status).toBe(200);
+    expect(listed.body.comments[0]).toEqual({
+      id: "long",
+      authorEmail: "e".repeat(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      authorName: "N".repeat(CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      content: "C".repeat(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
+      videoTimestampMs: 1_000,
+    });
+  });
+
+  it("gives a signed-out reader no commenter's email, nor a name made from one", async () => {
+    await seedComment("named", {
+      authorEmail: READER,
+      authorName: "Rae Reader",
+    });
+    await seedComment("from-email", {
+      authorEmail: "pat.lee@content.example.test",
+      authorName: "Pat Lee",
+      videoTimestampMs: 2_000,
+    });
+    await seedComment("address", {
+      authorEmail: "sam@content.example.test",
+      authorName: "sam@content.example.test",
+      videoTimestampMs: 3_000,
+    });
+    const authors = (body: RouteBody) =>
+      body.comments.map(
+        (comment: {
+          id: string;
+          authorEmail: unknown;
+          authorName: unknown;
+        }) => [comment.id, comment.authorEmail, comment.authorName],
+      );
+
+    const signedOut = await listComments(
+      "rec-upload",
+      await publicReaderToken(),
+    );
+    expect(signedOut.status).toBe(200);
+    expect(authors(signedOut.body)).toEqual([
+      ["named", null, "Rae Reader"],
+      ["from-email", null, null],
+      ["address", null, null],
+    ]);
+    const signedIn = await listComments("rec-upload", await token());
+    expect(authors(signedIn.body)).toEqual([
+      ["named", READER, "Rae Reader"],
+      ["from-email", "pat.lee@content.example.test", "Pat Lee"],
+      ["address", "sam@content.example.test", "sam@content.example.test"],
+    ]);
+  });
+
+  it("lists thread starts only, at most as many as asked, and says when there are more", async () => {
+    await seedComment("late", { videoTimestampMs: 9_000 });
+    await seedComment("early", { videoTimestampMs: 1_000 });
+    await seedComment("middle", { videoTimestampMs: 5_000 });
+    await seedComment("reply", {
+      parentId: "early",
+      threadId: "early",
+      videoTimestampMs: 1_000,
+      createdAt: "2026-10-02T00:00:00.000Z",
+    });
+    const bearer = await token();
+
+    const first = await listComments("rec-upload", bearer, "2");
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({
+      comments: [
+        expect.objectContaining({ id: "early", videoTimestampMs: 1_000 }),
+        expect.objectContaining({ id: "middle", videoTimestampMs: 5_000 }),
+      ],
+      truncated: true,
+    });
+
+    const all = await listComments("rec-upload", bearer, "3");
+    expect(all.body.truncated).toBe(false);
+    expect(all.body.comments.map((c: { id: string }) => c.id)).toEqual([
+      "early",
+      "middle",
+      "late",
+    ]);
+  });
+
+  it("lists at most the contract's threads when Content sends no bound", async () => {
+    await state.db.insert(schema.recordingComments).values(
+      Array.from({ length: CONTENT_CLIP_MAX_COMMENT_THREADS + 1 }, (_, i) => ({
+        id: `thread-${i}`,
+        recordingId: "rec-upload",
+        organizationId: "clips-org",
+        threadId: `thread-${i}`,
+        parentId: null,
+        authorEmail: OWNER,
+        authorName: "Owner",
+        content: `Comment ${i}`,
+        videoTimestampMs: i,
+        emojiReactionsJson: "{}",
+        resolved: false,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+      })),
+    );
+    const result = await listComments("rec-upload", await token(), null);
+    expect(result.status).toBe(200);
+    expect(result.body.comments).toHaveLength(CONTENT_CLIP_MAX_COMMENT_THREADS);
+    expect(result.body.truncated).toBe(true);
+  });
+
+  it("refuses a list whose bound it can't honor", async () => {
+    await seedComment("owner-comment");
+    const bearer = await token();
+    for (const limit of ["", "0", "-1", "1.5", "abc", "501"]) {
+      const result = await listComments("rec-upload", bearer, limit);
+      expect(result.status).toBe(400);
+      expect(JSON.stringify(result.body)).not.toContain("owner-comment");
+    }
+  });
+
   it("refuses to change another person's comment", async () => {
     await seedComment("owner-comment");
     const write = await token({ scope: SCOPES.comment });
@@ -1605,5 +1762,150 @@ describe("token checks", () => {
     }
     expect(statuses.slice(0, 30).every((status) => status === 200)).toBe(true);
     expect(statuses[30]).toBe(429);
+  });
+
+  async function spendWrites(bearer: string) {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      expect((await addComment(bearer, attempt)).status).toBe(200);
+    }
+  }
+
+  function addComment(bearer: string, attempt: number) {
+    return writeComment("rec-upload", bearer, {
+      operation: "add",
+      content: `Comment ${attempt}`,
+      videoTimestampMs: attempt,
+    });
+  }
+
+  it("counts only requests for a Clip that opened, so made-up ids can't push a reader's bucket out", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 2 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
+    for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
+      expect(
+        (await playback(recordingId, await token({ recordingId }))).status,
+      ).toBe(404);
+    }
+    expect((await addComment(write, 30)).status).toBe(429);
+  });
+
+  it("drops the oldest bucket when the map is full, refusing no new reader", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 2 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
+    expect(
+      (await listComments("rec-upload", await token({ sub: OTHER_READER })))
+        .status,
+    ).toBe(200);
+    expect(
+      (await playback("rec-upload", await publicReaderToken())).status,
+    ).toBe(200);
+    // The spent bucket was the oldest, so the reader starts a fresh window.
+    expect((await addComment(write, 30)).status).toBe(200);
+  });
+
+  it("still refuses a reader at their limit while the map has room", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 3 });
+    const write = await token({ scope: SCOPES.comment });
+    await spendWrites(write);
+    expect(
+      (await playback("rec-upload", await token({ sub: OTHER_READER }))).status,
+    ).toBe(200);
+    expect((await addComment(write, 30)).status).toBe(429);
+  });
+
+  it("refuses a made-up id once its misses are spent, and nothing else", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const reader = await token();
+    const madeUp = await token({ recordingId: "made-up-1" });
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    expect((await playback("made-up-1", madeUp)).status).toBe(404);
+    expect((await playback("made-up-1", madeUp)).status).toBe(404);
+    expect((await playback("made-up-1", madeUp)).status).toBe(429);
+    expect(
+      (await playback("made-up-2", await token({ recordingId: "made-up-2" })))
+        .status,
+    ).toBe(404);
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    expect(
+      (
+        await playback(
+          "made-up-1",
+          await token({ recordingId: "made-up-1", sub: OTHER_READER }),
+        )
+      ).status,
+    ).toBe(404);
+  });
+
+  it("counts a burst's requests before any of them opens the Clip", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const madeUp = await token({ recordingId: "made-up-1" });
+    // This database answers before the next request's token is verified, so
+    // hold every lookup until the whole burst has been checked.
+    let opening = 0;
+    let answered = 0;
+    const gate: { open?: () => void } = {};
+    const held = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    state.beforeClipOpens = async () => {
+      opening += 1;
+      await held;
+    };
+    try {
+      const requests = Array.from({ length: 6 }, async () => {
+        const { status } = await playback("made-up-1", madeUp);
+        answered += 1;
+        return status;
+      });
+      await vi.waitFor(() => expect(opening + answered).toBe(6));
+      gate.open?.();
+      const statuses = await Promise.all(requests);
+      expect(opening).toBe(2);
+      expect(statuses.sort((a, b) => a - b)).toEqual([
+        404, 404, 429, 429, 429, 429,
+      ]);
+    } finally {
+      gate.open?.();
+      state.beforeClipOpens = null;
+    }
+  });
+
+  it("refuses a Clip that opened and then went away once its misses are spent", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const reader = await token();
+    expect((await playback("rec-upload", reader)).status).toBe(200);
+    await setBindingState("binding-doc-1", "trashed");
+    expect((await playback("rec-upload", reader)).status).toBe(404);
+    expect((await playback("rec-upload", reader)).status).toBe(404);
+    expect((await playback("rec-upload", reader)).status).toBe(429);
+  });
+
+  it("lets no signed-out reader's misses stop another's first open on the page", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 1 });
+    for (const recordingId of ["made-up-1", "made-up-2", "made-up-3"]) {
+      const madeUp = await publicReaderToken({ recordingId });
+      expect((await playback(recordingId, madeUp)).status).toBe(404);
+      expect((await playback(recordingId, madeUp)).status).toBe(429);
+    }
+    expect(
+      (await playback("rec-upload", await publicReaderToken())).status,
+    ).toBe(200);
+  });
+
+  it("forgets the oldest misses when the map is full, locking no one out", async () => {
+    __resetContentClipRateLimitsForTests({ buckets: 2, misses: 1 });
+    const first = await token({ recordingId: "made-up-1" });
+    const second = await token({ recordingId: "made-up-2" });
+    expect((await playback("made-up-1", first)).status).toBe(404);
+    expect((await playback("made-up-1", first)).status).toBe(429);
+    expect((await playback("made-up-2", second)).status).toBe(404);
+    expect(
+      (await playback("made-up-3", await token({ recordingId: "made-up-3" })))
+        .status,
+    ).toBe(404);
+    expect((await playback("made-up-2", second)).status).toBe(429);
+    expect((await playback("made-up-1", first)).status).toBe(404);
   });
 });
