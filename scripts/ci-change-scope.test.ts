@@ -4297,7 +4297,7 @@ test("keeps package metadata targeted but runs the guards that scan it", () => {
   assert.equal(scope.checks.guards, true);
 });
 
-test("runs only lint for markdown-only instruction changes", () => {
+test("runs only lint and guards for markdown-only instruction changes", () => {
   for (const path of [
     ".agents/skills/qa/SKILL.md",
     "skills/an/SKILL.md",
@@ -4315,7 +4315,7 @@ test("runs only lint for markdown-only instruction changes", () => {
       Object.entries(scope.checks)
         .filter(([, enabled]) => enabled)
         .map(([name]) => name),
-      ["lint"],
+      ["lint", "guards"],
       path,
     );
   }
@@ -4331,6 +4331,7 @@ test("runs only lint for markdown-only instruction changes", () => {
   assert.equal(syncedSkill.checks.typecheck, false);
   assert.equal(syncedSkill.checks.build, false);
   assert.equal(syncedSkill.checks.lint, true);
+  assert.equal(syncedSkill.checks.guards, true);
 
   const withCode = classifyChangedPaths([
     ".agents/skills/qa/SKILL.md",

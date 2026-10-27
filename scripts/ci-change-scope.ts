@@ -2538,8 +2538,10 @@ export function classifyChangedPaths(
     sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
   );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
-  // Markdown can only fail the format check, so a change set that is all
-  // markdown (skills, agent instructions, their factory copies) runs lint alone.
+  // Markdown can't fail a build, typecheck, or test, so a change set that is
+  // all markdown (skills, agent instructions, their factory copies) runs lint,
+  // plus the guards that read instructions (doc budgets, skill sync, template
+  // layers, hook docs) when any of it is outside the docs tree.
   const markdownOnly =
     changedPaths.length > 0 &&
     changedPaths.every((path) => isDocsPath(path) || isMarkdownPath(path));
@@ -2571,7 +2573,8 @@ export function classifyChangedPaths(
         CHECK_NAMES.map((name) => [
           name,
           name === "lint" ||
-            (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "guards" &&
+              (!docsOnly || changedPaths.some(isReadmePath))) ||
             (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
