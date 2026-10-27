@@ -11,6 +11,7 @@ export { normalizeJourneyPath };
 
 export interface JourneyEventRow {
   id: string;
+  /** Empty only for an OAuth signup that has no first-party web session. */
   sessionId: string;
   journeyKind: "onboarding" | "standalone_setup";
   tsMs: number;
@@ -28,6 +29,9 @@ export interface JourneyEventRow {
   action: string | null;
   aliasId?: string | null;
   attemptId?: string | null;
+  firstTouchPath?: string | null;
+  experimentId?: string | null;
+  experimentVariant?: string | null;
   sessionReplayId?: string | null;
   sessionReplayStartedAt?: string | null;
 }
@@ -178,6 +182,7 @@ export const JOURNEY_STEP_EVENT_NAMES: readonly string[] = [
   "onboarding_app_entered",
   "app_entered",
   "app.first_action",
+  "onboarding_experiment_exposed",
   ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
   "generation_completed",
   "design_output_created",

@@ -41,7 +41,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many pages one event read may run; it defaults to 275 GB. Reads also stop at a 45-second event-read deadline, with coverage.truncated and notes identifying partial counts. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. When experimentId or splitDesignFirstTouch is supplied, return independent trees for each cohort; Design first-touch cohorts are crossed with experiment arms, and sessionless MCP OAuth signups are counted as events without replay. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many pages one event read may run; it defaults to 275 GB. Reads also stop at a 45-second event-read deadline, with coverage.truncated and notes identifying partial counts. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -62,6 +62,13 @@ export default defineAction({
       .default("exclude_builder")
       .describe(
         'Builder-employee scope, as in the onboarding metrics: "exclude_builder" (default), "only_builder", or "all". Test identities are always excluded.',
+      ),
+    excludeNonProductionHosts: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Exclude events from beta and localhost hosts. Test identities are excluded separately.",
       ),
     followUpMode: z
       .enum(["session", "person"])
@@ -179,6 +186,37 @@ export default defineAction({
       .describe(
         "Leave out examples whose viewport was not recorded or cannot be read. Without it they are kept with viewport null and a viewportReason.",
       ),
+    experimentId: z
+      .literal("first_run_builder_credits")
+      .optional()
+      .describe(
+        "Return session trees for the control and credits arms from one event read. Sessions with conflicting or missing assignment properties remain outside both arms.",
+      ),
+    splitDesignFirstTouch: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For the Design app, also return session trees grouped by the signup first_touch_path: /mcp/oauth, another known path, or unknown. Sessionless OAuth signups are reported as counts without invented screenshots.",
+      ),
+  }).superRefine((args, ctx) => {
+    if (
+      (args.experimentId || args.splitDesignFirstTouch) &&
+      args.format !== "tree"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["format"],
+        message: "Cohort splits require format tree.",
+      });
+    }
+    if (args.splitDesignFirstTouch && args.app !== "design") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["splitDesignFirstTouch"],
+        message: "First-touch cohort splits are only available for Design.",
+      });
+    }
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -210,6 +248,7 @@ export default defineAction({
           dateTo: args.dateTo,
           app: args.app,
           emailFilter: args.emailFilter,
+          excludeNonProductionHosts: args.excludeNonProductionHosts,
           followUpMode: args.followUpMode,
           format: args.format,
           maxNodes: args.maxNodes,
@@ -220,6 +259,8 @@ export default defineAction({
           maxTotalBytesBilled: args.maxTotalBytesBilled,
           settleMs: args.settleMs,
           recency: args.recency,
+          experimentId: args.experimentId,
+          splitDesignFirstTouch: args.splitDesignFirstTouch,
           viewport: Object.keys(viewport).length ? viewport : undefined,
         },
         context?.signal,

@@ -96,7 +96,8 @@ Options:
   --max-aspect <ratio>   Skip examples whose viewport width/height is above this
   --app-url <url>        Deployed Analytics app (default ${DEFAULT_APP_URL}, or AGENT_NATIVE_ANALYTICS_URL)
   --token <bearer>       Bearer for that app (default AGENT_NATIVE_TOKEN, then Codex's config.toml)
-  --upload               Store each PNG in the app's private storage and put an attachmentRef in the manifest (a frame that fails to upload is a failure, not a frame)
+  --upload               Store each PNG and put an image reference in the manifest (a frame that fails to upload is a failure, not a frame)
+  --upload-target <kind>  private (default) or cdn; cdn uses upload-image and requires cdn.builder.io
   --capture-mode <mode>  offline (default) or browser, which checks recorded assets through a bounded local network relay
   --extract-prompts      Browser mode only: save bounded visible user-role text locally; redact credentials and omit SQL/base64 payloads
   --timeout-ms <ms>      Per recording load / per frame limit (default 60000)
@@ -291,6 +292,7 @@ export interface RunContext {
   outDir: string;
   timeoutMs: number;
   upload: boolean;
+  uploadTarget: "private" | "cdn";
   captureMode: "offline" | "browser";
   extractPrompts: boolean;
   minAspect?: number;
@@ -302,6 +304,81 @@ export interface RunContext {
   provenanceFailures: PromptProvenanceFailure[];
   provenanceOmittedSnapshots: number;
   provenanceInFlight: number;
+}
+
+async function uploadFrame(
+  ctx: RunContext,
+  recordingId: string,
+  offsetMs: number,
+  png: string,
+): Promise<{ attachmentRef?: string; imageUrl?: string }> {
+  if (!ctx.upload) return {};
+  if (ctx.uploadTarget === "private") {
+    const uploaded = await callAppAction(
+      ctx.appUrl,
+      ctx.token,
+      "upload-journey-frame",
+      { recordingId, offsetMs, png },
+      ctx.signal,
+    );
+    if (typeof uploaded.attachmentRef !== "string") {
+      throw new Error("the app returned no attachmentRef");
+    }
+    return { attachmentRef: uploaded.attachmentRef };
+  }
+
+  const bytes = Buffer.from(png, "base64");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const idempotencyKey = `journey-capture:${digest}`;
+  const uploaded = await callAppAction(
+    ctx.appUrl,
+    ctx.token,
+    "upload-image",
+    {
+      data: `data:image/png;base64,${png}`,
+      filename: `journey-${digest.slice(0, 16)}.png`,
+      idempotencyKey,
+    },
+    ctx.signal,
+  );
+  const imageUrl = typeof uploaded.url === "string" ? uploaded.url : null;
+  let validCdnUrl = false;
+  if (imageUrl) {
+    try {
+      const url = new URL(imageUrl);
+      validCdnUrl =
+        url.protocol === "https:" && url.hostname === "cdn.builder.io";
+    } catch {
+      validCdnUrl = false;
+    }
+  }
+  if (!validCdnUrl) {
+    try {
+      await callAppAction(
+        ctx.appUrl,
+        ctx.token,
+        "upload-image",
+        { idempotencyKey, cleanup: "delete" },
+        ctx.signal,
+      );
+    } catch (error) {
+      throw new Error(
+        `upload-image did not return cdn.builder.io and cleanup failed (${reasonFromError(error)})`,
+      );
+    }
+    throw new Error("upload-image did not return an https://cdn.builder.io URL");
+  }
+  const released = await callAppAction(
+    ctx.appUrl,
+    ctx.token,
+    "upload-image",
+    { idempotencyKey, cleanup: "release" },
+    ctx.signal,
+  );
+  if (released.released !== true && released.alreadyMissing !== true) {
+    throw new Error("upload-image could not release its idempotency receipt");
+  }
+  return { imageUrl };
 }
 
 export interface PromptProvenanceSnapshot {
@@ -1309,24 +1386,18 @@ export async function captureBrowserRecording(
               );
               const filePath = path.join(ctx.outDir, fileName);
               await writePrivateOutputFile(filePath, bytes);
-              let attachmentRef: string | undefined;
+              let uploadedImage: {
+                attachmentRef?: string;
+                imageUrl?: string;
+              } = {};
               if (ctx.upload) {
                 try {
-                  const uploaded = await callAppAction(
-                    ctx.appUrl,
-                    ctx.token,
-                    "upload-journey-frame",
-                    {
-                      recordingId: plan.recordingId,
-                      offsetMs: item.offsetMs,
-                      png: capture.png,
-                    },
-                    ctx.signal,
+                  uploadedImage = await uploadFrame(
+                    ctx,
+                    plan.recordingId,
+                    item.offsetMs,
+                    capture.png,
                   );
-                  if (typeof uploaded.attachmentRef !== "string") {
-                    throw new Error("the app returned no attachmentRef");
-                  }
-                  attachmentRef = uploaded.attachmentRef;
                 } catch (error) {
                   await removePrivateOutputFile(filePath);
                   if (error instanceof AuthError) throw error;
@@ -1353,7 +1424,7 @@ export async function captureBrowserRecording(
                   ...(normalizeJourneyPath(capture.route)
                     ? { route: normalizeJourneyPath(capture.route)! }
                     : {}),
-                  ...(attachmentRef ? { attachmentRef } : {}),
+                  ...uploadedImage,
                 });
               }
             }
@@ -1835,24 +1906,18 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
         );
         const filePath = path.join(ctx.outDir, fileName);
         await writePrivateOutputFile(filePath, bytes);
-        let attachmentRef: string | undefined;
+        let uploadedImage: {
+          attachmentRef?: string;
+          imageUrl?: string;
+        } = {};
         if (ctx.upload) {
           try {
-            const uploaded = await callAppAction(
-              ctx.appUrl,
-              ctx.token,
-              "upload-journey-frame",
-              {
-                recordingId: plan.recordingId,
-                offsetMs: item.offsetMs,
-                png: capturedPng,
-              },
-              ctx.signal,
+            uploadedImage = await uploadFrame(
+              ctx,
+              plan.recordingId,
+              item.offsetMs,
+              capturedPng,
             );
-            if (typeof uploaded.attachmentRef !== "string") {
-              throw new Error("the app returned no attachmentRef");
-            }
-            attachmentRef = uploaded.attachmentRef;
           } catch (error) {
             await rm(filePath, { force: true });
             if (error instanceof AuthError) throw error;
@@ -1877,7 +1942,7 @@ async function renderRecording(ctx: RunContext, plan: RecordingPlan) {
             item.offsetMs,
           ),
           ...(route ? { route } : {}),
-          ...(attachmentRef ? { attachmentRef } : {}),
+          ...uploadedImage,
         });
       } catch (error) {
         if (error instanceof AuthError) throw error;
@@ -2022,6 +2087,7 @@ async function main(argv: string[]): Promise<number> {
       "app-url": { type: "string" },
       token: { type: "string" },
       upload: { type: "boolean" },
+      "upload-target": { type: "string" },
       "capture-mode": { type: "string" },
       "extract-prompts": { type: "boolean" },
       "timeout-ms": { type: "string" },
@@ -2045,6 +2111,15 @@ async function main(argv: string[]): Promise<number> {
   const extractPrompts = values["extract-prompts"] === true;
   if (extractPrompts && captureMode !== "browser") {
     console.error("--extract-prompts requires --capture-mode browser.");
+    return 2;
+  }
+  const uploadTarget = values["upload-target"] ?? "private";
+  if (uploadTarget !== "private" && uploadTarget !== "cdn") {
+    console.error("--upload-target must be private or cdn.");
+    return 2;
+  }
+  if (uploadTarget === "cdn" && values.upload !== true) {
+    console.error("--upload-target cdn requires --upload.");
     return 2;
   }
   // pnpm --filter runs scripts from the package directory.
@@ -2227,6 +2302,7 @@ async function main(argv: string[]): Promise<number> {
     outDir,
     timeoutMs,
     upload: values.upload === true,
+    uploadTarget,
     captureMode,
     extractPrompts,
     minAspect,

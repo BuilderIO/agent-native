@@ -1092,6 +1092,13 @@ const FUNNEL_EVENTS_CTE = `WITH auth_identity_bridge AS (
   FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
+function nonProductionHostSql(alias: "e" | "r"): string {
+  const hostname = `lower(coalesce(NULLIF(${alias}.hostname, ''), ''))`;
+  return `(${hostname} LIKE 'beta.%'
+    OR ${hostname} IN ('localhost', '127.0.0.1', '::1', '[::1]')
+    OR ${hostname} LIKE '%.localhost')`;
+}
+
 function buildOnboardingEventsCte(
   options: {
     dateRangeFilter?: string;
@@ -1099,6 +1106,7 @@ function buildOnboardingEventsCte(
     receivedAtCutoffSql?: string;
     includeIdentityBridge?: boolean;
     excludeHttpResponses?: boolean;
+    excludeNonProductionHosts?: boolean;
   } = {},
 ): string {
   const dateRangeFilter =
@@ -1112,6 +1120,9 @@ function buildOnboardingEventsCte(
     : "";
   const excludeHttpResponsesFilter = options.excludeHttpResponses
     ? "\n      AND e.event_name != 'http.response'"
+    : "";
+  const excludeNonProductionHostsFilter = options.excludeNonProductionHosts
+    ? `\n      AND NOT ${nonProductionHostSql("e")}`
     : "";
   const identityBridgeCte = includeIdentityBridge
     ? `auth_identity_bridge AS (
@@ -1158,7 +1169,7 @@ function buildOnboardingEventsCte(
     ) AS funnel_user_email
   FROM analytics_events e
   ${identityBridgeJoin}
-  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeHttpResponsesFilter}
+  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeHttpResponsesFilter}${excludeNonProductionHostsFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
@@ -1510,6 +1521,8 @@ const ONBOARDING_JOURNEY_SCOPE_CTES = `, session_summary AS (
 const ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER = `has_test = 0
   AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
   AND (has_cohort = 1 OR has_standalone_setup = 1)`;
+const ONBOARDING_JOURNEY_SESSIONLESS_IDENTITY_FILTER = `NOT COALESCE(${testIdentityEmailSql("e.funnel_user_email")}, FALSE)
+    AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(e.funnel_user_email, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(e.funnel_user_email, '')) LIKE '%@builder.io'))`;
 const ONBOARDING_JOURNEY_OUTPUT_LINK_CANDIDATE_FILTER = `${ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER}
   AND (
     (has_cohort = 1
@@ -1527,6 +1540,7 @@ function buildOnboardingJourneyEventCtes(
     dateRangeFilter?: string;
     observationCutoffSql?: string;
     receivedAtCutoffSql?: string;
+    excludeNonProductionHosts?: boolean;
   } = {},
 ): string {
   const dateRangeFilter =
@@ -1536,6 +1550,9 @@ function buildOnboardingJourneyEventCtes(
     : "";
   const receivedAtCutoffFilter = options.receivedAtCutoffSql
     ? `\n    AND r.received_at::timestamptz < ${options.receivedAtCutoffSql}`
+    : "";
+  const excludeNonProductionHostsFilter = options.excludeNonProductionHosts
+    ? `\n    AND NOT ${nonProductionHostSql("r")}`
     : "";
   const responseTemplateExpr = TEMPLATE_EXPR.replace(
     /\btemplate\b/g,
@@ -1551,7 +1568,7 @@ function buildOnboardingJourneyEventCtes(
       CASE WHEN NULLIF(r.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN r.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
   FROM analytics_events r
-  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
+  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeNonProductionHostsFilter}
     AND ('{{appFilter}}' IN ('', 'all') OR lower(${responseTemplateExpr}) = lower('{{appFilter}}'))
     AND ${firstPartyTemplateFilter(responseTemplateExpr)}
     AND r.event_name = 'http.response'
@@ -1632,7 +1649,14 @@ function buildOnboardingJourneyEventCtes(
     CASE
       WHEN NULLIF(e.session_id, '') IS NOT NULL
         THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
-      ELSE e.unique_link_journey_min
+      ELSE COALESCE(
+        e.unique_link_journey_min,
+        CASE
+          WHEN e.event_name = 'signup'
+            AND COALESCE(NULLIF(e.properties::jsonb ->> 'first_touch_path', ''), '') LIKE '/mcp/oauth%'
+            THEN 'onboarding'
+        END
+      )
     END AS journey_kind
   FROM linked_onboarding_events e
   WHERE (
@@ -1657,6 +1681,11 @@ function buildOnboardingJourneyEventCtes(
       OR (e.template_name = 'design'
         AND e.event_name = 'generation_completed')
     )
+  ) OR (
+    NULLIF(e.session_id, '') IS NULL
+    AND e.event_name = 'signup'
+    AND COALESCE(NULLIF(e.properties::jsonb ->> 'first_touch_path', ''), '') LIKE '/mcp/oauth%'
+    AND ${ONBOARDING_JOURNEY_SESSIONLESS_IDENTITY_FILTER}
   )
 )
 `;
@@ -1682,6 +1711,9 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   NULLIF(e.properties::jsonb ->> 'method_id', '') AS method_id,
   NULLIF(e.properties::jsonb ->> 'outcome', '') AS outcome,
   NULLIF(e.properties::jsonb ->> 'action', '') AS action,
+  NULLIF(e.properties::jsonb ->> 'first_touch_path', '') AS first_touch_path,
+  NULLIF(e.properties::jsonb ->> 'experiment_id', '') AS experiment_id,
+  NULLIF(e.properties::jsonb ->> 'experiment_variant', '') AS experiment_variant,
   CASE
     WHEN e.template_name = 'clips'
       AND e.event_name IN ('recording_started', 'recording_ready')
@@ -1734,6 +1766,7 @@ export interface OnboardingJourneyEventsFilters {
   dateTo: string;
   app: "all" | (typeof FIRST_PARTY_TEMPLATE_NAMES)[number];
   emailFilter: "all" | "exclude_builder" | "only_builder";
+  excludeNonProductionHosts?: boolean;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -1766,6 +1799,12 @@ function validateOnboardingJourneyFilters(
     !["all", "exclude_builder", "only_builder"].includes(filters.emailFilter)
   ) {
     throw new Error(`Unknown email filter "${filters.emailFilter}"`);
+  }
+  if (
+    filters.excludeNonProductionHosts !== undefined &&
+    typeof filters.excludeNonProductionHosts !== "boolean"
+  ) {
+    throw new Error("excludeNonProductionHosts must be a boolean");
   }
 }
 
@@ -1844,7 +1883,15 @@ export function buildOnboardingJourneyEventsSql(
     journeyLimit: String(page.limit),
     journeyOffset: String(page.offset),
   };
-  let query = ONBOARDING_JOURNEY_EVENTS_SQL;
+  let query = filters.excludeNonProductionHosts
+    ? `${buildOnboardingEventsCte({
+        includeIdentityBridge: false,
+        excludeHttpResponses: true,
+        excludeNonProductionHosts: true,
+      })}${buildOnboardingJourneyEventCtes({
+        excludeNonProductionHosts: true,
+      })}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`
+    : ONBOARDING_JOURNEY_EVENTS_SQL;
   if (observation) {
     if (options.freezeReceivedAt && !observation.observationWatermark) {
       throw new Error("A frozen observation watermark is required");
@@ -1854,6 +1901,7 @@ export function buildOnboardingJourneyEventsSql(
       observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
       includeIdentityBridge: false,
       excludeHttpResponses: true,
+      excludeNonProductionHosts: filters.excludeNonProductionHosts,
       ...(options.freezeReceivedAt
         ? {
             receivedAtCutoffSql:
@@ -1864,6 +1912,7 @@ export function buildOnboardingJourneyEventsSql(
     query = `${cte}${buildOnboardingJourneyEventCtes({
       dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
       observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+      excludeNonProductionHosts: filters.excludeNonProductionHosts,
       ...(options.freezeReceivedAt
         ? {
             receivedAtCutoffSql:
