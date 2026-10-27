@@ -1518,8 +1518,18 @@ export function CommentsSidebar({
       ),
     );
   }, []);
-  const latestSelectionRef = useRef(selectedThreadId);
-  latestSelectionRef.current = selectedThreadId;
+  // Cards closed by a resolve still saving. One is passed over once the
+  // selection leaves the thread that opened in its place or a new comment
+  // starts, so a failed resolve doesn't take back what came after.
+  const closedResolvesRef = useRef(
+    new Set<{ selection: string | null; passedOver: boolean }>(),
+  );
+  useEffect(() => {
+    for (const closed of closedResolvesRef.current) {
+      if ((selectedThreadId ?? null) !== closed.selection || pendingComment)
+        closed.passedOver = true;
+    }
+  }, [pendingComment, selectedThreadId]);
   const previousSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     const previous = previousSelectionRef.current;
@@ -2673,12 +2683,13 @@ export function CommentsSidebar({
       !startResolution(thread.threadId)
     )
       return;
-    const selectionAfterClose =
+    const closed =
       resolved &&
       presentation === "inline" &&
       thread.threadId === selectedThreadId
-        ? closeResolvedThread(thread.threadId)
-        : undefined;
+        ? { selection: closeResolvedThread(thread.threadId), passedOver: false }
+        : null;
+    if (closed) closedResolvesRef.current.add(closed);
     try {
       await resolveComment.mutateAsync({
         id: thread.comments[0].id,
@@ -2687,16 +2698,14 @@ export function CommentsSidebar({
       });
     } catch (error) {
       // A failed resolve reopens the thread, so its card opens again too,
-      // unless another thread has been selected since.
-      if (
-        selectionAfterClose !== undefined &&
-        latestSelectionRef.current === selectionAfterClose
-      )
+      // unless the selection has moved or a new comment started since.
+      if (closed && !closed.passedOver)
         onSelectedThreadChange?.(thread.threadId);
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
+      if (closed) closedResolvesRef.current.delete(closed);
       finishResolution(thread.threadId);
     }
   };

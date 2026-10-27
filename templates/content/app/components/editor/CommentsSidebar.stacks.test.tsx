@@ -710,21 +710,51 @@ describe("comment stacks in the margin", () => {
     expect(margin()).toContain("solo");
   });
 
-  it("keeps a newer selection when a resolve fails", async () => {
-    let rejectResolve!: (error: Error) => void;
+  /** Holds the next resolve request open; the returned function fails it. */
+  function holdResolve() {
+    let reject: (error: Error) => void = () => {};
     actions.resolve.mockImplementationOnce(
       () =>
-        new Promise((_resolve, reject) => {
-          rejectResolve = reject;
+        new Promise((_resolve, fail) => {
+          reject = fail;
         }),
     );
+    return async () => {
+      await act(async () => reject(new Error("offline")));
+    };
+  }
+
+  it("keeps a newer selection when a resolve fails", async () => {
+    const failResolve = holdResolve();
     render();
     act(() => harness.select("solo"));
     clickResolve("solo");
     expect(harness.selected).toBeNull();
     act(() => harness.select("a"));
-    await act(async () => rejectResolve(new Error("offline")));
+    await failResolve();
     expect(harness.selected).toBe("a");
+  });
+
+  it("keeps a new comment started while a resolve fails", async () => {
+    const failResolve = holdResolve();
+    render();
+    act(() => harness.select("solo"));
+    clickResolve("solo");
+    act(() => harness.comment({ quotedText: "beside it", offsetTop: 0 }));
+    await failResolve();
+    expect(harness.selected).toBeNull();
+  });
+
+  it("keeps the next thread chosen again after another when a resolve fails", async () => {
+    const failResolve = holdResolve();
+    render();
+    act(() => harness.select("b"));
+    clickResolve("b");
+    expect(harness.selected).toBe("c");
+    act(() => harness.select("a"));
+    act(() => harness.select("c"));
+    await failResolve();
+    expect(harness.selected).toBe("c");
   });
 
   it("forgets a stack resolved down to one thread", async () => {
