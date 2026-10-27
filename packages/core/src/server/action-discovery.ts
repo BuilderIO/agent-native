@@ -322,6 +322,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "call-mcp-tool",
   // Connection setup UI needs the workspace prerequisite even in minimal apps.
   "get-managed-mcp-oauth-readiness",
+  // Any app calling a provider API needs to see which scopes its connection holds.
+  "list-workspace-connection-scopes",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
@@ -471,6 +473,11 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       "list-workspace-user-groups",
       () =>
         import("../workspace-connections/actions/list-workspace-user-groups.js"),
+    ],
+    [
+      "list-workspace-connection-scopes",
+      () =>
+        import("../workspace-connections/actions/list-workspace-connection-scopes.js"),
     ],
     [
       "upsert-workspace-user-group",
