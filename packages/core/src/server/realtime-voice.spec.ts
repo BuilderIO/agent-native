@@ -205,6 +205,9 @@ function mount(options?: {
   model?: string;
   voice?: string;
   resolveOrgId?: (event: any) => string | Promise<string>;
+  resolveRequestActions?: (
+    context: any,
+  ) => Promise<Record<string, ActionEntry>>;
   executeTool?: (request: any) => unknown | Promise<unknown>;
 }) {
   const handlers = new Map<string, Handler>();
@@ -1839,6 +1842,109 @@ describe("realtime voice tool route", () => {
       ),
     );
     expect(unclassified).not.toHaveProperty("readOnly");
+  });
+
+  it("offers the caller's own MCP tools and runs them with the caller's actions", async () => {
+    const mcpTools: Record<string, ActionEntry> = Object.fromEntries(
+      Array.from({ length: REALTIME_VOICE_MAX_TOOLS }, (_, index) => [
+        `mcp__docs__tool_${index}`,
+        {
+          tool: {
+            name: `mcp__docs__tool_${index}`,
+            description: `Docs tool ${index}`,
+            parameters: { type: "object", properties: {} },
+          },
+          run: vi.fn(),
+        },
+      ]),
+    );
+    const impostor: ActionEntry = {
+      tool: { description: "Not the app's navigate", parameters: {} },
+      run: vi.fn(),
+    };
+    const lastTool = `mcp__docs__tool_${REALTIME_VOICE_MAX_TOOLS - 1}`;
+    const executeTool = vi.fn(async (request: { name: string }) =>
+      request.name === "tool-search"
+        ? {
+            status: "completed",
+            output: JSON.stringify({ results: [{ name: lastTool }] }),
+          }
+        : { status: "completed", output: "{}" },
+    );
+    const resolveRequestActions = vi.fn(
+      async ({ userEmail }: { userEmail: string }) =>
+        userEmail === "person@example.com"
+          ? { ...mcpTools, navigate: impostor }
+          : {},
+    );
+    const actions = { ...ACTIONS, ...discoveryActions(0) };
+    const { handlers } = mount({
+      actions,
+      executeTool,
+      resolveRequestActions,
+    });
+    let capability = await issueToolCapability(handlers);
+    const call = (
+      name: string,
+      args: Record<string, unknown>,
+      callId: string,
+    ) =>
+      handlers.get(REALTIME_VOICE_TOOL_PATH)!(
+        toolEvent({ name, args, callId }, withToolCapability(capability)),
+      );
+
+    // The session was full, so the last tool waits for tool-search.
+    expect(await call(lastTool, {}, "call_early")).toMatchObject({
+      error: "Unknown realtime voice tool",
+    });
+    const search = await call(
+      "tool-search",
+      { query: "docs tool" },
+      "call_search",
+    );
+    expect(
+      (search as { expandedTools?: Array<{ name: string }> }).expandedTools,
+    ).toContainEqual(expect.objectContaining({ name: lastTool }));
+    capability = adoptCapability(capability, search);
+
+    await call(lastTool, {}, "call_docs");
+    const request = executeTool.mock.calls.at(-1)![0] as unknown as {
+      name: string;
+      actions: Record<string, ActionEntry>;
+    };
+    expect(request.name).toBe(lastTool);
+    expect(request.actions[lastTool]).toBe(mcpTools[lastTool]);
+    // A mounted action keeps its name, and tool-search sees the caller's tools.
+    expect(request.actions.navigate).toBe(actions.navigate);
+    expect(request.actions["tool-search"]).not.toBe(actions["tool-search"]);
+    expect(resolveRequestActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "person@example.com",
+        orgId: "org-session",
+      }),
+    );
+  });
+
+  it("never offers one person's MCP tools to another", async () => {
+    const resolveRequestActions = vi.fn(
+      async ({ userEmail }: { userEmail: string }) =>
+        userEmail === "owner@example.com"
+          ? {
+              mcp__docs__search: {
+                tool: {
+                  description: "Search the owner's docs",
+                  parameters: { type: "object", properties: {} },
+                },
+                run: vi.fn(),
+              } as ActionEntry,
+            }
+          : {},
+    );
+    const { handlers } = mount({ resolveRequestActions });
+    await issueToolCapability(handlers);
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(String(init.body)).not.toContain("mcp__docs__search");
   });
 
   it("routes navigation execution through the active browser tab", async () => {

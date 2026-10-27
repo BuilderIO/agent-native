@@ -20,6 +20,7 @@ import {
   sanitizeToolErrorValue,
 } from "../agent/tool-error-redaction.js";
 import {
+  createToolSearchEntry,
   isTargetedToolSearch,
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
@@ -134,6 +135,8 @@ export interface RealtimeVoiceToolExecutionRequest extends RealtimeVoiceRequestC
   name: string;
   args: Record<string, unknown>;
   callId: string;
+  /** The mounted actions plus the caller's own; run the call against these. */
+  actions: Record<string, ActionEntry>;
   sessionId?: string;
 }
 
@@ -173,6 +176,14 @@ export interface MountRealtimeVoiceRoutesOptions {
   resolveOrgId?: (
     event: H3Event,
   ) => string | null | undefined | Promise<string | null | undefined>;
+  /**
+   * The caller's own actions, such as their connected MCP servers' tools,
+   * resolved for each voice request on top of the mounted ones. A mounted
+   * action keeps its name.
+   */
+  resolveRequestActions?: (
+    context: RealtimeVoiceRequestContext,
+  ) => Promise<Record<string, ActionEntry>>;
   executeTool: (
     request: RealtimeVoiceToolExecutionRequest,
   ) =>
@@ -626,8 +637,18 @@ function invalidMethod(event: H3Event): { error: string } {
   return { error: "Method not allowed" };
 }
 
+interface RealtimeVoiceRequestTools {
+  actions: Record<string, ActionEntry>;
+  tools: RealtimeFunctionTool[];
+  toolsByName: ReadonlyMap<string, RealtimeFunctionTool>;
+}
+
+type ResolveRealtimeVoiceTools = (
+  context: RealtimeVoiceRequestContext,
+) => Promise<RealtimeVoiceRequestTools>;
+
 function createSessionHandler(
-  getTools: () => RealtimeFunctionTool[],
+  resolveTools: ResolveRealtimeVoiceTools,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -765,7 +786,8 @@ function createSessionHandler(
                   },
                 },
               };
-        const packedTools = packRealtimeTools(sessionBase, getTools());
+        const { tools } = await resolveTools(auth);
+        const packedTools = packRealtimeTools(sessionBase, tools);
         const session = realtimeSessionWithTools(sessionBase, packedTools);
 
         let upstream: Response;
@@ -1004,11 +1026,7 @@ function readOnlyField(readOnly: boolean | undefined) {
 }
 
 function createToolHandler(
-  getToolsByName: () => ReadonlyMap<string, RealtimeFunctionTool>,
-  isReadOnlyCall: (
-    name: string,
-    args: Record<string, unknown>,
-  ) => boolean | undefined,
+  resolveTools: ResolveRealtimeVoiceTools,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -1093,6 +1111,7 @@ function createToolHandler(
       },
       async () => {
         try {
+          const { actions, toolsByName } = await resolveTools(auth);
           const result = normalizeExecutionResult(
             await options.executeTool({
               event,
@@ -1100,19 +1119,25 @@ function createToolHandler(
               orgId: auth.orgId,
               ...request,
               ...(browserTabId ? { browserTabId } : {}),
+              actions,
             }),
           );
           const expandedTools = grantDiscoveredRealtimeTools({
             request,
             result,
-            toolsByName: getToolsByName(),
+            toolsByName,
             initialAllowedNames: capability.initialNames,
             capability,
           });
+          const entry = Object.hasOwn(actions, request.name)
+            ? actions[request.name]
+            : undefined;
           return {
             callId: request.callId,
             ...result,
-            ...readOnlyField(isReadOnlyCall(request.name, request.args)),
+            ...readOnlyField(
+              entry ? actionCallReadOnly(entry, request.args) : undefined,
+            ),
             ...(expandedTools.length > 0
               ? {
                   expandedTools,
@@ -1155,16 +1180,40 @@ export function mountRealtimeVoiceRoutes(
     (tools ??= buildRealtimeTools(mounted, options.priorityToolNames));
   const getToolsByName = () =>
     (toolsByName ??= new Map(getTools().map((tool) => [tool.name, tool])));
-  const app = getH3App(nitroApp);
-  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(getTools, options));
-  const isReadOnlyCall = (name: string, args: Record<string, unknown>) => {
-    const entry = Object.hasOwn(mounted, name) ? mounted[name] : undefined;
-    return entry ? actionCallReadOnly(entry, args) : undefined;
+  const resolveTools: ResolveRealtimeVoiceTools = async (context) => {
+    const mountedTools = () => ({
+      actions: mounted,
+      tools: getTools(),
+      toolsByName: getToolsByName(),
+    });
+    if (!options.resolveRequestActions) return mountedTools();
+    const requestActions = Object.entries(
+      await options.resolveRequestActions(context),
+    ).filter(([name]) => !Object.hasOwn(mounted, name));
+    if (requestActions.length === 0) return mountedTools();
+    const actions: Record<string, ActionEntry> = {
+      ...mounted,
+      ...Object.fromEntries(requestActions),
+    };
+    if (Object.hasOwn(actions, TOOL_SEARCH_ACTION_NAME)) {
+      actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
+    }
+    const tools = [
+      ...getTools(),
+      ...buildRealtimeTools(Object.fromEntries(requestActions)),
+    ];
+    return {
+      actions,
+      tools,
+      toolsByName: new Map(tools.map((tool) => [tool.name, tool])),
+    };
   };
+  const app = getH3App(nitroApp);
   app.use(
-    REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(getToolsByName, isReadOnlyCall, options),
+    REALTIME_VOICE_SESSION_PATH,
+    createSessionHandler(resolveTools, options),
   );
+  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(resolveTools, options));
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,
     toolPath: REALTIME_VOICE_TOOL_PATH,

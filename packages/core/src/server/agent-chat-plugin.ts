@@ -5038,6 +5038,12 @@ export function createAgentChatPlugin(
           .join("\n\n"),
         priorityToolNames: options?.realtimeVoice?.priorityToolNames,
         defaultIntelligence: options?.realtimeVoice?.defaultIntelligence,
+        // Voice is this app's own chat, so it gets what chat gets per request.
+        resolveRequestActions: ({ event, userEmail, orgId }) =>
+          getRequestScopedActions(
+            { surface: "chat", event, ownerEmail: userEmail, orgId },
+            prodActions,
+          ),
         // The app guidance goes last: a long system prompt is what the length
         // cap cuts, never the current screen.
         getInstructions: async () => {
@@ -5061,7 +5067,7 @@ export function createAgentChatPlugin(
         },
         executeTool: async (request) =>
           executeAgentToolCall({
-            actions: prodActions,
+            actions: request.actions,
             name: request.name,
             input: request.args,
             callId: request.callId,
