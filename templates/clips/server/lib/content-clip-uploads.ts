@@ -412,7 +412,10 @@ async function repeatedStart(
       ? binding
       : uploadStarting();
   }
-  if (standing.phase === "finishing" || standing.phase === "finished") {
+  // A claimed final chunk can still fail and leave the upload open, so only a
+  // finished one may answer that the file is in.
+  if (standing.phase === "finishing") return uploadStarting();
+  if (standing.phase === "finished") {
     return refused(409, CONTENT_CLIP_UPLOAD_REFUSED.alreadyFinished, {
       recordingId: binding.recordingId,
       status: standing.status === "ready" ? "ready" : "processing",
