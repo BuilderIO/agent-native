@@ -5,10 +5,7 @@ import { and, desc, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  canReceiveRecordingActivity,
-  isRecordingTrashedForViewer,
-} from "../server/lib/recording-page-access.js";
+import { canReceiveRecordingActivity } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   sameOwnerEmail,
@@ -39,18 +36,14 @@ export default defineAction({
       })
       .from(schema.recordings)
       .where(accessFilter(schema.recordings, schema.recordingShares));
-    const accessibleRecordings = visibleRecordings.filter(
-      (recording) =>
-        !isRecordingTrashedForViewer({
-          trashedAt: recording.trashedAt,
-          viewerIsOwner: sameOwnerEmail(recording.ownerEmail, me),
-        }) &&
-        canReceiveRecordingActivity({
-          ownerEmail: recording.ownerEmail,
-          recipientEmail: me,
-          hasPassword: Boolean(recording.password),
-          expiresAt: recording.expiresAt,
-        }),
+    const accessibleRecordings = visibleRecordings.filter((recording) =>
+      canReceiveRecordingActivity({
+        ownerEmail: recording.ownerEmail,
+        recipientEmail: me,
+        hasPassword: Boolean(recording.password),
+        expiresAt: recording.expiresAt,
+        trashedAt: recording.trashedAt,
+      }),
     );
     if (accessibleRecordings.length === 0) {
       return { items: [], count: 0 };
