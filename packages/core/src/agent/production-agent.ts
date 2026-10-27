@@ -795,7 +795,7 @@ async function getOwnerApiKeyDetailed(
         ) {
           return {
             apiKey: fromSecrets.value,
-            credentialProvenance: ref,
+            credentialProvenance: { ...ref, source: "app_secrets" },
           };
         }
       }
@@ -820,7 +820,11 @@ async function getOwnerApiKeyDetailed(
     ) {
       return {
         apiKey: key,
-        credentialProvenance: { scope: "user", scopeId: ownerEmail },
+        credentialProvenance: {
+          scope: "user",
+          scopeId: ownerEmail,
+          source: "settings",
+        },
       };
     }
     if (provider === "anthropic") {
@@ -836,7 +840,11 @@ async function getOwnerApiKeyDetailed(
       ) {
         return {
           apiKey: legacyKey,
-          credentialProvenance: { scope: "user", scopeId: ownerEmail },
+          credentialProvenance: {
+            scope: "user",
+            scopeId: ownerEmail,
+            source: "settings",
+          },
         };
       }
       reportLookupFailure();
@@ -1046,7 +1054,7 @@ export async function getOwnerApiKeyForEngine(
       return {
         apiKey: envKey,
         apiKeyEnvVar: envVar,
-        credentialProvenance: { scope: "deployment" },
+        credentialProvenance: { scope: "deployment", source: "env" },
       };
     }
     return NO_OWNER_API_KEY;
@@ -1153,7 +1161,7 @@ export async function resolveOwnerEngineApiKey(input: {
     ? {
         apiKey: fallback,
         apiKeyEnvVar: "ANTHROPIC_API_KEY",
-        credentialProvenance: { scope: "deployment" },
+        credentialProvenance: { scope: "deployment", source: "env" },
       }
     : NO_OWNER_API_KEY;
 }
@@ -1351,6 +1359,8 @@ export interface ActionEntry {
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: any) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   dedupe?: boolean;
   toolCallable?: boolean;
   agentDiscoveryAvailable?: (
@@ -11040,8 +11050,13 @@ export async function runAgentLoop(opts: {
           if (!actionInvoked) {
             // The dispatch marker can persist while cancellation wins; it does
             // not prove the action handler started.
+            // A retry-safe adoption can carry older dispatch history here.
             await executionStepDispatchWrite?.catch(() => {});
-            await resetAgentExecutionStepBeforeInvocation(executionStepIntent);
+            await resetAgentExecutionStepBeforeInvocation(executionStepIntent, {
+              preserveDispatchHistory:
+                executionStepAdmission?.status === "execute" &&
+                executionStepAdmission.wasDispatched,
+            });
           } else if (toolResultLost || callEffect === "unknown") {
             await markAgentExecutionStepUnknown(executionStepIntent);
           } else {

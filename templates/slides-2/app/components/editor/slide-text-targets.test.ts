@@ -19,7 +19,7 @@ import {
 } from "./slide-text-targets";
 
 describe("slide text targets", () => {
-  it("grabs the nearest painted box around text, like a Google Slides shape", () => {
+  it("grabs the nearest painted box around text", () => {
     const root = document.createElement("div");
     root.innerHTML = `
       <div class="fmd-slide">

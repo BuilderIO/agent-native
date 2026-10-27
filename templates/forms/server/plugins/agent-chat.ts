@@ -57,6 +57,7 @@ export default createAgentChatPlugin({
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     instructions:
       "Build a complete new form with create-form. For edits, publishing, existing forms, response analysis, or exports, use ask_app because these operations have no advertised direct tool. Include the form ID when known and describe the requested outcome. If ask_app returns a taskId, follow its ask_app_status polling instruction until the task completes. Copy a returned publicUrl verbatim instead of constructing a public link. Never invent SQL or response data.",
   },

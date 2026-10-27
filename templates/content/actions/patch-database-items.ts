@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import type { ContentDatabaseRowPatchBatchResult } from "../shared/api.js";
+import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
   databasePropertyEntriesSchema,
   databasePropertyValuesSchema,
@@ -12,6 +13,7 @@ import {
   databaseMutationEnvelopeSchema,
   patchDatabaseRows,
 } from "./_database-row-mutation.js";
+import { expectedPropertyGenerationsSchema } from "./_property-generations.js";
 
 const rowPatchSchema = z.object({
   itemId: z
@@ -30,6 +32,7 @@ const rowPatchSchema = z.object({
     .string()
     .min(1)
     .describe("The item's rowRevision from the same get-content-database read"),
+  expectedPropertyGenerations: expectedPropertyGenerationsSchema,
   title: z.string().trim().min(1).max(500).optional(),
   propertyValues: databasePropertyValuesSchema,
   propertyEntries: databasePropertyEntriesSchema.describe(
@@ -80,6 +83,6 @@ export default defineAction({
   },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
-    return patchDatabaseRows(args);
+    return withContentWebhookDelivery(context, () => patchDatabaseRows(args));
   },
 });

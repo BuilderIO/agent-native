@@ -2,6 +2,13 @@ import { performance } from "node:perf_hooks";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  RunChunkControl,
+  RunStatus,
+  StartRunOptions,
+  StartedRun,
+} from "../run-manager.js";
+import type { AgentChatEvent } from "../types.js";
 import type { StoredAgentHarnessSession } from "./store.js";
 import type {
   AgentHarnessAdapter,
@@ -10,6 +17,17 @@ import type {
 } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
+  startRun: vi.fn(),
+  tryClaimRunSlot: vi.fn(),
+  ensureChatThreadTables: vi.fn(async () => {}),
+  hasPendingQueuedSubmissionReceipt: vi.fn(async () => false),
+  ensureAgentToolApprovalTable: vi.fn(async () => {}),
+  hasPendingCurrentTurnApproval: vi.fn(async () => false),
+  resolveRunSoftTimeoutMs: vi.fn(
+    (overrideMs?: number, options?: { useHostedDefault?: boolean }) =>
+      overrideMs ?? (options?.useHostedDefault ? 40_000 : 0),
+  ),
+  startRunFinalStatuses: [] as string[],
   getByRunId: vi.fn(),
   getById: vi.fn(),
   update: vi.fn(),
@@ -38,6 +56,22 @@ const mocks = vi.hoisted(() => ({
   startExpiryCleanup: vi.fn(),
   finishExpiryCleanup: vi.fn(),
   resolveAdapter: vi.fn(),
+}));
+
+vi.mock("../run-manager.js", () => ({
+  startRun: mocks.startRun,
+  tryClaimRunSlot: mocks.tryClaimRunSlot,
+  resolveRunSoftTimeoutMs: mocks.resolveRunSoftTimeoutMs,
+}));
+
+vi.mock("../../chat-threads/store.js", () => ({
+  ensureChatThreadTables: mocks.ensureChatThreadTables,
+  hasPendingQueuedSubmissionReceipt: mocks.hasPendingQueuedSubmissionReceipt,
+}));
+
+vi.mock("../tool-approval-store.js", () => ({
+  ensureAgentToolApprovalTable: mocks.ensureAgentToolApprovalTable,
+  hasPendingCurrentTurnApproval: mocks.hasPendingCurrentTurnApproval,
 }));
 
 vi.mock("./store.js", () => ({
@@ -104,6 +138,58 @@ describe("agent harness lifecycle", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.startRunFinalStatuses.length = 0;
+    mocks.ensureChatThreadTables.mockResolvedValue(undefined);
+    mocks.hasPendingQueuedSubmissionReceipt.mockResolvedValue(false);
+    mocks.ensureAgentToolApprovalTable.mockResolvedValue(undefined);
+    mocks.hasPendingCurrentTurnApproval.mockResolvedValue(false);
+    mocks.startRun.mockImplementation(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: AgentChatEvent) => Promise<void>,
+          signal: AbortSignal,
+          control: RunChunkControl,
+        ) => Promise<void>,
+        _onComplete: unknown,
+        options: StartRunOptions = {},
+      ) => {
+        const abort = new AbortController();
+        const started = {
+          runId,
+          threadId,
+          turnId: options.turnId ?? runId,
+          ...(options.parentId !== undefined
+            ? { parentId: options.parentId }
+            : {}),
+          events: [],
+          status: "running" as RunStatus,
+          subscribers: new Set(),
+          abort,
+          startedAt: Date.now(),
+          livenessReady: Promise.resolve(true),
+          finalized: Promise.resolve(),
+        } satisfies StartedRun;
+        const control: RunChunkControl = {
+          turnSignal: abort.signal,
+          chunkSignal: abort.signal,
+          chunkBoundaryReason: () => null,
+          beginChunk: () => abort.signal,
+        };
+        started.finalized = Promise.resolve().then(async () => {
+          try {
+            await runFn(async () => {}, abort.signal, control);
+            started.status =
+              (mocks.startRunFinalStatuses.shift() as RunStatus | undefined) ??
+              (abort.signal.aborted ? "aborted" : "completed");
+          } catch {
+            started.status = "errored";
+          }
+        });
+        return started;
+      },
+    );
     stored = storedSession(`session-${Math.random()}`, `run-${Math.random()}`);
     mocks.getByRunId.mockImplementation(async () => stored);
     mocks.getById.mockImplementation(async () => stored);
@@ -164,7 +250,7 @@ describe("agent harness lifecycle", () => {
       return stored;
     });
     mocks.failApprovalResolution.mockImplementation(
-      async ({ sessionId, approvalId }) => {
+      async ({ sessionId, approvalId, recordResolvedId }) => {
         if (
           stored.id !== sessionId ||
           stored.approvalResolutionId !== approvalId
@@ -176,12 +262,15 @@ describe("agent harness lifecycle", () => {
           pendingApproval: null,
           approvalResolutionId: null,
           approvalResolutionClaimExpiresAt: null,
-          resolvedApprovalIds: [
-            ...(stored.resolvedApprovalIds ?? []).filter(
-              (id) => id !== approvalId,
-            ),
-            approvalId,
-          ],
+          resolvedApprovalIds:
+            recordResolvedId === false
+              ? (stored.resolvedApprovalIds ?? [])
+              : [
+                  ...(stored.resolvedApprovalIds ?? []).filter(
+                    (id) => id !== approvalId,
+                  ),
+                  approvalId,
+                ],
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
@@ -383,6 +472,27 @@ describe("agent harness lifecycle", () => {
       },
     );
     mocks.persistFollowUpEvent.mockResolvedValue(undefined);
+    mocks.tryClaimRunSlot.mockImplementation(
+      async (_threadId, _runId, _maxStaleMs, options) => {
+        const tx = {} as never;
+        if (await options?.hasPendingApproval?.(tx)) {
+          return {
+            claimed: false,
+            activeRunId: null,
+            approvalPending: true,
+          };
+        }
+        if (await options?.hasPendingQueuedSubmission?.(tx)) {
+          return {
+            claimed: false,
+            activeRunId: null,
+            queuedSubmissionPending: true,
+          };
+        }
+        await options?.afterInsert?.(tx);
+        return { claimed: true, activeRunId: null };
+      },
+    );
     mocks.startFollowUpDispatch.mockImplementation(
       async (_id, expectedGeneration, claimId, start) => {
         if (
@@ -398,7 +508,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        const started = start();
+        const started = await start(async () => {});
         return { session: stored, started };
       },
     );
@@ -445,7 +555,8 @@ describe("agent harness lifecycle", () => {
         if (
           stored.status !== expectedStatus ||
           stored.generation !== expectedGeneration ||
-          stored.followUpClaimId != null
+          stored.followUpClaimId != null ||
+          stored.approvalResolutionId != null
         ) {
           return null;
         }
@@ -545,6 +656,123 @@ describe("agent harness lifecycle", () => {
     expect(stored.resolvedApprovalIds).toContain("approval-1");
   });
 
+  it("rehydrates a persisted session before dispatching a pending approval", async () => {
+    const approvalId = "approval-after-restart";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      session: { pendingApproval: null },
+    });
+    expect(adapter.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: stored.id,
+        threadId: stored.threadId,
+        runId: stored.runId,
+        resumeState: { token: "saved-before-restart" },
+      }),
+    );
+    expect(
+      mocks.claimApprovalResolution.mock.invocationCallOrder[0],
+    ).toBeLessThan(adapter.createSession.mock.invocationCallOrder[0]!);
+    expect(session.approve).toHaveBeenCalledWith({
+      id: approvalId,
+      approved: true,
+    });
+    expect(stored.resolvedApprovalIds).toContain(approvalId);
+  });
+
+  it("releases an approval claim when a restarted session cannot be resumed", async () => {
+    const approvalId = "approval-resume-failed";
+    const adapter = fakeAdapter(fakeSession());
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    adapter.createSession.mockRejectedValueOnce(
+      new Error("provider session is unavailable"),
+    );
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: {
+        pendingApproval: { id: approvalId },
+        approvalResolutionId: null,
+      },
+    });
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("fails a rehydrated approval when the provider callback was not restored", async () => {
+    const approvalId = "approval-callback-not-restored";
+    const session = fakeSession();
+    session.canResolveApproval = vi.fn(() => false);
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errorCode: "unavailable",
+      session: {
+        pendingApproval: null,
+        approvalResolutionId: null,
+        resolvedApprovalIds: [],
+      },
+    });
+    expect(session.canResolveApproval).toHaveBeenCalledWith({
+      id: approvalId,
+      approved: true,
+    });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+    expect(mocks.releaseApprovalBeforeDispatch).not.toHaveBeenCalled();
+    expect(mocks.failApprovalResolution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: stored.id,
+        approvalId,
+        recordResolvedId: false,
+        errorEvent: expect.objectContaining({
+          type: "error",
+          errorCode: "harness_approval_not_resumable",
+        }),
+      }),
+    );
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).resolves.toMatchObject({ ok: false, errorCode: "approval_mismatch" });
+  });
+
   it("keeps an approval retryable when dispatch admission does not start the provider", async () => {
     const approvalId = "approval-dispatch-not-started";
     const session = fakeSession();
@@ -577,6 +805,79 @@ describe("agent harness lifecycle", () => {
     expect(session.approve).toHaveBeenCalledOnce();
     expect(stored.pendingApproval).toBeNull();
     expect(stored.resolvedApprovalIds).toContain(approvalId);
+  });
+
+  it("releases the approval claim after a synchronous local rejection", async () => {
+    const approvalId = "approval-sync-local-rejection";
+    const session = fakeSession();
+    session.canResolveApproval = vi.fn(() => true);
+    session.approve = vi.fn(() => {
+      throw new Error("approval is no longer pending in this process");
+    });
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("approval is no longer pending in this process");
+
+    expect(session.canResolveApproval).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalled();
+    expect(mocks.failApprovalResolution).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: approvalId },
+      approvalResolutionId: null,
+    });
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("stops a rehydrated provider session when approval dispatch is refused", async () => {
+    const approvalId = "approval-rehydrated-dispatch-refused";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+    mocks.startApprovalDispatch.mockResolvedValueOnce(null);
+
+    const result = await resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+  });
+
+  it("stops a rehydrated provider session after a pre-dispatch exception", async () => {
+    const approvalId = "approval-rehydrated-dispatch-exception";
+    const session = fakeSession();
+    const adapter = fakeAdapter(session);
+    const dispatchError = new Error("approval dispatch admission failed");
+    stored.pendingApproval = approvalEvent(approvalId);
+    stored.resumeState = { token: "saved-before-restart" };
+    mocks.resolveAdapter.mockReturnValue(adapter);
+    mocks.startApprovalDispatch.mockRejectedValueOnce(dispatchError);
+
+    await expect(
+      resolveAgentHarnessApproval({
+        runId: stored.runId!,
+        approval: { id: approvalId, approved: true },
+        scope: ownerScope(),
+      }),
+    ).rejects.toBe(dispatchError);
+
+    expect(session.approve).not.toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
   });
 
   it("renews an approval claim while its provider call is still running", async () => {
@@ -966,22 +1267,267 @@ describe("agent harness lifecycle", () => {
 
   it("runs a follow-up through a live session and persists detached state", async () => {
     const session = fakeSession([{ type: "text-delta", text: "done" }]);
+    stored.runPolicy = {
+      softTimeoutMs: 1_250,
+      noProgressTimeoutMs: 500,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+      model: "model-v1",
+      attemptCount: 2,
+    };
     register(stored, session);
 
+    const onRunComplete = vi.fn();
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
       prompt: " next task ",
       scope: ownerScope(),
+      onRunComplete,
     });
 
     expect(result.ok).toBe(true);
     expect(session.streamTurn).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: "next task",
-        metadata: undefined,
       }),
     );
+    expect(mocks.startRun).toHaveBeenCalledOnce();
+    const followUpId = mocks.claimFollowUp.mock.calls[0]?.[3].followUpId;
+    expect(mocks.startRun).toHaveBeenCalledWith(
+      followUpId,
+      stored.threadId,
+      expect.any(Function),
+      onRunComplete,
+      expect.objectContaining({
+        turnId: followUpId,
+        parentId: stored.runId,
+        executionLease: true,
+        softTimeoutMs: 1_250,
+        noProgressTimeoutMs: 500,
+        recoverChunkBoundaries: true,
+        engineName: "fake-engine",
+        model: "model-v1",
+        attemptCount: 2,
+        runRowAlreadyInserted: true,
+      }),
+    );
+    expect(mocks.tryClaimRunSlot).toHaveBeenCalledWith(
+      stored.threadId,
+      followUpId,
+      undefined,
+      expect.objectContaining({
+        turnId: followUpId,
+        hasPendingQueuedSubmission: expect.any(Function),
+        hasPendingApproval: expect.any(Function),
+        afterInsert: expect.any(Function),
+      }),
+    );
+    expect(mocks.startRun.mock.calls[0]?.[3]).toBe(onRunComplete);
+    expect(mocks.claimFollowUp).toHaveBeenCalledWith(
+      stored.id,
+      0,
+      expect.any(String),
+      expect.objectContaining({ deadlineDurationMs: 24 * 60 * 60 * 1_000 }),
+    );
     expect(stored.resumeState).toEqual({ token: "next" });
+  });
+
+  it("does not dispatch a follow-up ahead of a queued submission", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.hasPendingQueuedSubmissionReceipt.mockResolvedValueOnce(true);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.ensureChatThreadTables).toHaveBeenCalledOnce();
+    expect(mocks.hasPendingQueuedSubmissionReceipt).toHaveBeenCalledWith(
+      expect.anything(),
+      stored.threadId,
+    );
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch a follow-up ahead of a pending tool approval", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.hasPendingCurrentTurnApproval.mockResolvedValueOnce(true);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.ensureAgentToolApprovalTable).toHaveBeenCalledOnce();
+    expect(mocks.hasPendingCurrentTurnApproval).toHaveBeenCalledWith(
+      stored.threadId,
+      expect.anything(),
+    );
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it("continues a truncated follow-up under the same logical turn", async () => {
+    let queuedSubmissionPending = false;
+    const session = fakeSession([{ type: "text-delta", text: "first slice" }]);
+    session.streamTurn.mockImplementation(async function* () {
+      yield { type: "text-delta", text: "first slice" } as const;
+      queuedSubmissionPending = true;
+    });
+    const continueTurn = vi.fn(async function* () {
+      yield { type: "text-delta", text: "second slice" } as const;
+    });
+    const checkpoint = vi.fn(async () => ({ token: "checkpoint" }));
+    session.continueTurn = continueTurn;
+    session.checkpoint = checkpoint;
+    mocks.hasPendingQueuedSubmissionReceipt.mockImplementation(
+      async () => queuedSubmissionPending,
+    );
+    stored.runPolicy = {
+      softTimeoutMs: 10_000,
+      noProgressTimeoutMs: 5_000,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+    };
+    mocks.startRunFinalStatuses.push("truncated");
+    register(stored, session);
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.startRun).toHaveBeenCalledTimes(2);
+    expect(session.streamTurn).toHaveBeenCalledOnce();
+    expect(continueTurn).toHaveBeenCalledOnce();
+    expect(mocks.tryClaimRunSlot).toHaveBeenCalledTimes(2);
+    expect(mocks.tryClaimRunSlot.mock.calls[0]?.[3]).toHaveProperty(
+      "hasPendingQueuedSubmission",
+    );
+    expect(mocks.tryClaimRunSlot.mock.calls[1]?.[3]).not.toHaveProperty(
+      "hasPendingQueuedSubmission",
+    );
+    expect(mocks.hasPendingQueuedSubmissionReceipt).toHaveBeenCalledOnce();
+    expect(checkpoint).toHaveBeenCalledOnce();
+    expect(stored.resumeState).toEqual({ token: "next" });
+    expect(mocks.startRun.mock.calls[1]?.[4]).toMatchObject({
+      turnId: mocks.startRun.mock.calls[0]?.[4].turnId,
+      parentId: stored.runId,
+      executionLease: true,
+      softTimeoutDeadlineAt:
+        mocks.startRun.mock.calls[0]?.[4].softTimeoutDeadlineAt,
+    });
+  });
+
+  it("marks a synchronous provider dispatch failure as outcome unknown", async () => {
+    const session = fakeSession();
+    session.streamTurn = vi.fn(() => {
+      throw new Error("provider dispatch failed synchronously");
+    });
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider dispatch failed synchronously");
+
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "unknown" }),
+    );
+    expect(stored).toMatchObject({
+      status: "errored",
+      followUpOutcome: "unknown",
+    });
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not complete a truncated follow-up without a resumable checkpoint", async () => {
+    const session = fakeSession([
+      { type: "text-delta", text: "partial response" },
+    ]);
+    mocks.startRunFinalStatuses.push("truncated");
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow(/truncated without a resumable checkpoint/);
+
+    expect(mocks.finalizeFollowUp).not.toHaveBeenCalled();
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "unknown" }),
+    );
+    expect(stored).toMatchObject({
+      status: "errored",
+      followUpOutcome: "unknown",
+      followUpClaimId: null,
+    });
+    expect(mocks.persistFollowUpEvent).toHaveBeenCalled();
+    expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not complete a truncated follow-up after its soft deadline", async () => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const runStart = mocks.startRun.getMockImplementation()!;
+    mocks.startRun.mockImplementationOnce((...args) => {
+      const started = runStart(...args);
+      started.finalized = started.finalized.then(() => {
+        now += 100;
+      });
+      return started;
+    });
+    const session = fakeSession([
+      { type: "text-delta", text: "partial response" },
+    ]);
+    session.checkpoint = vi.fn(async () => ({ token: "checkpoint" }));
+    session.continueTurn = vi.fn(async function* () {
+      yield { type: "text-delta", text: "continued response" } as const;
+    });
+    stored.runPolicy = {
+      softTimeoutMs: 50,
+      noProgressTimeoutMs: 5_000,
+      backgroundFunction: false,
+      recoverChunkBoundaries: true,
+      engineName: "fake-engine",
+    };
+    mocks.startRunFinalStatuses.push("truncated");
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow(/soft timeout before the truncated response completed/);
+
+    expect(session.checkpoint).not.toHaveBeenCalled();
+    expect(mocks.finalizeFollowUp).not.toHaveBeenCalled();
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "unknown" }),
+    );
+    expect(stored).toMatchObject({
+      status: "errored",
+      followUpOutcome: "unknown",
+    });
   });
 
   it("does not start provider work after its follow-up claim is lost", async () => {
@@ -1006,6 +1552,51 @@ describe("agent harness lifecycle", () => {
     expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
     expect(session.streamTurn).not.toHaveBeenCalled();
     expect(session.stop).toHaveBeenCalledOnce();
+  });
+
+  it("does not dispatch when another run holds the thread slot", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.tryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "other-run",
+    });
+
+    const result = await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
+    expect(mocks.startRun).not.toHaveBeenCalled();
+    expect(session.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it("rechecks the persisted follow-up claim immediately before provider dispatch", async () => {
+    const session = fakeSession([{ type: "done" }]);
+    register(stored, session);
+    mocks.tryClaimRunSlot.mockImplementationOnce(
+      async (_threadId, _runId, _maxStaleMs, options) => {
+        await options?.afterInsert?.({} as never);
+        stored = {
+          ...stored,
+          status: "stopped",
+          followUpClaimId: null,
+          generation: stored.generation + 1,
+        };
+        return { claimed: true, activeRunId: null };
+      },
+    );
+
+    await sendAgentHarnessFollowUp({
+      runId: stored.runId!,
+      prompt: "continue",
+      scope: ownerScope(),
+    });
+
+    expect(session.streamTurn).not.toHaveBeenCalled();
+    expect(mocks.persistFollowUpEvent).not.toHaveBeenCalled();
   });
 
   it("retries releasing its claim after a transient resume failure", async () => {
@@ -1102,6 +1693,41 @@ describe("agent harness lifecycle", () => {
     expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
 
     finishApproval();
+    await expect(resolution).resolves.toMatchObject({ ok: true });
+  });
+
+  it("guards an existing live session while approval capability checks are pending", async () => {
+    const session = fakeSession();
+    const approvalId = "approval-capability-check-expiry-race";
+    let finishCapabilityCheck!: (canResolve: boolean) => void;
+    let capabilityCheckStarted!: () => void;
+    const capabilityCheck = new Promise<boolean>((resolve) => {
+      finishCapabilityCheck = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      capabilityCheckStarted = resolve;
+    });
+    session.canResolveApproval = vi.fn(async () => {
+      capabilityCheckStarted();
+      return capabilityCheck;
+    });
+    stored.pendingApproval = approvalEvent(approvalId);
+    register(stored, session);
+
+    const resolution = resolveAgentHarnessApproval({
+      runId: stored.runId!,
+      approval: { id: approvalId, approved: true },
+      scope: ownerScope(),
+    });
+    await started;
+
+    await expect(
+      sweepExpiredAgentHarnessSessions(Date.now() + 25 * 60 * 60 * 1_000),
+    ).resolves.toBe(0);
+    expect(mocks.markStoppedIfUnclaimed).not.toHaveBeenCalled();
+    expect(session.stop).not.toHaveBeenCalled();
+
+    finishCapabilityCheck(true);
     await expect(resolution).resolves.toMatchObject({ ok: true });
   });
 
@@ -1404,7 +2030,7 @@ describe("agent harness lifecycle", () => {
           generation: stored.generation + 1,
           updatedAt: Date.now(),
         };
-        return { session: stored, started: start() };
+        return { session: stored, started: await start(async () => {}) };
       },
     );
 
@@ -1472,6 +2098,7 @@ describe("agent harness lifecycle", () => {
       approvalEvent("approval-chained"),
       { type: "done" },
     ]);
+    session.checkpoint = vi.fn(async () => ({ token: "approval-checkpoint" }));
     register(stored, session);
     mocks.updateIfFollowUpClaim.mockImplementationOnce(
       async (_id, expectedClaimId, patch) => {
@@ -1489,10 +2116,21 @@ describe("agent harness lifecycle", () => {
       },
     );
 
+    let approvalStateAtCallback:
+      | Pick<StoredAgentHarnessSession, "pendingApproval" | "resumeState">
+      | undefined;
     const result = await sendAgentHarnessFollowUp({
       runId: stored.runId!,
       prompt: "continue",
       scope: ownerScope(),
+      onHarnessEvent: (event) => {
+        if (event.type === "approval-request") {
+          approvalStateAtCallback = {
+            pendingApproval: stored.pendingApproval,
+            resumeState: stored.resumeState,
+          };
+        }
+      },
     });
 
     expect(result).toMatchObject({
@@ -1501,6 +2139,11 @@ describe("agent harness lifecycle", () => {
         status: "idle",
         pendingApproval: { id: "approval-chained" },
       },
+    });
+    expect(session.checkpoint).toHaveBeenCalled();
+    expect(approvalStateAtCallback).toEqual({
+      pendingApproval: approvalEvent("approval-chained"),
+      resumeState: { token: "approval-checkpoint" },
     });
     expect(session.detach).not.toHaveBeenCalled();
   });
@@ -2476,9 +3119,8 @@ describe("agent harness lifecycle", () => {
     });
   });
 
-  it("reports approval unavailable when the live callback was lost", async () => {
+  it("keeps approval retryable when its live session and resume state are unavailable", async () => {
     stored.pendingApproval = approvalEvent("approval-lost");
-    stored.resumeState = { token: "saved" };
 
     const result = await resolveAgentHarnessApproval({
       runId: stored.runId!,
@@ -2488,6 +3130,12 @@ describe("agent harness lifecycle", () => {
 
     expect(result).toMatchObject({ ok: false, errorCode: "unavailable" });
     expect(mocks.resolveAdapter).not.toHaveBeenCalled();
+    expect(mocks.releaseApprovalBeforeDispatch).toHaveBeenCalledOnce();
+    expect(mocks.startApprovalDispatch).not.toHaveBeenCalled();
+    expect(stored).toMatchObject({
+      pendingApproval: { id: "approval-lost" },
+      approvalResolutionId: null,
+    });
   });
 
   it("fails closed on owner mismatch", async () => {
@@ -2609,6 +3257,7 @@ function fakeAdapter(session: AgentHarnessSession): AgentHarnessAdapter {
 function fakeSession(events: AgentHarnessEvent[] = []): AgentHarnessSession & {
   streamTurn: ReturnType<typeof vi.fn>;
   approve: ReturnType<typeof vi.fn>;
+  canResolveApproval?: ReturnType<typeof vi.fn>;
   detach: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
 } {

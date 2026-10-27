@@ -1515,7 +1515,7 @@ describe("present-design-variants", () => {
       mocks.assertAccess.mockResolvedValue(undefined);
     });
 
-    it("records one started and one completed event for a saved set", async () => {
+    it("records generation start without a tool-level completion event", async () => {
       const result = await action.run({
         designId: "design_123",
         prompt: "Pick a direction",
@@ -1523,10 +1523,7 @@ describe("present-design-variants", () => {
         variants,
       });
 
-      expect(generationEvents()).toEqual([
-        "generation_started",
-        "generation_completed",
-      ]);
+      expect(generationEvents()).toEqual(["generation_started"]);
       const [started] = events("generation_started");
       expect(started).toMatchObject({
         output_id: "design_123",
@@ -1536,12 +1533,9 @@ describe("present-design-variants", () => {
         prompt_length_bucket: "1-50",
         variant_count: 2,
       });
-      expect(events("generation_completed")[0]).toMatchObject({
-        generation_attempt_id: started.generation_attempt_id,
-        generation_path: "variants",
-        outcome: "completed",
-        file_count: 2,
-        has_linked_design_system: false,
+      expect(events("generation_completed")).toEqual([]);
+      expect(events("variants_generated")[0]).toMatchObject({
+        variant_set_id: result.variantSetId,
       });
       expect(events("variants_generated")).toEqual([
         expect.objectContaining({
@@ -1552,9 +1546,6 @@ describe("present-design-variants", () => {
           app_name: "design",
         }),
       ]);
-      expect(events("generation_completed")[0]).toMatchObject({
-        variant_set_id: result.variantSetId,
-      });
       expect(JSON.stringify(track.mock.calls)).not.toContain("finance");
     });
 

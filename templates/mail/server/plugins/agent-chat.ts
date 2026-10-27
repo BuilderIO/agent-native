@@ -48,7 +48,7 @@ export default createAgentChatPlugin({
   appId: "mail",
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
+  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG], appApprovalPage: true },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
