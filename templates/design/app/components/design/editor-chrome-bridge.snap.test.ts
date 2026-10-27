@@ -1387,10 +1387,15 @@ function loadSelectionTargetForHit(documentRoot: {
     editorChromeBridgeScript,
     "isGeneratedGroupWrapper",
   );
+  const enteredGroup = extractFunction(
+    editorChromeBridgeScript,
+    "isEnteredGroup",
+  );
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
     "document",
-    `${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${generatedGroupWrapper}\n${selectionTarget}\nreturn selectionTargetForHit;`,
+    // A fresh page: nothing selected and no group entered yet.
+    `var selectedEl = null;\nvar selectionContainerScope = null;\n${rootCheck}\n${svgAncestor}\n${pastedSvgShape}\n${textOverlay}\n${nativeTextPrimitive}\n${layerName}\n${generatedGroupWrapper}\n${enteredGroup}\n${selectionTarget}\nreturn selectionTargetForHit;`,
   );
   return factory(documentRoot);
 }

@@ -15,18 +15,23 @@ import {
 import {
   CONTENT_DATABASE_ITEM_LAYOUT_PRESET_IDS,
   CONTENT_DATABASE_ITEM_LEADING_KINDS,
+  CONTENT_DATABASE_ITEM_LINE2_SOURCES,
   CONTENT_DATABASE_ITEM_TITLE_WEIGHTS,
   MAX_ITEM_LAYOUT_META_PROPERTIES,
   contentDatabaseItemLayoutPresets,
   contentDatabaseItemLayoutReferenceErrors,
   dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLeadingCandidates,
+  itemLayoutLine2Candidates,
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
   savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
-import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
+import {
+  contentDatabaseChangedDateFilterValueError,
+  contentDatabaseFilterOperatorsForType,
+} from "../shared/database-query.js";
 import {
   normalizePropertyVisibility,
   parsePropertyOptions,
@@ -118,6 +123,7 @@ export const contentDatabaseItemLayoutSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable(),
         lines: itemLayoutLinesSchema,
       })
@@ -139,6 +145,7 @@ const itemLayoutPatchSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS).optional(),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable().optional(),
         lines: itemLayoutLinesSchema.optional(),
       })
@@ -149,7 +156,7 @@ const itemLayoutPatchSchema = z
   })
   .strict()
   .describe(
-    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
+    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property, or with source page the first lines of each row's page; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
   );
 
 const listPatchFields = {
@@ -243,6 +250,7 @@ function validateTablePatch(
     | z.infer<typeof updateViewPatchSchema>
     | z.infer<typeof boundedTablePatchSchema>,
   definitions: readonly (typeof schema.documentPropertyDefinitions.$inferSelect)[],
+  savedFilters: readonly ContentDatabaseFilter[] = [],
 ) {
   const typeById = new Map(
     definitions.map((definition) => [
@@ -333,6 +341,12 @@ function validateTablePatch(
       );
     }
   }
+  const dateError = contentDatabaseChangedDateFilterValueError(
+    patch.filters ?? [],
+    savedFilters,
+    (key) => typeById.get(key),
+  );
+  if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
 }
 
 type PropertyDefinitionRow =
@@ -467,6 +481,17 @@ function nextListItemLayout(
     const ids = itemLayout[slot];
     if (ids) uniqueReferences(ids, slot);
   }
+  if (itemLayout.line2?.source === "page" && itemLayout.line2.propertyId) {
+    setupError(
+      "INVALID_VIEW_REFERENCE",
+      "line2.propertyId must be null or left out when line2.source is page.",
+      400,
+    );
+  }
+  // Naming a property switches line 2 back from page text.
+  const line2Source =
+    itemLayout.line2?.source ??
+    (itemLayout.line2?.propertyId !== undefined ? "property" : undefined);
   const leading = itemLayout.leading && {
     kind: itemLayout.leading.kind,
     propertyId:
@@ -480,10 +505,14 @@ function nextListItemLayout(
       leading: leading ?? from.leading,
       titleWeight: itemLayout.titleWeight ?? from.titleWeight,
       line2: {
+        source: line2Source ?? from.line2.source,
         propertyId:
           itemLayout.line2?.propertyId !== undefined
             ? itemLayout.line2.propertyId
-            : from.line2.propertyId,
+            : line2Source === "property" && from.line2.source === "page"
+              ? (itemLayoutLine2Candidates(properties)[0]?.definition.id ??
+                null)
+              : from.line2.propertyId,
         lines: itemLayout.line2?.lines ?? from.line2.lines,
       },
       line3: itemLayout.line3 ?? from.line3,
@@ -626,7 +655,12 @@ export async function runUpdateContentDatabaseView(
       let nextViews: unknown[];
 
       if (input.operation === "create") {
-        validateTablePatch(input.view.config ?? {}, context.definitions);
+        // A new view may copy any saved view's filters, as a full save allows.
+        validateTablePatch(
+          input.view.config ?? {},
+          context.definitions,
+          normalized.views.flatMap((view) => view.filters),
+        );
         viewId = nanoid();
         nextViews = [
           ...rawViews,
@@ -677,7 +711,11 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(input.patch, context.definitions);
+          validateTablePatch(
+            input.patch,
+            context.definitions,
+            existing.filters,
+          );
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",
@@ -777,6 +815,12 @@ export async function runReplaceContentDatabaseViews(input: {
         ? rawConfig.views
         : [];
       const desired = parseDatabaseViewConfig(JSON.stringify(input.viewConfig));
+      const dateError = viewConfigDateFilterError(
+        desired,
+        parseDatabaseViewConfig(context.database.viewConfigJson),
+        context.definitions,
+      );
+      if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
       const views = desired.views.map((view) => {
         const saved = currentRawViews.find(
           (candidate) =>
@@ -833,6 +877,37 @@ export async function runReplaceContentDatabaseViews(input: {
       };
     },
   });
+}
+
+/**
+ * The first unreadable date among the filters `next` adds or changes from
+ * `saved`. Each view is compared with its own saved filters, and a new view
+ * with every saved view's, since "Duplicate view" copies another view's
+ * filters. The config's own filters are the active view's, so the views cover
+ * them.
+ */
+export function viewConfigDateFilterError(
+  next: ContentDatabaseViewConfig,
+  saved: ContentDatabaseViewConfig,
+  definitions: readonly { id: string; type: string }[],
+) {
+  const typeById = new Map(
+    definitions.map((definition) => [
+      definition.id,
+      definition.type as DocumentPropertyType,
+    ]),
+  );
+  const savedById = new Map(saved.views.map((view) => [view.id, view.filters]));
+  const everySaved = saved.views.flatMap((view) => view.filters);
+  for (const view of next.views) {
+    const error = contentDatabaseChangedDateFilterValueError(
+      view.filters,
+      savedById.get(view.id) ?? everySaved,
+      (key) => typeById.get(key),
+    );
+    if (error) return error;
+  }
+  return null;
 }
 
 export function filterIsCompatible(

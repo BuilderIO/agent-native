@@ -45,7 +45,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(),
+  assertAccess: vi.fn(async () => ({
+    role: "editor",
+    resource: { expiresAt: null },
+  })),
 }));
 vi.mock("drizzle-orm", () => ({
   eq: (column: string, value: unknown) => ({ column, value }),

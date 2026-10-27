@@ -34,6 +34,12 @@ const SKIP_DIRS = new Set([
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
+  "content:content_database_builder_blob_cleanup":
+    "private payload cleanup outbox processed by Content source actions",
+  "content:document_property_value_tombstones":
+    "property generation bookkeeping written only by a database trigger; holds no content",
+  "content:content_webhook_deliveries":
+    "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",

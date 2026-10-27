@@ -13,14 +13,16 @@ export {
 } from "./templates.js";
 export type { TemplateMeta } from "./templates.js";
 
+export type ScreenKind = "native" | "dom" | "remote";
+
 export interface AppDefinition {
   id: string;
   name: string;
   icon: string;
   description: string;
   devPort: number;
-  color?: string;
-  colorRgb?: string;
+  color?: string | undefined;
+  colorRgb?: string | undefined;
   placeholder?: boolean;
 }
 

@@ -158,10 +158,10 @@ test("a delayed Screen create preserves concurrent geometry edits", async ({
   const widthInput = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
-  await expect(widthInput).toHaveValue("640px");
+  await expect(widthInput).toHaveValue("640");
   await widthInput.fill("720");
   await widthInput.press("Enter");
-  await expect(widthInput).toHaveValue("720px");
+  await expect(widthInput).toHaveValue("720");
   await expect
     .poll(async () => {
       const data = designData(await readDesign(page, designId));
@@ -245,7 +245,7 @@ test("a delayed Screen create preserves concurrent geometry edits", async ({
   const reloadedWidth = page.getByRole("textbox", {
     name: /^W(?: size in pixels)?$/,
   });
-  await expect(reloadedWidth).toHaveValue("720px");
+  await expect(reloadedWidth).toHaveValue("720");
   const afterReload = designData(await readDesign(page, designId));
   expect(afterReload.canvasFrames?.[otherScreenId]?.width).toBe(720);
   expect(afterReload.screenMetadata?.[otherScreenId]?.width).toBe(720);

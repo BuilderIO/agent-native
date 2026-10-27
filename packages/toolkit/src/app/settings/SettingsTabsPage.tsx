@@ -8,7 +8,7 @@ import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import { useCustomKeyOnboardingAttemptLifecycle } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useActionQuery } from "@agent-native/core/client/use-action";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
-import { CHATGPT_SUBSCRIPTION_LAB } from "@agent-native/core/labs/core-labs";
+import { CORE_LABS } from "@agent-native/core/labs/core-labs";
 import type { LabDefinition } from "@agent-native/core/labs/registry";
 import {
   buildSettingsEntryRoute,
@@ -1073,13 +1073,16 @@ export function SettingsTabsPage(props: SettingsTabsPageProps) {
 
 function SettingsTabsPageWithRegisteredLabs(props: SettingsTabsPageProps) {
   const registeredLabs = useActionQuery<LabStates>("get-lab-states" as never);
-  const coreLabRegistered =
-    registeredLabs.data !== undefined &&
-    Object.hasOwn(registeredLabs.data, CHATGPT_SUBSCRIPTION_LAB.key);
+  // Core labs exist only where the server registered them, so list just those.
+  const coreLabs = CORE_LABS.filter(
+    (lab) =>
+      registeredLabs.data !== undefined &&
+      Object.hasOwn(registeredLabs.data, lab.key),
+  );
   const labs = [
-    ...(coreLabRegistered ? [CHATGPT_SUBSCRIPTION_LAB] : []),
+    ...coreLabs,
     ...(props.labs ?? []).filter(
-      (lab) => lab.key !== CHATGPT_SUBSCRIPTION_LAB.key,
+      (lab) => !CORE_LABS.some((coreLab) => coreLab.key === lab.key),
     ),
   ];
   const settingsProps = { ...props, labs };

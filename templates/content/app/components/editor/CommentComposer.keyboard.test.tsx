@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
 import type { MentionEntry } from "./comment-drafts";
-import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
+import {
+  CommentComposer,
+  type CommentAiDraft,
+  type CommentDiscardKind,
+} from "./CommentComposer";
 
 const mentionMembers = vi.hoisted(() => ({
   current: {
@@ -82,10 +86,12 @@ describe("CommentComposer rich recipient", () => {
     initialAi = null,
     initialValue = "Review this",
     mentions = [],
+    confirmEscape = false,
   }: {
     initialAi?: CommentAiDraft | null;
     initialValue?: string;
     mentions?: MentionEntry[];
+    confirmEscape?: CommentDiscardKind | false;
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
@@ -101,6 +107,7 @@ describe("CommentComposer rich recipient", () => {
         onChange={setValue}
         onSubmit={submit}
         onEscape={escape}
+        confirmEscape={confirmEscape}
         mentions={mentions}
         onMentionsChange={vi.fn()}
         onAiSubmit={aiSubmit}
@@ -692,6 +699,60 @@ describe("CommentComposer rich recipient", () => {
       },
       mode: "reply",
     });
+  });
+
+  it("closes the model menu on the first Escape, without asking to discard", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="model-menu-escape"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+          confirmEscape="comment"
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    escape.mockClear();
+    const modelList = () =>
+      document.querySelector("[data-comment-ai-model-list]");
+    const confirmation = () => document.querySelector('[role="alertdialog"]');
+    const pressEscape = () =>
+      act(async () => {
+        editor().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    await act(async () =>
+      container
+        .querySelector<HTMLElement>(
+          '[data-mention-ref-type="content-comment-ai-recipient"]',
+        )
+        ?.click(),
+    );
+    expect(modelList()).not.toBeNull();
+
+    await pressEscape();
+    expect(modelList()).toBeNull();
+    expect(confirmation()).toBeNull();
+    expect(escape).not.toHaveBeenCalled();
+
+    await pressEscape();
+    expect(confirmation()).not.toBeNull();
+    expect(escape).not.toHaveBeenCalled();
   });
 
   it("supports caret selection and controlled recipient removal", async () => {

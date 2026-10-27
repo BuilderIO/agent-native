@@ -26,5 +26,6 @@ export default defineAction({
   }),
   readOnly: false,
   parallelSafe: true,
+  mcpApp: { visibility: ["app"] },
   run: async (args) => createGrantedDispatchMcpEmbedSession(args),
 });

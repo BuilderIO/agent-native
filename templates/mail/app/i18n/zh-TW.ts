@@ -729,6 +729,15 @@ const messages = {
       emailThread: "郵件工作階段",
       unableToLoadThread: "無法載入工作階段",
       openInApp: "在應用中開啟",
+      draft: "郵件草稿 - Mail",
+    },
+    draftCard: {
+      loadFailed: "無法載入此草稿。",
+      notFoundTitle: "找不到草稿",
+      threadUnavailable: "無法載入此對話中較早的郵件。",
+      threadLookupFailed: "找不到此回覆所屬的對話，暫時無法傳送。",
+      earlierMessages: "較早的郵件（{{count}}）",
+      deleted: "草稿已刪除。",
     },
     agentEngine: {
       activeEngine: "目前引擎",

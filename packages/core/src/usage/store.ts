@@ -394,15 +394,6 @@ export async function recordUsage(
   const resolvedRef = refId ?? "";
   const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  if (resolvedRef) {
-    await client.execute({
-      sql: `DELETE FROM token_usage
-        WHERE label = ? AND ref_id = ?
-          AND (org_id IS NULL OR org_id = ?)`,
-      args: [resolvedLabel, resolvedRef, resolvedOrgId],
-    });
-  }
-
   const resolvedCostSource =
     costSource ?? (costCentsX100 == null ? "estimated" : "reported");
   const costX100 =
@@ -417,34 +408,45 @@ export async function recordUsage(
           cacheWriteTokens,
         ));
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  const insertArgs = [
+    id,
+    ownerEmail,
+    inTok,
+    outTok,
+    cacheReadTokens,
+    cacheWriteTokens,
+    costX100,
+    builderCreditsUsed ?? null,
+    engineName ?? null,
+    resolvedCostSource,
+    modelName,
+    resolvedLabel,
+    resolvedApp,
+    resolvedRef,
+    resolvedOrgId,
+    runId ?? null,
+    threadId ?? null,
+    taskId ?? null,
+    integrationScopeId ?? null,
+    sourcePlatform ?? null,
+    sourceId ?? null,
+    Date.now(),
+  ];
+  const replaceRefSql = resolvedRef
+    ? `WITH prior_usage AS (
+        DELETE FROM token_usage
+        WHERE label = ? AND ref_id = ?
+          AND (org_id IS NULL OR org_id = ?)
+        RETURNING id
+      ) `
+    : "";
   await client.execute({
-    sql: `INSERT INTO token_usage
+    sql: `${replaceRefSql}INSERT INTO token_usage
       (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, builder_credits_used, engine_name, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      ownerEmail,
-      inTok,
-      outTok,
-      cacheReadTokens,
-      cacheWriteTokens,
-      costX100,
-      builderCreditsUsed ?? null,
-      engineName ?? null,
-      resolvedCostSource,
-      modelName,
-      resolvedLabel,
-      resolvedApp,
-      resolvedRef,
-      resolvedOrgId,
-      runId ?? null,
-      threadId ?? null,
-      taskId ?? null,
-      integrationScopeId ?? null,
-      sourcePlatform ?? null,
-      sourceId ?? null,
-      Date.now(),
-    ],
+    args: resolvedRef
+      ? [resolvedLabel, resolvedRef, resolvedOrgId, ...insertArgs]
+      : insertArgs,
   });
 
   void import("./alerts-store.js")

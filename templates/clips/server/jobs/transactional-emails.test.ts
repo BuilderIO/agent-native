@@ -84,6 +84,7 @@ function recording(
     status: "ready",
     archivedAt: null,
     trashedAt: null,
+    expiresAt: null as string | null,
   };
 }
 
@@ -640,7 +641,14 @@ describe("transactional email worker", () => {
     });
   });
 
-  it.each(["viewed", "unshared", "trashed"] as const)(
+  it.each([
+    "viewed",
+    "unshared",
+    "trashed",
+    "expired",
+    "malformed",
+    "precision",
+  ] as const)(
     "cancels a stale reminder when the Clip is %s",
     async (reason) => {
       const clock = await setup();
@@ -661,6 +669,14 @@ describe("transactional email worker", () => {
               ...recording("recording-1"),
               trashedAt:
                 reason === "trashed" ? "2026-08-02T00:00:00.000Z" : null,
+              expiresAt:
+                reason === "expired"
+                  ? "2000-01-01T00:00:00Z"
+                  : reason === "malformed"
+                    ? "not-a-date"
+                    : reason === "precision"
+                      ? "2099-01-01T00:00:00.1234567Z"
+                      : null,
             },
           ],
         ]),
@@ -840,55 +856,58 @@ describe("transactional email worker", () => {
     },
   );
 
-  it("sends first-agent-view once per owner, naming the agent that read first", async () => {
-    const clock = await setup();
-    const ownerEmail = "owner@example.com";
-    const first = recording("agent-clip-1", ownerEmail);
-    const second = recording("agent-clip-2", ownerEmail);
-    const send = vi.fn();
-    const repository = createRepository({
-      shares: [],
-      recordings: new Map([
-        [first.id, first],
-        [second.id, second],
-      ]),
-      agentViews: [
-        {
-          id: "agent-view-1",
-          recordingId: first.id,
-          agentLabel: "Claude",
-          firstSeenAt: "2026-08-01T00:00:00.000Z",
-        },
-        {
-          id: "agent-view-2",
-          recordingId: second.id,
-          agentLabel: "ChatGPT",
-          firstSeenAt: "2026-08-01T01:00:00.000Z",
-        },
-      ],
-    });
+  it.each([null, "2000-01-01T00:00:00Z", "not-a-date"])(
+    "sends first-agent-view once to its owner with expiry %s",
+    async (expiresAt) => {
+      const clock = await setup();
+      const ownerEmail = "owner@example.com";
+      const first = { ...recording("agent-clip-1", ownerEmail), expiresAt };
+      const second = recording("agent-clip-2", ownerEmail);
+      const send = vi.fn();
+      const repository = createRepository({
+        shares: [],
+        recordings: new Map([
+          [first.id, first],
+          [second.id, second],
+        ]),
+        agentViews: [
+          {
+            id: "agent-view-1",
+            recordingId: first.id,
+            agentLabel: "Claude",
+            firstSeenAt: "2026-08-01T00:00:00.000Z",
+          },
+          {
+            id: "agent-view-2",
+            recordingId: second.id,
+            agentLabel: "ChatGPT",
+            firstSeenAt: "2026-08-01T01:00:00.000Z",
+          },
+        ],
+      });
 
-    const result = await runTransactionalEmailsOnce({
-      store: clock.store,
-      repository,
-      now: clock.now,
-      emailConfigured: async () => true,
-      send,
-    });
+      const result = await runTransactionalEmailsOnce({
+        store: clock.store,
+        repository,
+        now: clock.now,
+        emailConfigured: async () => true,
+        send,
+      });
 
-    expect(result.enqueued).toBe(1);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({
-      kind: "first-agent-view",
-      to: ownerEmail,
-      recordingId: first.id,
-      title: first.title,
-      agentName: "Claude",
-    });
-    expect(
-      await clock.store.readJob(`first-agent-view:${ownerEmail}`),
-    ).toMatchObject({ state: "sent" });
-  });
+      expect(result.enqueued).toBe(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({
+        kind: "first-agent-view",
+        to: ownerEmail,
+        recordingId: first.id,
+        title: first.title,
+        agentName: "Claude",
+      });
+      expect(
+        await clock.store.readJob(`first-agent-view:${ownerEmail}`),
+      ).toMatchObject({ state: "sent" });
+    },
+  );
 
   it("leaves agentName unset when the reading agent is unidentified", async () => {
     const clock = await setup();

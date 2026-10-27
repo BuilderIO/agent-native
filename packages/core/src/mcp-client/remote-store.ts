@@ -22,6 +22,7 @@
 
 import { createHash } from "node:crypto";
 
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   writeAppSecret,
@@ -47,6 +48,31 @@ export { validateRemoteUrl } from "./remote-url.js";
 const SETTINGS_KEY = "mcp-servers-remote";
 
 export type RemoteMcpScope = "user" | "org";
+
+export class InvalidMcpHeaderConfigurationError extends Error {
+  readonly code = "invalid_mcp_header_configuration";
+
+  constructor(
+    readonly reason: "invalid-json" | "invalid-shape" | "missing-secret",
+  ) {
+    super(
+      "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+    );
+    this.name = "InvalidMcpHeaderConfigurationError";
+  }
+}
+
+export class McpHeaderSecretUnavailableError extends Error {
+  readonly code = "mcp_header_secret_unavailable";
+
+  constructor(cause: unknown) {
+    super(
+      "Could not read the saved MCP header credential. Retry after the settings store is available.",
+      { cause },
+    );
+    this.name = "McpHeaderSecretUnavailableError";
+  }
+}
 
 function toSecretScope(scope: RemoteMcpScope): SecretScope {
   return scope === "user" ? "user" : "workspace";
@@ -624,24 +650,34 @@ export async function materializeHeaders(
 ): Promise<Record<string, string> | undefined> {
   const merged: Record<string, string> = { ...(stored.headers ?? {}) };
   if (stored.headerSecretKey) {
+    let secret: Awaited<ReturnType<typeof readAppSecret>>;
     try {
-      const secret = await readAppSecret({
+      secret = await readAppSecret({
         key: stored.headerSecretKey,
         scope: toSecretScope(scope),
         scopeId,
       });
-      if (secret) {
-        const parsed = JSON.parse(secret.value) as Record<string, string>;
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string") merged[k] = v;
-        }
-      }
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client] Failed to decrypt MCP headers for ${stored.name}: ${err?.message ?? err}`,
-      );
+    } catch (error) {
+      if (error instanceof AppSecretDecryptionError) throw error;
+      throw new McpHeaderSecretUnavailableError(error);
     }
+    if (!secret) {
+      throw new InvalidMcpHeaderConfigurationError("missing-secret");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(secret.value);
+    } catch {
+      throw new InvalidMcpHeaderConfigurationError("invalid-json");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new InvalidMcpHeaderConfigurationError("invalid-shape");
+    }
+    const entries = Object.entries(parsed);
+    if (entries.some(([, value]) => typeof value !== "string")) {
+      throw new InvalidMcpHeaderConfigurationError("invalid-shape");
+    }
+    for (const [key, value] of entries) merged[key] = value;
   }
   return Object.keys(merged).length > 0 ? merged : undefined;
 }

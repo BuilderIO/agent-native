@@ -1327,6 +1327,11 @@ export const migrations = runMigrations(
     },
     {
       version: 93,
+      name: "meeting-capture-stop-revision",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS capture_stop_revision INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 94,
       name: "recording-content-bindings",
       // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
       // no CHECK so later lifecycle states need no migration.

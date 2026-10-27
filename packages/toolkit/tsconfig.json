@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "ESNext",

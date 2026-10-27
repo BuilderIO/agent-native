@@ -63,8 +63,9 @@ function as<T>(run: () => Promise<T>) {
   return runWithRequestContext({ userEmail: OWNER }, run);
 }
 
-const add = (args: Record<string, unknown>) =>
-  as(() => (addComment as any).run(args));
+// As the editor sends them, which can quote text its save doesn't have yet.
+const add = (args: Parameters<typeof addComment.run>[0]) =>
+  as(() => addComment.run(args, { caller: "frontend" }));
 
 /**
  * A Collection with its primary Blocks field, a second Blocks field, and a
@@ -239,12 +240,32 @@ describe("add-comment with fieldId", () => {
     ).rejects.toMatchObject({ errorCode: "comment_field_property_conflict" });
   });
 
+  it("refuses a new thread in a tab that quotes nothing", async () => {
+    const fixture = await seedCollection("no-quote");
+    await expect(
+      add({
+        documentId: fixture.row,
+        content: "Lorem",
+        fieldId: fixture.notesId,
+      }),
+    ).rejects.toMatchObject({ errorCode: "comment_field_quote_required" });
+    await expect(
+      add({
+        documentId: fixture.row,
+        content: "Lorem",
+        fieldId: fixture.notesId,
+        quotedText: "  ",
+      }),
+    ).rejects.toMatchObject({ errorCode: "comment_field_quote_required" });
+  });
+
   it("puts a reply in its thread's tab and refuses a reply to another tab", async () => {
     const fixture = await seedCollection("replies");
     const root = await add({
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     const reply = await add({
       documentId: fixture.row,
@@ -300,11 +321,32 @@ describe("add-comment with fieldId", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
       idempotencyKey: "retry-field-comment",
     };
     const first = await add(args);
     const second = await add(args);
     expect(second).toMatchObject({ id: first.id, replayed: true });
+  });
+
+  it("replays a retry of a tab thread saved with no quote before quotes were required", async () => {
+    const fixture = await seedCollection("retry-legacy");
+    const args = {
+      documentId: fixture.row,
+      content: "Lorem",
+      fieldId: fixture.notesId,
+      idempotencyKey: "retry-legacy-field-comment",
+    };
+    const first = await add({ ...args, quotedText: "dolor" });
+    // As a save from before the rule stored it.
+    await getDb()
+      .update(schema.documentComments)
+      .set({ quotedText: null })
+      .where(eq(schema.documentComments.id, first.id));
+    await expect(add(args)).resolves.toMatchObject({
+      id: first.id,
+      replayed: true,
+    });
   });
 
   it("replays a retried submission after its tab was deleted", async () => {
@@ -313,6 +355,7 @@ describe("add-comment with fieldId", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
       idempotencyKey: "retry-deleted-field-comment",
     };
     const first = await add(args);
@@ -354,6 +397,7 @@ describe("listing comments by tab", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await add({
       documentId: fixture.row,
@@ -430,6 +474,7 @@ describe("listing comments by tab", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await getDb()
       .delete(schema.documentPropertyDefinitions)
@@ -460,6 +505,7 @@ describe("Ask AI on a tab's thread", () => {
       documentId: fixture.row,
       content: "Lorem",
       fieldId: fixture.notesId,
+      quotedText: "dolor",
     });
     await expect(
       as(() =>

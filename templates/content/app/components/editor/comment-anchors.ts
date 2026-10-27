@@ -1,3 +1,4 @@
+import { COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN } from "@shared/comment-quote-anchor";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 export interface CommentTextAnchor {
@@ -6,8 +7,6 @@ export interface CommentTextAnchor {
   suffix: string;
   startOffset: number;
 }
-
-const CONTEXT_LEN = 32;
 
 interface TextSegment {
   textStart: number;
@@ -85,9 +84,9 @@ function offsetToPos(docText: DocText, offset: number): number | null {
 export function resolveAnchorPoint(
   doc: ProseMirrorNode,
   anchor: {
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",
@@ -200,9 +199,9 @@ export function resolveAnchor(
   doc: ProseMirrorNode,
   anchor: {
     quotedText: string | null;
-    prefix?: string;
-    suffix?: string;
-    startOffset?: number;
+    prefix?: string | undefined;
+    suffix?: string | undefined;
+    startOffset?: number | undefined;
   },
   blockSeparator = "",
   hardBreakSeparator: "" | "\n" = "",

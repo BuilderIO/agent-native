@@ -1336,6 +1336,10 @@ export default {
     drilldownHideSql: "SQL छिपाएँ",
     drilldownDownloadCsv: "CSV डाउनलोड करें",
     drilldownShowing: "{{total}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं",
+    drilldownShowingLoaded:
+      "लोड किए गए {{loaded}} रिकॉर्ड में से {{shown}} दिखाए जा रहे हैं; कुल संख्या अज्ञात है।",
+    drilldownCsvTruncatedUnknownTotal:
+      "निर्यात पूरा है या नहीं, यह अज्ञात है; फ़िल्टर करने के बाद इस फ़ाइल में लोड किए गए {{loaded}} रिकॉर्ड में से {{exported}} शामिल हैं।",
     drilldownCsvTruncated:
       "अधूरा निर्यात: क्वेरी में {{total}} रिकॉर्ड मिले, लेकिन केवल पहले {{loaded}} लोड किए गए; फ़िल्टर के बाद इस फ़ाइल में {{exported}} शामिल हैं।",
     drilldownCountMismatch:
@@ -1343,7 +1347,13 @@ export default {
     drilldownAggregateOnly:
       "इस पैनल में केवल समेकित पंक्तियाँ हैं। क्लिक किए गए बिंदु से मेल खाने वाली पंक्तियाँ हाइलाइट की गई हैं।",
     drilldownNoRecords: "कोई मेल खाता रिकॉर्ड नहीं",
+    drilldownNoRecordsIncomplete:
+      "कोई रिकॉर्ड लोड नहीं हुआ। परिणाम अधूरा है, इसलिए कुछ रिकॉर्ड अब भी मेल खा सकते हैं।",
+    drilldownNoLoadedMatches:
+      "कोई लोड किया गया रिकॉर्ड मेल नहीं खाता, लेकिन पूरे परिणाम में ऐसे रिकॉर्ड हो सकते हैं जो लोड नहीं हुए।",
     drilldownLoadFailed: "रिकॉर्ड लोड नहीं हो सके",
+    drilldownOverByteCap:
+      "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
@@ -1412,12 +1422,25 @@ export default {
     columnFormatCurrency: "मुद्रा",
     columnFormatPercent: "प्रतिशत",
     columnFormatDate: "तारीख",
+    columnFormatDuration: "अवधि (सेकंड)",
     columnRename: "कॉलम का नाम बदलें",
     columnHide: "कॉलम छिपाएँ",
     columnShow: '"{{name}}" दिखाएँ',
     columnShowHidden: "छिपे हुए कॉलम दिखाएँ",
     columnName: "कॉलम का नाम",
     columnResize: "कॉलम का आकार बदलें",
+    metricComparisonVs: "{{period}} की तुलना में",
+    metricComparisonPreviousPeriod: "पिछली अवधि",
+    metricComparisonNoChange: "कोई बदलाव नहीं",
+    metricComparisonPoints: "{{value}} अंक",
+    metricComparisonUp: "{{period}} के {{previous}} से {{change}} ऊपर",
+    metricComparisonDown: "{{period}} के {{previous}} से {{change}} नीचे",
+    metricComparisonFlat: "{{period}} के {{previous}} से कोई बदलाव नहीं",
+    metricComparisonBetter: "{{comparison}} (बेहतर)",
+    metricComparisonWorse: "{{comparison}} (खराब)",
+    calloutSeverityCritical: "गंभीर",
+    calloutSeverityWarning: "चेतावनी",
+    calloutSeverityInfo: "जानकारी",
     rowBreakdownBy: "इसके अनुसार विभाजित करें",
     rowBreakdownAll: "सभी",
     rowBreakdownOther: "अन्य",
@@ -1678,6 +1701,10 @@ export default {
     catalogOpenSessions: "{{event}} वाले सत्र दिखाएँ",
     catalogAutomatic: "स्वचालित",
     catalogStoppedFiring: "भेजना बंद हुआ",
+    catalogMadeIt: "बनाया",
+    catalogUsedIt: "इस्तेमाल किया",
+    catalogNoUsedIt:
+      "“बनाया, इस्तेमाल नहीं किया” {{apps}} के नतीजे नहीं जाँच सकता, क्योंकि कोई “इस्तेमाल किया” इवेंट तय नहीं है।",
     catalogPropertyKeys: "प्रॉपर्टी कुंजियाँ",
     catalogMoreKeys: "+{{count}} और",
     catalogTruncated: "सिर्फ़ हाल ही में देखे गए {{count}} इवेंट दिखाए जा रहे हैं।",
@@ -1691,6 +1718,29 @@ export default {
     speedCoverageStarting: "गति अब से होने वाले पेज व्यू के लिए मापी जाती है।",
     speedFilterNeedsLab:
       "इस लिंक में गति फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    unusedOutputs: "बनाया, इस्तेमाल नहीं किया",
+    anyOutcome: "कोई भी सत्र",
+    unusedSlidesDecks: "इस्तेमाल न हुए Slides डेक",
+    unusedSlidesRule:
+      "कम से कम {{days}} दिन पहले बने डेक, जिन्हें {{days}} दिनों के भीतर पहली स्लाइड से आगे {{seconds}} सेकंड या ज़्यादा प्रस्तुत या एक्सपोर्ट नहीं किया गया। डेक खोलना नहीं गिना जाता।",
+    unusedFilterNeedsLab:
+      "इस लिंक में “बनाया, इस्तेमाल नहीं किया” फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
+    outputCoverageSince:
+      "नतीजे {{date}} से ट्रैक हो रहे हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    outputCoverageStarting:
+      "नतीजे अब से ट्रैक होते हैं; इस्तेमाल न हुए नतीजे बनने के {{days}} दिन बाद दिखते हैं।",
+    openDeck: "डेक खोलें",
+    moreOutputs: "+{{count}} और",
+    deckCount: "{{count}} डेक",
+    deckCountSingular: "{{count}} डेक",
+    deckMadeOn: "डेक {{date}} को बना",
+    outputPresentedOn: "{{date}} को प्रस्तुत किया",
+    outputExportedOn: "{{date}} को एक्सपोर्ट किया",
+    outputUsedOn: "{{date}} को इस्तेमाल किया",
+    outputUnused: "{{days}} दिनों में इस्तेमाल नहीं हुआ",
+    outputOpen: "अभी इस्तेमाल नहीं हुआ; {{date}} के बाद इस्तेमाल न हुआ गिना जाएगा",
+    outputUnmeasured: "मापा नहीं गया: कुछ इवेंट सेव नहीं हो सके",
+    outputsUnavailable: "नतीजे लोड नहीं हो सके।",
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
     speedIncomplete: "गति डेटा अधूरा है",

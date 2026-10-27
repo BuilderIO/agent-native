@@ -13,6 +13,16 @@ export interface AgentHarnessCapabilities {
   fileEvents: boolean;
 }
 
+export interface AgentHarnessRunPolicy {
+  softTimeoutMs: number;
+  noProgressTimeoutMs: number;
+  backgroundFunction: boolean;
+  recoverChunkBoundaries: boolean;
+  engineName: string;
+  model?: string;
+  attemptCount?: number;
+}
+
 export interface AgentHarnessAdapter {
   readonly name: string;
   readonly label: string;
@@ -72,6 +82,10 @@ export interface AgentHarnessSession {
     input?: AgentHarnessContinueInput,
   ): AsyncIterable<AgentHarnessEvent>;
   approve?(approval: AgentHarnessApproval): Promise<void>;
+  canResolveApproval?(
+    approval: AgentHarnessApproval,
+  ): boolean | Promise<boolean>;
+  checkpoint?(): Promise<unknown>;
   detach?(): Promise<unknown>;
   stop?(): Promise<unknown>;
   destroy?(): Promise<void>;

@@ -29,6 +29,7 @@ import type {
 import type { ContentSidebarSections } from "@shared/content-personal-navigation";
 import type { ContentRecentResult } from "@shared/content-personal-navigation";
 import { applyContentPersonalNavigationPatch } from "@shared/content-personal-navigation-patch";
+import { buildListRowExcerpt } from "@shared/og-description";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   hashKey,
@@ -57,6 +58,7 @@ import {
   documentQueryKey,
   type DocumentQueryContext,
 } from "../lib/document-query";
+import { trackDocumentReadFailures } from "../lib/document-read-failures";
 import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
@@ -88,6 +90,7 @@ import {
 } from "./use-content-action-mutation";
 import {
   contentDatabaseConstrainedQueryFilter,
+  contentDatabaseExcerptContainingDocumentFilter,
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
@@ -455,6 +458,17 @@ export function patchDocumentInDatabaseCache<
     return {
       ...item,
       document: { ...item.document, ...patch },
+      // A saved body, even an empty one, replaces the excerpt the read sent.
+      ...(patch.content !== undefined &&
+      "excerpt" in item &&
+      item.excerpt !== undefined
+        ? {
+            excerpt: buildListRowExcerpt({
+              content: patch.content,
+              title: patch.title ?? item.document.title,
+            }),
+          }
+        : {}),
     };
   });
   return changed ? ({ ...current, items } as T) : current;
@@ -803,6 +817,7 @@ export function useDocument(
     batchRefetches?: false;
   } = {},
 ) {
+  trackDocumentReadFailures(useQueryClient());
   return useActionQuery<Document>(
     "get-document",
     id ? documentReadParams(id, context) : undefined,
@@ -870,6 +885,7 @@ export function startPageOpenDocumentReads(
   context: DocumentQueryContext = {},
   { beforeSession = false }: { beforeSession?: boolean } = {},
 ) {
+  trackDocumentReadFailures(queryClient);
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
   if (cached && isDocumentCreationPending(queryClient, cached)) return;
@@ -1554,6 +1570,7 @@ export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
         if (variables.title !== undefined) {
           invalidateContentQueries(queryClient, [
             contentDatabaseConstrainedQueryFilter(),
+            contentDatabaseExcerptContainingDocumentFilter(variables.id),
             ...contentRowTargets(queryClient, [variables.id]),
             ["action", "search-documents"],
           ]);

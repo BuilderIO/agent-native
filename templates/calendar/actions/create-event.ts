@@ -337,11 +337,12 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
+  // A start or end with no offset or zone is sent as a floating time, which
+  // Google reads in the calendar's own time zone.
+  zonelessTimes: "calendar",
   needsApproval: ({ sendUpdates, attendees, eventType, autoDeclineMode }) =>
-    sendUpdates === "all" ||
-    sendUpdates === "externalOnly" ||
-    (sendUpdates === undefined &&
-      (normalizeAttendees(attendees)?.length ?? 0) > 0) ||
+    ((normalizeAttendees(attendees)?.length ?? 0) > 0 &&
+      sendUpdates !== "none") ||
     (eventType === "outOfOffice" && autoDeclineMode !== "declineNone"),
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();

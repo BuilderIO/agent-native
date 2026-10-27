@@ -173,7 +173,7 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 </Endpoint>
 
-如果操作声明 `mcpApp`，服务器还会通告官方 MCP 应用扩展 (`io.modelcontextprotocol/ui`)，并支持应用资源的 `resources/list`、`resources/templates/list` 和 `resources/read`。渲染 MCP 应用程序的主机可以内联显示 UI；不这样做的主机仍然可以调用该工具并使用深层链接后备。产品 UI 应使用 `embedApp()`，因此内联表面是真正的 React 应用程序路由，或者呈现共享 React 组件（例如 Analytics 图表）的集中路由，而不是单独的普通 HTML 实现。服务器发出标准 MCP 应用元数据和 ChatGPT 应用 SDK 兼容性元数据，以便支持应用程序的主机可以找到相同的 `ui://` 资源。目前官方扩展矩阵包括Claude、Claude Desktop、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、Cursor；主机支持因版本和计划而异，因此请使用 [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) 来获取面向用户的指导。
+如果操作声明 `mcpApp`，服务器还会通告官方 MCP 应用扩展 (`io.modelcontextprotocol/ui`)，并支持应用资源的 `resources/list`、`resources/templates/list` 和 `resources/read`。渲染 MCP 应用程序的主机可以内联显示 UI；不这样做的主机仍然可以调用该工具并使用深层链接后备。产品 UI 应使用 `embedApp()`，因此内联表面是真正的 React 应用程序路由，或者呈现共享 React 组件（例如 Analytics 图表）的集中路由，而不是单独的普通 HTML 实现。服务器发出标准 MCP 应用元数据和 ChatGPT 应用 SDK 兼容性元数据，以便支持应用程序的主机可以找到相同的 `ui://` 资源。有关支持渲染的主机和使用链接后备方案的客户端，请参阅 [MCP Apps](/docs/mcp-apps#client-support)。
 
 ### MCP 应用嵌入桥 {#mcp-app-embed-bridge}
 
