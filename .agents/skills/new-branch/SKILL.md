@@ -48,7 +48,8 @@ fi
 
 If HEAD's commits belong to a PR that has already merged
 (`gh pr list --head <branch> --state merged`), they're on `main` as a squash
-commit: branch from `origin/main` instead. Never branch from a local `main`,
+commit: branch from `origin/main` instead. If HEAD also has commits after that
+PR's merged head, keep the current branch and report them. Never branch from a local `main`,
 which can be stale. Dirty files and HEAD's
 own commits come along, so check both first (`git status` and
 `git log origin/main..HEAD`). If any belong to another task, leave the
