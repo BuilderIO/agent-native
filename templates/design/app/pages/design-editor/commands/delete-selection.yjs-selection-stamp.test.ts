@@ -224,6 +224,80 @@ describe("runDeleteSelection — stamps the pre-delete selection for undo", () =
     expect(args.setSelectedLayerIdsState).not.toHaveBeenCalled();
   });
 
+  it("keeps refused layers selected when a multi-screen delete partially succeeds", () => {
+    const undoManagerRef = {
+      current: { stopCapturing: vi.fn(), undoStack: [] },
+    };
+    const applyLocalContentUpdate = vi.fn(() => acceptedContentUpdate());
+    const { args } = baseDeleteArgs({
+      undoManagerRef,
+      applyLocalContentUpdate,
+    });
+    const contents = new Map([
+      [
+        "file-1",
+        '<!doctype html><html><body><div id="box-a" data-agent-native-node-id="box-a"></div></body></html>',
+      ],
+      [
+        "file-2",
+        '<!doctype html><html><body><div id="box-b" data-agent-native-node-id="box-b"></div></body></html>',
+      ],
+    ]);
+    const snapshots = Array.from(contents, ([fileId, content]) => {
+      const projection = buildCodeLayerProjection(content, {
+        source: { kind: "design-file", fileId },
+      });
+      const node = projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] ===
+          (fileId === "file-1" ? "box-a" : "box-b"),
+      );
+      if (!node?.source) throw new Error("selection fixture node is missing");
+      const rootNodeId = node.dataAttributes["data-agent-native-node-id"];
+      if (!rootNodeId) throw new Error("selection fixture node has no id");
+      return {
+        html: content.slice(node.source.start, node.source.end),
+        rootNodeId,
+        sourceFileId: fileId,
+        node,
+        sourceIndex: node.source.start,
+        tree: buildCodeLayerTree(projection),
+      } satisfies SelectedCanvasLayerSnapshot;
+    });
+    const setSelectedElement = vi.fn();
+    const setSelectedLayerIdsState = vi.fn();
+    const activeContent = contents.get("file-1");
+    if (!activeContent) throw new Error("active selection fixture is missing");
+    const refusedSnapshot = snapshots.find(
+      (snapshot) => snapshot.sourceFileId === "file-2",
+    );
+    if (!refusedSnapshot)
+      throw new Error("refused selection fixture is missing");
+    args.activeFile = { id: "file-1" } as never;
+    args.files = [{ id: "file-1" }, { id: "file-2" }] as never;
+    args.getFreshActiveContent = () => activeContent;
+    args.getScreenContent = (fileId) => contents.get(fileId) ?? "";
+    args.getSelectedLayerSnapshots = () => snapshots;
+    args.applyFileContentUpdate = vi.fn((fileId: string) =>
+      fileId === "file-1"
+        ? acceptedContentUpdate()
+        : { status: "refused" as const },
+    );
+    args.selectedLayerIdsState = ["box-a", "box-b"];
+    args.setSelectedElement = setSelectedElement;
+    args.setSelectedLayerIdsState = setSelectedLayerIdsState;
+    args.viewModeRef = { current: "overview" } as never;
+
+    runDeleteSelection(args);
+
+    expect(args.applyFileContentUpdate).toHaveBeenCalledTimes(2);
+    expect(setSelectedElement).toHaveBeenCalledWith(null);
+    expect(setSelectedLayerIdsState).toHaveBeenCalledWith([
+      refusedSnapshot.node.id,
+    ]);
+    expect(args.setOverviewSelectedScreenIds).not.toHaveBeenCalled();
+  });
+
   it.each([
     { status: "accepted", shouldCancel: true },
     { status: "refused", shouldCancel: false },

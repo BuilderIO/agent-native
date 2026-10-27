@@ -156,6 +156,8 @@ describe("runUndo — single-screen Yjs undo restores the stamped selection", ()
     expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledOnce();
     expect(cancelPendingPastedMediaForHistoryReplay).toHaveBeenCalledWith(
       "file-1",
+      expect.any(String),
+      expect.any(String),
     );
     um.destroy();
     ydoc.destroy();

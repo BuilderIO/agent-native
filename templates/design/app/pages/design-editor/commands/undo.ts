@@ -382,7 +382,11 @@ function fileDeletionRestoreClaims(
 export interface UndoArgs {
   activeEditorDragRef: RefObject<boolean>;
   activeFile: DesignFile | undefined;
-  cancelPendingPastedMediaForHistoryReplay?: (screenId: string) => void;
+  cancelPendingPastedMediaForHistoryReplay?: (
+    screenId: string,
+    previousContent: string,
+    nextContent: string,
+  ) => void;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -661,9 +665,16 @@ export function runUndo({
     nextContent,
     options,
   ) => {
+    const previousContent = activeFile?.id
+      ? getScreenContent(activeFile.id)
+      : "";
     const result = publishLocalContentUpdate(nextContent, options);
     if (isRecord(result) && result.status === "accepted" && activeFile?.id) {
-      cancelPendingPastedMediaForHistoryReplay?.(activeFile.id);
+      cancelPendingPastedMediaForHistoryReplay?.(
+        activeFile.id,
+        previousContent,
+        nextContent,
+      );
     }
     return result;
   };
@@ -672,20 +683,38 @@ export function runUndo({
     nextContent,
     options,
   ) => {
+    const previousContent = getScreenContent(fileId);
     const result = publishFileContentUpdate(fileId, nextContent, options);
     if (isRecord(result) && result.status === "accepted")
-      cancelPendingPastedMediaForHistoryReplay?.(fileId);
+      cancelPendingPastedMediaForHistoryReplay?.(
+        fileId,
+        previousContent,
+        nextContent,
+      );
     return result;
   };
   const updateLiveScreenSnapshotContent: UndoArgs["updateLiveScreenSnapshotContent"] =
     (screenId, html, options) => {
+      const liveSnapshot = Object.prototype.hasOwnProperty.call(
+        liveScreenSnapshotsById,
+        screenId,
+      )
+        ? liveScreenSnapshotsById[screenId]
+        : undefined;
+      const previousContent = liveSnapshot
+        ? liveSnapshot.html
+        : getScreenContent(screenId);
       const accepted = publishLiveScreenSnapshotContent(
         screenId,
         html,
         options,
       );
       if (accepted === true)
-        cancelPendingPastedMediaForHistoryReplay?.(screenId);
+        cancelPendingPastedMediaForHistoryReplay?.(
+          screenId,
+          previousContent,
+          html,
+        );
       return accepted;
     };
   flushCommitsAfterPaint();
@@ -1009,7 +1038,12 @@ export function runUndo({
         expectedVersionHash: sourceContentHash(beforeUndoContent),
         syncCollab: !isSynced,
       });
-      if (poppedItem) cancelPendingPastedMediaForHistoryReplay?.(activeFile.id);
+      if (poppedItem)
+        cancelPendingPastedMediaForHistoryReplay?.(
+          activeFile.id,
+          beforeUndoContent,
+          next,
+        );
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, {

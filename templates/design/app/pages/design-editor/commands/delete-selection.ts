@@ -570,6 +570,10 @@ export function runDeleteSelection({
     let shouldDeleteActiveLiveDom = false;
     let didDelete = false;
     let orphanedTrackNodeIds: Set<string> | null = null;
+    const refusedSelectionNodes: Array<{
+      fileId: string;
+      node: CodeLayerNode;
+    }> = [];
     for (const file of files) {
       const group = snapshots.filter(
         (snapshot) => snapshot.sourceFileId === file.id,
@@ -698,7 +702,12 @@ export function runDeleteSelection({
         });
         publicationAccepted = publication.status === "accepted";
       }
-      if (!publicationAccepted) continue;
+      if (!publicationAccepted) {
+        refusedSelectionNodes.push(
+          ...nodes.map((node) => ({ fileId: file.id, node })),
+        );
+        continue;
+      }
       didDelete = true;
       if (file.id === activeFile.id && !useBreakpointScopedDelete) {
         activeRuntimeSelectors.push(...removedSelectors);
@@ -726,6 +735,34 @@ export function runDeleteSelection({
     }
     if (shouldDeleteActiveLiveDom) {
       deleteFromLiveDom(activeRuntimeSelectors);
+    }
+    const refusedSelectionIds = Array.from(
+      new Set(refusedSelectionNodes.map(({ node }) => node.id)),
+    );
+    if (refusedSelectionIds.length > 0) {
+      const refusedActiveSourceIds = new Set(
+        refusedSelectionNodes
+          .filter(({ fileId }) => fileId === activeFile.id)
+          .flatMap(({ node }) => [
+            node.id,
+            node.dataAttributes["data-agent-native-node-id"],
+          ]),
+      );
+      const currentSelectionSourceIds = [
+        selectedElement?.sourceId,
+        selectedElement?.runtimeSourceId,
+        selectedElement?.sourceLayerIdentity?.nodeId,
+      ];
+      setSelectedElement(
+        selectedElement &&
+          currentSelectionSourceIds.some(
+            (nodeId) => nodeId && refusedActiveSourceIds.has(nodeId),
+          )
+          ? selectedElement
+          : null,
+      );
+      setSelectedLayerIdsState(refusedSelectionIds);
+      return;
     }
     setSelectedElement(null);
     setSelectedLayerIdsState([]);

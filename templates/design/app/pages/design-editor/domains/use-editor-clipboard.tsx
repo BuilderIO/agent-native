@@ -111,6 +111,10 @@ import {
 } from "../overview-camera";
 import { resolvePastePlacementForSelection } from "../paste-placement";
 import { positionCoordinateRenderOffsetForWindow } from "../position-coordinate-context";
+import {
+  cancelRemovedPendingPastedMedia,
+  type PendingPastedMediaByScreen,
+} from "./pending-pasted-media";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorContentAndComponents } from "./use-editor-content-and-components";
@@ -249,7 +253,7 @@ export function useEditorClipboard({
   } = editorContentAndComponents;
   const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
   applyFileContentUpdateRef.current = applyFileContentUpdate;
-  const pendingPastedMediaRef = useRef(new Map<string, Map<string, boolean>>());
+  const pendingPastedMediaRef = useRef<PendingPastedMediaByScreen>(new Map());
   const registerPendingPastedMedia = useCallback(
     (screenId: string, nodeId: string) => {
       let pending = pendingPastedMediaRef.current.get(screenId);
@@ -282,10 +286,13 @@ export function useEditorClipboard({
     [],
   );
   const cancelPendingPastedMediaForHistoryReplay = useCallback(
-    (screenId: string) => {
-      const pending = pendingPastedMediaRef.current.get(screenId);
-      if (!pending) return;
-      for (const nodeId of pending.keys()) pending.set(nodeId, true);
+    (screenId: string, previousContent: string, nextContent: string) => {
+      cancelRemovedPendingPastedMedia(
+        pendingPastedMediaRef.current,
+        screenId,
+        previousContent,
+        nextContent,
+      );
     },
     [],
   );
