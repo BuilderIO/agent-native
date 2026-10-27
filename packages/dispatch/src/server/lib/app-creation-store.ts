@@ -13,6 +13,7 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray } from "@agent-native/core/db/schema";
 import {
@@ -56,6 +57,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import { getDb } from "../../db/index.js";
+import { workspaceAppRoute } from "../../shared/workspace-app-route.js";
 import { isWorkspaceSsoAppUrl } from "../../shared/workspace-sso.js";
 import { getDispatchDefaultOwnerEmail } from "./admin-config.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
@@ -152,6 +154,15 @@ class WorkspaceAppOrgRequiredError extends Error {
       "Select or join an organization before creating a workspace app. Apps are owned by the organization of the signed-in session.",
     );
     this.name = "WorkspaceAppOrgRequiredError";
+  }
+}
+
+class WorkspaceGatewayConfigurationError extends Error {
+  constructor(cause?: unknown) {
+    super("WORKSPACE_GATEWAY_URL must be a valid absolute HTTP(S) URL.", {
+      cause,
+    });
+    this.name = "WorkspaceGatewayConfigurationError";
   }
 }
 
@@ -295,17 +306,22 @@ interface WorkspaceAppMetadataSettings {
 }
 
 function readJson(file: string): any {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return null;
-  }
+  if (!fs.existsSync(file)) return null;
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function findWorkspaceRoot(startDir = process.cwd()): string | null {
   let dir = path.resolve(startDir);
   for (let i = 0; i < 20; i++) {
-    const pkg = readJson(path.join(dir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(dir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace package metadata in ${dir}; continuing parent search`,
+        error,
+      );
+    }
     if (typeof pkg?.["agent-native"]?.workspaceCore === "string") {
       return dir;
     }
@@ -627,16 +643,85 @@ function applyWorkspaceAppMetadataOverride(
 // code belongs here; changes to authorship, content trust, or sharing require
 // an explicit auth, origin, or sandbox boundary before this invariant changes.
 function workspaceAppUrl(appPath: string): string | null {
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway) return appendWorkspaceAppPath(gateway, appPath);
+
   const base = resolveAppRuntimeUrl();
   if (!base) return null;
   try {
-    return new URL(
-      appPath,
-      `${projectEnvironmentUrl(base).replace(/\/$/, "")}/`,
-    ).toString();
+    const baseUrl = new URL(
+      addBasePath(projectEnvironmentUrl(base), getConfiguredAppBasePath()),
+    );
+    return appendWorkspaceAppPath(baseUrl, appPath);
   } catch {
     return null;
   }
+}
+
+function appendWorkspaceAppPath(baseUrl: URL, appPath: string): string {
+  const parsedPath = new URL(appPath, "http://agent-native.invalid");
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  let appPathname = parsedPath.pathname;
+  if (
+    basePath &&
+    (appPathname === basePath || appPathname.startsWith(`${basePath}/`))
+  ) {
+    appPathname = appPathname.slice(basePath.length) || "/";
+  }
+  baseUrl.pathname =
+    `${basePath}${appPathname.startsWith("/") ? appPathname : `/${appPathname}`}` ||
+    "/";
+  baseUrl.search = parsedPath.search;
+  baseUrl.hash = parsedPath.hash;
+  return baseUrl.toString().replace(/\/$/, "");
+}
+
+function workspaceGatewayBaseUrl(): URL | null {
+  const configured = getAppConfig().workspace.gatewayUrl?.trim();
+  if (!configured) return null;
+  let configuredUrl: URL;
+  try {
+    configuredUrl = new URL(configured);
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
+  }
+  if (
+    configuredUrl.protocol !== "http:" &&
+    configuredUrl.protocol !== "https:"
+  ) {
+    throw new WorkspaceGatewayConfigurationError();
+  }
+  let url: URL;
+  try {
+    url = new URL(projectEnvironmentUrl(configuredUrl.toString()));
+  } catch (error) {
+    throw new WorkspaceGatewayConfigurationError(error);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new WorkspaceGatewayConfigurationError();
+  }
+  return new URL(addBasePath(url.toString(), getConfiguredAppBasePath()));
+}
+
+function workspaceGatewayAppUrl(appPath: string): string | null {
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  if (requestOrigin && new URL(requestOrigin).origin === baseUrl.origin) {
+    return null;
+  }
+  return appendWorkspaceAppPath(baseUrl, appPath);
+}
+
+function addBasePath(urlValue: string, basePath: string): string {
+  if (!basePath) return urlValue;
+  const url = new URL(urlValue);
+  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === basePath || pathname.startsWith(`${basePath}/`)) {
+    return url.toString();
+  }
+  url.pathname = `${basePath}${pathname === "/" ? "" : pathname}` || "/";
+  return url.toString();
 }
 
 function isLocalWorkspaceGateway(url: URL): boolean {
@@ -649,18 +734,50 @@ function isLocalWorkspaceGateway(url: URL): boolean {
   );
 }
 
-function workspaceAppLink(
-  appPath: string,
-  explicitUrl?: unknown,
-): string | null {
+function workspaceAppPagePath(appId: string, urlValue?: string): string {
+  const route = workspaceAppRoute(appId);
+  if (!urlValue) return route;
+  const parsed = new URL(urlValue, "https://agent-native.invalid");
+  return `${route}${parsed.search}${parsed.hash}`;
+}
+
+function workspaceAppLink(appId: string, explicitUrl?: unknown): string {
   const urlValue = typeof explicitUrl === "string" ? explicitUrl.trim() : "";
-  if (!urlValue) return workspaceAppUrl(appPath);
-  if (urlValue.startsWith("/")) return workspaceAppUrl(urlValue) ?? urlValue;
-  try {
-    return projectEnvironmentUrl(new URL(urlValue).toString());
-  } catch {
-    return urlValue;
+  const routePath = workspaceAppPagePath(appId, urlValue || undefined);
+  if (!urlValue) {
+    return (
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
+    );
   }
+  if (urlValue.startsWith("/")) {
+    return (
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
+    );
+  }
+  const resolved = projectEnvironmentUrl(new URL(urlValue).toString());
+  const gateway = workspaceGatewayBaseUrl();
+  if (gateway && new URL(resolved).origin === gateway.origin) {
+    return (
+      workspaceGatewayAppUrl(routePath) ??
+      workspaceAppUrl(routePath) ??
+      routePath
+    );
+  }
+  const runtimeBase = resolveAppRuntimeUrl();
+  if (runtimeBase && new URL(resolved).origin === new URL(runtimeBase).origin) {
+    const runtimeUrl = new URL(
+      addBasePath(
+        projectEnvironmentUrl(runtimeBase),
+        getConfiguredAppBasePath(),
+      ),
+    );
+    return appendWorkspaceAppPath(runtimeUrl, routePath);
+  }
+  return resolved;
 }
 
 function normalizeWorkspaceAppAudience(value: unknown): WorkspaceAppAudience {
@@ -821,7 +938,10 @@ function workspaceAppRouteAccessFromPackageJson(pkg: unknown): {
   };
 }
 
-function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
+function parseWorkspaceAppsManifest(
+  parsed: any,
+  onInvalidAppUrl?: () => void,
+): WorkspaceAppSummary[] | null {
   const rawApps = Array.isArray(parsed?.apps)
     ? parsed.apps
     : Array.isArray(parsed)
@@ -840,6 +960,18 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
       });
       if (!profile) return null;
       const metadata = workspaceAppMetadataFromRecord(entry);
+      let url: string | null;
+      try {
+        url = workspaceAppLink(id, entry.url);
+      } catch (error) {
+        if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+        onInvalidAppUrl?.();
+        console.warn(
+          `[dispatch] Could not resolve Workspace app ${id}; skipping app`,
+          error,
+        );
+        return null;
+      }
       return {
         id,
         name:
@@ -851,7 +983,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         ...(profile.whenToUse ? { whenToUse: profile.whenToUse } : {}),
         path: pathValue,
         homePath: normalizeWorkspaceAppHomePath(entry.homePath),
-        url: workspaceAppLink(pathValue, entry.url),
+        url,
         isDispatch:
           typeof entry.isDispatch === "boolean"
             ? entry.isDispatch
@@ -887,8 +1019,11 @@ function parseWorkspaceAppsGatewayResponse(
       : parsed;
   if (!Array.isArray(rawApps)) return null;
   if (rawApps.length === 0) return [];
-  const apps = parseWorkspaceAppsManifest(parsed);
-  if (!apps || apps.length !== rawApps.length) return null;
+  let invalidUrlCount = 0;
+  const apps = parseWorkspaceAppsManifest(parsed, () => {
+    invalidUrlCount += 1;
+  });
+  if (!apps || apps.length + invalidUrlCount !== rawApps.length) return null;
   const ids = new Set(apps.map((app) => app.id.toLowerCase()));
   return ids.size === apps.length ? apps : null;
 }
@@ -1861,28 +1996,25 @@ function readWorkspaceAppsFromEnv(): WorkspaceAppSummary[] | null {
   const raw = process.env[WORKSPACE_APPS_ENV_KEY];
   if (!raw) return null;
   try {
-    return parseWorkspaceAppsManifest(JSON.parse(raw));
-  } catch {
-    return null;
+    const apps = parseWorkspaceAppsManifest(JSON.parse(raw));
+    if (apps) return apps;
+    console.warn(
+      `[dispatch] Could not parse Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
+  } catch (error) {
+    if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+    console.warn(
+      `[dispatch] Could not read Workspace app manifest from ${WORKSPACE_APPS_ENV_KEY}; skipping source`,
+    );
   }
+  return null;
 }
 
 async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | null> {
-  const configuredBase = process.env.WORKSPACE_GATEWAY_URL;
+  const configuredBase = getAppConfig().workspace.gatewayUrl?.trim();
   if (!configuredBase) return null;
-  const base = projectEnvironmentUrl(configuredBase);
-
-  let baseUrl: URL;
-  try {
-    baseUrl = new URL(base);
-  } catch {
-    // coercion-ok: malformed gateway configuration is an unavailable registry
-    // and falls back to local sources.
-    return null;
-  }
-  if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
-    return null;
-  }
+  const baseUrl = workspaceGatewayBaseUrl();
+  if (!baseUrl) return null;
 
   const requestContext = getRequestContext();
   const isLocalGateway = isLocalWorkspaceGateway(baseUrl);
@@ -1935,10 +2067,14 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         );
       }
     }
-    const globalSecret = getGlobalA2ASecret();
-    const allowLocalUnauthenticatedRequest =
-      isLocalGateway && !orgSecret && !globalSecret;
-    if (!orgSecret && !globalSecret && !allowLocalUnauthenticatedRequest) {
+    // The receiver drops the user from any user token that verifies only with an
+    // organization secret, so a member's own request is signed with the
+    // deployment secret to stay named.
+    const delegatedMember =
+      requestContext.a2aIdentityAssurance === "org-member";
+    const signingSecret = delegatedMember ? orgSecret : getGlobalA2ASecret();
+    const allowLocalUnauthenticatedRequest = isLocalGateway && !signingSecret;
+    if (!signingSecret && !allowLocalUnauthenticatedRequest) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         503,
         "workspace_gateway_a2a_secret_missing",
@@ -1950,10 +2086,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
         const token = await signA2AToken(
           requestContext.userEmail,
           orgDomain,
-          orgSecret,
+          delegatedMember ? orgSecret : undefined,
           {
             expiresIn: "1m",
-            preferGlobalSecret: false,
+            preferGlobalSecret: !delegatedMember,
             audience: canonicalA2AAudience(
               baseUrl.toString(),
               getConfiguredAppBasePath() || undefined,
@@ -2119,8 +2255,15 @@ function workspaceAppsManifestCandidates(): string[] {
 function readWorkspaceAppsFromManifestFile(): WorkspaceAppSummary[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file));
-    if (apps) return apps;
+    try {
+      const apps = parseWorkspaceAppsManifest(readJson(file));
+      if (apps) return apps;
+    } catch (error) {
+      if (error instanceof WorkspaceGatewayConfigurationError) throw error;
+      console.warn(
+        `[dispatch] Could not read Workspace app manifest ${file}; skipping source`,
+      );
+    }
   }
   return null;
 }
@@ -2136,7 +2279,16 @@ async function readWorkspaceAppsFromFilesystem(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))) {
     const appDir = path.join(appsDir, entry.name);
-    const pkg = readJson(path.join(appDir, "package.json"));
+    let pkg: any;
+    try {
+      pkg = readJson(path.join(appDir, "package.json"));
+    } catch (error) {
+      console.warn(
+        `[dispatch] Could not read workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
     if (!pkg) continue;
     const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
     const metadata = workspaceAppMetadataFromRecord(pkg);
@@ -2162,7 +2314,7 @@ async function readWorkspaceAppsFromFilesystem(
       homePath: normalizeWorkspaceAppHomePath(
         configuredHomePath ?? inferredHomePath,
       ),
-      url: workspaceAppUrl(`/${entry.name}`),
+      url: workspaceAppUrl(workspaceAppRoute(entry.name)),
       isDispatch: entry.name === "dispatch",
       audience:
         workspaceAppAudienceFromPackageJson(pkg) ??
@@ -2635,7 +2787,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       description: "",
       path: `/${appId}`,
       homePath: "/home",
-      url: workspaceAppUrl(`/${appId}`),
+      url: workspaceAppUrl(workspaceAppRoute(appId)),
       isDispatch: false,
       audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
       publicPaths: [],
@@ -2996,8 +3148,8 @@ function buildWorkspaceAppPrompt(input: {
       `Dispatch workspace resources selected for this app:\n${resourceList}`,
       `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
       "",
-      `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-      `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${appId}/${appId}/review.`,
+      `Use the workspace app layout: create it under apps/${appId}; Dispatch mounts it at /apps/${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+      `Important routing rule: from outside the app, link to /apps/${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/apps/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
       `Home route contract: Dispatch opens the registered app.homePath. If the main screen is app/routes/_index.tsx and there is no app/routes/home.tsx or app/routes/_app.home.tsx, set app.homePath to "/" in server/plugins/config.ts. If the app uses a /home route, keep the default "/home". Never leave the registry pointing at /home when that route does not exist.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
       `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
@@ -3016,7 +3168,7 @@ function buildWorkspaceAppPrompt(input: {
       "- Use Tabler Icons (@tabler/icons-react) for every icon. Never use emojis as icons.",
       `- Expose what the user is looking at via application_state (navigation.view, selection, etc.) so the agent has live context. Mirror the patterns in templates/mail or templates/slides.`,
       "- Optimistic UI for every mutation: update the React Query cache immediately, navigate immediately, run the mutation in the background, roll back on error. Don't await a server round-trip before re-rendering.",
-      `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "connect", "production": "connect-and-integrations" } } }. Keep the shared Use Builder.io / Add your own keys onboarding visible; never build a second, custom credential form or hardcode a provider key.`,
+      `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "off", "production": "connect-and-integrations" } } }, as the first-party templates do, so local runs open straight into the app. Keep the shared Use Builder.io / Add your own keys onboarding for production; never build a second, custom credential form or hardcode a provider key.`,
       "- Every AI-labeled button must call sendToAgentChat with openSidebar: true — plus submit: true for one-click work, or submit: false when the user should review/edit the proposed prompt first. Keep follow-ups in that same sidebar thread; don't add a second freeform input beside the result. Never use sparkle, wand, magic, robot, or other decorative AI icons on those buttons — a message or neutral action icon, or no icon, instead.",
       "- Choose a named visual direction in DESIGN.md before styling the first screen and build to it. Don't inherit a sibling app's palette unbuilt.",
       '- Left navigation must name real domain destinations, not "Chat" as the only or default entry.',
@@ -3478,7 +3630,7 @@ export async function startWorkspaceAppCreation(input: {
     projectId: builderProjectId,
     branchName: result.branchName,
     url: result.url,
-    workspaceUrl: workspaceAppUrl(`/${built.appId}`),
+    workspaceUrl: workspaceAppUrl(workspaceAppRoute(built.appId)),
     status: result.status,
     message:
       `Builder started a branch for /${built.appId}. Use the Builder branch URL to track creation now. ` +

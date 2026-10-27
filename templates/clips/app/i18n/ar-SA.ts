@@ -738,7 +738,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء. إذا تعذّر على أداتك إرجاع الصور أو فتح هذه الروابط، فوضّح أن هذا قيد في أداتك وليس خطأ في Clips.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
@@ -752,12 +752,16 @@ const messages = {
     chooseFile: "اختيار ملف",
     remove: "إزالة",
     downloadMp4: "تحميل MP4",
-    embedsNeedPublic: "التضمينات تحتاج إلى مقطع عام",
-    embedPublicDescription:
-      "هذا المقطع حاليا {{visibility}}. يتم تحميل إطارات iframe المضمنة بشكل مجهول، لذلك يجب أن يكون المقطع عامًا حتى يتمكن المشاهدون من مشاهدته.",
-    makingPublic: "جعل الجمهور…",
-    makePublic: "اجعلها عامة",
     askOwnerPublic: "اطلب من المالك نشره.",
+    advanced: "متقدم",
+    passwordSet: "تم تعيين كلمة مرور",
+    noPassword: "بدون كلمة مرور",
+    linkExpires: "انتهاء صلاحية الرابط",
+    expiresOn: "تنتهي الصلاحية في {{date}}",
+    neverExpires: "لا تنتهي صلاحيته",
+    embedNeedsLinkAccess:
+      "تُحمَّل المشغلات المضمّنة دون تسجيل الدخول، لذا لا تعمل إلا عندما يمكن لأي شخص لديه الرابط المشاهدة.",
+    changeGeneralAccess: "تغيير الوصول العام",
     responsive: "مستجيب (16:9)",
     fixedSize: "حجم ثابت",
     embedIframeTitle: "فيديو Clips",
@@ -1336,12 +1340,13 @@ const messages = {
     actionItems: "عناصر العمل",
     sharedContent: "المحتوى المشترك",
     summaryIncluded: "الملخص والنقاط الرئيسية وعناصر العمل",
-    includeTranscript: "تضمين النص الكامل",
-    includeTranscriptDescription:
-      "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
-    agentLinkDescription:
-      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
+    transcriptOnShareLink: "النص على رابط المشاركة",
+    transcriptOnShareLinkDescription:
+      "يرى الأشخاص الذين تدعوهم النص دائمًا في Clips.",
+    linkShowsTranscript: "الرابط يتضمن النص",
+    linkShowsNotesOnly: "الرابط يعرض الملاحظات فقط",
+    copyAgentLink: "نسخ رابط الوكيل",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",

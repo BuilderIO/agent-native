@@ -111,8 +111,6 @@ function makeRedoHarness(
     restoreSelectionSnapshot: vi.fn(),
     runtimeStructureInsertRevisionRef: ref(0),
     runtimeStructureMoveRevisionRef: ref(0),
-    selectionRedoStackRef: ref([]),
-    selectionUndoStackRef: ref([]),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),
     setPendingLayerStateReplayRequest: vi.fn(),

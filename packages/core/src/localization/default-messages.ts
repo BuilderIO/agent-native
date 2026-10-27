@@ -1,4 +1,5 @@
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { CONSENT_BANNER_MESSAGES } from "./consent-banner-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
@@ -42,6 +43,7 @@ const messages = {
         "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
     },
   },
+  consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
@@ -807,22 +809,13 @@ const messages = {
       elapsed: "{{duration}} elapsed",
     },
     voiceMode: {
-      entryButtonLabel: "Use microphone",
-      promptTitle: "Use your voice",
-      promptDescription:
-        "Voice mode keeps listening while the agent navigates and takes actions.",
-      setupTitle: "Set up voice mode",
-      setupDescription:
-        "Use Builder.io for managed voice with free credits, or add your own keys.",
-      connectBuilder: "Use Builder.io",
-      useOpenAiKey: "Custom keys",
-      startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice chat",
-      keepDictating: "Dictate a message",
-      rememberPreference: "Remember my preference",
-      showChat: "Show chat",
-      hideChat: "Hide chat",
-      end: "End voice mode",
+      endVoiceChat: "End voice chat",
+      placeholder: "Listening…",
+      muteMicrophone: "Mute microphone",
+      unmuteMicrophone: "Unmute microphone",
+      muteSpeaker: "Mute speaker",
+      unmuteSpeaker: "Unmute speaker",
       voiceSettings: "Voice settings",
       settings: {
         microphone: "Microphone",

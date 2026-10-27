@@ -15,6 +15,9 @@ export default createToolkitAuthPlugin({
   ...(isBuilderIdentityEnabled()
     ? {
         getSession: getBuilderIdentitySession,
+        // It reads only the signed identity cookie, so pages that take no
+        // other credential, such as an MCP approval review, can use it too.
+        getBrowserSession: getBuilderIdentitySession,
         trustCustomEmailVerification: true,
       }
     : {}),

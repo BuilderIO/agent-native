@@ -7,6 +7,15 @@ description: "A skill /turn-into-app transforma uma conversa, skill, planilha ou
 
 `/turn-into-app` é uma skill que transforma um fluxo de trabalho que você já validou em um app Agent-Native. A fonte pode ser uma conversa, uma skill, uma planilha ou um projeto do Claude ou ChatGPT. O app abre no seu mundo, preenchido com dados de exemplo no formato da fonte, com o agente do app trabalhando por trás de controles nos objetos sobre os quais ele age. Um formulário sob uma barra de etapas é o resultado que a skill foi feita para evitar.
 
+## Antes de começar {#before-you-start}
+
+- Um agente de IA que consiga executar comandos de terminal, como Claude Code, Codex ou Cursor. Claude ou ChatGPT na web podem entregar o trabalho ao Builder em vez disso. Veja [Onde ela roda](#hosts).
+- [Node.js](https://nodejs.org) 22.22 ou posterior. O instalador de nodejs.org inclui o `npx`, que executa os comandos de instalação abaixo. Confira sua versão com `node --version`.
+- [pnpm](https://pnpm.io) no seu `PATH`. Se `pnpm --version` falhar, execute `corepack enable`, que já vem com o Node.js.
+- Uma pasta vazia para o novo app e cerca de 45 minutos.
+
+Você não precisa de uma chave de provedor de IA para criar o app. Só precisa de uma quando quiser que o agente do app responda a você.
+
 ## Instalação {#install}
 
 ```bash
@@ -43,10 +52,6 @@ Um host é considerado local quando tem um diretório de trabalho real, um termi
 
 Em um host de navegador, a skill exige o conector MCP do Agent-Native Dispatch (`https://dispatch.agent-native.com/mcp`, OAuth) e chama a ação `start-workspace-app-creation` dele. O host não consegue executar nem inspecionar o app, então o relatório permanece pendente ou não verificado até que o branch devolvido pelo Dispatch seja compilado. A skill relata o que o Dispatch realmente devolveu e nunca inventa a URL de um branch. Para um Projeto do ChatGPT, ou qualquer host que exponha apenas MCP, coloque as instruções da skill nas instruções do Projeto ou nos arquivos de conhecimento.
 
-## Pré-requisitos locais
-
-Em um host local, instale Node.js 22.22.0 ou mais recente (que inclui npm e npx) e pnpm antes de começar. Hosts de navegador usam o Dispatch e não executam esses comandos.
-
 ## Fontes {#sources}
 
 - **Conversas.** O último trabalho concreto e repetível é o produto.
@@ -67,7 +72,7 @@ A skill salva o briefing da fonte como `docs/brief.md` e acrescenta o design da 
 ## Como uma execução funciona {#how-it-works}
 
 1. **Briefing.** Lê toda a fonte e escreve um briefing curto: o trabalho, no máximo três momentos do agente, invariantes, riscos nos dados, fonte da verdade e premissas.
-2. **Design.** Decide o arquétipo, a direção, o shell, a primeira viewport e os dados de exemplo, e os momentos do agente, e publica o briefing uma vez como checkpoint. Continua sem esperar.
+2. **Design.** Decide o arquétipo, a direção, o shell, a primeira viewport e os dados de exemplo, e os momentos do agente, e publica o briefing uma vez como checkpoint, informando quanto tempo o resto vai levar. Continua sem esperar.
 3. **Scaffold.** Cria o app de verdade com o template chat e nunca sobrescreve um app existente.
 
    ```bash
@@ -82,6 +87,8 @@ A skill salva o briefing da fonte como `docs/brief.md` e acrescenta o design da 
 
 A skill almeja cerca de 45 minutos. Se 35 minutos já tiverem passado quando a revisão começar, ela faz uma passada e lista os critérios em aberto.
 
+Se uma execução parar no meio, invoque a skill de novo na mesma pasta. Ela encontra o app pela metade, diz o que já está pronto e o que falta, e continua a partir da primeira etapa inacabada em vez de começar um segundo app.
+
 ## O ciclo de revisão por capturas de tela {#review-loop}
 
 Antes da entrega, a skill inicia o servidor de desenvolvimento e captura `/` em tamanhos de desktop e celular nos modos claro e escuro, além do principal controle do agente após um clique. Ela pontua as capturas com uma rubrica de 12 linhas que cobre impacto da primeira viewport, adequação ao domínio, hierarquia, disciplina de chrome, dados de exemplo, tipografia, cor, acabamento, agente e UI juntos, layout em 390px, modo escuro e acessibilidade.
@@ -92,7 +99,7 @@ As capturas são salvas em `.tmp/ui-review/out/` do app, e o relatório final li
 
 ## Execução e deploy {#run-deploy}
 
-Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Sem isso, abrir o app mostra um cartão "Continue as local dev".
+Para a revisão local, a skill define `AUTH_DISABLED=1` no `.env` ignorado do app, porque um navegador de captura novo não está autenticado. Isso é apenas para desenvolvimento em loopback. É removido antes do `pnpm build` final e nunca deve ser commitado nem implantado. Depois disso, o primeiro navegador a abrir o app é autenticado automaticamente como a conta de desenvolvimento local. Navegadores novos abertos depois mostram um cartão "Continue as local dev".
 
 Para executar o app você mesmo:
 
@@ -100,7 +107,7 @@ Para executar o app você mesmo:
 pnpm dev
 ```
 
-Para usar seu próprio provedor de modelo localmente, coloque uma chave como `ANTHROPIC_API_KEY` no mesmo `.env`. Caso contrário, a barra lateral do agente mostra a configuração compartilhada Use Builder.io ou Custom keys.
+Para usar seu próprio provedor de modelo localmente, coloque uma chave como `ANTHROPIC_API_KEY` no mesmo `.env`. Caso contrário, o app ainda abre com seus dados de exemplo, e a barra lateral do agente oferece a configuração compartilhada Use Builder.io ou Custom keys quando você usa o agente.
 
 A skill só faz o deploy quando você pede ou quando o provedor já está configurado. Um build local saudável ainda imprime um bloco "production configuration errors" com código de saída 0. Essa é a lista de verificação de deploy: um `BETTER_AUTH_SECRET` estável e um `DATABASE_URL` persistente, além de `A2A_SECRET` para um app dentro de um workspace. A skill relata isso como a etapa pendente e não cria valores de placeholder. Veja [Implantar um app](/docs/deploy-an-app) e [Implantar um workspace](/docs/workspace-deployment).
 

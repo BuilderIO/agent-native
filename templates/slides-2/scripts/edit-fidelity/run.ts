@@ -1316,6 +1316,7 @@ async function runChatTypingRegression(page: Page, base: string) {
   const problems: string[] = [];
   const submitRoute = /\/_agent-native\/agent-chat(?:\?.*)?$/;
   let submitRequestSeen = false;
+  let submitRequestCount = 0;
   let resolveSubmitRequested!: () => void;
   let releaseSubmit!: () => void;
   let resolveSubmitRouteFinished!: () => void;
@@ -1338,6 +1339,7 @@ async function runChatTypingRegression(page: Page, base: string) {
   await page.route(submitRoute, async (route: any) => {
     if (route.request().method() !== "POST") return route.continue();
     submitRequestSeen = true;
+    submitRequestCount += 1;
     resolveSubmitRequested();
     try {
       await submitGate;
@@ -1504,8 +1506,16 @@ async function runChatTypingRegression(page: Page, base: string) {
             `pending draft mismatch: ${JSON.stringify(pendingText)}`,
           );
         }
+        // A draft sent while the first send is pending queues behind it; it
+        // must never start a second chat request that races the first.
         if (await sendButton.isEnabled()) {
-          problems.push("chat send button stayed enabled during submission");
+          await sendButton.click();
+          await sleep(1000);
+          if (submitRequestCount > 1) {
+            problems.push(
+              "a draft sent during a pending submission started a second chat request",
+            );
+          }
         }
         await page.screenshot({
           path: path.join(outRoot, "chat-input-lock-pending.png"),

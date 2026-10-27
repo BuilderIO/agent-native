@@ -10,6 +10,7 @@ const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
 const mockRecordGenerationCreativeContext = vi.fn();
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockNoteGenerationFirstOutput = vi.hoisted(() => vi.fn());
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -120,6 +121,11 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+}));
+
+vi.mock("../server/lib/generation-completion.js", () => ({
+  noteGenerationFirstOutput: (...args: unknown[]) =>
+    mockNoteGenerationFirstOutput(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -999,13 +1005,18 @@ describe("create-deck — generation lifecycle tracking", () => {
 
   it("joins the browser-owned attempt without duplicating its lifecycle events", async () => {
     const generationAttemptId = "browser_attempt_123";
+    const generationStartedAt = 1_798_000_000_000;
     existingDeckRow = {
       id: "deck-1",
       updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({
         title: "T",
         slides: [],
-        generationContext: { generationAttemptId },
+        generationContext: {
+          generationAttemptId,
+          targetSlideCount: 7,
+          generationStartedAt,
+        },
       }),
     };
     mockTrack("generation_started", {
@@ -1013,12 +1024,19 @@ describe("create-deck — generation lifecycle tracking", () => {
       source: "new_deck_prompt",
     });
 
-    await action.run({
-      title: "T2",
-      slides: [{ id: "s1", content: "<div>Slide</div>" }],
-      deckId: "deck-1",
-      generationAttemptId,
-    });
+    await action.run(
+      {
+        title: "T2",
+        slides: [{ id: "s1", content: "<div>Slide</div>" }],
+        deckId: "deck-1",
+        generationAttemptId,
+      },
+      {
+        caller: "tool",
+        runId: "run-browser-attempt",
+        turnId: "turn-browser-attempt",
+      },
+    );
 
     const events = trackedEvents();
     expect(
@@ -1030,6 +1048,52 @@ describe("create-deck — generation lifecycle tracking", () => {
     expect(
       events.find((event) => event.name === "deck_edited")?.properties,
     ).toMatchObject({ generation_attempt_id: generationAttemptId });
+    expect(mockNoteGenerationFirstOutput).toHaveBeenCalledWith(
+      "turn-browser-attempt",
+      {
+        deckId: "deck-1",
+        generationAttemptId,
+        targetSlideCount: 7,
+        generationStartedAt,
+      },
+    );
+    expect(
+      (
+        JSON.parse(String(updatedFields?.data)) as {
+          generationContext?: Record<string, unknown>;
+        }
+      ).generationContext,
+    ).toMatchObject({
+      generationAttemptId,
+      targetSlideCount: 7,
+      generationStartedAt,
+      firstOutputAttemptId: generationAttemptId,
+    });
+  });
+
+  it("does not mark a blank browser-owned replacement as generated output", async () => {
+    const generationAttemptId = "browser_attempt_blank";
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: { generationAttemptId },
+      }),
+    };
+
+    await action.run(
+      {
+        title: "T2",
+        slides: [{ id: "s1", content: "<div></div>" }],
+        deckId: "deck-1",
+        generationAttemptId,
+      },
+      { caller: "tool", turnId: "turn-browser-attempt-blank" },
+    );
+
+    expect(mockNoteGenerationFirstOutput).not.toHaveBeenCalled();
   });
 
   it("does not emit a terminal lifecycle event when the browser owns a failing attempt", async () => {

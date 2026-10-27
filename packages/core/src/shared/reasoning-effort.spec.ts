@@ -7,18 +7,21 @@ import {
   normalizeReasoningEffortForModel,
   normalizeReasoningEffortForRequest,
   reasoningEffortLabel,
+  isUnsetReasoningEffort,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
   supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
-  it("uses High as the default and never exposes legacy Auto", () => {
-    expect(DEFAULT_REASONING_EFFORT).toBe("high");
+  it("leaves effort unset by default and never offers Auto as a level", () => {
+    expect(DEFAULT_REASONING_EFFORT).toBe("auto");
+    expect(isUnsetReasoningEffort(DEFAULT_REASONING_EFFORT)).toBe(true);
+    expect(isUnsetReasoningEffort("high")).toBe(false);
     expect(getReasoningEffortOptionsForModel("claude-sonnet-5")).not.toContain(
       "auto",
     );
-    expect(reasoningEffortLabel("auto")).toBe("High");
+    expect(reasoningEffortLabel("auto")).toBe("Auto");
   });
 
   it("includes xhigh for claude-opus-4-7", () => {
@@ -110,11 +113,14 @@ describe("normalizeReasoningEffortForModel", () => {
     );
   });
 
-  it("normalizes legacy auto and missing effort to high", () => {
-    expect(normalizeReasoningEffortForModel("claude-opus-4-8", "auto")).toBe(
-      "high",
-    );
-    expect(normalizeReasoningEffortForModel("claude-opus-4-8", undefined)).toBe(
+  it("sends no effort for auto or a missing effort", () => {
+    expect(
+      normalizeReasoningEffortForModel("claude-opus-4-8", "auto"),
+    ).toBeUndefined();
+    expect(
+      normalizeReasoningEffortForModel("claude-opus-4-8", undefined),
+    ).toBeUndefined();
+    expect(normalizeReasoningEffortForModel("claude-opus-4-8", "high")).toBe(
       "high",
     );
   });
@@ -130,12 +136,12 @@ describe("normalizeReasoningEffortForModel", () => {
 });
 
 describe("resolveReasoningEffortSelection", () => {
-  it("migrates legacy auto and missing selections to high", () => {
+  it("keeps auto and missing selections unset", () => {
     expect(resolveReasoningEffortSelection("claude-sonnet-5", "auto")).toBe(
-      "high",
+      "auto",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-5", undefined)).toBe(
-      "high",
+      "auto",
     );
   });
 
@@ -144,7 +150,7 @@ describe("resolveReasoningEffortSelection", () => {
       "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
-      "high",
+      "auto",
     );
   });
 });
@@ -159,10 +165,13 @@ describe("normalizeReasoningEffortForRequest", () => {
     ).toBe("minimal");
   });
 
-  it("uses High when the request omits an effort", () => {
+  it("sends no effort when the request omits one", () => {
     expect(
       normalizeReasoningEffortForRequest("claude-sonnet-5", undefined),
-    ).toBe("high");
+    ).toBeUndefined();
+    expect(
+      normalizeReasoningEffortForRequest("claude-sonnet-5", "auto"),
+    ).toBeUndefined();
   });
 });
 

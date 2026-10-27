@@ -19,7 +19,12 @@ on:
         required: true
         type: string
 
-permissions: {}
+permissions:
+  actions: read
+  checks: read
+  contents: read
+  pull-requests: read
+  statuses: read
 
 concurrency:
   group: auto-merge-version-packages-${{ github.event.pull_request.number || inputs.pull_request_number }}
@@ -97,22 +102,29 @@ jobs:
           fi
 
       - name: Wait for required release PR checks
+        id: required-checks
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
         run: |
           set -euo pipefail
-          gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 15
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are missing or not green; refusing admin-merge." >&2
-            exit 1
-          fi
+          coordinator_run_id=$(node --experimental-strip-types scripts/release-required-checks.ts wait "$PR_NUMBER" "$REPO")
+          echo "coordinator_run_id=$coordinator_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Generate fresh merge token
+        id: merge-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
       - name: Verify release-only diff
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -210,7 +222,7 @@ jobs:
 
       - name: Verify community QR template pins
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
@@ -219,126 +231,24 @@ jobs:
 
       - name: Refuse unattended major promotions
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const { execFileSync } = require("node:child_process");
-
-          const repo = process.env.REPO;
-          const gh = (args) =>
-            execFileSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-
-          /** Read one package.json at a ref, or null when it does not exist there. */
-          function versionAt(file, ref) {
-            let response;
-            try {
-              response = JSON.parse(
-                gh(["api", `repos/${repo}/contents/${file}?ref=${ref}`]),
-              );
-            } catch (error) {
-              const stderr =
-                error && typeof error === "object" && "stderr" in error
-                  ? String(error.stderr)
-                  : "";
-              if (/HTTP 404\b/.test(stderr)) return null;
-              throw new Error(`Could not read ${file} at ${ref}: ${stderr || error}`);
-            }
-            if (!response || typeof response !== "object") {
-              throw new Error(`GitHub returned invalid content for ${file} at ${ref}`);
-            }
-            const { encoding, content, size } = response;
-            if (encoding !== "base64" || typeof content !== "string" || !content.trim()) {
-              throw new Error(`GitHub returned unreadable content for ${file} at ${ref}`);
-            }
-            const encoded = content.replace(/\s/g, "");
-            if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-              throw new Error(`GitHub returned invalid base64 for ${file} at ${ref}`);
-            }
-            const bytes = Buffer.from(encoded, "base64");
-            if (!Number.isSafeInteger(size) || bytes.length === 0 || bytes.length !== size) {
-              throw new Error(`GitHub returned incomplete content for ${file} at ${ref}`);
-            }
-            const text = bytes.toString("utf8");
-            let parsed;
-            try {
-              parsed = JSON.parse(text);
-            } catch {
-              throw new Error(`${file} at ${ref} is not valid JSON`);
-            }
-            return typeof parsed.version === "string" ? parsed.version : null;
-          }
-
-          const versionParts = (version) => {
-            const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-            if (!match) throw new Error(`unparseable version "${version}"`);
-            return match.slice(1).map(Number);
-          };
-
-          const files = JSON.parse(gh([
-            "api", "--paginate", "--slurp", `repos/${repo}/pulls/${process.env.PR_NUMBER}/files`,
-            "--jq", 'add | map(select(.filename == "package.json" or (.filename | endswith("/package.json"))) | {filename, status})',
-          ]));
-          if (!Array.isArray(files) || files.some((file) =>
-            !file || typeof file.filename !== "string" || typeof file.status !== "string"
-          )) {
-            throw new Error("GitHub returned an invalid release PR file list");
-          }
-
-          const promotions = [];
-          for (const { filename: file, status } of files) {
-            const before = versionAt(file, process.env.BASE_SHA);
-            const after = versionAt(file, process.env.HEAD_SHA);
-            if (status === "added") {
-              if (before !== null || after === null) {
-                throw new Error(`Could not verify added package manifest ${file}`);
-              }
-              continue;
-            }
-            if (status === "removed") {
-              if (before === null || after !== null) {
-                throw new Error(`Could not verify removed package manifest ${file}`);
-              }
-              continue;
-            }
-            if (status !== "modified" || before === null || after === null) {
-              throw new Error(`Could not verify package manifest versions for ${file}`);
-            }
-            if (before === after) continue;
-            const beforeParts = versionParts(before);
-            const afterParts = versionParts(after);
-            const majorPromotion = afterParts[0] > beforeParts[0];
-            if (majorPromotion) {
-              promotions.push(`${file}: ${before} -> ${after}`);
-            }
-          }
-
-          if (promotions.length > 0) {
-            console.error(
-              "::error::This release PR contains a forbidden major promotion:\n" +
-                promotions.map((line) => `  ${line}`).join("\n") +
-                "\nMajor promotions remain human-only. Leaving the PR open for deliberate release handling.",
-            );
-            process.exit(1);
-          }
-          console.log(
-            files.length > 0
-              ? `No forbidden promotion in ${files.length} changed package.json file(s).`
-              : "No package.json changes in this release PR.",
-          );
-          NODE
+        run: node --experimental-strip-types scripts/verify-release-package-version-changes.ts
 
       - name: Revalidate release PR before merge
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! gh api "repos/$REPO/pulls/$PR_NUMBER" | jq -e \
@@ -355,19 +265,19 @@ jobs:
             echo "::error::Release PR changed during validation; refusing admin-merge." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
 
       - name: Force-merge with admin bypass
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           BASE_SHA: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ inputs.pull_request_number || github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at || '' }}
+          EXPECTED_COORDINATOR_RUN_ID: ${{ steps.required-checks.outputs.coordinator_run_id }}
+          GH_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           pull_request=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
@@ -389,9 +299,5 @@ jobs:
             echo "::error::Main advanced after validation; refusing to merge against an unvalidated base." >&2
             exit 1
           fi
-          checks=$(gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,bucket)
-          if ! jq -e 'length > 0 and all(.[]; .bucket == "pass" or .bucket == "skipping")' <<< "$checks" >/dev/null; then
-            echo "::error::Required release PR checks are no longer green; refusing admin-merge." >&2
-            exit 1
-          fi
+          node --experimental-strip-types scripts/release-required-checks.ts verify "$PR_NUMBER" "$REPO"
           gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

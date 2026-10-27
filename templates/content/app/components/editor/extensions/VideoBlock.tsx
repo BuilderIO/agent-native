@@ -230,12 +230,20 @@ export function VideoBlock({
       document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [selected, setSourcePanelOpen, sourcePanelOpen]);
 
+  function canComment() {
+    const position = typeof getPos === "function" ? getPos() : undefined;
+    return (
+      !!options.onVideoComment &&
+      typeof position === "number" &&
+      (options.canCommentOnVideo?.(editor.view, position) ?? true)
+    );
+  }
+
   function handleComment() {
     if (!options.onVideoComment) return;
     const position = typeof getPos === "function" ? getPos() : undefined;
-    const coords = editor.view.coordsAtPos(
-      typeof position === "number" ? position : editor.state.selection.from,
-    );
+    if (typeof position !== "number") return;
+    const coords = editor.view.coordsAtPos(position);
     const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
     const scrollContainer = wrapper?.closest(".flex-1.min-h-0.overflow-auto");
     const containerTop = scrollContainer
@@ -243,7 +251,7 @@ export function VideoBlock({
       : 0;
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
-    options.onVideoComment(t("editor.media.video"), offsetTop);
+    options.onVideoComment(editor.view, position, offsetTop);
   }
 
   function openReplacePanel() {
@@ -651,19 +659,21 @@ export function VideoBlock({
                 event.preventDefault();
               }}
             >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleComment}
-                    className="media-block__toolbar-btn"
-                    aria-label={t("editor.media.commentOnVideo")}
-                  >
-                    <IconMessageCircle size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("editor.comment")}</TooltipContent>
-              </Tooltip>
+              {canComment() ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleComment}
+                      className="media-block__toolbar-btn"
+                      aria-label={t("editor.media.commentOnVideo")}
+                    >
+                      <IconMessageCircle size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("editor.comment")}</TooltipContent>
+                </Tooltip>
+              ) : null}
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -805,7 +815,7 @@ export function VideoBlock({
               </Popover>
             </div>
           </>
-        ) : editor.isEditable && options.onVideoComment ? (
+        ) : canComment() ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}

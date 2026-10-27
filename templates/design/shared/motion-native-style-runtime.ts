@@ -19,6 +19,7 @@ import {
 import {
   isMotionPathSegmentV1,
   MOTION_TIMELINE_MAX_CONTENT_END_MS,
+  MOTION_TIMELINE_MAX_DURATION_MS,
   type MotionTrack,
   parseMotionPosition,
 } from "./motion-timeline";
@@ -681,6 +682,7 @@ export class MotionNativeStyleRuntimeError extends Error {
 export function motionNativeStyleWithPositionTrack(
   style: MotionNativeStyleInstance,
   updatedTrack: MotionTrack,
+  timelineDurationMs?: number | null,
 ): MotionNativeStyleInstance {
   if (
     style.styleKey !== "Position" ||
@@ -723,12 +725,19 @@ export function motionNativeStyleWithPositionTrack(
     startFrame.value !== originalTrack.keyframes[0]?.value ||
     endFrame.value !== originalTrack.keyframes[1]?.value
   ) {
-    props.type = "custom";
-    props.axis = "xy";
-    props.startX = start.x;
-    props.startY = start.y;
-    props.endX = end.x;
-    props.endY = end.y;
+    const preset = positionPresetFromEndpoints(style, start, end);
+    if (preset) {
+      props.type = preset.type;
+      props.direction = preset.direction;
+      props.distance = preset.distance;
+    } else {
+      props.type = "custom";
+      props.axis = "xy";
+      props.startX = start.x;
+      props.startY = start.y;
+      props.endX = end.x;
+      props.endY = end.y;
+    }
   }
 
   if (startFrame.motionPath) {
@@ -754,12 +763,108 @@ export function motionNativeStyleWithPositionTrack(
     delete props.motionPath;
   }
 
-  return { ...style, props };
+  return motionNativeStyleWithTrackTiming(
+    { ...style, props },
+    originalTrack,
+    updatedTrack,
+    timelineDurationMs,
+  );
+}
+
+export function motionNativeStyleWithScaleTrack(
+  style: MotionNativeStyleInstance,
+  updatedTrack: MotionTrack,
+  timelineDurationMs?: number | null,
+): MotionNativeStyleInstance {
+  if (
+    style.styleKey !== "Scale" ||
+    updatedTrack.property !== "scale" ||
+    updatedTrack.targetNodeId !== style.targetNodeId
+  ) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Imported Scale edits must target their source Scale style.",
+    );
+  }
+
+  const [originalTrack] = scaleTracks(style);
+  const [startFrame, endFrame] = updatedTrack.keyframes;
+  if (
+    updatedTrack.keyframes.length !== 2 ||
+    startFrame?.t !== 0 ||
+    endFrame?.t !== 1 ||
+    !startFrame ||
+    !endFrame ||
+    startFrame.motionPath ||
+    endFrame.motionPath
+  ) {
+    throw new MotionNativeStyleRuntimeError(
+      "unsupported-style",
+      "Imported Scale edits must keep the two source endpoints.",
+    );
+  }
+
+  const start = parseMotionScale(startFrame.value);
+  const end = parseMotionScale(endFrame.value);
+  if (!start || !end) {
+    throw new MotionNativeStyleRuntimeError(
+      "invalid-style-props",
+      "Imported Scale endpoints must remain finite unitless values on one or two axes.",
+    );
+  }
+
+  const props = { ...style.props };
+  if (
+    startFrame.value !== originalTrack.keyframes[0]?.value ||
+    endFrame.value !== originalTrack.keyframes[1]?.value
+  ) {
+    const type = text(props.type, "scaleIn");
+    if (
+      type === "scaleIn" &&
+      start[0] === start[1] &&
+      end[0] === 1 &&
+      end[1] === 1
+    ) {
+      props.amount = start[0] * 100;
+    } else if (
+      type === "scaleOut" &&
+      start[0] === 1 &&
+      start[1] === 1 &&
+      end[0] === end[1]
+    ) {
+      props.amount = end[0] * 100;
+    } else {
+      const axis =
+        start[1] === 1 && end[1] === 1
+          ? "w"
+          : start[0] === 1 && end[0] === 1
+            ? "h"
+            : "whCombined";
+      props.type = "custom";
+      props.axis = axis;
+      if (axis !== "h") {
+        props.wStartWithDivider = start[0] * 100;
+        props.wEndWithoutDivider = end[0] * 100;
+      }
+      if (axis !== "w") {
+        props.hStartWithDivider = start[1] * 100;
+        props.hEndWithoutDivider = end[1] * 100;
+      }
+    }
+  }
+
+  return motionNativeStyleWithTrackTiming(
+    { ...style, props },
+    originalTrack,
+    updatedTrack,
+    timelineDurationMs,
+  );
 }
 
 export function motionNativeStyleWithPathTrimTrack(
   style: MotionNativeStyleInstance,
   updatedTrack: MotionTrack,
+  timelineDurationMs?: number | null,
 ): MotionNativeStyleInstance {
   if (
     style.styleKey !== "Path" ||
@@ -809,7 +914,116 @@ export function motionNativeStyleWithPathTrimTrack(
     props.pathStartEndWithoutDivider = end.start;
     props.pathEndEndFrame = end.end;
   }
-  return { ...style, props };
+  return motionNativeStyleWithTrackTiming(
+    { ...style, props },
+    pathTrimTracks(style)[0]!,
+    updatedTrack,
+    timelineDurationMs,
+  );
+}
+
+function motionNativeStyleWithTrackTiming(
+  style: MotionNativeStyleInstance,
+  originalTrack: MotionTrack,
+  updatedTrack: MotionTrack,
+  timelineDurationMs?: number | null,
+): MotionNativeStyleInstance {
+  const props = { ...style.props };
+  let duration = style.duration;
+  const durationMs =
+    updatedTrack.durationMs ??
+    timelineDurationMs ??
+    originalTrack.durationMs ??
+    Math.round(style.duration * 1000);
+  if (durationMs !== originalTrack.durationMs) {
+    if (
+      !Number.isFinite(durationMs) ||
+      durationMs <= 0 ||
+      durationMs > MOTION_TIMELINE_MAX_DURATION_MS
+    ) {
+      throw new MotionNativeStyleRuntimeError(
+        "invalid-style-props",
+        "Imported animation duration must remain greater than 0 and at most 120 seconds.",
+      );
+    }
+    duration = durationMs / 1000;
+  }
+
+  const originalDelayMs = originalTrack.delayMs ?? 0;
+  const updatedDelayMs = updatedTrack.delayMs ?? 0;
+  if (updatedDelayMs !== originalDelayMs) {
+    const delay = updatedDelayMs / 1000 - style.timelineOffset;
+    if (!Number.isFinite(delay) || delay < 0) {
+      throw new MotionNativeStyleRuntimeError(
+        "invalid-style-props",
+        "Imported animation delay must remain at or after its timeline offset so the native delay is non-negative.",
+      );
+    }
+    props.delay = delay;
+  }
+
+  const originalEase = originalTrack.keyframes[0]?.ease;
+  const updatedEase = updatedTrack.keyframes[0]?.ease;
+  if (updatedEase !== undefined && updatedEase !== originalEase) {
+    props.easing = updatedEase;
+  }
+
+  return { ...style, duration, props };
+}
+
+function positionPresetFromEndpoints(
+  style: MotionNativeStyleInstance,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): {
+  type: "slide_in" | "slide_out";
+  direction: string;
+  distance: number;
+} | null {
+  const type = text(style.props.type, "slide_in");
+  if (type !== "slide_in" && type !== "slide_out") return null;
+
+  const offset = type === "slide_in" ? start : end;
+  const stationary = type === "slide_in" ? end : start;
+  if (stationary.x !== 0 || stationary.y !== 0) return null;
+
+  const distance = Math.max(Math.abs(offset.x), Math.abs(offset.y));
+  if (distance === 0) {
+    return {
+      type,
+      direction: text(style.props.direction, "left"),
+      distance,
+    };
+  }
+  for (const [direction, vector] of Object.entries(
+    POSITION_DIRECTION_VECTORS,
+  )) {
+    if (
+      offset.x === vector[0] * distance &&
+      offset.y === vector[1] * distance
+    ) {
+      return { type, direction, distance };
+    }
+  }
+  return null;
+}
+
+function parseMotionScale(value: string): [number, number] | null {
+  const parts = value.trim().split(/\s+/);
+  if (parts.length < 1 || parts.length > 2) return null;
+  const number = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+  if (parts.some((part) => !number.test(part))) return null;
+  const x = Number(parts[0]);
+  const y = parts.length === 2 ? Number(parts[1]) : x;
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    Math.abs(x) > 1_000_000 ||
+    Math.abs(y) > 1_000_000
+  ) {
+    return null;
+  }
+  return [x, y];
 }
 
 function pathTrimTracks(style: MotionNativeStyleInstance): MotionTrack[] {
@@ -1494,18 +1708,19 @@ function text(
   return value;
 }
 
+const POSITION_DIRECTION_VECTORS: Record<string, [number, number]> = {
+  left: [-1, 0],
+  right: [1, 0],
+  top: [0, -1],
+  bottom: [0, 1],
+  top_left: [-1, -1],
+  top_right: [1, -1],
+  bottom_left: [-1, 1],
+  bottom_right: [1, 1],
+};
+
 function directionVector(direction: string): [number, number] {
-  const vectors: Record<string, [number, number]> = {
-    left: [-1, 0],
-    right: [1, 0],
-    top: [0, -1],
-    bottom: [0, 1],
-    top_left: [-1, -1],
-    top_right: [1, -1],
-    bottom_left: [-1, 1],
-    bottom_right: [1, 1],
-  };
-  const vector = vectors[direction];
+  const vector = POSITION_DIRECTION_VECTORS[direction];
   if (!vector) invalid(`Unsupported Position direction "${direction}".`);
   return vector;
 }

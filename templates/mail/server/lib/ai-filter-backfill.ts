@@ -35,10 +35,12 @@ import {
   AI_FILTER_LABEL,
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
+  type AiFilterDecisionFailureReason,
   type AiFilterPreviewEmail,
   type AiFilterPreviewRule,
   type AiFilterDecision,
   type AiFilterState,
+  getAiFilterThreshold,
   createDefaultAiFilterState,
 } from "../../shared/ai-filter.js";
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
@@ -104,7 +106,17 @@ type BackfillCandidate = {
   messageIds: string[];
 };
 
-type StoredMatch = Pick<RuleMatch, "ruleId" | "confidence" | "reason">;
+type StoredMatch = Pick<
+  RuleMatch,
+  "ruleId" | "confidence" | "reason" | "provider" | "model"
+>;
+type StoredDecisionFailure = {
+  emailId: string;
+  accountEmail?: string;
+  ruleId: string;
+  reason: AiFilterDecisionFailureReason;
+  retryable?: boolean;
+};
 type BackfillAiFilterSettings = Pick<
   AiFilterState,
   "autoFilter" | "autoFilterThreshold" | "suggestionThreshold" | "feedback"
@@ -134,6 +146,9 @@ type BackfillState = {
   candidates: BackfillCandidate[];
   candidateIndex: number;
   evaluations: Record<string, StoredMatch[]>;
+  evaluatedCount?: number;
+  failedCount?: number;
+  decisionFailures?: StoredDecisionFailure[];
   processedIds: string[];
   seenMatchIds: string[];
   pendingDecisions: AiFilterDecision[];
@@ -266,6 +281,9 @@ function emptyState(
     candidates: [],
     candidateIndex: 0,
     evaluations: {},
+    evaluatedCount: 0,
+    failedCount: 0,
+    decisionFailures: [],
     processedIds: [],
     seenMatchIds: [],
     pendingDecisions: [],
@@ -294,8 +312,10 @@ function parseState(raw: string): BackfillState {
     state.version !== 1 ||
     !state.aiFilterSettings ||
     typeof state.aiFilterSettings.autoFilter !== "boolean" ||
-    !Number.isFinite(state.aiFilterSettings.autoFilterThreshold) ||
-    !Number.isFinite(state.aiFilterSettings.suggestionThreshold) ||
+    (state.aiFilterSettings.autoFilterThreshold !== undefined &&
+      !Number.isFinite(state.aiFilterSettings.autoFilterThreshold)) ||
+    (state.aiFilterSettings.suggestionThreshold !== undefined &&
+      !Number.isFinite(state.aiFilterSettings.suggestionThreshold)) ||
     !Array.isArray(state.aiFilterSettings.feedback) ||
     !Array.isArray(state.rules) ||
     !Array.isArray(state.candidates) ||
@@ -316,7 +336,77 @@ function parseState(raw: string): BackfillState {
   ) {
     throw new Error("Mail AI backfill progress is unreadable.");
   }
+  state.evaluatedCount ??= 0;
+  state.failedCount ??= 0;
+  state.decisionFailures ??= [];
   return state;
+}
+
+function rewindFailedDecisionEvaluations(state: BackfillState): void {
+  const failures = state.decisionFailures ?? [];
+  if (failures.length === 0) return;
+
+  const failureCounts = new Map<string, number>();
+  for (const failure of failures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    failureCounts.set(key, (failureCounts.get(key) ?? 0) + 1);
+  }
+  const failedCandidates = state.candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      key: aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+    }))
+    .filter(({ key }) => failureCounts.has(key));
+  if (failedCandidates.length === 0) return;
+
+  let evaluatedToRemove = 0;
+  let failuresToRemove = 0;
+  for (const { candidate, key } of failedCandidates) {
+    if (
+      Object.prototype.hasOwnProperty.call(state.evaluations, candidate.key)
+    ) {
+      evaluatedToRemove += Math.max(
+        0,
+        state.rules.length - (failureCounts.get(key) ?? 0),
+      );
+      delete state.evaluations[candidate.key];
+    }
+    failuresToRemove += failureCounts.get(key) ?? 0;
+    state.failedKeys = state.failedKeys.filter(
+      (failedKey) => failedKey !== candidate.key,
+    );
+  }
+  const firstFailedCandidate = Math.min(
+    ...failedCandidates.map(({ index }) => index),
+  );
+  const failedCandidateEmailKeys = new Set(
+    failedCandidates.map(({ key }) => key),
+  );
+  state.candidateIndex = Math.min(state.candidateIndex, firstFailedCandidate);
+  state.processedThreads = Math.min(
+    state.processedThreads,
+    state.candidateIndex,
+  );
+  state.evaluatedCount = Math.max(
+    0,
+    (state.evaluatedCount ?? 0) - evaluatedToRemove,
+  );
+  state.failedCount = Math.max(0, (state.failedCount ?? 0) - failuresToRemove);
+  state.decisionFailures = failures.filter(
+    (failure) =>
+      !failedCandidateEmailKeys.has(
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      ),
+  );
+  if (
+    state.decisionFailures.length === 0 &&
+    state.failedKeys.length === 0 &&
+    state.undoFailedKeys.length === 0 &&
+    !state.error
+  ) {
+    delete state.incompleteCoverage;
+  }
 }
 
 export function sanitizeBackfillError(error: unknown): string {
@@ -445,6 +535,12 @@ function resultStatus(
   row: BackfillRow,
   state: BackfillState,
 ): AiFilterBackfillStatus {
+  const failedThreadKeys = new Set(state.failedKeys);
+  for (const failure of state.decisionFailures ?? []) {
+    failedThreadKeys.add(
+      JSON.stringify([failure.accountEmail ?? "", failure.emailId]),
+    );
+  }
   return {
     runId: row.id,
     status: row.status as BackfillStatus,
@@ -452,7 +548,12 @@ function resultStatus(
     processedThreads: state.processedThreads,
     matchedThreads: state.matchedThreadKeys.length,
     appliedThreads: state.appliedThreadKeys.length,
-    failedThreads: state.failedKeys.length,
+    failedThreads: failedThreadKeys.size,
+    evaluatedCount: state.evaluatedCount ?? 0,
+    failedCount: state.failedCount ?? 0,
+    ...(state.decisionFailures?.length
+      ? { decisionFailures: state.decisionFailures }
+      : {}),
     ...(row.status === "undone" || row.status === "failed"
       ? { restoredThreads: state.restoredThreads }
       : {}),
@@ -622,6 +723,7 @@ export async function startMailAiFilterBackfill(
     });
     if (failedRun) {
       const previous = parseState(failedRun.stateJson);
+      rewindFailedDecisionEvaluations(previous);
       previous.retryCount = 0;
       delete previous.retryAfterAt;
       if (!previous.incompleteCoverage) delete previous.error;
@@ -1641,16 +1743,34 @@ function shouldApply(
   aiFilterState: AiFilterState,
 ): "apply" | "suggest" | "ignore" {
   const archiving = rule.actions.some((action) => action.type === "archive");
+  const provider = match.provider ?? "jev";
   if (archiving) {
-    if (match.confidence >= aiFilterState.suggestionThreshold) {
+    if (
+      match.confidence >=
+      getAiFilterThreshold(
+        provider,
+        "suggestion",
+        aiFilterState.suggestionThreshold,
+      )
+    ) {
       return aiFilterState.autoFilter &&
-        match.confidence >= aiFilterState.autoFilterThreshold
+        match.confidence >=
+          getAiFilterThreshold(
+            provider,
+            "auto",
+            aiFilterState.autoFilterThreshold,
+          )
         ? "apply"
         : "suggest";
     }
     return "ignore";
   }
-  return match.confidence >= aiFilterState.suggestionThreshold
+  return match.confidence >=
+    getAiFilterThreshold(
+      provider,
+      "suggestion",
+      aiFilterState.suggestionThreshold,
+    )
     ? "apply"
     : "ignore";
 }
@@ -1697,22 +1817,74 @@ async function ensureEvaluations(
   claimId: string,
   state: BackfillState,
 ): Promise<boolean> {
+  const terminalFailureKeys = new Set(
+    (state.decisionFailures ?? [])
+      .filter((failure) => !failure.retryable)
+      .map((failure) =>
+        aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+      ),
+  );
+  const retryableFailureKeys = new Set<string>();
+  for (const failure of state.decisionFailures ?? []) {
+    if (failure.retryable) {
+      const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+      terminalFailureKeys.delete(key);
+      retryableFailureKeys.add(key);
+    }
+  }
   const batch = state.candidates
     .slice(state.candidateIndex, state.candidateIndex + THREADS_PER_TICK)
-    .filter((candidate) => matchedForCandidate(candidate, state) === undefined);
+    .filter((candidate) => {
+      const key = aiPriorityEmailKey(
+        candidate.accountEmail,
+        candidate.email.id,
+      );
+      return (
+        !terminalFailureKeys.has(key) &&
+        (matchedForCandidate(candidate, state) === undefined ||
+          retryableFailureKeys.has(key))
+      );
+    });
   if (batch.length === 0) return true;
-  const matchMap = await evaluateAiFilterBackfillRules(
+  const evaluation = await evaluateAiFilterBackfillRules(
     batch.map((candidate) => candidate.email),
     state.rules,
     ownerEmail,
-    {
-      ...createDefaultAiFilterState(),
-      ...state.aiFilterSettings,
-    },
+    state.aiFilterSettings.feedback,
   );
+  const matchMap = evaluation.matches;
   if (matchMap.size !== batch.length) {
     throw new Error("Mail AI-filter evaluation did not classify every thread.");
   }
+  const previousFailures = state.decisionFailures ?? [];
+  const evaluatedEmailKeys = new Set(
+    batch.map((candidate) =>
+      aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
+    ),
+  );
+  const previousMatchedRuleIdsByEmail = new Map<string, Set<string>>();
+  for (const candidate of batch) {
+    const key = aiPriorityEmailKey(candidate.accountEmail, candidate.email.id);
+    const ruleIds = new Set(
+      (state.evaluations[candidate.key] ?? []).map((match) => match.ruleId),
+    );
+    if (ruleIds.size > 0) previousMatchedRuleIdsByEmail.set(key, ruleIds);
+  }
+  const failedRuleIdsByEmail = new Map<string, Set<string>>();
+  for (const failure of evaluation.failures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    const ruleIds = failedRuleIdsByEmail.get(key) ?? new Set<string>();
+    ruleIds.add(failure.ruleId);
+    failedRuleIdsByEmail.set(key, ruleIds);
+  }
+  const failures = evaluation.failures.filter(
+    (failure) =>
+      !previousMatchedRuleIdsByEmail
+        .get(aiPriorityEmailKey(failure.accountEmail, failure.emailId))
+        ?.has(failure.ruleId),
+  );
+  const retainedMatchFailureCount =
+    evaluation.failures.length - failures.length;
   const evaluations = batch.map((candidate) => {
     const matches = matchMap.get(
       aiPriorityEmailKey(candidate.accountEmail, candidate.email.id),
@@ -1722,19 +1894,90 @@ async function ensureEvaluations(
         "Mail AI-filter evaluation did not classify every thread.",
       );
     }
-    return [
-      candidate.key,
-      matches.map(({ ruleId, confidence, reason }) => ({
-        ruleId,
-        confidence,
-        ...(reason ? { reason } : {}),
-      })),
-    ] as const;
+    // Keep prior positives only for rules that failed again on this retry.
+    const mergedMatches = new Map<string, StoredMatch>(
+      (state.evaluations[candidate.key] ?? [])
+        .filter((match) =>
+          failedRuleIdsByEmail
+            .get(aiPriorityEmailKey(candidate.accountEmail, candidate.email.id))
+            ?.has(match.ruleId),
+        )
+        .map((match) => [match.ruleId, match]),
+    );
+    for (const match of matches) {
+      mergedMatches.set(match.ruleId, {
+        ruleId: match.ruleId,
+        confidence: match.confidence,
+        ...(match.provider ? { provider: match.provider } : {}),
+        ...(match.model ? { model: match.model } : {}),
+        ...(match.reason ? { reason: match.reason } : {}),
+      });
+    }
+    return [candidate.key, Array.from(mergedMatches.values())] as const;
   });
+  const previousFailureCounts = new Map<string, number>();
+  for (const failure of previousFailures) {
+    const key = aiPriorityEmailKey(failure.accountEmail, failure.emailId);
+    if (!evaluatedEmailKeys.has(key)) continue;
+    previousFailureCounts.set(key, (previousFailureCounts.get(key) ?? 0) + 1);
+  }
+  const replacedEvaluationCount = batch.reduce((count, candidate) => {
+    if (!Object.prototype.hasOwnProperty.call(state.evaluations, candidate.key))
+      return count;
+    const key = aiPriorityEmailKey(candidate.accountEmail, candidate.email.id);
+    return (
+      count +
+      Math.max(0, state.rules.length - (previousFailureCounts.get(key) ?? 0))
+    );
+  }, 0);
   for (const [key, matches] of evaluations) {
     state.evaluations[key] = matches;
   }
-  return saveRunState(row.id, claimId, state, "running");
+  state.evaluatedCount =
+    Math.max(0, (state.evaluatedCount ?? 0) - replacedEvaluationCount) +
+    evaluation.evaluatedCount +
+    retainedMatchFailureCount;
+  const replacedFailureCount = previousFailures.filter((failure) =>
+    evaluatedEmailKeys.has(
+      aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+    ),
+  ).length;
+  state.failedCount =
+    Math.max(0, (state.failedCount ?? 0) - replacedFailureCount) +
+    failures.length;
+  state.decisionFailures = [
+    ...(state.decisionFailures ?? []).filter(
+      (failure) =>
+        !evaluatedEmailKeys.has(
+          aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+        ),
+    ),
+    ...failures,
+  ];
+  if (!failures.some((failure) => failure.retryable)) {
+    state.retryCount = 0;
+    delete state.retryAfterAt;
+  }
+  if (state.decisionFailures.length > 0) {
+    state.incompleteCoverage = true;
+  } else if (
+    state.failedKeys.length === 0 &&
+    state.undoFailedKeys.length === 0 &&
+    !state.error
+  ) {
+    delete state.incompleteCoverage;
+  }
+  const saved = await saveRunState(row.id, claimId, state, "running");
+  if (!saved) return false;
+  if (
+    failures.some((failure) => failure.retryable) &&
+    (state.retryCount ?? 0) < MAX_BACKFILL_RETRIES
+  ) {
+    const error = new Error("Mail AI-filter decision failed temporarily.");
+    Object.assign(error, { retryable: true });
+    throw error;
+  }
+  return true;
 }
 
 async function processRunningBatch(

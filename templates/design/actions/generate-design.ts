@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -65,6 +66,8 @@ import {
   inspectDesignHtmlDocumentIntegrity,
   isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
+import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { derivePromptTitle } from "../shared/prompt-title.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -77,7 +80,7 @@ import {
   getScreenPreviewViewport,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
-import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -113,6 +116,27 @@ function isRenderableDesignScreenFile(file: {
   content?: string | null;
 }): boolean {
   return isOverviewScreenFile(file) && isRenderableDesignFile(file);
+}
+
+function noWriteValidationError(error: unknown): NoWriteError {
+  if (error instanceof NoWriteError) return error;
+  const contractError =
+    typeof error === "object" && error !== null
+      ? (error as { errorCode?: unknown; statusCode?: unknown })
+      : undefined;
+  return new NoWriteError(
+    error instanceof Error
+      ? error.message
+      : "Design generation validation failed before saving.",
+    {
+      ...(typeof contractError?.errorCode === "string"
+        ? { errorCode: contractError.errorCode }
+        : {}),
+      ...(typeof contractError?.statusCode === "number"
+        ? { statusCode: contractError.statusCode }
+        : {}),
+    },
+  );
 }
 
 type GenerationViewport = "mobile" | "tablet" | "desktop";
@@ -282,7 +306,7 @@ async function resolveDesignCreativeContext(input: {
       input.contextPackId !== undefined &&
       input.contextPackId !== sessionContext.contextPackId
     ) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design must preserve the generation session's creative-context pack",
       );
     }
@@ -454,8 +478,9 @@ const generateDesignAgentParameters = {
     files: {
       type: "string",
       description:
-        "JSON array of files to save. Pass one compact, complete, renderable index.html first, e.g. " +
+        "JSON array of files to save. Pass one compact, complete, renderable index.html first, with a flat layer tree (no single-child wrapper divs) and whole-pixel lengths, e.g. " +
         '[{"filename":"index.html","fileType":"html","content":"<!doctype html>..."}]. ' +
+        'For HubSpot email HTML author email-safe tables; optional frameType:"hubspot-email" requires its internal meta marker but is not required for export. ' +
         "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.",
     },
     designSystemId: {
@@ -567,7 +592,7 @@ const generateDesignAction = defineAction({
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
-    "overview canvas.",
+    "overview canvas. For HubSpot email output, author email-safe table HTML without browser runtimes; optional frameType hubspot-email requires its internal meta marker. Any HTML frame can be validated with export-hubspot-html before reporting compatibility.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z
@@ -584,6 +609,12 @@ const generateDesignAction = defineAction({
             z.object({
               filename: z.string().describe("Filename (e.g. 'index.html')"),
               content: z.string().min(1).describe("File content"),
+              frameType: z
+                .literal("hubspot-email")
+                .optional()
+                .describe(
+                  "Optional internal email authoring type; when supplied, include its meta marker and email-safe HTML. Any HTML frame can be validated and exported with export-hubspot-html.",
+                ),
               fileType: z
                 .enum(["html", "css", "jsx", "asset"])
                 .optional()
@@ -629,7 +660,12 @@ const generateDesignAction = defineAction({
                 y: z.number().optional(),
                 width: z.number().optional(),
                 height: z.number().optional(),
-                rotation: z.number().optional(),
+                rotation: z
+                  .number()
+                  .optional()
+                  .describe(
+                    "Degrees. Omit unless the user asked for a rotated screen.",
+                  ),
                 z: z.number().optional(),
               })
               .refine((frame) => frame.fileId || frame.filename, {
@@ -789,18 +825,9 @@ const generateDesignAction = defineAction({
           : {}),
       },
     });
-    await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
-    const creativeContextProvenance = await resolveDesignCreativeContext({
-      prompt,
-      generationSession,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels,
-    });
-
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -810,7 +837,7 @@ const generateDesignAction = defineAction({
         file.filename.includes("/") ||
         file.filename.includes("\\")
       ) {
-        throw new Error(
+        throw new NoWriteError(
           `Invalid filename "${file.filename}": path traversal not allowed`,
         );
       }
@@ -832,23 +859,80 @@ const generateDesignAction = defineAction({
       files.some(isRenderableDesignFile) ||
       existingFiles.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
-      throw new Error(
+      throw new NoWriteError(
         "generate-design requires at least one non-empty HTML or JSX file before the design can be reported as ready",
       );
     }
 
-    await mutateDesignData({
-      designId,
-      mutate: (current) => current,
-      isApplied: () => true,
+    const creativeContextProvenance = await resolveDesignCreativeContext({
+      prompt,
+      generationSession,
+      ...(contextPackId ? { contextPackId } : {}),
+      ...(contextModeOverride ? { contextModeOverride } : {}),
+      reuseLabels: reuseLabels.map(
+        ({
+          itemId,
+          itemVersionId,
+          kind,
+          label,
+          dataRole,
+          elementId,
+          influence,
+        }) => ({
+          ...(itemId ? { itemId } : {}),
+          ...(itemVersionId ? { itemVersionId } : {}),
+          kind,
+          label,
+          dataRole,
+          ...(elementId ? { elementId } : {}),
+          ...(influence ? { influence } : {}),
+        }),
+      ),
     });
 
     const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
+    for (const file of files) {
+      try {
+        assertHubSpotEmailFrameContent({
+          content: file.content,
+          fileType: file.fileType,
+          ...(file.frameType ? { frameType: file.frameType } : {}),
+        });
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
+    }
+
     const annotatedFiles = files.map((file) => ({
       ...file,
-      content: annotateScreenHtmlForPersist(file.content, file.fileType),
+      content: annotateAgentScreenHtmlForPersist(file.content, file.fileType),
     }));
+
+    const liveFilesById = new Map<
+      string,
+      Awaited<ReturnType<typeof readLiveSourceFile>>
+    >();
+    for (const file of annotatedFiles) {
+      const existing = existingByName.get(file.filename);
+      if (!existing) continue;
+      const workspaceFile: SourceWorkspaceFile = {
+        id: existing.id,
+        designId: existing.designId,
+        filename: existing.filename,
+        fileType: existing.fileType,
+        content: existing.content,
+        createdAt: null,
+        updatedAt: null,
+      };
+      const live = await readLiveSourceFile(workspaceFile);
+      try {
+        assertLockedLayersPreserved(live.content, file.content);
+      } catch (error) {
+        throw noWriteValidationError(error);
+      }
+      liveFilesById.set(existing.id, live);
+    }
 
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
@@ -877,6 +961,14 @@ const generateDesignAction = defineAction({
       }
     }
 
+    await snapshotDesignBeforeAgentEdit(designId, context);
+
+    await mutateDesignData({
+      designId,
+      mutate: (current) => current,
+      isApplied: () => true,
+    });
+
     const fileErrors: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
@@ -898,9 +990,13 @@ const generateDesignAction = defineAction({
               createdAt: null,
               updatedAt: null,
             };
-            const live = await readLiveSourceFile(workspaceFile);
-
-            assertLockedLayersPreserved(live.content, file.content);
+            const live = liveFilesById.get(existing.id);
+            if (!live) {
+              // guard:allow-bare-error — invariant: every existing file is inserted during the preflight loop before this write phase.
+              throw new Error(
+                `Missing preflight source version for ${existing.filename}`,
+              );
+            }
 
             await writeInlineSourceFile({
               designId: existing.designId,
@@ -1009,6 +1105,7 @@ const generateDesignAction = defineAction({
       height: number;
       breakpointWidths: number[] | undefined;
       fixedSize: boolean;
+      contentDriven: boolean;
     }> = [];
     const normalizedTweaks = tweaks?.map((tweak) => ({
       ...tweak,
@@ -1029,13 +1126,18 @@ const generateDesignAction = defineAction({
         files.some((file) => file.filename === existingFile.filename),
       ) &&
       isFixedArtworkCopyFollowUp(prompt);
-    const requestedDevices = exactFixedCanvasOutput
-      ? []
-      : userRequestedDeviceVariants.length > 0
-        ? userRequestedDeviceVariants
-        : devices !== undefined && fixedArtworkFollowUp
-          ? []
-          : devices;
+    const renderableFiles = files.filter(isRenderableDesignScreenFile);
+    const emailOnlyOutput =
+      renderableFiles.length > 0 &&
+      renderableFiles.every((file) => isHubSpotEmailHtml(file.content));
+    const requestedDevices =
+      emailOnlyOutput || exactFixedCanvasOutput
+        ? []
+        : userRequestedDeviceVariants.length > 0
+          ? userRequestedDeviceVariants
+          : devices !== undefined && fixedArtworkFollowUp
+            ? []
+            : devices;
     const ignoredModelDevices = exactFixedCanvasOutput ? (devices ?? []) : [];
     const explicitDeviceSelection =
       requestedDevices !== undefined && requestedDevices.length > 0;
@@ -1160,7 +1262,9 @@ const generateDesignAction = defineAction({
               ? (rawMetadata as Record<string, unknown>)
               : {};
           const frame = merged.canvasFrames[file.id];
+          const emailFrame = isHubSpotEmailHtml(source.content);
           const width =
+            (emailFrame ? 600 : undefined) ??
             promptCanvasDimensions?.width ??
             (explicitDeviceSelection
               ? typeof frame?.width === "number" && frame.width > 0
@@ -1172,6 +1276,11 @@ const generateDesignAction = defineAction({
                   ? frame.width
                   : viewport.width);
           const height =
+            (emailFrame
+              ? typeof metadata.height === "number"
+                ? metadata.height
+                : (frame?.height ?? 800)
+              : undefined) ??
             promptCanvasDimensions?.height ??
             (explicitDeviceSelection
               ? typeof frame?.height === "number" && frame.height > 0
@@ -1211,19 +1320,21 @@ const generateDesignAction = defineAction({
             existingWidth === width &&
             existingHeight === height &&
             !isFixedCanvasFormatConversion(prompt);
-          const breakpointWidths = explicitDeviceSelection
-            ? fixedCanvasOutput
-              ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
-              : undefined
-            : sameFixedCanvasSize
-              ? (existingBreakpointWidths ?? [])
-              : fixedCanvasOutput || explicitlyEmptyDeviceSelection
-                ? []
-                : existingBreakpointWidths !== undefined
-                  ? existingBreakpointWidths
-                  : generatedBreakpointSet.length === 0
-                    ? []
-                    : undefined;
+          const breakpointWidths = emailFrame
+            ? []
+            : explicitDeviceSelection
+              ? fixedCanvasOutput
+                ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)
+                : undefined
+              : sameFixedCanvasSize
+                ? (existingBreakpointWidths ?? [])
+                : fixedCanvasOutput || explicitlyEmptyDeviceSelection
+                  ? []
+                  : existingBreakpointWidths !== undefined
+                    ? existingBreakpointWidths
+                    : generatedBreakpointSet.length === 0
+                      ? []
+                      : undefined;
           const nextMetadata: Record<string, unknown> = {
             ...metadata,
             width,
@@ -1234,7 +1345,12 @@ const generateDesignAction = defineAction({
           } else {
             delete nextMetadata.breakpointWidths;
           }
-          if (fixedCanvasOutput) {
+          if (emailFrame) {
+            nextMetadata.heightPinned = false;
+            nextMetadata.heightMode = "hug";
+            if (frame)
+              merged.canvasFrames[file.id] = { ...frame, width, height };
+          } else if (fixedCanvasOutput) {
             nextMetadata.heightPinned = true;
             nextMetadata.heightMode = "fixed";
           }
@@ -1245,7 +1361,8 @@ const generateDesignAction = defineAction({
               width,
               height,
               breakpointWidths,
-              fixedSize: fixedCanvasOutput,
+              fixedSize: fixedCanvasOutput && !emailFrame,
+              contentDriven: emailFrame,
             });
           }
         }
@@ -1385,6 +1502,7 @@ const generateDesignAction = defineAction({
           );
           if (!source || !isRenderableDesignScreenFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
+          const emailFrame = isHubSpotEmailHtml(source.content);
           if (
             preExistingFrameIds.has(file.id) &&
             !exactSizeResizedFileIds.has(file.id) &&
@@ -1395,10 +1513,16 @@ const generateDesignAction = defineAction({
           ) {
             continue;
           }
-          const width =
-            current.width ?? promptCanvasDimensions?.width ?? viewport.width;
+          const width = emailFrame
+            ? 600
+            : (current.width ??
+              promptCanvasDimensions?.width ??
+              viewport.width);
           const height =
-            current.height ?? promptCanvasDimensions?.height ?? viewport.height;
+            current.height ??
+            (emailFrame ? 800 : undefined) ??
+            promptCanvasDimensions?.height ??
+            viewport.height;
           let x = current.x ?? nextX;
           let y = current.y ?? 0;
           let candidateRect = rectOf(
@@ -1563,7 +1687,14 @@ const generateDesignAction = defineAction({
             ? (current.screenMetadata as Record<string, unknown>)
             : {};
         const screenMetadataApplied = screenMetadataUpdates.every(
-          ({ fileId, width, height, breakpointWidths, fixedSize }) => {
+          ({
+            fileId,
+            width,
+            height,
+            breakpointWidths,
+            fixedSize,
+            contentDriven,
+          }) => {
             const metadata = currentMetadata[fileId];
             return (
               metadata &&
@@ -1580,7 +1711,11 @@ const generateDesignAction = defineAction({
                   )) &&
               (!fixedSize ||
                 ((metadata as Record<string, unknown>).heightPinned === true &&
-                  (metadata as Record<string, unknown>).heightMode === "fixed"))
+                  (metadata as Record<string, unknown>).heightMode ===
+                    "fixed")) &&
+              (!contentDriven ||
+                ((metadata as Record<string, unknown>).heightPinned === false &&
+                  (metadata as Record<string, unknown>).heightMode === "hug"))
             );
           },
         );
@@ -1661,8 +1796,6 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
-    if (fileErrors.length > 0) attempt.markPartial();
-
     return {
       designId,
       urlPath: firstRenderableSavedFile

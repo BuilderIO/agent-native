@@ -105,7 +105,7 @@ async function selectSource(app: App) {
     rect.y + rect.height / 2,
   );
   await app.page.mouse.click(point.x, point.y);
-  expect(await app.selectedLayers()).toEqual(["Source"]);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Source"]);
 }
 
 /** Drags Source by its centre onto a point of the target box; returns the held guide just before release. */

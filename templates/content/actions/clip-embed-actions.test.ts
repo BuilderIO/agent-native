@@ -41,6 +41,11 @@ vi.mock("../server/lib/clips-peer.js", () => ({
 import getClipPlayback from "./get-clip-playback";
 import listClipComments from "./list-clip-comments";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 const PUBLIC_VIEWER =
   "public-0f8fad5b-d9cb-469f-a165-70867728950e@agent-native.local";
 const args = { documentId: "doc_1", recordingId: "rec_1" };
@@ -243,7 +248,11 @@ describe("list-clip-comments", () => {
   const complete = { comments, truncated: false };
 
   function thread(index: number) {
-    return { ...comments[0]!, id: `c${index}`, videoTimestampMs: index };
+    return {
+      ...defined(comments[0]),
+      id: `c${index}`,
+      videoTimestampMs: index,
+    };
   }
 
   it("returns one marker per thread, after the same page check", async () => {

@@ -105,7 +105,7 @@ const messages = {
     retry: "Retry",
     reload: "Reload",
     mcpAbout:
-      "Connect Slides 2 to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides 2 for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
+      "Connect this workspace to Claude, ChatGPT, Cursor, or another MCP-enabled app. It can create decks, add slides, and export to PowerPoint, with access limited to what you can see.",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",
@@ -303,7 +303,7 @@ const messages = {
     deleteError: "Failed to delete design system",
     emptyTitle: "Set up your brand identity",
     emptyDescription:
-      "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
+      "Choose your colors, fonts, and logo once. New decks will carry that look across every slide, so you can focus on the story.",
     tierLimitTitle: "Design system limit reached",
     tierLimitDescription:
       "You've reached the design system limit for your Builder plan. Upgrade your Builder plan to create another.",
@@ -797,7 +797,7 @@ const messages = {
   generateSlides: {
     title: "Generate Slides with AI",
     description:
-      "Describe your presentation topic and AI will generate slides for you.",
+      "Share a topic, and your agent will shape it into slides with you.",
     topic: "Topic",
     topicPlaceholder:
       "e.g. Introduction to React Hooks, Q4 Sales Report, Product Roadmap 2025...",
@@ -1432,7 +1432,7 @@ const messages = {
     newDeckPromptTitle: "New presentation",
     newDeckPlaceholder: "Describe the presentation you want to generate...",
     skipPrompt: "Skip prompt",
-    firstDeckPromptTitle: "Let's create your first presentation",
+    firstDeckPromptTitle: "Let's build your first presentation together.",
     firstDeckSkip: "Skip",
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
@@ -1495,7 +1495,7 @@ const messages = {
     emptyTitle: "No decks yet",
     createFirstDeck: "Create your first deck",
     emptyDescription:
-      "Build beautiful presentations with AI-powered generation.",
+      "Start with a prompt, then shape your presentation together.",
   },
   agentChat: {
     setup: {

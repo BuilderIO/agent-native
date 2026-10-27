@@ -277,10 +277,13 @@ test("responsive frame previews preserve content fit and scope selection", async
   await expect(scope).toHaveText("This breakpoint and smaller");
   const mobileHeroBox = await mobileHero.boundingBox();
   expect(mobileHeroBox).not.toBeNull();
+  // Cmd+click reaches the hero inside <main>; a plain click takes main.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(
     mobileHeroBox!.x + mobileHeroBox!.width / 2,
     mobileHeroBox!.y + mobileHeroBox!.height / 2,
   );
+  await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(
       async () =>
@@ -336,10 +339,13 @@ test("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactl
   await expect(scope).toHaveText("This breakpoint and smaller");
   const mobileHeroBox = await mobileHero.boundingBox();
   expect(mobileHeroBox).not.toBeNull();
+  // Cmd+click reaches the hero inside <main>; a plain click takes main.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(
     mobileHeroBox!.x + mobileHeroBox!.width / 2,
     mobileHeroBox!.y + mobileHeroBox!.height / 2,
   );
+  await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(
       async () =>
@@ -381,10 +387,13 @@ test("after a Mobile edit, a 'This breakpoint only' X edit at Tablet adds exactl
   await panTargetIntoUnobscuredCanvas(page, tabletHero, "tablet hero");
   const tabletHeroBox = await tabletHero.boundingBox();
   expect(tabletHeroBox).not.toBeNull();
+  // Cmd+click reaches the hero inside <main>; a plain click takes main.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(
     tabletHeroBox!.x + tabletHeroBox!.width / 2,
     tabletHeroBox!.y + tabletHeroBox!.height / 2,
   );
+  await page.keyboard.up("ControlOrMeta");
   await expect(xInput).toBeVisible();
   await expect
     .poll(

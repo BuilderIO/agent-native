@@ -12,6 +12,11 @@ import {
   type ClipPlaybackState,
 } from "./use-clip-playback";
 
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 type FakeQuery = {
   data: unknown;
   isError: boolean;
@@ -75,7 +80,7 @@ function Probe({ commentsOn = true }: { commentsOn?: boolean }) {
 }
 
 function render(props?: { commentsOn?: boolean }) {
-  act(() => root!.render(<Probe {...props} />));
+  act(() => defined(root).render(<Probe {...props} />));
 }
 
 beforeEach(() => {
@@ -99,7 +104,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const playbackQuery = () => queries.byName["get-clip-playback"]!;
+const playbackQuery = () => defined(queries.byName["get-clip-playback"]);
 
 const down = (errorCode?: string) => ({
   isError: true,
@@ -169,12 +174,12 @@ describe("useClipPlayback", () => {
     });
     render();
 
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
     expect(latest?.grant?.playback.videoUrl).toBe(grant(2).playback.videoUrl);
     expect(latest?.error).toBeNull();
 
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
     expect(latest?.error).toBe("unplayable");
   });
@@ -186,10 +191,10 @@ describe("useClipPlayback", () => {
       .mockResolvedValueOnce({ isError: false, data: grant(4) });
     render();
 
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     await elapse(10 * 60_000);
     expect(latest?.grant?.playback.videoUrl).toBe(grant(3).playback.videoUrl);
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(3);
     expect(latest?.error).toBeNull();
   });
@@ -246,7 +251,7 @@ describe("useClipPlayback", () => {
     await elapse(4 * 60_000 + 30_000);
     expect(latest?.error).toBeNull();
 
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
     expect(latest?.error).toBe("refresh_failed");
   });
@@ -308,7 +313,7 @@ describe("useClipPlayback", () => {
     });
     render();
 
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(latest?.error).toBe("clip_expired");
   });
 
@@ -337,7 +342,7 @@ describe("useClipPlayback", () => {
       new Promise((resolve) => (answer = resolve)),
     );
 
-    act(() => latest!.retry());
+    act(() => defined(latest).retry());
     expect(latest).toMatchObject({ grant: null, loading: true, error: null });
     await elapse(5 * 60_000);
     expect(playbackQuery().refetch).toHaveBeenCalledTimes(4);
@@ -351,7 +356,7 @@ describe("useClipPlayback", () => {
     await playUntilClipsIsOut();
     playbackQuery().refetch.mockResolvedValueOnce(down("clips_unreachable"));
 
-    await act(async () => latest!.retry());
+    await act(async () => defined(latest).retry());
     expect(latest?.error).toBe("clips_unreachable");
   });
 
@@ -360,11 +365,11 @@ describe("useClipPlayback", () => {
       .refetch.mockResolvedValueOnce({ isError: false, data: grant(2) })
       .mockResolvedValueOnce({ isError: false, data: grant(3) });
     render();
-    await act(async () => latest!.onMediaError());
-    await act(async () => latest!.onMediaError());
+    await act(async () => defined(latest).onMediaError());
+    await act(async () => defined(latest).onMediaError());
     expect(latest?.error).toBe("unplayable");
 
-    await act(async () => latest!.retry());
+    await act(async () => defined(latest).retry());
     expect(latest?.grant?.playback.videoUrl).toBe(grant(3).playback.videoUrl);
     expect(latest?.error).toBeNull();
   });

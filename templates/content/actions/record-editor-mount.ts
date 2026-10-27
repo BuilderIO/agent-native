@@ -30,25 +30,18 @@ export default defineAction({
   }),
   run: async (args) => {
     await assertDocumentMutationAccess(args.id, "viewer", "id");
+    // Count inside the request: a serverless instance can freeze before a
+    // timer runs. countOutcome bumps an in-memory window and, for the first
+    // hit in a window, calls each analytics provider's track(), which the
+    // built-in providers only queue. Nothing waits for delivery, and the
+    // editor never waits for this answer.
     try {
-      setTimeout(() => {
-        try {
-          const delivery: unknown = countOutcome(
-            "content_editor_mount_counts",
-            {
-              outcome: args.outcome,
-              mode: args.mode,
-            },
-          );
-          void Promise.resolve(delivery).catch(() => {
-            // coercion-ok: delivery cannot change the mount acknowledgement.
-          });
-        } catch {
-          // coercion-ok: delivery cannot change the mount acknowledgement.
-        }
-      }, 0);
+      countOutcome("content_editor_mount_counts", {
+        outcome: args.outcome,
+        mode: args.mode,
+      });
     } catch {
-      // coercion-ok: scheduling telemetry cannot change the mount acknowledgement.
+      // coercion-ok: delivery cannot change the mount acknowledgement.
     }
     return { recorded: true as const };
   },

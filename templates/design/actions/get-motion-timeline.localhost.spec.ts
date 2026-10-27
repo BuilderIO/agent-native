@@ -226,6 +226,12 @@ const managedSource = applyMotionReactSourceEdit({
   preview: { sourceHash: sourceHash(source) },
   timeline,
 }).source;
+const managedTrackOnlySource = applyMotionReactSourceEdit({
+  currentSource: source,
+  expectedSource: source,
+  preview: { sourceHash: sourceHash(source) },
+  timeline: { ...timeline, animationStyles: [] },
+}).source;
 const audioClips = [
   {
     id: "music-track",
@@ -371,7 +377,8 @@ describe("get-motion-timeline localhost React source", () => {
         status: "unsupported",
         sourceRef: "screen-1",
         errorCode: "motion_html_source_unresolved_stylesheet",
-        reason: "Resolve external stylesheets before editing or adding Motion.",
+        reason:
+          "Resolve external or runtime-generated styles before editing or adding Motion.",
       },
     });
     await expect(
@@ -384,7 +391,7 @@ describe("get-motion-timeline localhost React source", () => {
 
   it("recovers Motion source and write capability from the linked HTML route", async () => {
     const htmlPath = "pages/home.html";
-    const html = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
+    const html = `<!doctype html><html><head></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
     const htmlHash = sourceHash(html);
     const managedHtml = applyMotionHtmlSourceEdit({
       currentSource: html,
@@ -509,6 +516,24 @@ describe("get-motion-timeline localhost React source", () => {
     expect(result.timelines[0].animationStyles).toEqual(
       timeline.animationStyles,
     );
+    expect(result.sourceWriteCapability).toMatchObject({
+      status: "supported",
+      targetNodeIds: [],
+      modulePath: "app/routes/home.tsx",
+    });
+  });
+
+  it("reports write capability when an existing React CSS track can be cleared", async () => {
+    mocks.readLocal.mockResolvedValue({
+      content: managedTrackOnlySource,
+      versionHash: bridgeVersionHash,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+    });
+
     expect(result.sourceWriteCapability).toMatchObject({
       status: "supported",
       targetNodeIds: [],

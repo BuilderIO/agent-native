@@ -759,7 +759,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。ツールが画像を返せない、またはこれらのリンクを開けない場合は、ツール側の制限であり、Clipsのエラーではないと伝えてください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -774,12 +774,16 @@ const messages = {
     chooseFile: "ファイルを選択してください",
     remove: "取り除く",
     downloadMp4: "ダウンロード",
-    embedsNeedPublic: "埋め込みにはパブリッククリップが必要です",
-    embedPublicDescription:
-      "このクリップは現在 {{visibility}} です。埋め込まれた iframe は匿名で読み込まれるため、視聴者が視聴できるようにクリップを公開する必要があります。",
-    makingPublic: "公開中…",
-    makePublic: "公開する",
     askOwnerPublic: "所有者に公開するよう依頼してください。",
+    advanced: "詳細",
+    passwordSet: "パスワード設定済み",
+    noPassword: "パスワードなし",
+    linkExpires: "リンクの有効期限",
+    expiresOn: "{{date}} に期限切れ",
+    neverExpires: "期限なし",
+    embedNeedsLinkAccess:
+      "埋め込みプレーヤーはサインインなしで読み込まれるため、リンクを知っている全員が閲覧できる場合にのみ再生されます。",
+    changeGeneralAccess: "一般的なアクセスを変更",
     responsive: "レスポンシブ (16:9)",
     fixedSize: "固定サイズ",
     embedIframeTitle: "Clips動画",
@@ -1351,12 +1355,13 @@ const messages = {
     actionItems: "アクション項目",
     sharedContent: "共有コンテンツ",
     summaryIncluded: "要約、重要ポイント、アクション項目",
-    includeTranscript: "完全な文字起こしを含める",
-    includeTranscriptDescription:
-      "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
     transcriptUnavailable: "文字起こしはまだ準備できていません。",
-    agentLinkDescription:
-      "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
+    transcriptOnShareLink: "共有リンクに文字起こしを表示",
+    transcriptOnShareLinkDescription:
+      "招待したユーザーは Clips で常に文字起こしを確認できます。",
+    linkShowsTranscript: "リンクに文字起こしを含む",
+    linkShowsNotesOnly: "リンクはメモのみ表示",
+    copyAgentLink: "エージェント用リンクをコピー",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",

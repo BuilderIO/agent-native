@@ -11,6 +11,7 @@ import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
+import { AutomationRecoveryProjectionDeferredError } from "./automation-recovery.js";
 import { registerJobRunner, type JobRunnerContext } from "./job-runner.js";
 import {
   classifyJobResource,
@@ -2308,6 +2309,22 @@ Runs the saved workflow.`,
         consecutiveFailures: 1,
         enabled: true,
       });
+    });
+
+    it("keeps the history retryable while predecessor projection is deferred", async () => {
+      const deferred = new AutomationRecoveryProjectionDeferredError(
+        "predecessor-run",
+      );
+      disposers.push(
+        registerJobRunner("workflow", async () => {
+          throw deferred;
+        }),
+      );
+      serveJob(runnerJob());
+
+      await expect(runJobNow(OWNER, "wf", deps)).rejects.toBe(deferred);
+
+      expect(historyFinishes()).toHaveLength(0);
     });
 
     it("pauses the job on the fifth consecutive failure and says so on the history row", async () => {

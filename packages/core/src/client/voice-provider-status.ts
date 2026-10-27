@@ -5,6 +5,8 @@ import { agentNativePath } from "./api-path.js";
 export interface VoiceProviderStatus {
   builder: boolean;
   openai: boolean;
+  /** Providers whose flag is false because their credentials could not be read. */
+  credentialLookupFailed: string[];
 }
 
 export async function getVoiceProviderStatus(): Promise<VoiceProviderStatus> {
@@ -16,7 +18,13 @@ export async function getVoiceProviderStatus(): Promise<VoiceProviderStatus> {
     throw new Error(`Voice provider status unavailable (${response.status})`);
   }
   const status = (await response.json()) as Partial<VoiceProviderStatus>;
-  return { builder: status.builder === true, openai: status.openai === true };
+  return {
+    builder: status.builder === true,
+    openai: status.openai === true,
+    credentialLookupFailed: Array.isArray(status.credentialLookupFailed)
+      ? status.credentialLookupFailed
+      : [],
+  };
 }
 
 export function useVoiceProviderStatus() {

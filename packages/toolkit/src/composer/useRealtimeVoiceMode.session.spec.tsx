@@ -1,0 +1,279 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  realtimeVoiceTranscriptRegistry,
+  type RealtimeVoiceTranscriptMessage,
+} from "./realtime-voice-transcript.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
+import {
+  REALTIME_VOICE_PREFERENCES_KEY,
+  RealtimeVoiceModeProvider,
+  useRealtimeVoiceMode,
+  type RealtimeVoiceModeApi,
+  type RealtimeVoiceStartOptions,
+} from "./useRealtimeVoiceMode.js";
+
+interface FakeChannel {
+  onmessage?: (event: { data: string }) => void;
+  close: () => void;
+}
+
+let channel: FakeChannel;
+let track: { enabled: boolean; stop: () => void; onended: unknown };
+let audio: HTMLAudioElement | undefined;
+
+class FakePeerConnection {
+  connectionState = "new";
+  ontrack: unknown;
+  onconnectionstatechange: unknown;
+  addTrack() {}
+  createDataChannel() {
+    return channel;
+  }
+  // The offer never settles, so the session stays connecting with its
+  // microphone and playback element in place.
+  createOffer() {
+    return new Promise(() => {});
+  }
+  close() {}
+}
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  channel = { close: vi.fn() };
+  track = { enabled: true, stop: vi.fn(), onended: null };
+  audio = undefined;
+  vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn(async () => ({
+        getTracks: () => [track],
+        getAudioTracks: () => [track],
+      })),
+      enumerateDevices: vi.fn(async () => []),
+    },
+  });
+  const createElement = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation(((
+    tagName: string,
+    options?: ElementCreationOptions,
+  ) => {
+    const element = createElement(tagName, options);
+    if (tagName === "audio") audio = element as HTMLAudioElement;
+    return element;
+  }) as typeof document.createElement);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+async function startSession(
+  readAppState: (key: string) => unknown = () => undefined,
+  startOptions?: RealtimeVoiceStartOptions,
+) {
+  let api: RealtimeVoiceModeApi | undefined;
+  function Probe() {
+    api = useRealtimeVoiceMode();
+    return null;
+  }
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      <ComposerRuntimeAdaptersProvider
+        adapters={{
+          voice: {
+            readAppState: readAppState as never,
+            setAppState: () => undefined,
+            getBrowserTabId: () => "tab-1",
+          },
+        }}
+      >
+        <RealtimeVoiceModeProvider>
+          <Probe />
+        </RealtimeVoiceModeProvider>
+      </ComposerRuntimeAdaptersProvider>,
+    );
+  });
+  await act(async () => {
+    void api!.start(startOptions);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  return {
+    api: () => api!,
+    send: async (event: Record<string, unknown>) => {
+      await act(async () => {
+        channel.onmessage?.({ data: JSON.stringify(event) });
+      });
+    },
+    unmount: () => act(() => root.unmount()),
+  };
+}
+
+describe("realtime voice session controls", () => {
+  it("mutes the microphone track and the assistant's playback", async () => {
+    const session = await startSession();
+    expect(session.api().state).toBe("connecting");
+    expect(audio?.muted).toBe(false);
+
+    await act(async () => session.api().setInputMuted(true));
+    expect(track.enabled).toBe(false);
+    expect(session.api().inputMuted).toBe(true);
+
+    await act(async () => session.api().setOutputMuted(true));
+    expect(audio?.muted).toBe(true);
+    expect(session.api().outputMuted).toBe(true);
+
+    await act(async () => session.api().setInputMuted(false));
+    expect(track.enabled).toBe(true);
+    session.unmount();
+  });
+
+  it("streams both speakers into the thread that was on screen at start", async () => {
+    const received: RealtimeVoiceTranscriptMessage[] = [];
+    const unregister = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-session",
+      active: true,
+      append: (message) => {
+        received.push(message);
+        return true;
+      },
+    });
+    const session = await startSession();
+
+    await session.send({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    await session.send({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "Open the docs",
+    });
+    await session.send({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Opening",
+    });
+    await session.send({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Open the docs.",
+    });
+
+    expect(
+      received.map(({ threadId, role, text, status }) => ({
+        threadId,
+        role,
+        text,
+        status,
+      })),
+    ).toEqual([
+      {
+        threadId: "thread-session",
+        role: "user",
+        text: "Open the docs",
+        status: "streaming",
+      },
+      {
+        threadId: "thread-session",
+        role: "assistant",
+        text: "Opening",
+        status: "streaming",
+      },
+      {
+        threadId: "thread-session",
+        role: "user",
+        text: "Open the docs.",
+        status: "complete",
+      },
+    ]);
+    // Every update of a turn shares its message id.
+    expect(received[0]!.id).toBe(received[2]!.id);
+    unregister();
+    session.unmount();
+  });
+
+  it("streams into the thread it was started for until that thread is shown", async () => {
+    const onScreen: RealtimeVoiceTranscriptMessage[] = [];
+    const unregisterOnScreen = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-on-screen",
+      active: true,
+      append: (message) => {
+        onScreen.push(message);
+        return true;
+      },
+    });
+    const session = await startSession(undefined, {
+      threadId: "thread-handoff",
+    });
+
+    await session.send({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-handoff",
+      transcript: "Plan my week.",
+    });
+    expect(onScreen).toEqual([]);
+
+    const handedOff: RealtimeVoiceTranscriptMessage[] = [];
+    const unregisterHandoff = realtimeVoiceTranscriptRegistry.register({
+      threadId: "thread-handoff",
+      active: true,
+      append: (message) => {
+        handedOff.push(message);
+        return true;
+      },
+    });
+
+    expect(
+      handedOff.map(({ threadId, role, text, status }) => ({
+        threadId,
+        role,
+        text,
+        status,
+      })),
+    ).toEqual([
+      {
+        threadId: "thread-handoff",
+        role: "user",
+        text: "Plan my week.",
+        status: "complete",
+      },
+    ]);
+    unregisterHandoff();
+    unregisterOnScreen();
+    session.unmount();
+  });
+
+  it("starts from the voice chat choices saved in Settings", async () => {
+    window.localStorage.setItem(
+      "agent-native:realtime-voice-microphone",
+      "studio",
+    );
+    const readAppState = vi.fn((key: string) =>
+      key === REALTIME_VOICE_PREFERENCES_KEY
+        ? { language: "ja", intelligence: "deep", voice: "cedar" }
+        : undefined,
+    );
+    const session = await startSession(readAppState);
+
+    expect(readAppState).toHaveBeenCalledWith(REALTIME_VOICE_PREFERENCES_KEY);
+    expect(session.api().preferences).toEqual({
+      language: "ja",
+      intelligence: "deep",
+      voice: "cedar",
+    });
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: expect.objectContaining({ deviceId: { ideal: "studio" } }),
+    });
+    window.localStorage.removeItem("agent-native:realtime-voice-microphone");
+    session.unmount();
+  });
+});

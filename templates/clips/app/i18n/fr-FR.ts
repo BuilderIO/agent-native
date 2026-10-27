@@ -767,7 +767,7 @@ const messages = {
     openInCodex: "Ouvrir dans Codex",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
-      "Lisez cette URL de contexte Clips pour agent : {{agentContextUrl}}. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien. Utilisez aussi browserDiagnostics si disponible pour signaler un problème.",
+      "Lisez cette URL de contexte Clips pour agent : {{agentContextUrl}}. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien. Utilisez aussi browserDiagnostics si disponible pour signaler un problème. Si votre outil ne peut pas renvoyer d'images ni ouvrir ces liens, indiquez que votre outil a cette limite ; ce n'est pas une erreur de Clips.",
     agentTokenDescription:
       "Lien temporaire en lecture seule pour les agents, car ce clip n’est pas public. Expire dans 2 heures.",
     agentPublicDescription:
@@ -782,12 +782,16 @@ const messages = {
     chooseFile: "Choisir un fichier",
     remove: "Retirer",
     downloadMp4: "Télécharger MP4",
-    embedsNeedPublic: "Les intégrations nécessitent un clip public",
-    embedPublicDescription:
-      "Ce clip est actuellement {{visibility}}. Les iframes intégrées se chargent de manière anonyme, le clip doit donc être public pour que les spectateurs puissent le regarder.",
-    makingPublic: "Rendre public…",
-    makePublic: "Rendre public",
     askOwnerPublic: "Demandez au propriétaire de le rendre public.",
+    advanced: "Avancé",
+    passwordSet: "Mot de passe défini",
+    noPassword: "Aucun mot de passe",
+    linkExpires: "Expiration du lien",
+    expiresOn: "Expire le {{date}}",
+    neverExpires: "N’expire jamais",
+    embedNeedsLinkAccess:
+      "Les lecteurs intégrés se chargent sans connexion : ils ne fonctionnent que si toute personne disposant du lien peut regarder.",
+    changeGeneralAccess: "Modifier l’accès général",
     responsive: "Réactif (16:9)",
     fixedSize: "Taille fixe",
     embedIframeTitle: "Video Clips",
@@ -1371,12 +1375,13 @@ const messages = {
     actionItems: "Actions à faire",
     sharedContent: "Contenu partagé",
     summaryIncluded: "Résumé, points clés et actions à faire",
-    includeTranscript: "Inclure la transcription complète",
-    includeTranscriptDescription:
-      "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
     transcriptUnavailable: "La transcription n’est pas encore prête.",
-    agentLinkDescription:
-      "Ce lien temporaire permet aux agents de lire ces notes de réunion sans les rendre publiques. Il expire après deux heures.",
+    transcriptOnShareLink: "Transcription sur le lien de partage",
+    transcriptOnShareLinkDescription:
+      "Les personnes que vous invitez voient toujours la transcription dans Clips.",
+    linkShowsTranscript: "Le lien inclut la transcription",
+    linkShowsNotesOnly: "Le lien n’affiche que les notes",
+    copyAgentLink: "Copier le lien pour agent",
     transcript: "Transcription",
     copyTranscript: "Copier la transcription",
     transcriptCopied: "Transcription copiée",

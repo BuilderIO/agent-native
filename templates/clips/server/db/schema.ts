@@ -523,6 +523,29 @@ export const recordingAgentViews = table(
   }),
 );
 
+// Recommended agent frames, cut once and stored so serving one never downloads
+// the video. Bytes live in file storage; `media_key` pins the video and edits
+// the frame was cut from.
+export const recordingAgentFrames = table(
+  "recording_agent_frames",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    atMs: integer("at_ms").notNull(),
+    mediaKey: text("media_key").notNull(),
+    storageUrl: text("storage_url").notNull(),
+    storageProvider: text("storage_provider").notNull(),
+    storageId: text("storage_id"),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (frame) => ({
+    recordingAgentFrameUnique: uniqueIndex(
+      "recording_agent_frames_recording_at_unique_idx",
+    ).on(frame.recordingId, frame.atMs),
+  }),
+);
+
 export const meetings = table("clips_meetings", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
@@ -531,6 +554,7 @@ export const meetings = table("clips_meetings", {
   scheduledEnd: text("scheduled_end"),
   actualStart: text("actual_start"),
   actualEnd: text("actual_end"),
+  captureStopRevision: integer("capture_stop_revision").notNull().default(0),
   endReason: text("end_reason"),
   platform: text("platform", {
     enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],
@@ -546,6 +570,7 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  // New meetings insert true; the default stays false so older meetings never opt in.
   shareTranscript: boolean("share_transcript").notNull().default(false),
   summaryMd: text("summary_md").notNull().default(""),
   bulletsJson: text("bullets_json").notNull().default("[]"),

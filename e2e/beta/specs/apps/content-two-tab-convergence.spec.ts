@@ -6,6 +6,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+import { GATE_ARM } from "../../../../templates/content/e2e/gate-arm";
 import {
   AgentClient,
   createPage,
@@ -100,6 +101,7 @@ async function runOnBeta(
       tags: testInfo.tags,
       notes: scenario.notes,
       build: String(scenario.notes.buildAtStart),
+      gate: GATE_ARM,
       authoredEdits: scenario.markers.all.length,
       markers: scenario.markers.all.length,
       durationMs: Date.now() - started,

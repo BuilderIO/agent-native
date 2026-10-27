@@ -37,6 +37,7 @@ export {
   callAgent,
   clearA2ACardCache,
   getGlobalA2ASecret,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";

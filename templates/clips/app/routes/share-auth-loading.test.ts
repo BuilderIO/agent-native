@@ -289,7 +289,7 @@ describe("authenticated recording route loading", () => {
     expect(meetingRoute).toContain("agentAccessToken");
     expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
-    expect(meetingRoute).toContain("recordingTranscripts");
+    // oracle-change: Real loader transcript coverage lives in meeting-recording-visibility.test.ts; SQL is shared outside this route.
     expect(meetingRoute).toContain("transcript: transcript");
   });
 

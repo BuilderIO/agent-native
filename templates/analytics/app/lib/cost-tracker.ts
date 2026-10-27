@@ -11,7 +11,7 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 interface StoredCost {
   /** Bytes processed by queries that actually scanned. */
   bytes: number;
-  /** Failed/cancelled queries or positive bytes with unknown cache provenance. */
+  /** Queries with unknown usage or cache provenance, including failures. */
   unknownScans: number;
   startedAt: number;
 }
@@ -19,9 +19,9 @@ interface StoredCost {
 export type QueryCostRecord = {
   status: "success" | "error" | "cancelled";
   /** App-side cache (L1/L2) served the result; absent means unknown. */
-  cached?: boolean;
+  cached?: boolean | undefined;
   /** BigQuery served the result from its own query cache; absent means unknown. */
-  providerCacheHit?: boolean;
+  providerCacheHit?: boolean | undefined;
   /** Rows came from a browser snapshot, so no request produced them. */
   restored?: boolean;
   bytesProcessed?: unknown;
@@ -119,9 +119,10 @@ function queryCostOutcome(record: QueryCostRecord): QueryCostOutcome {
   if (record.cached) return { counted: 0, reason: "app-cache" };
   if (record.providerCacheHit) return { counted: 0, reason: "provider-cache" };
   const bytes = record.bytesProcessed;
-  if (bytes === undefined || bytes === null || bytes === 0) {
-    return { counted: 0, reason: "no-bytes" };
+  if (bytes === undefined || bytes === null) {
+    return { counted: 0, reason: "unknown-scan" };
   }
+  if (bytes === 0) return { counted: 0, reason: "no-bytes" };
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
     return { counted: 0, reason: "invalid-bytes" };
   }

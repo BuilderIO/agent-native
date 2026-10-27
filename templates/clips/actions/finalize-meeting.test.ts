@@ -1,3 +1,4 @@
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
@@ -11,11 +12,14 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  resolveAccess: async () => ({ role: "owner" }),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: vi.fn((...conditions: unknown[]) => conditions),
   eq: vi.fn(),
   inArray: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock("../server/db/index.js", () => ({
       transcriptStatus: "meetings.transcriptStatus",
       updatedAt: "meetings.updatedAt",
     },
+    recordings: { table: "recordings", id: "recordings.id" },
     recordingTranscripts: {
       recordingId: "recordingTranscripts.recordingId",
       fullText: "recordingTranscripts.fullText",
@@ -64,9 +69,21 @@ function createDb(transcriptStatus: "pending" | "ready" = "ready") {
   let selectCount = 0;
   const selectResults = [[meeting], []];
   const select = vi.fn(() => {
-    const result = selectResults[selectCount++] ?? [];
+    let result: unknown[] = [];
     const builder = {
-      from: vi.fn(() => builder),
+      from: vi.fn((table) => {
+        result =
+          table.table === "recordings"
+            ? [
+                {
+                  id: "recording-1",
+                  ownerEmail: "owner@example.test",
+                  expiresAt: null,
+                },
+              ]
+            : (selectResults[selectCount++] ?? []);
+        return builder;
+      }),
       where: vi.fn(() => builder),
       limit: vi.fn(async () => result),
     };
@@ -93,7 +110,9 @@ describe("finalize-meeting", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      finalizeMeeting.run({ meetingId: "meeting-1" }),
+      runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+        finalizeMeeting.run({ meetingId: "meeting-1" }),
+      ),
     ).resolves.toEqual({
       meetingId: "meeting-1",
       summaryMd: "",
@@ -115,7 +134,9 @@ describe("finalize-meeting", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+      runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+        finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+      ),
     ).rejects.toThrow("no transcript text available yet");
   });
 
@@ -124,7 +145,9 @@ describe("finalize-meeting", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+      runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+        finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+      ),
     ).resolves.toMatchObject({ skipped: "transcript-pending" });
     expect(db.update).not.toHaveBeenCalled();
   });

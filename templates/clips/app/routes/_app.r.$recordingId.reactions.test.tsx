@@ -101,6 +101,7 @@ import RecordingPage from "./_app.r.$recordingId";
 function playerData(
   recordingId: string,
   settings: { enableComments: boolean; enableReactions: boolean },
+  comments: unknown[],
 ) {
   return {
     role: "owner",
@@ -151,7 +152,7 @@ function playerData(
       ...settings,
     },
     transcript: null,
-    comments: [],
+    comments,
     reactions: [],
     chapters: [],
     tags: [],
@@ -159,7 +160,7 @@ function playerData(
   };
 }
 
-describe("recording page reactions", () => {
+describe("recording page with comments off", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClient;
@@ -189,8 +190,9 @@ describe("recording page reactions", () => {
   async function renderRecording(
     recordingId: string,
     settings: { enableComments: boolean; enableReactions: boolean },
+    comments: unknown[] = [],
   ) {
-    mocks.playerData = playerData(recordingId, settings);
+    mocks.playerData = playerData(recordingId, settings, comments);
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -245,6 +247,58 @@ describe("recording page reactions", () => {
           videoTimestampMs: 0,
         },
       },
+    ]);
+  });
+
+  it("lets the owner delete their saved comment without reopening comments", async () => {
+    await renderRecording(
+      "rec-comments-off",
+      { enableComments: false, enableReactions: true },
+      [
+        {
+          id: "comment-1",
+          threadId: "comment-1",
+          parentId: null,
+          authorEmail: OWNER,
+          authorName: "Owner",
+          content: "Fake saved comment",
+          videoTimestampMs: 1_000,
+          emojiReactionsJson: "{}",
+          createdAt: "2026-10-25T12:00:00.000Z",
+          updatedAt: "2026-10-25T12:00:00.000Z",
+        },
+      ],
+    );
+
+    const actions = document.querySelector("[data-comment-actions]");
+    assert.isNotNull(actions);
+    expect(actions.textContent).not.toContain("Reply");
+    const menu = actions.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    assert.isNotNull(menu);
+    menu.focus();
+    await act(async () => {
+      menu.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const items = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    );
+    expect(items.map((item) => item.textContent.trim())).toEqual(["Delete"]);
+    const deleteItem = items[0];
+    assert.isDefined(deleteItem);
+    await act(async () => {
+      deleteItem.click();
+    });
+
+    expect(mocks.mutationCalls).toEqual([
+      { name: "delete-comment", args: { id: "comment-1" } },
     ]);
   });
 

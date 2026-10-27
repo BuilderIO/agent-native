@@ -92,6 +92,18 @@ describe("settings shell bridge", () => {
     expect(pages[0]!.legacyTabIds).toEqual(["automations"]);
   });
 
+  it("reserves app page ids and legacy tab ids while deriving template pages", () => {
+    const { pages, pageTabs } = deriveBridgedAppPages(
+      [tab("custom-controls"), tab("workflow-rules")],
+      CORE_SETTINGS_PAGES,
+      Stub,
+      [{ id: "custom-controls", legacyTabIds: ["workflow-rules"] }],
+    );
+
+    expect(pages.map((page) => page.id)).toEqual(["app-custom-controls"]);
+    expect(pageTabs.get("app-custom-controls")?.id).toBe("custom-controls");
+  });
+
   it("keeps app-area tabs off the nav", () => {
     const { pages } = deriveBridgedAppPages(
       [tab("recordings", { settingsPlacement: "app-area" })],

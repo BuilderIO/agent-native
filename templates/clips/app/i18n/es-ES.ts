@@ -763,7 +763,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error. Si tu herramienta no puede devolver imágenes ni abrir estos enlaces, indica que tu herramienta tiene ese límite; no es un error de Clips.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:
@@ -779,12 +779,16 @@ const messages = {
     chooseFile: "Elige el archivo",
     remove: "Eliminar",
     downloadMp4: "Descargar MP4",
-    embedsNeedPublic: "Los elementos insertados necesitan un clip público",
-    embedPublicDescription:
-      "Este clip es actualmente {{visibility}}. Los iframes integrados se cargan de forma anónima, por lo que el clip debe ser público para que los espectadores lo vean.",
-    makingPublic: "Hacer público…",
-    makePublic: "Promulgar",
     askOwnerPublic: "Pídele al propietario que lo haga público.",
+    advanced: "Avanzado",
+    passwordSet: "Con contraseña",
+    noPassword: "Sin contraseña",
+    linkExpires: "El enlace caduca",
+    expiresOn: "Caduca el {{date}}",
+    neverExpires: "No caduca",
+    embedNeedsLinkAccess:
+      "Los reproductores insertados se cargan sin iniciar sesión, así que solo se reproducen si cualquier persona con el enlace puede verlo.",
+    changeGeneralAccess: "Cambiar el acceso general",
     responsive: "Responsivo (16:9)",
     fixedSize: "Tamaño fijo",
     embedIframeTitle: "Video de Clips",
@@ -1366,12 +1370,13 @@ const messages = {
     actionItems: "Elementos de acción",
     sharedContent: "Contenido compartido",
     summaryIncluded: "Resumen, puntos clave y elementos de acción",
-    includeTranscript: "Incluir la transcripción completa",
-    includeTranscriptDescription:
-      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
     transcriptUnavailable: "La transcripción aún no está lista.",
-    agentLinkDescription:
-      "Este enlace temporal permite a los agentes leer estas notas de reunión sin hacerlas públicas. Caduca después de dos horas.",
+    transcriptOnShareLink: "Transcripción en el enlace para compartir",
+    transcriptOnShareLinkDescription:
+      "Las personas que invitas siempre ven la transcripción en Clips.",
+    linkShowsTranscript: "El enlace incluye la transcripción",
+    linkShowsNotesOnly: "El enlace solo muestra las notas",
+    copyAgentLink: "Copiar enlace para agente",
     transcript: "Transcripción",
     copyTranscript: "Copiar transcripción",
     transcriptCopied: "Transcripción copiada",

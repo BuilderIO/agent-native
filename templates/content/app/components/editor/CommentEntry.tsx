@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
 import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
@@ -207,6 +208,7 @@ export function CommentEntry({
     )
       return;
     setChecking(true);
+    const blockType = comment.block_type ?? "";
     try {
       await create.mutateAsync({
         clientOperationId: operationId,
@@ -214,6 +216,21 @@ export function CommentEntry({
         content: comment.content,
         threadId: comment.parent_id ? comment.thread_id : undefined,
         parentId: comment.parent_id ?? undefined,
+        // A new thread keeps what it pointed at: a Property, or text in a tab.
+        propertyId: comment.parent_id
+          ? undefined
+          : (comment.property_id ?? undefined),
+        databaseId: comment.parent_id
+          ? undefined
+          : (comment.property_database_id ?? undefined),
+        fieldId: comment.parent_id
+          ? undefined
+          : (comment.field_id ?? undefined),
+        ...(!comment.parent_id &&
+        comment.block_id &&
+        isCommentAnchorBlockType(blockType)
+          ? { blockId: comment.block_id, blockType }
+          : {}),
         quotedText: comment.quoted_text ?? undefined,
         anchorPrefix: comment.anchor_prefix ?? undefined,
         anchorSuffix: comment.anchor_suffix ?? undefined,
@@ -234,6 +251,23 @@ export function CommentEntry({
     setEditing(false);
     requestAnimationFrame(() => menuRef.current?.focus());
   };
+  const cancel = () => {
+    // An edit on its way out keeps its draft until the save lands.
+    if (!edit.isPending) draft.discard();
+    close();
+  };
+  // Compared as a save would store them: the editor reports a mention per
+  // pill, the stored comment one per name.
+  const edited =
+    draft.draft.text.trim() !== comment.content.trim() ||
+    commentMentionsForText(
+      draft.draft.text,
+      draft.draft.mentions.map(draftMention),
+    ) !==
+      commentMentionsForText(
+        comment.content,
+        comment.mentions.map(draftMention),
+      );
   const save = async () => {
     if (!draft.draft.text.trim() || edit.isPending) return;
     const submitted = draft.draft;
@@ -445,14 +479,12 @@ export function CommentEntry({
             mentions={draft.draft.mentions}
             onMentionsChange={draft.setMentions}
             onSubmit={save}
-            onEscape={close}
+            onEscape={cancel}
+            confirmEscape={edited && !edit.isPending ? "edit" : false}
             autoFocus
             disabled={edit.isPending}
             submitLabel={t("comments.save")}
-            onCancel={() => {
-              draft.discard();
-              close();
-            }}
+            onCancel={cancel}
           />
         </div>
       ) : (

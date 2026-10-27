@@ -1,0 +1,127 @@
+---
+title: "Decisions"
+description: "Capability-aware classification and scoring with `@agent-native/core/decisions`."
+---
+
+# Decisions
+
+`@agent-native/core/decisions` exports `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>`, a capability-aware classifier and scorer for structured questions. It returns a result for the caller to inspect. It never performs or authorizes a follow-on action.
+
+## Input and questions
+
+`decide()` accepts an `ownerEmail`, a string or array of input parts, named questions, and optional execution settings. Input parts can carry text, structured JSON, or an image URL:
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+The combined JSON-serialized size of `input` and `questions` must not exceed 256 KiB.
+
+Questions have a `name` and `instructions`. The question type determines the additional fields:
+
+| Type        | Additional fields                                                       | Purpose                             |
+| ----------- | ----------------------------------------------------------------------- | ----------------------------------- |
+| `predicate` | None                                                                    | Evaluate a stated predicate         |
+| `choice`    | `choices`: `{ value: string, description: string }[]`                   | Choose among the supplied values    |
+| `score`     | `levels`: 2–10 ordered `{ label: string, description: string }` entries | Place the input on a supplied scale |
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+This example asks a choice question and a score question in one call. The score uses five ordered levels, which is within the supported range of 2–10.
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+The argument object has these fields:
+
+- **ownerEmail**: the workspace owner email used for decision configuration.
+- **input**: text, JSON, or image URL parts to evaluate.
+- **questions**: named `predicate`, `choice`, or `score` questions.
+- **options**: optional `signal`, `timeoutMs`, `providers`, or `cacheKey` settings.
+
+The option fields have these types:
+
+| Field       | Type                 | Details                                                                                                                                         |
+| ----------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`    | `AbortSignal`        | Optional cancellation signal                                                                                                                    |
+| `timeoutMs` | `number`             | Total budget for one decision, including credential lookup and provider execution. All provider attempts share this budget. Defaults to 10,000. |
+| `providers` | `DecisionProvider[]` | Optional provider list                                                                                                                          |
+| `cacheKey`  | `string`             | Optional key that enables caching when supplied                                                                                                 |
+
+When `result.status` is `"ok"`, the result includes `provider`, `model`, and `answers` keyed by question name; `cached` and `usage` are optional. `not_configured` includes the `missing_credentials` reason and provider list. `failed` includes a typed reason and may include `provider` and `questionNames`. An `"ok"` result can also include `questionFailures` for questions with missing or invalid answers. Callers must treat those questions as failed classifications, not negative answers; if every question fails, `answers` can be empty while `questionFailures` lists each failed question. Keep both states distinct from a successful answer. Caching is opt-in through `cacheKey`. Cache identity includes the owner, organization, provider, model, cache key, input, and questions. The in-memory cache has a 60-second TTL and a 256-entry cap.
+
+## Capability-aware provider support
+
+Question support can vary by provider and model. `decide()` is capability-aware, so do not assume every provider supports every question type. Only advertise a provider/model and question-type combination after it has been verified. The successful result identifies the provider and model that answered.
+
+The default provider order comes from shared app configuration for the deployment, not per-workspace settings. All workspaces served by that deployment use the same default unless a call overrides it with `options.providers`. By default, requests try Builder Jev, then a personal Jev key, then OpenAI. If no provider is configured, `decide()` returns `not_configured`. The shared app-config field `decisions.providerOrder` controls the default order of Jev and OpenAI. The `decisions.timeoutMs` setting is the total budget for one decision, including credential lookup and provider execution. All provider attempts share this budget. The environment aliases are `DECISIONS_PROVIDER_ORDER` (comma-separated) and `DECISIONS_TIMEOUT_MS`. Any per-provider thresholds or caches must include both provider and model in their key so one model's calibration or result is not reused for another.
+
+Provider capabilities depend on the route. The Builder Jev proxy is verified for `predicate`, `choice`, and `score` questions. Jev score answers use the proxy's `legend` and `probabilities` records to calculate the same probability-weighted 0-based level index as OpenAI. `getDecisionsStatus()` returns capability verification states and whether each capability is enabled. It honors cancellation and uses the configured `decisions.timeoutMs` budget for readiness lookups; providers still being checked when it expires are reported as `unknown`. The OpenAI Decisions API supports score questions with 2–10 ordered levels; its request and response mapping is covered by documented-shape fixtures.
+
+`decide()` returns classifications or scores for the caller to interpret. Use a separate authorized action for any subsequent change to application data.

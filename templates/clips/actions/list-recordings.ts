@@ -31,6 +31,7 @@ import {
 } from "../server/lib/content-uploads.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   countedViewCondition,
   getActiveOrganizationId,
@@ -175,6 +176,7 @@ export default defineAction({
     const db = getDb();
 
     const whereClauses = [
+      recordingExpiryQuery(ctx?.userEmail ?? getRequestUserEmail()).available,
       agentRecordingAccessFilter(
         schema.recordings,
         schema.recordingShares,

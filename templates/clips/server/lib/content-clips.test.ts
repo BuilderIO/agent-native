@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
-import { drizzle } from "drizzle-orm/pglite";
-import { mockEvent } from "h3";
+import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
+import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
   afterEach,
@@ -32,7 +32,11 @@ const state = vi.hoisted(() => {
     "OAUTH_STATE_SECRET",
     "content-clips-grant-secret-0123456789abcdef",
   );
-  return { db: null as any, blobs: new Map<string, unknown>() };
+  return {
+    db: null as unknown as PgliteDatabase,
+    blobs: new Map<string, unknown>(),
+    beforeClipOpens: null as (() => Promise<void>) | null,
+  };
 });
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
@@ -46,6 +50,24 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   readAppState: async (key: string) => state.blobs.get(key) ?? null,
   writeAppState: async () => {},
 }));
+vi.mock("./s3-upload-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./s3-upload-provider.js")>()),
+  // No Clip here lives in S3. The real lookup reads vault tables this
+  // database lacks, and its error would mask the provider fetch under test.
+  fetchS3ObjectByUrl: async () => null,
+}));
+vi.mock("./context-footage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./context-footage.js")>();
+  return {
+    ...actual,
+    contextClipIdForFootage: async (
+      ...args: Parameters<typeof actual.contextClipIdForFootage>
+    ) => {
+      await state.beforeClipOpens?.();
+      return actual.contextClipIdForFootage(...args);
+    },
+  };
+});
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: async () => null,
   notifyRecordingReaction: async () => null,
@@ -302,7 +324,11 @@ function publicReaderToken(input: TokenInput = {}) {
 
 function peerEvent(
   path: string,
-  options: { bearer?: string; method?: string; body?: unknown } = {},
+  options: {
+    bearer?: string | undefined;
+    method?: string;
+    body?: unknown;
+  } = {},
 ) {
   const event = mockEvent(`${CLIPS_URL}${path}`, {
     method: options.method ?? "GET",
@@ -313,14 +339,18 @@ function peerEvent(
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
   const recordingId = /\/api\/content-clips\/([^/]+)\//.exec(path)?.[1];
-  event.context.params = { recordingId: decodeURIComponent(recordingId!) };
+  if (!recordingId) throw new Error(`No recording id in ${path}`);
+  event.context.params = { recordingId: decodeURIComponent(recordingId) };
   return event;
 }
 
+// oxlint-disable-next-line typescript/no-explicit-any -- each case reads the fields of the route it called
+type RouteBody = any;
+
 async function respond(
-  handler: (event: any) => unknown,
-  event: any,
-): Promise<{ status: number; body: any; response?: Response }> {
+  handler: (event: H3Event) => unknown,
+  event: H3Event,
+): Promise<{ status: number; body: RouteBody; response?: Response }> {
   const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     const type = result.headers.get("content-type") ?? "";
@@ -366,15 +396,15 @@ function writeComment(recordingId: string, bearer: string, body: unknown) {
 }
 
 async function fetchMedia(
-  handler: (event: any) => unknown,
+  handler: (event: H3Event) => unknown,
   absoluteUrl: string,
 ) {
   const url = new URL(absoluteUrl);
   expect(url.origin).toBe(CLIPS_URL);
   const event = mockEvent(url.href);
-  event.context.params = {
-    recordingId: decodeURIComponent(url.pathname.split("/").pop()!),
-  };
+  const recordingId = url.pathname.split("/").pop();
+  if (!recordingId) throw new Error(`No recording id in ${absoluteUrl}`);
+  event.context.params = { recordingId: decodeURIComponent(recordingId) };
   const result = await withDbExec(coreDb(), () => handler(event));
   if (result instanceof Response) {
     return {
@@ -385,7 +415,7 @@ async function fetchMedia(
   return {
     status: event.res.status ?? 200,
     bytes: result instanceof Uint8Array ? result : null,
-    body: result instanceof Uint8Array ? null : (result as any),
+    body: result instanceof Uint8Array ? null : (result as RouteBody),
   };
 }
 
@@ -396,8 +426,10 @@ function withRewrittenGrant(
   key = contentPlaybackGrantKey(PEER_SECRET),
 ): string {
   const url = new URL(mediaUrl);
-  const [payload] = url.searchParams.get("content_grant")!.split(".");
-  const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
+  const grant = url.searchParams.get("content_grant");
+  if (!grant) throw new Error(`No content_grant in ${mediaUrl}`);
+  const [payload = ""] = grant.split(".");
+  const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
   rewrite(claims);
   const encoded = Buffer.from(JSON.stringify(claims)).toString("base64url");
   const signature = createHmac("sha256", key)
@@ -470,7 +502,7 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
 
     const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
     expect(video.status).toBe(200);
-    expect(Buffer.from(video.bytes!)).toEqual(VIDEO_BYTES);
+    expect(Buffer.from(video.bytes ?? [])).toEqual(VIDEO_BYTES);
 
     const poster = await fetchMedia(
       thumbnailRoute,
@@ -722,6 +754,37 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
     expect(result.body.viewer).toMatchObject({ isOwner: true });
     const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
     expect(video.status).toBe(200);
+  });
+
+  it("answers a media URL the server blocks with a 502, never the 403 that means an expired grant", async () => {
+    await updateRecording("rec-upload", {
+      video_url: "http://127.0.0.1/rec-upload.mp4",
+    });
+    state.blobs.delete("recording-blob-rec-upload");
+
+    const result = await playback("rec-upload", await token());
+    expect(result.status).toBe(200);
+    const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
+    expect(video.status).toBe(502);
+  });
+
+  it("answers a storage provider that refuses the media with a 502, never the 403 that means an expired grant", async () => {
+    await updateRecording("rec-upload", {
+      video_url: "https://93.184.216.34/rec-upload.mp4",
+    });
+    state.blobs.delete("recording-blob-rec-upload");
+    const providerFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("denied", { status: 403 }));
+    try {
+      const result = await playback("rec-upload", await token());
+      expect(result.status).toBe(200);
+      const video = await fetchMedia(videoRoute, result.body.playback.videoUrl);
+      expect(providerFetch).toHaveBeenCalled();
+      expect(video.status).toBe(502);
+    } finally {
+      providerFetch.mockRestore();
+    }
   });
 
   it("refuses earlier-screen-time footage, which only plays through its Clip", async () => {
@@ -1070,6 +1133,48 @@ describe("video comments through a doc", () => {
       content: "C".repeat(CONTENT_CLIP_COMMENT_PREVIEW_CHARS),
       videoTimestampMs: 1_000,
     });
+  });
+
+  it("gives a signed-out reader no commenter's email, nor a name made from one", async () => {
+    await seedComment("named", {
+      authorEmail: READER,
+      authorName: "Rae Reader",
+    });
+    await seedComment("from-email", {
+      authorEmail: "pat.lee@content.example.test",
+      authorName: "Pat Lee",
+      videoTimestampMs: 2_000,
+    });
+    await seedComment("address", {
+      authorEmail: "sam@content.example.test",
+      authorName: "sam@content.example.test",
+      videoTimestampMs: 3_000,
+    });
+    const authors = (body: RouteBody) =>
+      body.comments.map(
+        (comment: {
+          id: string;
+          authorEmail: unknown;
+          authorName: unknown;
+        }) => [comment.id, comment.authorEmail, comment.authorName],
+      );
+
+    const signedOut = await listComments(
+      "rec-upload",
+      await publicReaderToken(),
+    );
+    expect(signedOut.status).toBe(200);
+    expect(authors(signedOut.body)).toEqual([
+      ["named", null, "Rae Reader"],
+      ["from-email", null, null],
+      ["address", null, null],
+    ]);
+    const signedIn = await listComments("rec-upload", await token());
+    expect(authors(signedIn.body)).toEqual([
+      ["named", READER, "Rae Reader"],
+      ["from-email", "pat.lee@content.example.test", "Pat Lee"],
+      ["address", "sam@content.example.test", "sam@content.example.test"],
+    ]);
   });
 
   it("lists thread starts only, at most as many as asked, and says when there are more", async () => {
@@ -1731,6 +1836,40 @@ describe("token checks", () => {
         )
       ).status,
     ).toBe(404);
+  });
+
+  it("counts a burst's requests before any of them opens the Clip", async () => {
+    __resetContentClipRateLimitsForTests({ misses: 2 });
+    const madeUp = await token({ recordingId: "made-up-1" });
+    // This database answers before the next request's token is verified, so
+    // hold every lookup until the whole burst has been checked.
+    let opening = 0;
+    let answered = 0;
+    const gate: { open?: () => void } = {};
+    const held = new Promise<void>((resolve) => {
+      gate.open = resolve;
+    });
+    state.beforeClipOpens = async () => {
+      opening += 1;
+      await held;
+    };
+    try {
+      const requests = Array.from({ length: 6 }, async () => {
+        const { status } = await playback("made-up-1", madeUp);
+        answered += 1;
+        return status;
+      });
+      await vi.waitFor(() => expect(opening + answered).toBe(6));
+      gate.open?.();
+      const statuses = await Promise.all(requests);
+      expect(opening).toBe(2);
+      expect(statuses.sort((a, b) => a - b)).toEqual([
+        404, 404, 429, 429, 429, 429,
+      ]);
+    } finally {
+      gate.open?.();
+      state.beforeClipOpens = null;
+    }
   });
 
   it("refuses a Clip that opened and then went away once its misses are spent", async () => {

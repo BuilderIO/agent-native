@@ -257,8 +257,10 @@ test("single-screen control: text tool click then immediate typing still works",
   await page.keyboard.press("t");
   await expect(textToolButton(page)).toHaveAttribute("aria-pressed", "true");
 
+  // Right of <main>'s box (328-1112 of 1440), so the text stays free on the
+  // body at the click; typed over main it would join main's flow.
   const click = {
-    x: Math.round(cardBox.x + cardBox.width * 0.42),
+    x: Math.round(cardBox.x + cardBox.width * 0.82),
     y: Math.round(cardBox.y + cardBox.height * 0.42),
   };
   const origin = await app.pagePoint(0, 0);

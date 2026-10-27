@@ -2,10 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentCollectionConfigSchema,
+  ga4PropertyIdSchema,
   searchConsoleSiteSchema,
   signupsConfigSchema,
   signupsSettingsUpdateSchema,
 } from "./config";
+
+describe("collection GA4 property", () => {
+  it("leaves new and legacy collections unconfigured without borrowing the app property", () => {
+    expect(contentCollectionConfigSchema.parse({}).ga4).toEqual({
+      enabled: true,
+      propertyId: null,
+    });
+    expect(
+      contentCollectionConfigSchema.parse({ ga4: { enabled: true } }).ga4,
+    ).toEqual({ enabled: true, propertyId: null });
+  });
+
+  it("normalizes a numeric property ID and rejects URLs and resource paths", () => {
+    expect(ga4PropertyIdSchema.parse(" 123456789 ")).toBe("123456789");
+    for (const value of [
+      "",
+      "properties/123456789",
+      "https://example.test",
+      "123/456",
+      "-1",
+    ]) {
+      expect(ga4PropertyIdSchema.safeParse(value).success).toBe(false);
+    }
+  });
+});
 
 describe("searchConsoleSiteSchema", () => {
   it("reads legacy property names while rejecting them in new input", () => {

@@ -14,6 +14,7 @@ import {
   timeRangeDays,
 } from "../../app/pages/adhoc/sql-dashboard/pivot";
 import type {
+  ChartValueFormatter,
   ColumnFormat,
   SqlDashboardConfig,
   PanelEvent,
@@ -34,7 +35,16 @@ import {
   type DataNoteTone,
 } from "../../shared/data-notes";
 import { formatDollars } from "../../shared/format-dollars";
+import {
+  EMPTY_DURATION,
+  formatDuration,
+  isEmptyDuration,
+} from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
+import {
+  metricComparison,
+  type MetricComparison,
+} from "../../shared/metric-comparison";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
@@ -48,6 +58,7 @@ import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
+import { numberTableColumns } from "../../shared/table-columns";
 import type { DashboardPanelSource } from "./dashboard-panel-query";
 import {
   buildPanelQuery,
@@ -65,6 +76,7 @@ import {
   type ReportChartType,
   type ReportChartValueFormatter,
 } from "./report-chart-svg";
+import { reportInlineMarkdownHtml } from "./report-inline-markdown";
 
 export type ReportSnapshot = {
   dashboardId: string;
@@ -128,6 +140,24 @@ const DATA_NOTE_COLORS: Record<DataNoteTone, string> = {
   incident: "#dc2626", // guard:allow-raw-color — email copy of --destructive
   data: "#d97706", // guard:allow-raw-color — email copy of --brand-orange
   fixed: "#9ca3af", // guard:allow-raw-color — email copy of --muted-foreground
+};
+// Email copies of the tile comparison chip; each text color reads at least 5:1 on its tint.
+const COMPARISON_COLORS: Record<
+  MetricComparison["tone"],
+  { text: string; background: string }
+> = {
+  good: { text: "#047857", background: "#ecfdf5" }, // guard:allow-raw-color — emerald text on its tint, 5.2:1
+  bad: { text: "#b91c1c", background: "#fef2f2" }, // guard:allow-raw-color — red text on its tint, 5.9:1
+  neutral: { text: "#4b5563", background: "#f3f4f6" }, // guard:allow-raw-color — gray text on its tint, 6.9:1
+};
+// Email copies of the callout severity icons; a white glyph reads at least 4.8:1 on each.
+const CALLOUT_SEVERITY_EMAIL: Record<
+  "critical" | "warning" | "info",
+  { color: string; glyph: string; label: string }
+> = {
+  critical: { color: "#dc2626", glyph: "!", label: "Critical" }, // guard:allow-raw-color — email copy of --destructive
+  warning: { color: "#b45309", glyph: "!", label: "Warning" }, // guard:allow-raw-color — amber dark enough for a white glyph
+  info: { color: "#0369a1", glyph: "i", label: "Info" }, // guard:allow-raw-color — sky dark enough for a white glyph
 };
 
 export function reportPanelVariables(
@@ -285,25 +315,24 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
-function formatYValue(
-  value: number,
-  formatter?: "number" | "currency" | "percent",
-): string {
+function formatYValue(value: number, formatter?: ChartValueFormatter): string {
   if (formatter === "currency") return formatDollars(value);
   if (formatter === "percent") {
     const pct = value <= 1 && value >= -1 ? value * 100 : value;
     return `${pct.toFixed(2)}%`;
   }
+  if (formatter === "duration") return formatDuration(value);
   return value.toLocaleString();
 }
 
 function formatMetricValue(
   raw: unknown,
-  formatter?: "number" | "currency" | "percent",
+  formatter?: ChartValueFormatter,
   valueLabels?: Record<string, string>,
 ): string {
   const label = valueLabels?.[String(raw)];
   if (label !== undefined) return label;
+  if (formatter === "duration" && isEmptyDuration(raw)) return EMPTY_DURATION;
   const numeric = toNumber(raw);
   return numeric !== null
     ? formatYValue(numeric, formatter)
@@ -313,7 +342,12 @@ function formatMetricValue(
 }
 
 function formatCell(value: unknown, format: ColumnFormat | undefined): string {
+  if (format === "duration" && isEmptyDuration(value)) return EMPTY_DURATION;
   if (value == null) return "";
+  if (format === "duration") {
+    const seconds = toNumber(value);
+    if (seconds !== null) return formatDuration(seconds);
+  }
   if (typeof value === "number") {
     if (format === "number") return value.toLocaleString();
     if (format === "currency") return formatDollars(value);
@@ -615,7 +649,9 @@ function hslToHex(hue: number, saturation: number, lightness: number): string {
 }
 
 const CELL_STYLE = `padding:6px 8px;border-bottom:1px solid ${BORDER_COLOR};font-size:13px;color:${TEXT_COLOR};`;
-const HEAD_CELL_STYLE = `padding:6px 8px;border-bottom:1px solid ${BORDER_COLOR};font-size:12px;font-weight:600;color:${MUTED_COLOR};text-align:left;`;
+// Numbers right-align in tabular figures and stay on one line, as on the dashboard.
+const NUMBER_CELL_STYLE = `${CELL_STYLE}text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;`;
+const HEAD_CELL_STYLE = `padding:6px 8px;border-bottom:1px solid ${BORDER_COLOR};font-size:12px;font-weight:600;color:${MUTED_COLOR};white-space:nowrap;`;
 
 function noteHtml(text: string): string {
   return `<p style="margin:6px 0 0;font-size:12px;color:${MUTED_COLOR};">${escapeHtml(text)}</p>`;
@@ -663,32 +699,67 @@ function renderMetricHtml(
     rows.length > 1 && isNumericLike(rows[0][valueColumn])
       ? rows.reduce((sum, row) => sum + (toNumber(row[valueColumn]) ?? 0), 0)
       : rows[0][valueColumn];
-  const value = formatMetricValue(
-    raw,
-    panel.config?.yFormatter,
-    panel.config?.valueLabels,
-  );
+  const format = panel.config?.yFormatter;
+  const value = formatMetricValue(raw, format, panel.config?.valueLabels);
+  const comparison = metricComparison({
+    rows,
+    current: raw,
+    config: panel.config,
+    formatValue: (change) => formatMetricValue(change, format),
+  });
+  const line = comparison ? comparisonLine(comparison, format) : null;
   return {
-    html: `<p style="margin:0;font-size:30px;font-weight:700;color:${TEXT_COLOR};">${escapeHtml(value)}</p>`,
-    text: value,
+    html: `<p style="margin:0;font-size:30px;font-weight:700;color:${TEXT_COLOR};">${escapeHtml(value)}</p>${line ? line.html : ""}`,
+    text: line ? `${value}\n${line.text}` : value,
   };
 }
 
-function renderCalloutHtml(rows: Array<Record<string, unknown>>): {
+/**
+ * The tile's change from the period before, under its value. Email has no
+ * hover, so the previous value the dashboard keeps in hover text is spelled
+ * out: "↘ 71% vs 588, the 7 days before".
+ */
+function comparisonLine(
+  comparison: MetricComparison,
+  format: ChartValueFormatter | undefined,
+): { html: string; text: string } {
+  const { change, direction, tone } = comparison;
+  const amount =
+    change.kind === "none"
+      ? "No change"
+      : change.kind === "points"
+        ? `${change.amount} pts`
+        : change.kind === "percent"
+          ? `${change.amount}%`
+          : change.amount;
+  const arrow =
+    direction === "up" ? "\u2197 " : direction === "down" ? "\u2198 " : "";
+  const against = `vs ${formatMetricValue(comparison.previous, format)}, ${
+    comparison.period ?? "the period before"
+  }`;
+  const colors = COMPARISON_COLORS[tone];
+  const verdict =
+    tone === "good" ? " (better)" : tone === "bad" ? " (worse)" : "";
+  return {
+    html: `<p style="margin:6px 0 0;font-size:12px;color:${MUTED_COLOR};"><span style="display:inline-block;padding:1px 6px;border-radius:9999px;background:${colors.background};color:${colors.text};font-weight:600;font-variant-numeric:tabular-nums;">${escapeHtml(`${arrow}${amount}`)}</span> ${escapeHtml(against)}</p>`,
+    text: `${arrow}${amount} ${against}${verdict}`,
+  };
+}
+
+/** Rows split by thin lines, each led by a colored severity icon, with the dashboard's inline links. */
+function renderCalloutHtml(
+  rows: Array<Record<string, unknown>>,
+  dashboardUrl: string,
+): {
   html: string;
   text: string;
 } {
   if (rows.length === 0) {
     return { html: noteHtml("No rows returned."), text: "No rows returned." };
   }
-  const palette = {
-    critical: { border: "#dc2626", background: "#fef2f2", text: "#991b1b" },
-    warning: { border: "#d97706", background: "#fffbeb", text: "#92400e" },
-    info: { border: "#0284c7", background: "#f0f9ff", text: "#075985" },
-  } as const;
   const lines: string[] = [];
-  const html = rows
-    .map((row) => {
+  const items = rows
+    .map((row, index) => {
       const severityRaw = (
         typeof row.severity === "string"
           ? row.severity
@@ -703,11 +774,20 @@ function renderCalloutHtml(rows: Array<Record<string, unknown>>): {
           ? row.message
           : (JSON.stringify(row.message) ?? "");
       lines.push(`${severity.toUpperCase()}: ${message}`);
-      const colors = palette[severity];
-      return `<p style="margin:0 0 6px;padding:8px 10px;border:1px solid ${colors.border};background:${colors.background};color:${colors.text};font-size:13px;">${escapeHtml(message)}</p>`;
+      const icon = CALLOUT_SEVERITY_EMAIL[severity];
+      const divider = index > 0 ? `border-top:1px solid ${BORDER_COLOR};` : "";
+      const body = reportInlineMarkdownHtml(message, {
+        baseUrl: dashboardUrl,
+        linkStyle: `color:${TEXT_COLOR};text-decoration:underline;`,
+        codeStyle: `font-family:Menlo,Consolas,monospace;font-size:12px;background:#f3f4f6;padding:0 3px;`, // guard:allow-raw-color — email copy of --muted
+      });
+      return `<tr><td style="width:24px;padding:8px 0;vertical-align:top;${divider}"><span role="img" aria-label="${icon.label}" style="display:inline-block;width:16px;height:16px;line-height:16px;border-radius:8px;background:${icon.color};color:#ffffff;font-size:11px;font-weight:700;text-align:center;">${icon.glyph}</span></td><td style="padding:8px 0;font-size:13px;line-height:1.45;color:${TEXT_COLOR};${divider}">${body}</td></tr>`; // guard:allow-raw-color — white glyph on the severity color
     })
     .join("");
-  return { html, text: lines.join("\n") };
+  return {
+    html: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">${items}</table>`,
+    text: lines.join("\n"),
+  };
 }
 
 function renderTableHtml(
@@ -731,11 +811,18 @@ function renderTableHtml(
     EMAIL_TABLE_ROW_CAP,
   );
   const visible = rows.slice(0, limit);
+  const numberColumns = numberTableColumns(columns, rows);
+  // Unformatted numbers get thousands separators, as on the dashboard.
+  const cellText = (value: unknown, column: TableColumnConfig) =>
+    formatCell(
+      value,
+      !column.format && typeof value === "number" ? "number" : column.format,
+    );
 
   const head = columns
     .map(
       (column) =>
-        `<th style="${HEAD_CELL_STYLE}">${escapeHtml(column.label ?? column.key)}</th>`,
+        `<th style="${HEAD_CELL_STYLE}text-align:${numberColumns.has(column.key) ? "right" : "left"};">${escapeHtml(column.label ?? column.key)}</th>`,
     )
     .join("");
   const body = visible
@@ -743,7 +830,7 @@ function renderTableHtml(
       const cells = columns
         .map((column) => {
           const raw = row[column.key];
-          const formatted = formatCell(raw, column.format);
+          const formatted = cellText(raw, column);
           if (column.format === "link") {
             const href = safeLinkHref(
               column.linkKey ? row[column.linkKey] : raw,
@@ -754,7 +841,9 @@ function renderTableHtml(
                 : escapeHtml(formatted)
             }</td>`;
           }
-          return `<td style="${CELL_STYLE}">${escapeHtml(formatted)}</td>`;
+          return `<td style="${
+            numberColumns.has(column.key) ? NUMBER_CELL_STYLE : CELL_STYLE
+          }">${escapeHtml(formatted)}</td>`;
         })
         .join("");
       return `<tr>${cells}</tr>`;
@@ -773,7 +862,7 @@ function renderTableHtml(
     ...visible.map((row) =>
       columns
         .map((column) =>
-          escapeMarkdownTableCell(formatCell(row[column.key], column.format)),
+          escapeMarkdownTableCell(cellText(row[column.key], column)),
         )
         .join(" | "),
     ),
@@ -1249,7 +1338,7 @@ export async function renderReportEmail(args: {
       panel.chartType === "metric"
         ? renderMetricHtml(panel, rows)
         : panel.chartType === "callout"
-          ? renderCalloutHtml(rows)
+          ? renderCalloutHtml(rows, snapshot.dashboardUrl)
           : panel.chartType === "heatmap"
             ? renderHeatmapHtml(panel, rows)
             : renderTableHtml(panel, rows);

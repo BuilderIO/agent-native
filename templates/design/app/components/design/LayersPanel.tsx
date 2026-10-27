@@ -10,6 +10,7 @@ import {
   IconEye,
   IconEyeOff,
   IconFile,
+  IconFrame,
   IconLayoutColumns,
   IconLayoutGrid,
   IconLayoutRows,
@@ -21,6 +22,7 @@ import {
   IconPlus,
   IconSearch,
   IconSquare,
+  IconSquareDashed,
   IconStar,
   IconTriangle,
   IconTypography,
@@ -44,30 +46,16 @@ import {
   type Ref,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 
-import {
-  CanvasMenuItem,
-  MENU_CONTENT_CLASS,
-} from "@/components/design/context-menu-item";
 import { LeftPanelSearchField } from "@/components/design/editor/LeftPanelSearchField";
-import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuSeparator,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 import { isFlowDisplay } from "@/pages/design-editor/live-layer-move-layout";
 
@@ -172,25 +160,14 @@ export interface LayersPanelLabels {
   codeLayers: string;
   elementLayers: string;
   collapse: string;
+  collapseAll: string;
   expand: string;
   lock: string;
   unlock: string;
   hide: string;
   show: string;
   rename: string;
-  copy: string;
-  bringToFront: string;
-  sendToBack: string;
-  flipHorizontal: string;
-  flipVertical: string;
-  copyLink: string;
-  arrange: string;
-  transform: string;
-  menuRename: string;
-  menuHide: string;
-  menuShow: string;
-  menuLock: string;
-  menuUnlock: string;
+  clearSearch: string;
 }
 
 export interface LayersPanelProps {
@@ -225,17 +202,8 @@ export interface LayersPanelProps {
   canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
   boardElements?: LayersPanelNode[];
   hoveredLayerId?: string | null;
-  onCopyLayer?: (ids: string[]) => void;
-  onCopyLink?: (nodeId: string) => void;
-  onPasteHere?: (targetId: string) => void;
-  onDuplicateLayer?: (ids: string[]) => void;
-  onDeleteLayer?: (ids: string[]) => void;
-  onReorderLayer?: (
-    ids: string[],
-    direction: "front" | "forward" | "backward" | "back",
-  ) => void;
-  onFlipHorizontal?: (ids: string[]) => void;
-  onFlipVertical?: (ids: string[]) => void;
+  /** Opens the canvas context menu after the row's layer is selected. */
+  onOpenContextMenu?: (point: { clientX: number; clientY: number }) => void;
 }
 
 export interface LayersPanelHandle {
@@ -368,25 +336,14 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
     codeLayers: t("layersPanel.codeLayers"),
     elementLayers: t("layersPanel.elementLayers"),
     collapse: t("layersPanel.collapse"),
+    collapseAll: t("layersPanel.collapseAll"),
     expand: t("layersPanel.expand"),
     lock: t("layersPanel.lock"),
     unlock: t("layersPanel.unlock"),
     hide: t("layersPanel.hide"),
     show: t("layersPanel.show"),
     rename: t("layersPanel.rename"),
-    copy: t("layersPanel.copy"),
-    bringToFront: t("layersPanel.bringToFront"),
-    sendToBack: t("layersPanel.sendToBack"),
-    flipHorizontal: t("layersPanel.flipHorizontal"),
-    flipVertical: t("layersPanel.flipVertical"),
-    copyLink: t("layersPanel.copyLink"),
-    arrange: t("layersPanel.arrange"),
-    transform: t("layersPanel.transform"),
-    menuRename: t("layersPanel.menuRename"),
-    menuHide: t("layersPanel.menuHide"),
-    menuShow: t("layersPanel.menuShow"),
-    menuLock: t("layersPanel.menuLock"),
-    menuUnlock: t("layersPanel.menuUnlock"),
+    clearSearch: t("layersPanel.clearSearch"),
   };
 }
 
@@ -885,16 +842,6 @@ export function buildLayerNodeMap(
   return map;
 }
 
-export function getContextMenuTargetIds(args: {
-  selectedIds: readonly string[];
-  nodeId: string;
-  visibleRows: readonly FlatLayerRow[];
-}): string[] {
-  return args.selectedIds.includes(args.nodeId)
-    ? getTreeOrderedLayerIds(args.selectedIds, args.visibleRows)
-    : [args.nodeId];
-}
-
 export function shouldResyncLayerSelectionAnchor(args: {
   selectionSignature: string;
   lastPanelSelectionSignature: string;
@@ -959,14 +906,7 @@ function LayersPanelImpl(
     canMoveLayer,
     boardElements,
     hoveredLayerId,
-    onCopyLayer,
-    onCopyLink,
-    onPasteHere,
-    onDuplicateLayer,
-    onDeleteLayer,
-    onReorderLayer,
-    onFlipHorizontal,
-    onFlipVertical,
+    onOpenContextMenu,
   }: LayersPanelProps,
   ref: Ref<LayersPanelHandle>,
 ) {
@@ -1262,12 +1202,35 @@ function LayersPanelImpl(
     setRenamingId(null);
   }, []);
 
+  const renameAdjacentRow = useCallback(
+    (id: string, step: 1 | -1) => {
+      commitRename(id);
+      const rows = visibleRowsRef.current;
+      const index = rows.findIndex((row) => row.node.id === id);
+      for (
+        let next = index + step;
+        next >= 0 && next < rows.length;
+        next += step
+      ) {
+        const { node } = rows[next]!;
+        if (node.selectable !== false && node.renamable !== false) {
+          startRename(node);
+          return;
+        }
+      }
+    },
+    [commitRename, startRename],
+  );
+
   const hasAnyRows = roots.length > 0;
   const screenRows = screens ?? files ?? [];
   const shouldShowSearch = searchOpen || Boolean(searchQuery.trim());
   const collapsedIds = useMemo(
     () => expandedIds.filter((id) => selectedAncestorIds.includes(id)),
     [expandedIds, selectedAncestorIds],
+  );
+  const hasExpandedRows = visibleRows.some(
+    (row) => row.hasChildren && expandedIdSet.has(row.node.id),
   );
 
   const refreshScreenResizeMetrics = useCallback(() => {
@@ -1310,9 +1273,13 @@ function LayersPanelImpl(
     return () => window.cancelAnimationFrame(frame);
   }, [activeScreenId, screenOverviewActive, screenRows]);
 
+  // The first press keeps the selection's ancestors open; once only they are
+  // open, the next press collapses those too.
   const collapseLayers = useCallback(() => {
-    onExpandedIdsChange(collapsedIds);
-  }, [collapsedIds, onExpandedIdsChange]);
+    onExpandedIdsChange(
+      collapsedIds.length < expandedIds.length ? collapsedIds : [],
+    );
+  }, [collapsedIds, expandedIds.length, onExpandedIdsChange]);
 
   const AUTO_SCROLL_EDGE_PX = 40;
   const AUTO_SCROLL_MAX_SPEED_PX = 14;
@@ -1590,8 +1557,9 @@ function LayersPanelImpl(
               type="button"
               data-layers-panel-action="collapse"
               className="flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-              aria-label={labels.collapse}
-              disabled={collapsedIds.length === expandedIds.length}
+              aria-label={labels.collapseAll}
+              title={labels.collapseAll}
+              disabled={!hasExpandedRows}
               onClick={collapseLayers}
             >
               <IconListTree
@@ -1607,6 +1575,7 @@ function LayersPanelImpl(
             ref={searchInputRef}
             value={searchQuery}
             placeholder={labels.searchPlaceholder}
+            clearLabel={labels.clearSearch}
             onValueChange={onSearchQueryChange}
             onEscapeWhenEmpty={() => setSearchOpen(false)}
           />
@@ -1668,6 +1637,7 @@ function LayersPanelImpl(
                     registerRowElement={registerRowElement}
                     onRenameDraftChange={setRenameDraft}
                     onCommitRename={commitRename}
+                    onRenameAdjacent={renameAdjacentRow}
                     onCancelRename={handleCancelRename}
                     onStartRename={startRename}
                     onRename={onRename}
@@ -1684,11 +1654,8 @@ function LayersPanelImpl(
                     selectedIdsRef={selectedIdsRef}
                     visibleRowsRef={visibleRowsRef}
                     rootsRef={rootsRef}
-                    onCopyLayer={onCopyLayer}
-                    onCopyLink={onCopyLink}
-                    onReorderLayer={onReorderLayer}
-                    onFlipHorizontal={onFlipHorizontal}
-                    onFlipVertical={onFlipVertical}
+                    searchQuery={searchQuery}
+                    onOpenContextMenu={onOpenContextMenu}
                   />
                 );
               })}
@@ -1724,6 +1691,7 @@ interface LayerRowProps {
   renameDraft: string;
   onRenameDraftChange: (value: string) => void;
   onCommitRename: (id: string) => void;
+  onRenameAdjacent: (id: string, step: 1 | -1) => void;
   onCancelRename: (id: string) => void;
   onStartRename: (node: LayersPanelNode) => void;
   onRename?: (id: string, name: string) => void;
@@ -1752,14 +1720,8 @@ interface LayerRowProps {
   selectedIdsRef: RefObject<readonly string[]>;
   visibleRowsRef: RefObject<FlatLayerRow[]>;
   rootsRef: RefObject<LayersPanelNode[]>;
-  onCopyLayer?: (ids: string[]) => void;
-  onCopyLink?: (nodeId: string) => void;
-  onReorderLayer?: (
-    ids: string[],
-    direction: "front" | "forward" | "backward" | "back",
-  ) => void;
-  onFlipHorizontal?: (ids: string[]) => void;
-  onFlipVertical?: (ids: string[]) => void;
+  searchQuery: string;
+  onOpenContextMenu?: (point: { clientX: number; clientY: number }) => void;
 }
 
 export function LayerRowIndentSlots({
@@ -1831,6 +1793,7 @@ const LayerRow = memo(function LayerRow({
   renameDraft,
   onRenameDraftChange,
   onCommitRename,
+  onRenameAdjacent,
   onCancelRename,
   onStartRename,
   onRename,
@@ -1847,16 +1810,10 @@ const LayerRow = memo(function LayerRow({
   selectedIdsRef,
   visibleRowsRef,
   rootsRef,
-  onCopyLayer,
-  onCopyLink,
-  onReorderLayer,
-  onFlipHorizontal,
-  onFlipVertical,
+  searchQuery,
+  onOpenContextMenu,
 }: LayerRowProps) {
   const t = useT();
-  const applePlatform = useApplePlatform();
-  const shortcut = (binding: string) =>
-    formatShortcutLabel(binding, applePlatform);
   const { node, depth, hasChildren, canAcceptChildren } = row;
   const isComponentLayer = layerNodeIsComponent(node);
   const selectable = node.selectable !== false;
@@ -1873,7 +1830,6 @@ const LayerRow = memo(function LayerRow({
   const isExpandedWithChildren = hasChildren && isExpanded;
   const activeDrop = activeDropPlacement;
   const renameCancelledRef = useRef(false);
-  const preventContextMenuFocusRestoreRef = useRef(false);
   const rowElementRef = useRef<HTMLDivElement | null>(null);
   const setRowElement = useCallback(
     (element: HTMLDivElement | null) => {
@@ -2157,446 +2113,342 @@ const LayerRow = memo(function LayerRow({
     clearSpringLoadTimer();
   };
 
-  const getContextMenuTargetIdsForRow = () =>
-    getContextMenuTargetIds({
-      selectedIds: selectedIdsRef.current,
-      nodeId: node.id,
-      visibleRows: visibleRowsRef.current,
-    });
-
-  const hasTransformActions = Boolean(onFlipHorizontal || onFlipVertical);
-  const hasEditActions = Boolean(
-    onCopyLayer || onCopyLink || onReorderLayer || hasTransformActions,
-  );
-
-  const showContextMenu =
-    selectable &&
-    (Boolean(onRename && node.renamable !== false) ||
-      lockable ||
-      hideable ||
-      hasEditActions);
+  const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (!selectable || !onOpenContextMenu) return;
+    event.preventDefault();
+    if (!selectedIdsRef.current.includes(node.id)) {
+      // The canvas menu reads the editor's selection, so it must commit first.
+      flushSync(() =>
+        onSelect(node.id, { additive: false, range: false, source: "pointer" }),
+      );
+    }
+    onOpenContextMenu({ clientX: event.clientX, clientY: event.clientY });
+  };
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild disabled={!showContextMenu}>
-        <div
-          ref={setRowElement}
-          role="treeitem"
-          data-layer-row-draggable={draggable ? "true" : "false"}
-          aria-expanded={hasChildren ? isExpanded : undefined}
-          aria-level={depth + 1}
-          aria-selected={selectable ? isSelected : undefined}
-          className="relative w-full min-w-0"
-          onClick={(event) => {
-            if ((event.target as Element).closest("button, input")) return;
-            handlePointerSelect(event);
-          }}
-          draggable={draggable}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragLeave={(event) => {
-            if (
-              event.currentTarget.contains(event.relatedTarget as Node | null)
-            )
-              return;
-            if (activeDropIntent?.targetId === node.id) activeDropIntent = null;
-            onDropIndicatorChange(null);
-            clearSpringLoadTimer();
-          }}
-          onDrop={handleDrop}
-          onDragEnd={() => {
-            activeDragState = null;
-            activeDropIntent = null;
-            onDropIndicatorChange(null);
-            clearSpringLoadTimer();
-          }}
-          onMouseEnter={handleRowMouseEnter}
-          onMouseMove={handleRowMouseMove}
-          onMouseLeave={() => onLeaveLayer?.(node.id)}
+    <div
+      ref={setRowElement}
+      role="treeitem"
+      data-layer-row-draggable={draggable ? "true" : "false"}
+      aria-expanded={hasChildren ? isExpanded : undefined}
+      aria-level={depth + 1}
+      aria-selected={selectable ? isSelected : undefined}
+      className="relative w-full min-w-0"
+      onClick={(event) => {
+        if ((event.target as Element).closest("button, input")) return;
+        handlePointerSelect(event);
+      }}
+      draggable={draggable}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null))
+          return;
+        if (activeDropIntent?.targetId === node.id) activeDropIntent = null;
+        onDropIndicatorChange(null);
+        clearSpringLoadTimer();
+      }}
+      onDrop={handleDrop}
+      onDragEnd={() => {
+        activeDragState = null;
+        activeDropIntent = null;
+        onDropIndicatorChange(null);
+        clearSpringLoadTimer();
+      }}
+      onContextMenu={handleContextMenu}
+      onMouseEnter={handleRowMouseEnter}
+      onMouseMove={handleRowMouseMove}
+      onMouseLeave={() => onLeaveLayer?.(node.id)}
+    >
+      {activeDrop === "before" ? (
+        <LayerDropIndicator depth={depth} placement="before" />
+      ) : null}
+      {activeDrop === "after" ? (
+        <LayerDropIndicator depth={depth} placement="after" />
+      ) : null}
+      <div
+        data-layer-row-content
+        data-layer-depth={depth}
+        data-layer-selection={
+          isSelected
+            ? "primary"
+            : isInSelectedSubtree
+              ? "descendant"
+              : undefined
+        }
+        data-layer-drop-indicator={
+          activeDrop === "inside" ? "inside" : undefined
+        }
+        className={cn(
+          "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
+          LAYER_ROW_GEOMETRY_CLASS,
+          !isSelected && !isInSelectedSubtree && "rounded-[4px]",
+          isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
+          isSelectionBlockStart && !isSelectionBlockEnd && "rounded-t-[4px]",
+          !isSelectionBlockStart && isSelectionBlockEnd && "rounded-b-[4px]",
+          activeDrop === "inside" &&
+            "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
+          isSelected &&
+            "bg-[var(--design-editor-selection-color)] text-foreground",
+          !isSelected &&
+            isInSelectedSubtree &&
+            "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
+          !isSelected &&
+            isActiveScreen &&
+            "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
+          !isSelected &&
+            !isInSelectedSubtree &&
+            !isActiveScreen &&
+            "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
+          isHovered &&
+            !isSelected &&
+            !isInSelectedSubtree &&
+            !isActiveScreen &&
+            "bg-[var(--design-editor-layer-hover-color)] text-foreground",
+          node.hidden && "text-muted-foreground",
+        )}
+      >
+        <LayerRowIndentSlots
+          count={layerRowIndentCount(depth)}
+          fit
+          control={
+            hasChildren ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                data-layer-row-chevron={isExpanded ? "expanded" : "collapsed"}
+                className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                aria-label={isExpanded ? labels.collapse : labels.expand}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleExpanded(
+                    node.id,
+                    !isExpanded,
+                    event.altKey ? node : undefined,
+                  );
+                }}
+              >
+                {isExpanded ? (
+                  <IconChevronDown className="!size-3" strokeWidth={1.8} />
+                ) : (
+                  <IconChevronRight
+                    className="!size-3 rtl:-scale-x-100"
+                    strokeWidth={1.8}
+                  />
+                )}
+              </Button>
+            ) : undefined
+          }
+        />
+
+        <button
+          type="button"
+          disabled={!selectable}
+          data-layer-row-button
+          data-layer-node-id={node.id}
+          className={cn(
+            "flex min-w-[44px] flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+            selectable ? "cursor-default" : "cursor-default opacity-80",
+          )}
+          onClick={handlePointerSelect}
+          onDoubleClick={() => onStartRename(node)}
+          onKeyDown={handleKeyDown}
         >
-          {activeDrop === "before" ? (
-            <LayerDropIndicator depth={depth} placement="before" />
-          ) : null}
-          {activeDrop === "after" ? (
-            <LayerDropIndicator depth={depth} placement="after" />
-          ) : null}
-          <div
-            data-layer-row-content
-            data-layer-depth={depth}
-            data-layer-selection={
-              isSelected
-                ? "primary"
-                : isInSelectedSubtree
-                  ? "descendant"
-                  : undefined
-            }
-            data-layer-drop-indicator={
-              activeDrop === "inside" ? "inside" : undefined
-            }
+          <span
+            data-layer-row-icon
             className={cn(
-              "group w-full min-w-0 [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
-              LAYER_ROW_GEOMETRY_CLASS,
-              !isSelected && !isInSelectedSubtree && "rounded-[4px]",
-              isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
-              isSelectionBlockStart &&
-                !isSelectionBlockEnd &&
-                "rounded-t-[4px]",
-              !isSelectionBlockStart &&
-                isSelectionBlockEnd &&
-                "rounded-b-[4px]",
-              activeDrop === "inside" &&
-                "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
-              isSelected &&
-                "bg-[var(--design-editor-selection-color)] text-foreground",
-              !isSelected &&
-                isInSelectedSubtree &&
-                "bg-[var(--design-editor-selected-subtree-color)] text-foreground/95",
-              !isSelected &&
-                isActiveScreen &&
-                "bg-[var(--design-editor-active-row-color)] text-foreground hover:bg-[var(--design-editor-active-row-color)]",
-              !isSelected &&
-                !isInSelectedSubtree &&
-                !isActiveScreen &&
-                "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
-              isHovered &&
-                !isSelected &&
-                !isInSelectedSubtree &&
-                !isActiveScreen &&
-                "bg-[var(--design-editor-layer-hover-color)] text-foreground",
-              node.hidden && "text-muted-foreground",
+              // The icon is the scroll target so deep rows don't scroll
+              // sideways; the margin brings the full row and the list's
+              // padding into view with it.
+              "flex size-[var(--design-icon-size)] shrink-0 scroll-my-3 items-center justify-center text-muted-foreground",
+              isComponentLayer
+                ? "text-[var(--design-editor-component-color)]"
+                : undefined,
             )}
           >
-            <LayerRowIndentSlots
-              count={layerRowIndentCount(depth)}
-              fit
-              control={
-                hasChildren ? (
+            {node.icon ?? <LayerGlyph node={node} />}
+          </span>
+          {isRenaming ? (
+            <input
+              data-layer-row-name
+              ref={focusRenameInput}
+              value={renameDraft}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onRenameDraftChange(event.target.value)}
+              onFocus={(event) => event.currentTarget.select()}
+              onBlur={() => {
+                if (renameCancelledRef.current) {
+                  renameCancelledRef.current = false;
+                  return;
+                }
+                onCommitRename(node.id);
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  onCommitRename(node.id);
+                } else if (event.key === "Tab") {
+                  event.preventDefault();
+                  onRenameAdjacent(node.id, event.shiftKey ? -1 : 1);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  renameCancelledRef.current = true;
+                  onCancelRename(node.id);
+                }
+              }}
+              className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
+              aria-label={labels.rename}
+            />
+          ) : (
+            <span
+              data-layer-row-name
+              className={cn(
+                "min-w-0 flex-1 truncate font-normal leading-4",
+                node.hidden ? "text-muted-foreground" : "text-foreground",
+              )}
+              title={node.name}
+            >
+              <HighlightedName name={node.name} query={searchQuery} />
+            </span>
+          )}
+          {!isRenaming &&
+          layerCanShowBadge(node) &&
+          node.badge !== null &&
+          node.badge !== undefined ? (
+            <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
+              {node.badge}
+            </span>
+          ) : null}
+        </button>
+
+        {(lockable || hideable) && (
+          <div
+            className={cn(
+              "sticky right-0 z-10 ml-auto flex shrink-0 items-center bg-inherit",
+              node.locked || node.hidden
+                ? "w-auto overflow-visible"
+                : "w-0 overflow-hidden group-hover:w-auto group-hover:overflow-visible focus-within:w-auto focus-within:overflow-visible",
+            )}
+          >
+            <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
+            <div className="absolute inset-0 -z-10 bg-inherit" />
+            {lockable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    data-layer-row-chevron={
-                      isExpanded ? "expanded" : "collapsed"
-                    }
-                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                    aria-label={isExpanded ? labels.collapse : labels.expand}
-                    onClick={(event) => {
+                    className={cn(
+                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                      node.locked && "opacity-100",
+                      isSelected && "text-foreground",
+                    )}
+                    aria-label={node.locked ? labels.unlock : labels.lock}
+                    data-layer-toggle="locked"
+                    draggable={false}
+                    onMouseDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
                       event.stopPropagation();
-                      onToggleExpanded(
+                      const nextLocked = !node.locked;
+                      onToggleLocked?.(node.id, nextLocked);
+                      beginIconToggleDrag(
+                        "locked",
+                        nextLocked,
                         node.id,
-                        !isExpanded,
-                        event.altKey ? node : undefined,
+                        event.currentTarget,
                       );
                     }}
+                    onClick={(event) => {
+                      if (event.detail !== 0) return;
+                      event.stopPropagation();
+                      onToggleLocked?.(node.id, !node.locked);
+                    }}
                   >
-                    {isExpanded ? (
-                      <IconChevronDown className="!size-3" strokeWidth={1.8} />
+                    {node.locked ? (
+                      <IconLock className="size-3" />
                     ) : (
-                      <IconChevronRight
-                        className="!size-3 rtl:-scale-x-100"
-                        strokeWidth={1.8}
-                      />
+                      <IconLockOpen className="size-3" />
                     )}
                   </Button>
-                ) : undefined
-              }
-            />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {node.locked ? labels.unlock : labels.lock}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
 
-            <button
-              type="button"
-              disabled={!selectable}
-              data-layer-row-button
-              data-layer-node-id={node.id}
-              className={cn(
-                "flex min-w-[44px] flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                selectable ? "cursor-default" : "cursor-default opacity-80",
-              )}
-              onClick={handlePointerSelect}
-              onDoubleClick={() => onStartRename(node)}
-              onKeyDown={handleKeyDown}
-            >
-              <span
-                data-layer-row-icon
-                className={cn(
-                  "flex size-[var(--design-icon-size)] shrink-0 items-center justify-center text-muted-foreground",
-                  isComponentLayer
-                    ? "text-[var(--design-editor-component-color)]"
-                    : undefined,
-                )}
-              >
-                {node.icon ?? <LayerGlyph node={node} />}
-              </span>
-              {isRenaming ? (
-                <input
-                  data-layer-row-name
-                  ref={focusRenameInput}
-                  value={renameDraft}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => onRenameDraftChange(event.target.value)}
-                  onFocus={(event) => event.currentTarget.select()}
-                  onBlur={() => {
-                    if (renameCancelledRef.current) {
-                      renameCancelledRef.current = false;
-                      return;
-                    }
-                    onCommitRename(node.id);
-                  }}
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key === "Enter") {
+            {hideable ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                      node.hidden && "opacity-100",
+                      isSelected && "text-foreground",
+                    )}
+                    aria-label={node.hidden ? labels.show : labels.hide}
+                    data-layer-toggle="hidden"
+                    draggable={false}
+                    onMouseDown={(event) => {
+                      if (event.button !== 0) return;
                       event.preventDefault();
-                      onCommitRename(node.id);
-                    } else if (event.key === "Tab") {
-                      event.preventDefault();
-                      onCommitRename(node.id);
-                    } else if (event.key === "Escape") {
-                      event.preventDefault();
-                      renameCancelledRef.current = true;
-                      onCancelRename(node.id);
-                    }
-                  }}
-                  className="h-5 min-w-0 flex-1 rounded-[3px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-panel-bg)] px-1 text-[11px] text-foreground outline-none"
-                  aria-label={labels.rename}
-                />
-              ) : (
-                <span
-                  data-layer-row-name
-                  className={cn(
-                    "min-w-0 flex-1 truncate font-normal leading-4",
-                    node.hidden ? "text-muted-foreground" : "text-foreground",
-                  )}
-                  title={node.name}
-                >
-                  {node.name}
-                </span>
-              )}
-              {!isRenaming &&
-              layerCanShowBadge(node) &&
-              node.badge !== null &&
-              node.badge !== undefined ? (
-                <span className="shrink-0 rounded-sm bg-muted px-1 text-[10px] text-muted-foreground">
-                  {node.badge}
-                </span>
-              ) : null}
-            </button>
-
-            {(lockable || hideable) && (
-              <div
-                className={cn(
-                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center bg-inherit",
-                  node.locked || node.hidden
-                    ? "w-auto overflow-visible"
-                    : "w-0 overflow-hidden group-hover:w-auto group-hover:overflow-visible focus-within:w-auto focus-within:overflow-visible",
-                )}
-              >
-                <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
-                <div className="absolute inset-0 -z-10 bg-inherit" />
-                {lockable ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                          node.locked && "opacity-100",
-                          isSelected && "text-foreground",
-                        )}
-                        aria-label={node.locked ? labels.unlock : labels.lock}
-                        data-layer-toggle="locked"
-                        draggable={false}
-                        onMouseDown={(event) => {
-                          if (event.button !== 0) return;
-                          event.preventDefault();
-                          event.stopPropagation();
-                          const nextLocked = !node.locked;
-                          onToggleLocked?.(node.id, nextLocked);
-                          beginIconToggleDrag(
-                            "locked",
-                            nextLocked,
-                            node.id,
-                            event.currentTarget,
-                          );
-                        }}
-                        onClick={(event) => {
-                          if (event.detail !== 0) return;
-                          event.stopPropagation();
-                          onToggleLocked?.(node.id, !node.locked);
-                        }}
-                      >
-                        {node.locked ? (
-                          <IconLock className="size-3" />
-                        ) : (
-                          <IconLockOpen className="size-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {node.locked ? labels.unlock : labels.lock}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-
-                {hideable ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                          node.hidden && "opacity-100",
-                          isSelected && "text-foreground",
-                        )}
-                        aria-label={node.hidden ? labels.show : labels.hide}
-                        data-layer-toggle="hidden"
-                        draggable={false}
-                        onMouseDown={(event) => {
-                          if (event.button !== 0) return;
-                          event.preventDefault();
-                          event.stopPropagation();
-                          const nextHidden = !node.hidden;
-                          onToggleHidden?.(node.id, nextHidden);
-                          beginIconToggleDrag(
-                            "hidden",
-                            nextHidden,
-                            node.id,
-                            event.currentTarget,
-                          );
-                        }}
-                        onClick={(event) => {
-                          if (event.detail !== 0) return;
-                          event.stopPropagation();
-                          onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                      >
-                        {node.hidden ? (
-                          <IconEyeOff className="size-3" />
-                        ) : (
-                          <IconEye className="size-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {node.hidden ? labels.show : labels.hide}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </div>
-            )}
+                      event.stopPropagation();
+                      const nextHidden = !node.hidden;
+                      onToggleHidden?.(node.id, nextHidden);
+                      beginIconToggleDrag(
+                        "hidden",
+                        nextHidden,
+                        node.id,
+                        event.currentTarget,
+                      );
+                    }}
+                    onClick={(event) => {
+                      if (event.detail !== 0) return;
+                      event.stopPropagation();
+                      onToggleHidden?.(node.id, !node.hidden);
+                    }}
+                  >
+                    {node.hidden ? (
+                      <IconEyeOff className="size-3" />
+                    ) : (
+                      <IconEye className="size-3" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {node.hidden ? labels.show : labels.hide}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
-        </div>
-      </ContextMenuTrigger>
-      {showContextMenu ? (
-        <ContextMenuContent
-          className={cn("z-[300]", MENU_CONTENT_CLASS)}
-          onCloseAutoFocus={(event) => {
-            if (!preventContextMenuFocusRestoreRef.current) return;
-            event.preventDefault();
-            preventContextMenuFocusRestoreRef.current = false;
-          }}
-        >
-          {onCopyLayer ? (
-            <CanvasMenuItem
-              label={labels.copy}
-              shortcut={shortcut("$mod+c")}
-              onSelect={() => onCopyLayer(getContextMenuTargetIdsForRow())}
-            />
-          ) : null}
-          {onCopyLink ? (
-            <CanvasMenuItem
-              label={labels.copyLink}
-              onSelect={() => onCopyLink(node.id)}
-            />
-          ) : null}
-          {onRename && node.renamable !== false ? (
-            <CanvasMenuItem
-              label={labels.menuRename}
-              shortcut={shortcut("$mod+r")}
-              onSelect={() => {
-                preventContextMenuFocusRestoreRef.current = true;
-                onStartRename(node);
-              }}
-            />
-          ) : null}
-
-          {(onCopyLayer ||
-            onCopyLink ||
-            (onRename && node.renamable !== false)) &&
-          (lockable || hideable) ? (
-            <ContextMenuSeparator />
-          ) : null}
-          {hideable ? (
-            <CanvasMenuItem
-              label={node.hidden ? labels.menuShow : labels.menuHide}
-              shortcut={shortcut("$mod+shift+h")}
-              onSelect={() => onToggleHidden?.(node.id, !node.hidden)}
-            />
-          ) : null}
-          {lockable ? (
-            <CanvasMenuItem
-              label={node.locked ? labels.menuUnlock : labels.menuLock}
-              shortcut={shortcut("$mod+shift+l")}
-              onSelect={() => onToggleLocked?.(node.id, !node.locked)}
-            />
-          ) : null}
-
-          {(lockable || hideable) && (onReorderLayer || hasTransformActions) ? (
-            <ContextMenuSeparator />
-          ) : null}
-          {onReorderLayer ? (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>{labels.arrange}</ContextMenuSubTrigger>
-              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
-                <CanvasMenuItem
-                  label={labels.bringToFront}
-                  shortcut={shortcut("]")}
-                  onSelect={() =>
-                    onReorderLayer(getContextMenuTargetIdsForRow(), "front")
-                  }
-                />
-                <CanvasMenuItem
-                  label={labels.sendToBack}
-                  shortcut={shortcut("[")}
-                  onSelect={() =>
-                    onReorderLayer(getContextMenuTargetIdsForRow(), "back")
-                  }
-                />
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          ) : null}
-          {hasTransformActions ? (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>{labels.transform}</ContextMenuSubTrigger>
-              <ContextMenuSubContent className={MENU_CONTENT_CLASS}>
-                {onFlipHorizontal ? (
-                  <CanvasMenuItem
-                    label={labels.flipHorizontal}
-                    shortcut={shortcut("shift+h")}
-                    onSelect={() =>
-                      onFlipHorizontal(getContextMenuTargetIdsForRow())
-                    }
-                  />
-                ) : null}
-                {onFlipVertical ? (
-                  <CanvasMenuItem
-                    label={labels.flipVertical}
-                    shortcut={shortcut("shift+v")}
-                    onSelect={() =>
-                      onFlipVertical(getContextMenuTargetIdsForRow())
-                    }
-                  />
-                ) : null}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          ) : null}
-        </ContextMenuContent>
-      ) : null}
-    </ContextMenu>
+        )}
+      </div>
+    </div>
   );
 });
+
+function HighlightedName({ name, query }: { name: string; query: string }) {
+  const needle = query.trim().toLowerCase();
+  const start = needle ? name.toLowerCase().indexOf(needle) : -1;
+  if (start < 0) return <>{name}</>;
+  const end = start + needle.length;
+  return (
+    <>
+      {name.slice(0, start)}
+      <mark className="rounded-[2px] bg-[var(--design-editor-selection-color)] text-inherit">
+        {name.slice(start, end)}
+      </mark>
+      {name.slice(end)}
+    </>
+  );
+}
 
 function IconTooltipButton({
   label,
@@ -2637,15 +2489,12 @@ function IconTooltipButton({
 function LayerGlyph({
   node,
 }: {
-  node: Pick<
-    LayersPanelNode,
-    "type" | "layout" | "tagName" | "detail" | "isComponent"
-  >;
+  node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
 }) {
   const componentColor = "text-[var(--design-editor-component-color)]";
   const common = cn(
     "size-[var(--design-icon-size)]",
-    node.isComponent && componentColor,
+    layerNodeIsComponent(node) && componentColor,
   );
   if (layerNodeUsesImageGlyph(node)) {
     return <IconPhoto className={common} />;
@@ -2655,10 +2504,18 @@ function LayerGlyph({
     case "screen":
       return <IconFile className={common} />;
     case "frame":
-      return <LayoutLayerGlyph node={node} className={common} />;
+      return (
+        <LayoutLayerGlyph node={node} className={common} fallback={IconFrame} />
+      );
     case "group":
     case "section":
-      return <LayoutLayerGlyph node={node} className={common} />;
+      return (
+        <LayoutLayerGlyph
+          node={node}
+          className={common}
+          fallback={IconSquareDashed}
+        />
+      );
     case "component":
     case "instance":
       return <IconComponents className={cn(common, componentColor)} />;
@@ -2668,7 +2525,7 @@ function LayerGlyph({
     case "shape":
     case "rectangle":
       return shapeLayerUsesLayoutGlyph(node) ? (
-        <LayoutLayerGlyph node={node} className={common} />
+        <LayoutLayerGlyph node={node} className={common} fallback={IconFrame} />
       ) : (
         <IconSquare className={common} />
       );
@@ -2689,7 +2546,7 @@ function LayerGlyph({
     case "code":
     case "element":
       return node.layout?.isFlexContainer || node.layout?.isGridContainer ? (
-        <LayoutLayerGlyph node={node} className={common} />
+        <LayoutLayerGlyph node={node} className={common} fallback={IconFrame} />
       ) : (
         <IconCode className={common} />
       );
@@ -2723,34 +2580,33 @@ function layerNodeUsesImageGlyph(
   return node.type === "image" || tag === "img" || tag === "picture";
 }
 
-function layerNodeIsComponent(
-  node: Pick<LayersPanelNode, "type" | "isComponent">,
-): boolean {
-  return (
-    node.isComponent === true ||
-    node.type === "component" ||
-    node.type === "instance"
-  );
+// `isComponent` also marks plain form controls, so only the layer type says
+// whether this is a real component.
+function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
+  return node.type === "component" || node.type === "instance";
 }
 
 function LayoutLayerGlyph({
   node,
   className,
+  fallback: Fallback,
 }: {
   node: Pick<LayersPanelNode, "layout">;
   className?: string;
+  fallback: typeof IconFrame;
 }) {
   if (node.layout?.isGridContainer) {
     return <IconLayoutGrid className={className} />;
   }
   if (node.layout?.isFlexContainer) {
-    return node.layout.flexDirection?.startsWith("row") ? (
-      <IconLayoutColumns className={className} />
-    ) : (
+    // flex-direction defaults to row when the source doesn't set it.
+    return node.layout.flexDirection?.startsWith("column") ? (
       <IconLayoutRows className={className} />
+    ) : (
+      <IconLayoutColumns className={className} />
     );
   }
-  return <IconArtboard className={className} />;
+  return <Fallback className={className} />;
 }
 function layerCanDropInside(
   node: LayersPanelNode,

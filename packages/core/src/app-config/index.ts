@@ -15,6 +15,11 @@ export {
 } from "./clips.js";
 export { DEFAULT_EXTENSION_DISPLAY_SOURCES } from "./extensions.js";
 export {
+  resolveHostedStorageConfig,
+  type HostedStorageConfig,
+  type ResolvedHostedStorageConfig,
+} from "./hosted-storage.js";
+export {
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,

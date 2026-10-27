@@ -1135,6 +1135,9 @@ export function InboxPage() {
             sortMode={sortMode}
             showPrioritySort={showPrioritySort}
             jevConfigured={jevConfigured}
+            priorityProviderIdentity={
+              jevAvailability.data?.providerIdentity ?? "unavailable"
+            }
             jevAvailabilityLoading={
               jevAvailability.isLoading || jevAvailability.isFetching
             }

@@ -90,7 +90,7 @@ export function swapMediaSource(
     media.muted = state.muted;
     media.playbackRate = state.playbackRate;
     if (!state.paused) {
-      void media.play()?.catch(() => {
+      void Promise.resolve(media.play()).catch(() => {
         // The browser can refuse to resume without a fresh gesture; the
         // reader then sees the paused player and presses play.
       });
