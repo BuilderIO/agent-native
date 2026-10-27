@@ -13,7 +13,8 @@ const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockLoadStoredAgentFrame = vi.hoisted(() => vi.fn());
-const mockFillRecommendedAgentFrames = vi.hoisted(() => vi.fn());
+const mockClaimFill = vi.hoisted(() => vi.fn());
+const mockClaimRelease = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
     class VideoFrameExtractionError extends Error {
@@ -66,8 +67,6 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 vi.mock("../../lib/agent-frame-store.js", () => ({
   loadStoredAgentFrame: (...args: unknown[]) =>
     mockLoadStoredAgentFrame(...args),
-  fillRecommendedAgentFrames: (...args: unknown[]) =>
-    mockFillRecommendedAgentFrames(...args),
   clampAgentFrameAtMs: (atMs: number, durationMs: number) =>
     durationMs > 0 ? Math.min(atMs, Math.max(0, durationMs - 1)) : atMs,
 }));
@@ -147,8 +146,10 @@ describe("agent-frame.jpg route", () => {
     });
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
-    mockLoadStoredAgentFrame.mockResolvedValue(null);
-    mockFillRecommendedAgentFrames.mockResolvedValue(undefined);
+    mockClaimFill.mockResolvedValue(undefined);
+    mockLoadStoredAgentFrame.mockResolvedValue({
+      claim: { fill: mockClaimFill, release: mockClaimRelease },
+    });
     mockCleanupMediaFile.mockResolvedValue(undefined);
     mockEnsureRecordingThumbnail.mockResolvedValue({
       recordingId: "rec-1",
@@ -324,7 +325,9 @@ describe("agent-frame.jpg route", () => {
         recording: { id: "private-stored", visibility: "private" },
       }),
     });
-    mockLoadStoredAgentFrame.mockResolvedValue(new Uint8Array([9, 8, 7]));
+    mockLoadStoredAgentFrame.mockResolvedValue({
+      frame: new Uint8Array([9, 8, 7]),
+    });
 
     const event = makeEvent({ id: "private-stored", atMs: "1000" });
     const result = await handler(event as never);
@@ -344,15 +347,53 @@ describe("agent-frame.jpg route", () => {
     await handler(event as never);
 
     expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
-    const [recording, extract, known] =
-      mockFillRecommendedAgentFrames.mock.lastCall ?? [];
-    expect(recording).toMatchObject({ id: "rec-1" });
+    const [extract, known] = mockClaimFill.mock.lastCall ?? [];
     expect(known).toEqual({ atMs: 3000, frame: new Uint8Array([1, 2, 3]) });
     await extract(7000);
+    expect(mockClaimRelease).toHaveBeenCalledTimes(1);
     expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
       mediaPath: "/tmp/recording.webm",
       atMs: 7000,
     });
+  });
+
+  it("releases the claim when the video cannot be loaded, so waiting requests move on", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError("Recording media is missing.", 404),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "2000" });
+    await handler(event as never);
+
+    expect(event.status).toBe(404);
+    expect(mockClaimFill).not.toHaveBeenCalled();
+    expect(mockClaimRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when the frame redirects to a resolved timestamp", async () => {
+    mockExtractJpegFrameFromFile
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError("no frame", "NO_FRAME_AT_TIMESTAMP"),
+      )
+      .mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(1500);
+
+    const event = makeEvent({ id: "rec-1", atMs: "2000" });
+    const result = await handler(event as never);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(mockClaimFill).not.toHaveBeenCalled();
+    expect(mockClaimRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes no claim when a stored frame answers", async () => {
+    mockLoadStoredAgentFrame.mockResolvedValue({
+      frame: new Uint8Array([9]),
+    });
+
+    await handler(makeEvent({ id: "rec-1", atMs: "1000" }) as never);
+
+    expect(mockClaimRelease).not.toHaveBeenCalled();
   });
 
   it("caches anonymous public frames without shared caching", async () => {

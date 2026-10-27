@@ -25,7 +25,6 @@ import {
 } from "../../lib/agent-frame-request.js";
 import {
   clampAgentFrameAtMs,
-  fillRecommendedAgentFrames,
   loadStoredAgentFrame,
 } from "../../lib/agent-frame-store.js";
 import {
@@ -264,17 +263,18 @@ export default defineEventHandler(async (event: H3Event) => {
     return cached;
   }
 
-  const stored = await loadStoredAgentFrame(recording, atMs);
-  if (stored) {
+  const lookup = await loadStoredAgentFrame(recording, atMs);
+  if ("frame" in lookup) {
     await persistDefaultThumbnailIfMissing(
       access,
       requestedMs,
-      stored,
+      lookup.frame,
       storedMimeType,
     );
     applyFrameHeaders(event);
-    return Buffer.from(stored);
+    return Buffer.from(lookup.frame);
   }
+  const { claim } = lookup;
 
   try {
     const media = await loadRecordingMediaFile(recording);
@@ -295,8 +295,7 @@ export default defineEventHandler(async (event: H3Event) => {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
-      await fillRecommendedAgentFrames(
-        recording,
+      await claim.fill(
         (frameAtMs) =>
           extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
         { atMs, frame: resolved.frame },
@@ -311,5 +310,9 @@ export default defineEventHandler(async (event: H3Event) => {
   } catch (err) {
     const status = frameFailureStatus(err);
     return sendFrameJson(event, status, describeFrameFailure(err, status));
+  } finally {
+    // Whatever ended the request, requests waiting on this clip's frames must
+    // not wait on it any longer.
+    claim.release();
   }
 });

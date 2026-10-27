@@ -7,6 +7,23 @@ const mockLockedRecording = vi.hoisted(() => ({
   value: [] as Array<unknown>,
 }));
 const mockInserted = vi.hoisted(() => [] as unknown[]);
+const mockCurrentRecording = vi.hoisted(() => ({
+  value: [] as Array<unknown>,
+}));
+const mockTables = vi.hoisted(() => ({
+  recordings: {
+    id: "id",
+    ownerEmail: "ownerEmail",
+    videoUrl: "videoUrl",
+    editsJson: "editsJson",
+  },
+  recordingAgentFrames: {
+    id: "id",
+    recordingId: "recordingId",
+    atMs: "atMs",
+    storageUrl: "storageUrl",
+  },
+}));
 const mockFetchMedia = vi.hoisted(() => vi.fn());
 const mockDeleteStoredMediaUrl = vi.hoisted(() => vi.fn());
 const mockDeleteUploadedFile = vi.hoisted(() => vi.fn());
@@ -37,12 +54,16 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("../db/index.js", () => {
   const select = () => ({
-    from: () => ({
+    from: (table: unknown) => ({
       where: () => {
-        const result = Promise.resolve(mockRows.value) as Promise<unknown[]> & {
+        const rows =
+          table === mockTables.recordings
+            ? mockCurrentRecording.value
+            : mockRows.value;
+        const result = Promise.resolve(rows) as Promise<unknown[]> & {
           limit: () => Promise<unknown[]>;
         };
-        result.limit = () => Promise.resolve(mockRows.value);
+        result.limit = () => Promise.resolve(rows);
         return result;
       },
     }),
@@ -76,20 +97,7 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
-    schema: {
-      recordings: {
-        id: "id",
-        ownerEmail: "ownerEmail",
-        videoUrl: "videoUrl",
-        editsJson: "editsJson",
-      },
-      recordingAgentFrames: {
-        id: "id",
-        recordingId: "recordingId",
-        atMs: "atMs",
-        storageUrl: "storageUrl",
-      },
-    },
+    schema: mockTables,
   };
 });
 
@@ -110,10 +118,29 @@ vi.mock("./upload-recording-media.js", () => ({
 import {
   agentFrameMediaKey,
   deleteStoredAgentFrames,
-  fillRecommendedAgentFrames,
   loadStoredAgentFrame,
   recommendedAgentFrameTimes,
 } from "./agent-frame-store.js";
+
+type TestClip = Parameters<typeof loadStoredAgentFrame>[0];
+
+/** Releases a claim a test took only to see that one was offered. */
+function releaseIfClaim(
+  lookup: Awaited<ReturnType<typeof loadStoredAgentFrame>>,
+) {
+  if ("claim" in lookup) lookup.claim.release();
+}
+
+/** Claims the clip's fill the way the route does, then runs it. */
+async function fillRecommendedAgentFrames(
+  clip: TestClip,
+  extract: (atMs: number) => Promise<Uint8Array>,
+  known?: { atMs: number; frame: Uint8Array },
+): Promise<void> {
+  const lookup = await loadStoredAgentFrame(clip, known?.atMs ?? OPENING_MS);
+  if (!("claim" in lookup)) throw new Error("expected a claim, got a frame");
+  await lookup.claim.fill(extract, known);
+}
 
 const recording = {
   id: "rec-1",
@@ -132,6 +159,7 @@ describe("agent frame store", () => {
     mockLockedRecording.value = [
       { videoUrl: recording.videoUrl, editsJson: recording.editsJson },
     ];
+    mockCurrentRecording.value = mockLockedRecording.value;
     mockDeleteStoredMediaUrl.mockResolvedValue(true);
     mockDeleteUploadedFile.mockResolvedValue(true);
     mockTxFrameRows.value = [];
@@ -160,9 +188,9 @@ describe("agent frame store", () => {
     ];
     mockFetchMedia.mockResolvedValue(new Response(new Uint8Array([1, 2, 3])));
 
-    expect(await loadStoredAgentFrame(recording, 1000)).toEqual(
-      new Uint8Array([1, 2, 3]),
-    );
+    expect(await loadStoredAgentFrame(recording as never, 1000)).toEqual({
+      frame: new Uint8Array([1, 2, 3]),
+    });
     expect(mockFetchMedia).toHaveBeenCalledWith(
       "https://cdn.example.com/frame.jpg",
       { recordingId: "rec-1", storageMode: "own" },
@@ -180,11 +208,13 @@ describe("agent frame store", () => {
       },
     ];
 
-    expect(await loadStoredAgentFrame(recording, 1000)).toBeNull();
+    const lookup = await loadStoredAgentFrame(recording as never, 1000);
+    expect(lookup).toHaveProperty("claim");
+    releaseIfClaim(lookup);
     expect(mockFetchMedia).not.toHaveBeenCalled();
   });
 
-  it("returns null, not an empty frame, when storage is unreadable", async () => {
+  it("offers a claim, not an empty frame, when storage is unreadable", async () => {
     mockRows.value = [
       {
         atMs: 1000,
@@ -195,10 +225,14 @@ describe("agent frame store", () => {
       },
     ];
     mockFetchMedia.mockRejectedValue(new Error("boom"));
-    expect(await loadStoredAgentFrame(recording, 1000)).toBeNull();
+    const unreadable = await loadStoredAgentFrame(recording as never, 1000);
+    expect(unreadable).toHaveProperty("claim");
+    releaseIfClaim(unreadable);
 
     mockFetchMedia.mockResolvedValue(new Response(new Uint8Array()));
-    expect(await loadStoredAgentFrame(recording, 1000)).toBeNull();
+    const empty = await loadStoredAgentFrame(recording as never, 1000);
+    expect(empty).toHaveProperty("claim");
+    releaseIfClaim(empty);
   });
 
   it("deletes objects then rows, and keeps a row whose object is not gone", async () => {
@@ -344,7 +378,11 @@ describe("agent frame store", () => {
       );
     });
 
-    it("keeps the old row, and stores nothing, when the replaced object will not delete", async () => {
+    it("keeps the old row when the replaced object will not delete, and drops its own upload", async () => {
+      mockUploadRecordingMedia.mockResolvedValue({
+        url: "https://cdn.example.com/new.jpg",
+        provider: "s3",
+      });
       mockRows.value = [
         {
           atMs: OPENING_MS,
@@ -354,18 +392,72 @@ describe("agent frame store", () => {
           storageId: null,
         },
       ];
-      mockDeleteStoredMediaUrl.mockResolvedValue(false);
+      mockTxFrameRows.value = [
+        { storageUrl: "https://cdn.example.com/old.jpg" },
+      ];
+      mockDeleteStoredMediaUrl.mockImplementation(async (url: string) =>
+        url.endsWith("new.jpg"),
+      );
 
       await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
         atMs: OPENING_MS,
         frame: new Uint8Array([1]),
       });
 
-      expect(mockUploadRecordingMedia).not.toHaveBeenCalledWith(
-        expect.objectContaining({ filename: `agent-frame-${OPENING_MS}.jpg` }),
-      );
       expect(mockInserted).not.toContainEqual(
         expect.objectContaining({ atMs: OPENING_MS }),
+      );
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/new.jpg",
+        { storageMode: "own", recordingId: "rec-1" },
+      );
+    });
+
+    it("does nothing for a fill whose media was already replaced", async () => {
+      mockCurrentRecording.value = [
+        { videoUrl: "https://cdn.example.com/burned.mp4", editsJson: "{}" },
+      ];
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
+
+      expect(mockUploadRecordingMedia).not.toHaveBeenCalled();
+      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalled();
+    });
+
+    it("never deletes a current frame from a fill whose media was replaced under the lock", async () => {
+      mockUploadRecordingMedia.mockResolvedValue({
+        url: "https://cdn.example.com/late.jpg",
+        provider: "s3",
+      });
+      mockRows.value = [
+        {
+          atMs: OPENING_MS,
+          mediaKey: "newer",
+          storageUrl: "https://cdn.example.com/current.jpg",
+          storageProvider: "s3",
+          storageId: null,
+        },
+      ];
+      mockTxFrameRows.value = [
+        { storageUrl: "https://cdn.example.com/current.jpg" },
+      ];
+      mockLockedRecording.value = [
+        { videoUrl: "https://cdn.example.com/burned.mp4", editsJson: "{}" },
+      ];
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]), {
+        atMs: OPENING_MS,
+        frame: new Uint8Array([1]),
+      });
+
+      expect(mockInserted).toHaveLength(0);
+      expect(mockDeleteStoredMediaUrl).not.toHaveBeenCalledWith(
+        "https://cdn.example.com/current.jpg",
+        expect.anything(),
+      );
+      expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/late.jpg",
+        { storageMode: "own", recordingId: "rec-1" },
       );
     });
 
@@ -383,10 +475,7 @@ describe("agent frame store", () => {
       expect(mockInserted).toHaveLength(0);
       expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(
         "https://cdn.example.com/late.jpg",
-        {
-          storageMode: "own",
-          recordingId: "rec-1",
-        },
+        { storageMode: "own", recordingId: "rec-1" },
       );
     });
 
@@ -401,6 +490,31 @@ describe("agent frame store", () => {
 
       expect(mockInserted).toHaveLength(0);
       expect(mockDeleteStoredMediaUrl).toHaveBeenCalled();
+    });
+
+    it("logs where a rejected upload is when it cannot be deleted", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      mockUploadRecordingMedia.mockResolvedValue({
+        url: "https://cdn.example.com/late.jpg",
+        provider: "s3",
+        id: "late-1",
+      });
+      mockLockedRecording.value = [];
+      mockDeleteStoredMediaUrl.mockResolvedValue(false);
+
+      await fillRecommendedAgentFrames(clip, async () => new Uint8Array([4]));
+
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("rejected frame upload left in storage"),
+        expect.objectContaining({
+          storageUrl: "https://cdn.example.com/late.jpg",
+          storageProvider: "s3",
+          storageId: "late-1",
+        }),
+      );
+      consoleError.mockRestore();
     });
 
     it("does not overwrite a frame another fill recorded first", async () => {
@@ -547,35 +661,48 @@ describe("agent frame store", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("makes a concurrent reader wait for the fill, then read the store", async () => {
+    it("makes a concurrent miss wait for the claim, then read the store", async () => {
       mockUploadRecordingMedia.mockResolvedValue(null);
       mockRows.value = [];
-      const fill = fillRecommendedAgentFrames(
-        clip,
-        async () => new Uint8Array([4]),
-      );
+      const first = await loadStoredAgentFrame(clip, OPENING_MS);
+      if (!("claim" in first)) throw new Error("expected a claim");
+
+      const second = loadStoredAgentFrame(clip, OPENING_MS);
       mockRows.value = [
         {
           atMs: OPENING_MS,
           mediaKey: agentFrameMediaKey(recording),
           storageUrl: "https://cdn.example.com/f.jpg",
+          storageProvider: "s3",
+          storageId: null,
         },
       ];
       mockFetchMedia.mockResolvedValue(new Response(new Uint8Array([7])));
+      await first.claim.fill(async () => new Uint8Array([4]));
 
-      expect(await loadStoredAgentFrame(clip, OPENING_MS)).toEqual(
-        new Uint8Array([7]),
-      );
-      await fill;
+      expect(await second).toEqual({ frame: new Uint8Array([7]) });
     });
 
-    it("runs one fill per clip at a time", async () => {
-      mockUploadRecordingMedia.mockResolvedValue(null);
-      const extract = vi.fn(async () => new Uint8Array([4]));
+    it("gives a cold burst one claim, and the next waiter takes it over on release", async () => {
+      mockRows.value = [];
+      const [first, second] = [
+        loadStoredAgentFrame(clip, 1000),
+        loadStoredAgentFrame(clip, 2000),
+      ];
+      const firstResult = await first;
+      if (!("claim" in firstResult)) throw new Error("expected a claim");
 
-      const first = fillRecommendedAgentFrames(clip, extract);
-      expect(fillRecommendedAgentFrames(clip, extract)).toBe(first);
-      await first;
+      let secondSettled = false;
+      void second.then(() => {
+        secondSettled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(secondSettled).toBe(false);
+
+      firstResult.claim.release();
+      const secondResult = await second;
+      expect(secondResult).toHaveProperty("claim");
+      if ("claim" in secondResult) secondResult.claim.release();
     });
   });
 });

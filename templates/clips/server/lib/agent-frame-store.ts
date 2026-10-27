@@ -158,20 +158,66 @@ async function readStoredFrame(
 }
 
 /**
- * The stored frame for `atMs`, waiting for a fill another request is running
- * for this clip first, so a burst of requests shares one video download.
+ * Whether the recording still has the media a frame was cut from. A cheap
+ * read, so stale work is dropped before it uploads or deletes anything; the
+ * locked read in `storeAgentFrame` is what makes it exact.
+ */
+async function isMediaCurrent(
+  recording: Pick<FrameRecording, "id" | "ownerEmail">,
+  mediaKey: string,
+): Promise<boolean> {
+  const rows = await getDb()
+    .select({
+      videoUrl: schema.recordings.videoUrl,
+      editsJson: schema.recordings.editsJson,
+    })
+    .from(schema.recordings)
+    .where(
+      and(
+        eq(schema.recordings.id, recording.id),
+        ownerEmailMatches(schema.recordings.ownerEmail, recording.ownerEmail),
+      ),
+    );
+  return rows.some((row) => agentFrameMediaKey(row) === mediaKey);
+}
+
+/**
+ * The right to cut and store a clip's recommended frames, held by one request
+ * from its stored-frame miss until it is done. Requests that miss meanwhile
+ * wait for it instead of downloading the video themselves.
+ */
+export type AgentFrameClaim = {
+  /** Cuts and stores the frames, then releases the claim. */
+  fill(
+    extract: (atMs: number) => Promise<Uint8Array>,
+    known?: { atMs: number; frame: Uint8Array },
+  ): Promise<void>;
+  /** Gives the claim up without filling; safe to call after `fill`. */
+  release(): void;
+};
+
+export type StoredAgentFrameLookup =
+  | { frame: Uint8Array }
+  | { claim: AgentFrameClaim };
+
+/**
+ * The stored frame for `atMs`, or the claim to fill the clip's frames. A miss
+ * while another request holds the claim waits for it and reads again, so a
+ * burst of cold requests shares one video download.
  */
 export async function loadStoredAgentFrame(
-  recording: FrameRecording,
+  recording: PublicAgentRecording,
   atMs: number,
-): Promise<Uint8Array | null> {
+): Promise<StoredAgentFrameLookup> {
   const mediaKey = agentFrameMediaKey(recording);
-  const frame = await readStoredFrame(recording, atMs, mediaKey);
-  if (frame) return frame;
-  const fill = fillsInFlight.get(fillKey(recording.id, mediaKey));
-  if (!fill) return null;
-  await fill;
-  return readStoredFrame(recording, atMs, mediaKey);
+  const key = fillKey(recording.id, mediaKey);
+  for (;;) {
+    const frame = await readStoredFrame(recording, atMs, mediaKey);
+    if (frame) return { frame };
+    const held = fillsInFlight.get(key);
+    if (!held) return { claim: claimFill(recording, key, mediaKey) };
+    await held;
+  }
 }
 
 /**
@@ -204,11 +250,8 @@ async function storeAgentFrame(
   frame: Uint8Array,
   previous: FrameObject | null,
 ): Promise<void> {
-  // The object being replaced goes first and must be confirmed gone: once the
-  // row points at the new object nothing records the old one, so a failed
-  // delete afterwards would leak it for good. Left as is, the next fill
-  // retries.
-  if (previous && !(await deleteFrameObject(recording, previous))) return;
+  // Most stale fills end here, before an upload they would have to undo.
+  if (!(await isMediaCurrent(recording, mediaKey))) return;
 
   let uploaded: Awaited<ReturnType<typeof uploadRecordingMedia>>;
   try {
@@ -280,6 +323,13 @@ async function storeAgentFrame(
         ? existing.some((row) => row.storageUrl === previous.storageUrl)
         : existing.length === 0;
       if (!unchanged) return false;
+      // The object being replaced goes while the row is still locked and
+      // checked, and must be confirmed gone: once the row points at the new
+      // object nothing records the old one, and a stale fill must not delete
+      // a current frame. Left as is, the next fill retries.
+      if (previous && !(await deleteFrameObject(recording, previous))) {
+        return false;
+      }
       await tx
         .insert(schema.recordingAgentFrames)
         .values({
@@ -305,95 +355,120 @@ async function storeAgentFrame(
     });
     recorded = false;
   }
-  // The row never pointed at this object, so nothing else can find it.
-  if (!recorded) {
-    await deleteFrameObject(recording, {
-      storageUrl: uploaded.url,
-      storageProvider: uploaded.provider,
-      storageId: uploaded.id ?? null,
+  if (recorded) return;
+  // The row never pointed at this object, so nothing else can find it; if it
+  // cannot be deleted, this log is the only record of where it is.
+  const object = {
+    storageUrl: uploaded.url,
+    storageProvider: uploaded.provider,
+    storageId: uploaded.id ?? null,
+  };
+  if (!(await deleteFrameObject(recording, object))) {
+    console.error("[agent-frame-store] rejected frame upload left in storage", {
+      recordingId: recording.id,
+      atMs,
+      ...object,
     });
   }
 }
 
 /**
  * Cuts and stores every recommended frame not yet stored, from media the
- * caller already has on disk: whoever asks for one frame is likely to ask for
- * the rest. `known` is a frame the caller already cut. Runs as the clip's
+ * claim holder already has on disk: whoever asks for one frame is likely to
+ * ask for the rest. `known` is a frame it already cut. Runs as the clip's
  * owner, who owns the frames, and never rejects: a frame that cannot be cut
  * or stored is logged and left to the on-demand path.
  */
-export function fillRecommendedAgentFrames(
+async function runFill(
   recording: PublicAgentRecording,
+  mediaKey: string,
   extract: (atMs: number) => Promise<Uint8Array>,
-  known?: { atMs: number; frame: Uint8Array },
+  known: { atMs: number; frame: Uint8Array } | undefined,
 ): Promise<void> {
-  const mediaKey = agentFrameMediaKey(recording);
-  const key = fillKey(recording.id, mediaKey);
-  const running = fillsInFlight.get(key);
-  if (running) return running;
-
-  const fill = Promise.resolve()
-    .then(() =>
-      runWithRequestContext(
-        {
-          userEmail: recording.ownerEmail,
-          ...(recording.orgId ? { orgId: recording.orgId } : {}),
-        },
-        async () => {
-          const [times, rows] = await Promise.all([
-            recommendedAgentFrameTimes(recording),
-            loadFrameRows(recording.id),
-          ]);
-          const rowsByAtMs = new Map(rows.map((row) => [row.atMs, row]));
-          for (const atMs of times) {
-            const existing = rowsByAtMs.get(atMs);
-            // The requested frame reaches here only after its stored copy was
-            // missed, so a current row for it points at an unreadable object.
-            if (existing?.mediaKey === mediaKey && known?.atMs !== atMs) {
+  try {
+    await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail,
+        ...(recording.orgId ? { orgId: recording.orgId } : {}),
+      },
+      async () => {
+        const [times, rows] = await Promise.all([
+          recommendedAgentFrameTimes(recording),
+          loadFrameRows(recording.id),
+        ]);
+        const rowsByAtMs = new Map(rows.map((row) => [row.atMs, row]));
+        for (const atMs of times) {
+          const existing = rowsByAtMs.get(atMs);
+          // The requested frame reaches here only after its stored copy was
+          // missed, so a current row for it points at an unreadable object.
+          if (existing?.mediaKey === mediaKey && known?.atMs !== atMs) {
+            continue;
+          }
+          let frame = known?.atMs === atMs ? known.frame : null;
+          if (!frame) {
+            try {
+              frame = await extract(atMs);
+            } catch (error) {
+              console.warn("[agent-frame-store] recommended frame not cut", {
+                recordingId: recording.id,
+                atMs,
+                error: error instanceof Error ? error.message : String(error),
+              });
               continue;
             }
-            let frame = known?.atMs === atMs ? known.frame : null;
-            if (!frame) {
-              try {
-                frame = await extract(atMs);
-              } catch (error) {
-                console.warn("[agent-frame-store] recommended frame not cut", {
-                  recordingId: recording.id,
-                  atMs,
-                  error: error instanceof Error ? error.message : String(error),
-                });
-                continue;
-              }
-            }
-            await storeAgentFrame(
-              recording,
-              mediaKey,
-              atMs,
-              frame,
-              existing ?? null,
-            );
           }
-          // An edit or a new transcript changes which timestamps are
-          // recommended; frames at the others would otherwise stay in
-          // storage, and in the hosted quota, until the recording is deleted.
-          const wanted = new Set(times);
-          for (const row of rows) {
-            if (!wanted.has(row.atMs)) await deleteFrameRow(recording, row);
-          }
-        },
-      ),
-    )
-    .catch((error: unknown) => {
-      console.warn("[agent-frame-store] frame fill skipped", {
-        recordingId: recording.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    })
-    .finally(() => {
-      fillsInFlight.delete(key);
+          await storeAgentFrame(
+            recording,
+            mediaKey,
+            atMs,
+            frame,
+            existing ?? null,
+          );
+        }
+        // An edit or a new transcript changes which timestamps are
+        // recommended; frames at the others would otherwise stay in storage,
+        // and in the hosted quota, until the recording is deleted. Only while
+        // this fill's media is still the recording's, so a stale fill never
+        // prunes what a newer one recorded.
+        if (!(await isMediaCurrent(recording, mediaKey))) return;
+        const wanted = new Set(times);
+        for (const row of rows) {
+          if (!wanted.has(row.atMs)) await deleteFrameRow(recording, row);
+        }
+      },
+    );
+  } catch (error) {
+    console.warn("[agent-frame-store] frame fill skipped", {
+      recordingId: recording.id,
+      error: error instanceof Error ? error.message : String(error),
     });
-  fillsInFlight.set(key, fill);
-  return fill;
+  }
+}
+
+function claimFill(
+  recording: PublicAgentRecording,
+  key: string,
+  mediaKey: string,
+): AgentFrameClaim {
+  let resolveHeld: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    resolveHeld = resolve;
+  });
+  fillsInFlight.set(key, held);
+  const release = () => {
+    if (fillsInFlight.get(key) === held) fillsInFlight.delete(key);
+    resolveHeld();
+  };
+  return {
+    fill: async (extract, known) => {
+      try {
+        await runFill(recording, mediaKey, extract, known);
+      } finally {
+        release();
+      }
+    },
+    release,
+  };
 }
 
 /**
