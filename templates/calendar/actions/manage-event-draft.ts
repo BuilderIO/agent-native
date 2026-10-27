@@ -212,15 +212,17 @@ export default defineAction({
 
     const rawId = args.id || `draft-${Date.now()}`;
     const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
-    const existing =
-      action === "update"
-        ? ((await readAppState(
-            draftKey(id),
-          )) as unknown as CalendarEventDraft | null)
-        : null;
+    const existing = (await readAppState(
+      draftKey(id),
+    )) as unknown as CalendarEventDraft | null;
 
     if (action === "update" && !existing) {
       throw new Error(`Calendar event draft "${id}" not found`);
+    }
+    if (action === "create" && existing) {
+      throw new Error(
+        `Calendar event draft "${id}" already exists; use action "update" to change it, or omit id to create a new draft.`,
+      );
     }
 
     const now = new Date().toISOString();

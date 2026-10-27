@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   approval: vi.fn(),
   deleteDrafts: vi.fn(),
+  drafts: new Map<string, unknown>(),
 }));
 
 const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
@@ -93,6 +94,10 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
   >()),
+  readAppState: async (key: string) => mocks.drafts.get(key) ?? null,
+  writeAppState: async (key: string, value: unknown) => {
+    mocks.drafts.set(key, value);
+  },
   deleteAppStateByPrefix: mocks.deleteDrafts,
 }));
 vi.mock("../onboarding.js", () => ({}));
@@ -219,6 +224,7 @@ describe("Calendar direct MCP writes", () => {
     mocks.updateEvent.mockResolvedValue({});
     mocks.rsvpEvent.mockResolvedValue(undefined);
     mocks.deleteDrafts.mockResolvedValue(3);
+    mocks.drafts.clear();
     mocks.approval.mockResolvedValue({
       action: "accept",
       content: { decision: "deny" },
@@ -321,6 +327,29 @@ describe("Calendar direct MCP writes", () => {
         }),
       ).toBe(action === "delete-all");
     }
+  });
+
+  it("refuses to create a draft over one that already uses the ID", async () => {
+    const existing = { id: "draft-taken", title: "Edited by the user" };
+    mocks.drafts.set("calendar-draft-draft-taken", existing);
+    const client = await clientFor();
+    const refused = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-taken", title: "Replacement" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("already exists");
+    expect(mocks.drafts.get("calendar-draft-draft-taken")).toBe(existing);
+
+    const created = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-new", title: "Planning" },
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    expect(mocks.drafts.get("calendar-draft-draft-new")).toMatchObject({
+      id: "draft-new",
+      title: "Planning",
+    });
   });
 
   it("deletes all drafts only after the MCP client approves the call", async () => {
