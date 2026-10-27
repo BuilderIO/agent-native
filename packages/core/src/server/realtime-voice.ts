@@ -799,7 +799,22 @@ function createSessionHandler(
                   },
                 },
               };
-        const { tools } = await resolveTools(auth);
+        let tools: RealtimeFunctionTool[];
+        try {
+          ({ tools } = await resolveTools(auth));
+        } catch (error) {
+          // Starting without the caller's tools would hide them; say why.
+          setResponseStatus(event, 503);
+          return {
+            error: truncate(
+              `Could not load your connected tools for voice chat: ${
+                sanitizeToolErrorValue(error) || "unknown error"
+              }`,
+              REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+            ),
+            code: "realtime_voice_tools_unavailable",
+          };
+        }
         const packedTools = packRealtimeTools(sessionBase, tools);
         const session = realtimeSessionWithTools(sessionBase, packedTools);
 

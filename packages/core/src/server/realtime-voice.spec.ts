@@ -2027,6 +2027,25 @@ describe("realtime voice tool route", () => {
     });
   });
 
+  it("refuses to start a session without the caller's tools when they cannot load", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { handlers } = mount({
+      resolveRequestActions: async () => {
+        throw new Error("MCP manager is reconfiguring");
+      },
+    });
+    const event = sessionEvent();
+
+    expect(await handlers.get(REALTIME_VOICE_SESSION_PATH)!(event)).toEqual({
+      error:
+        "Could not load your connected tools for voice chat: MCP manager is reconfiguring",
+      code: "realtime_voice_tools_unavailable",
+    });
+    expect(event.statusCode).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("never offers one person's MCP tools to another", async () => {
     const resolveRequestActions = vi.fn(
       async ({ userEmail }: { userEmail: string }) =>
