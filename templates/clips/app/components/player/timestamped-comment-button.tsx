@@ -2,11 +2,13 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { COMMENT_ACCESS_TOKEN_HEADER } from "../../../shared/comment-access";
 import { useAutoResizeCommentTextarea } from "./comment-composer";
 import { msToClock } from "./scrubber";
 
@@ -40,51 +42,143 @@ export function TimestampedCommentButton({
 }
 
 interface TimestampedCommentBarProps {
+  commentAccessToken?: string;
+  getCommentAccessToken?: (
+    refusedToken?: string | null,
+  ) => Promise<string | null | undefined>;
   recordingId: string;
   atMs: number;
+  open?: boolean;
   onClose: () => void;
   onAdded?: () => void;
   className?: string;
   draft?: string;
   onDraftChange?: (value: string) => void;
+  portalContainer?: HTMLElement | null;
 }
 
 export function TimestampedCommentBar({
+  commentAccessToken,
+  getCommentAccessToken,
   recordingId,
   atMs,
+  open = true,
   onClose,
   onAdded,
   className,
   draft: controlledDraft,
   onDraftChange,
+  portalContainer,
 }: TimestampedCommentBarProps) {
-  const t = useT();
   const [uncontrolledDraft, setUncontrolledDraft] = useState("");
   const draft = controlledDraft ?? uncontrolledDraft;
   const setDraft = onDraftChange ?? setUncontrolledDraft;
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  useAutoResizeCommentTextarea(textareaRef, draft, 1);
-
-  const addComment = useActionMutation("add-comment");
-
+  const draftRef = useRef(draft);
   useEffect(() => {
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, []);
+    draftRef.current = draft;
+  }, [draft]);
+
+  const commentAccessTokenRef = useRef<string | null | undefined>(
+    commentAccessToken,
+  );
+  useEffect(() => {
+    commentAccessTokenRef.current = commentAccessToken;
+  }, [commentAccessToken]);
+  const refusedCommentAccessTokenRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  // Toasts do not paint over real fullscreen, so failure shows in the bar.
+  const [failed, setFailed] = useState(false);
+  // Every mutate() posts again, and isPending reaches render a tick late.
+  const sendingRef = useRef(false);
+  const addComment = useActionMutation("add-comment", {
+    headers: () =>
+      commentAccessTokenRef.current
+        ? { [COMMENT_ACCESS_TOKEN_HEADER]: commentAccessTokenRef.current }
+        : undefined,
+    onMutate: async () => {
+      if (getCommentAccessToken) {
+        commentAccessTokenRef.current = await getCommentAccessToken(
+          refusedCommentAccessTokenRef.current,
+        );
+      }
+    },
+    onError: () => {
+      refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
+      setFailed(true);
+    },
+    onSettled: () => {
+      sendingRef.current = false;
+    },
+  });
 
   const submit = () => {
     const content = draft.trim();
-    if (!content) return;
+    if (!content || sendingRef.current) return;
+    sendingRef.current = true;
+    setFailed(false);
     addComment.mutate(
       { recordingId, content, videoTimestampMs: atMs },
       {
         onSuccess: () => {
-          setDraft("");
           onAdded?.();
+          // The textarea stays editable while this sends, so newer text is
+          // the next draft, not this posted one.
+          if (draftRef.current.trim() !== content) return;
+          setDraft("");
           onClose();
         },
       },
     );
   };
+
+  // Closing the composer, or moving it into or out of the player, remounts the
+  // fields, so the send stays out here where a pending one survives both.
+  if (!open) return null;
+  const fields = (
+    <TimestampedCommentFields
+      draft={draft}
+      onDraftChange={(value) => {
+        setDraft(value);
+        setFailed(false);
+      }}
+      failed={failed}
+      pending={addComment.isPending}
+      atMs={atMs}
+      onSubmit={submit}
+      onClose={onClose}
+      className={className}
+    />
+  );
+  return portalContainer ? createPortal(fields, portalContainer) : fields;
+}
+
+function TimestampedCommentFields({
+  draft,
+  onDraftChange,
+  failed,
+  pending,
+  atMs,
+  onSubmit,
+  onClose,
+  className,
+}: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  failed: boolean;
+  pending: boolean;
+  atMs: number;
+  onSubmit: () => void;
+  onClose: () => void;
+  className?: string;
+}) {
+  const t = useT();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useAutoResizeCommentTextarea(textareaRef, draft, 1);
+
+  useEffect(() => {
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
 
   return (
     <div
@@ -95,11 +189,11 @@ export function TimestampedCommentBar({
         <Textarea
           ref={textareaRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              submit();
+              onSubmit();
             }
             if (e.key === "Escape") {
               e.preventDefault();
@@ -111,6 +205,11 @@ export function TimestampedCommentBar({
           aria-label={t("commentsPanel.composerPlaceholder")}
           className="min-h-9 max-h-[40vh] resize-none border-0 bg-transparent px-2 py-1.5 text-base leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
         />
+        {failed ? (
+          <p role="alert" className="px-2 pb-1 text-[11px] text-destructive">
+            {t("notificationsRoute.sendFailed")}
+          </p>
+        ) : null}
         <div className="mt-1 flex items-center justify-between border-t border-border px-1 pt-1.5">
           <span className="ps-1 text-[11px] text-muted-foreground">
             {t("commentsPanel.commentAt")}{" "}
@@ -130,8 +229,8 @@ export function TimestampedCommentBar({
               type="button"
               size="icon"
               className="size-7 rounded-full"
-              disabled={!draft.trim() || addComment.isPending}
-              onClick={submit}
+              disabled={!draft.trim() || pending}
+              onClick={onSubmit}
               aria-label={`${t("commentsPanel.commentAt")} ${msToClock(atMs)}`}
             >
               <IconArrowUp className="size-4" />
