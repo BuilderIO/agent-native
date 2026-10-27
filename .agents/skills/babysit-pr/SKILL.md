@@ -44,8 +44,10 @@ GitHub Actions and no new feedback, and merge only if the user asks.
    bots re-review on every push and post a new round each time. Never filter
    by a "since <timestamp>" window: it hides rounds posted before your last
    reply, and "0 new" reads as "all addressed" (this left two rounds
-   unanswered on PR #1097). Use reply state instead. This lists every
-   top-level comment with no reply:
+   unanswered on PR #1097). Use reply state instead. Run both queries below
+   with `set -o pipefail`. If either fails, the PR is not clean: retry next
+   tick, and never read empty output from a failed call as "no feedback". This
+   lists every top-level comment with no reply:
 
    ```bash
    gh api --paginate repos/{owner}/{repo}/pulls/$ARGUMENTS/comments --jq '.[]' \
@@ -78,7 +80,8 @@ GitHub Actions and no new feedback, and merge only if the user asks.
 5. Reply on your own PR. Answer every thread you fixed or declined with the
    fix or your reasoning, and post one short top-level recap for feedback that
    only appeared in a review body. On anyone else's PR, comment only if the
-   user named that PR and the comment.
+   user named that PR and the comment. Feedback that needs a reply you aren't
+   allowed to post stays unresolved and blocks the merge.
 
 ## Judging feedback
 
@@ -93,7 +96,9 @@ GitHub Actions and no new feedback, and merge only if the user asks.
 
 ## Pushing to an existing PR
 
-`pnpm ship:push -m "<specific subject>"` pushes `origin/<local branch>`. Use it
+`pnpm ship:push -m "<specific subject>"` stages every publishable dirty path,
+so check `git status` first and stop if a path isn't part of this fix. It
+pushes `origin/<local branch>`. Use it
 when `origin` is the PR's head repository and the local branch name equals
 `headRefName`. Otherwise commit your paths, find the remote whose URL matches
 `headRepository.nameWithOwner` (add one if needed), recheck the live head OID,

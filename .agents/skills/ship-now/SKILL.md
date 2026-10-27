@@ -78,8 +78,16 @@ for your own PR. For anyone else's PR, `ship`'s ownership rules apply.
 
 ## After the merge
 
-If the PR body has a `Reports` section, run `/review-latest-feedback` step 5
-for those threads. Beta, docs, and release checks happen only when the user
-asks or a concrete risk calls for them, as `ship-and-monitor` describes.
-Merging publishes beta automatically. Fix any later CI or deploy failure on
-the fresh branch and send it through `/ship`.
+Because this path merged before remote CI finished, watch the workflows on
+the merge commit:
+
+```bash
+gh run list --commit <mergeCommit.oid> --json name,status,conclusion,url
+```
+
+Keep checking until they finish. Fix any failure on the fresh branch and send
+it through `/ship`. If the PR body has a `Reports` section, run
+`/review-latest-feedback` step 5 for those threads. Merging publishes beta
+automatically. Beyond the merge commit's own workflows, beta, docs, and
+release proof follow `ship-and-monitor`, when the user asks for it or a
+concrete risk calls for it.
