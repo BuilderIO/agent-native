@@ -103,7 +103,7 @@ const messages = {
     retry: "重試",
     reload: "重新載入",
     mcpAbout:
-      "將 Slides 2 連線至 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。該應用程式之後可以代表你在 Slides 2 中工作：建立簡報、加入投影片並匯出至 PowerPoint。它只能看到你看得到的內容。",
+      "將此工作區連結到 Claude、ChatGPT、Cursor 或其他支援 MCP 的應用程式。它可以建立簡報、加入投影片並匯出為 PowerPoint，存取範圍僅限於你能查看的內容。",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
@@ -290,7 +290,7 @@ const messages = {
     deleteError: "刪除設計系統失敗",
     emptyTitle: "設定你的品牌識別",
     emptyDescription:
-      "使用你的品牌顏色、字型和徽標建立設計系統。每個新簡報都會遵循你的視覺識別。",
+      "一次選好色彩、字型和標誌。新簡報的每張投影片都會沿用這個風格，讓你專注於內容。",
     tierLimitTitle: "已達到設計系統數量上限",
     tierLimitDescription:
       "您已達到目前 Builder 方案的設計系統數量上限。升級 Builder 方案以建立更多。",
@@ -768,7 +768,7 @@ const messages = {
   },
   generateSlides: {
     title: "用 AI 產生幻燈片",
-    description: "描述你的簡報主題，AI 會為你產生投影片。",
+    description: "告訴我們主題，智慧代理會和你一起整理成投影片。",
     topic: "主題",
     topicPlaceholder: "例如：React Hooks 入門、Q4 銷售報告、2025 產品路線圖...",
     slides: "幻燈片",
@@ -1368,7 +1368,7 @@ const messages = {
     newDeckPromptTitle: "新建簡報",
     newDeckPlaceholder: "描述你想產生的簡報...",
     skipPrompt: "跳過提示",
-    firstDeckPromptTitle: "一起建立你的第一份簡報",
+    firstDeckPromptTitle: "一起製作你的第一份簡報。",
     firstDeckSkip: "跳過",
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
@@ -1429,7 +1429,7 @@ const messages = {
     signIn: "登入",
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
-    emptyDescription: "使用 AI 產生精美簡報。",
+    emptyDescription: "從一個主題開始，和智慧代理一起打磨你的簡報。",
   },
   agentChat: {
     setup: {

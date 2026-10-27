@@ -8,6 +8,7 @@ import type {
 } from "../shared/api";
 import { builderBlocksHash } from "../shared/builder-mdx";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
@@ -16,6 +17,7 @@ import {
   BUILDER_CMS_BODY_SIDECARS_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
 } from "./_builder-cms-source-adapter";
+import { BUILDER_CMS_UNPUBLISHED_CHANGES_KEY } from "./_builder-cms-unpublished-changes";
 import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
   assertBuilderCmsContinuationIdentity,
@@ -28,6 +30,7 @@ import {
   builderBodyHydrationNextAttemptAt,
   builderBodyHydrationFailureEvidence,
   builderBodyNeedsSourceComponentWrite,
+  builderBodyReadSourceValues,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
@@ -1610,6 +1613,92 @@ describe("database source helpers", () => {
     expect(change).toBeNull();
   });
 
+  it("proposes a Content body over a known-empty Builder body, not over an unread one", async () => {
+    const bodyChange = (sourceValues: Record<string, unknown>) =>
+      builderBodyChangeForSourceSnapshotDocument({
+        row: {
+          documentId: "doc-empty",
+          sourceRowId: "entry-empty",
+          sourceQualifiedId: "builder-cms://blog-article/entry-empty",
+          provenance: "Builder CMS read adapter",
+          sourceValuesJson: JSON.stringify({
+            published: "draft",
+            ...sourceValues,
+          }),
+        },
+        isHydrated: true,
+        allowUnsourcedCreate: false,
+        localContent: "Body written in Content.",
+      });
+
+    expect(
+      await bodyChange({ [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0 }),
+    ).toMatchObject({
+      currentHash: null,
+      proposedHash: expect.any(String),
+      proposedContent: "Body written in Content.",
+    });
+    expect(await bodyChange({})).toBeNull();
+  });
+
+  it("proposes an emptied Content body over Builder's live body", async () => {
+    const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      row: {
+        documentId: "doc-cleared",
+        sourceRowId: "entry-cleared",
+        sourceQualifiedId: "builder-cms://blog-article/entry-cleared",
+        provenance: "Builder CMS read adapter",
+        // Content saved an empty body over the live one.
+        sourceValuesJson: JSON.stringify({
+          published: "published",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+        }),
+      },
+      isHydrated: true,
+      allowUnsourcedCreate: false,
+      localContent: "",
+      liveBaseline: { blocksHash: "live-hash", bodyEmpty: false },
+    });
+
+    expect(bodyChange).toMatchObject({
+      currentHash: "live-hash",
+      proposedHash: expect.any(String),
+      proposedBlocksJson: "[]",
+    });
+  });
+
+  it("proposes an emptied Content body over a live body Builder sent no hash for, unless that body was empty", async () => {
+    const bodyChange = (liveBaseline: {
+      blocksHash: string | null;
+      bodyEmpty: boolean;
+    }) =>
+      builderBodyChangeForSourceSnapshotDocument({
+        row: {
+          documentId: "doc-cleared",
+          sourceRowId: "entry-cleared",
+          sourceQualifiedId: "builder-cms://blog-article/entry-cleared",
+          provenance: "Builder CMS read adapter",
+          sourceValuesJson: JSON.stringify({
+            published: "published",
+            [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+          }),
+        },
+        isHydrated: true,
+        allowUnsourcedCreate: false,
+        localContent: "",
+        liveBaseline,
+      });
+
+    expect(
+      await bodyChange({ blocksHash: null, bodyEmpty: false }),
+    ).toMatchObject({
+      currentHash: null,
+      proposedHash: expect.any(String),
+      proposedBlocksJson: "[]",
+    });
+    expect(await bodyChange({ blocksHash: null, bodyEmpty: true })).toBeNull();
+  });
+
   it("converts a rich unsourced local body into a create-draft body payload", async () => {
     const localContent = [
       "Opening paragraph.",
@@ -2993,6 +3082,224 @@ describe("database source helpers", () => {
     ).toEqual({
       "data.url": "/blog/persisted-url",
     });
+  });
+
+  it("keeps a saved unpublished change through a refresh that still reads the live value", () => {
+    const refreshed = (title: string) =>
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Saved title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title,
+          urlPath: "/blog/live-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: { published: "published", "data.title": title },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          published: "published",
+          "data.title": "Saved title",
+          [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+            liveValues: { "data.title": "Live title" },
+          }),
+        }),
+      });
+
+    expect(refreshed("Live title")["data.title"]).toBe("Saved title");
+    const published = refreshed("Published in Builder");
+    expect(published["data.title"]).toBe("Published in Builder");
+    expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps saved unpublished fields through every Builder body read", () => {
+    const rowValues = {
+      published: "published",
+      "data.title": "Saved title",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.title": "Live title" },
+      }),
+    };
+
+    const kept = builderBodyReadSourceValues(rowValues, {
+      sourceValues: {
+        published: "published",
+        "data.title": "Live title",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Live body",
+      },
+    });
+    expect(kept["data.title"]).toBe("Saved title");
+    expect(kept[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Live body");
+    expect(kept).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const published = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.title": "Published title" },
+    });
+    expect(published["data.title"]).toBe("Published title");
+    expect(published).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps a newer save through a queued body read from before it", () => {
+    const rowValues = {
+      published: "published",
+      lastUpdated: "2000",
+      "data.title": "Second save",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.title": "First save, published in Builder" },
+        liveLastUpdated: 2000,
+      }),
+    };
+
+    const next = builderBodyReadSourceValues(rowValues, {
+      sourceValues: {
+        published: "published",
+        lastUpdated: "1000",
+        "data.title": "Title before the first save",
+      },
+    });
+
+    expect(next["data.title"]).toBe("Second save");
+    expect(next).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("lets a reference Builder changed win through a body read", () => {
+    const authorId = "__agent_native_builder_reference_id:data.author";
+    const rowValues = {
+      published: "published",
+      "data.author": {
+        "@type": "@builder.io/core:Reference",
+        id: "author-b",
+        model: "blog-author",
+      },
+      [authorId]: "author-b",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: { "data.author": "Author A", [authorId]: "author-a" },
+      }),
+    };
+
+    const labelOnly = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author C" },
+    });
+    expect(labelOnly["data.author"]).toBe("Author C");
+    expect(labelOnly).not.toHaveProperty(authorId);
+    expect(labelOnly).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const withRawEntry = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author A" },
+      rawEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        data: {
+          author: {
+            "@type": "@builder.io/core:Reference",
+            id: "author-c",
+            model: "blog-author",
+          },
+        },
+      },
+    });
+    expect(withRawEntry[authorId]).toBe("author-c");
+    expect(withRawEntry).not.toHaveProperty(
+      BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+    );
+
+    const unchanged = builderBodyReadSourceValues(rowValues, {
+      sourceValues: { published: "published", "data.author": "Author A" },
+    });
+    expect(unchanged[authorId]).toBe("author-b");
+    expect(unchanged).toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+  });
+
+  it("keeps a saved unpublished body through a metadata refresh that puts the stored body back", () => {
+    const refreshed = sourceValuesForSeededSourceRow({
+      sourceType: "builder-cms",
+      item: item("doc-1", "Same title"),
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      builderEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        title: "Same title",
+        urlPath: "/blog/same-title",
+        updatedAt: "2026-06-08T13:00:00.000Z",
+        sourceValues: {
+          published: "published",
+          lastUpdated: "1000",
+          "data.title": "Same title",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "live-body-hash",
+        },
+      },
+      existingSourceValuesJson: JSON.stringify({
+        published: "published",
+        lastUpdated: "1000",
+        "data.title": "Same title",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-body-hash",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+        [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+          liveValues: {},
+          liveBlocksHash: "live-body-hash",
+        }),
+      }),
+    });
+
+    expect(refreshed[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    expect(refreshed[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe("saved-body-hash");
+    expect(
+      JSON.parse(refreshed[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY] as string),
+    ).toEqual({ liveValues: {}, liveBlocksHash: "live-body-hash" });
+  });
+
+  it("lets an empty body Builder published replace a saved body on refresh", () => {
+    const existing = {
+      published: "published",
+      lastUpdated: "1000",
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-body-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved body",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Live body, lossless",
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: {},
+        liveLastUpdated: 1000,
+        liveBlocksHash: "live-body-hash",
+        liveBodyLastUpdated: 1000,
+      }),
+    };
+    const emptied = {
+      published: "published",
+      lastUpdated: "2000",
+      "data.title": "Same title",
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+    };
+
+    const refreshed = sourceValuesForSeededSourceRow({
+      sourceType: "builder-cms",
+      item: item("doc-1", "Same title"),
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      builderEntry: {
+        id: "entry-1",
+        model: "blog_article",
+        title: "Same title",
+        urlPath: "/blog/same-title",
+        updatedAt: "2026-06-08T13:00:00.000Z",
+        sourceValues: emptied,
+      },
+      existingSourceValuesJson: JSON.stringify(existing),
+    });
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_BLOCKS_HASH_KEY);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY);
+    expect(refreshed[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+    expect(refreshed).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
+
+    const bodyRead = builderBodyReadSourceValues(existing, {
+      sourceValues: emptied,
+    });
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_BODY_CONTENT_KEY);
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY);
+    expect(bodyRead).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 
   it("preserves a hydrated Builder body baseline across metadata-only refreshes with the same hash", () => {

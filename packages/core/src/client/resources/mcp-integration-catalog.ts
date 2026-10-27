@@ -989,6 +989,39 @@ export function buildMcpOAuthStartUrl({
 export function navigateToMcpOAuthStart(url: string): boolean {
   if (typeof window === "undefined") return false;
   try {
+    const startUrl = new URL(url, window.location.href);
+    const expectedStartUrl = new URL(
+      agentNativePath("/_agent-native/mcp/servers/oauth/start"),
+      window.location.href,
+    );
+    if (
+      startUrl.origin === window.location.origin &&
+      startUrl.pathname === expectedStartUrl.pathname
+    ) {
+      const completionUrl = new URL(
+        agentNativePath("/_agent-native/oauth/popup"),
+        window.location.href,
+      );
+      const requestedReturnUrl = startUrl.searchParams.get("return");
+      const existingReturnUrl =
+        requestedReturnUrl &&
+        URL.canParse(requestedReturnUrl, window.location.href)
+          ? new URL(requestedReturnUrl, window.location.href)
+          : undefined;
+      if (
+        existingReturnUrl?.origin !== window.location.origin ||
+        existingReturnUrl.pathname !== completionUrl.pathname ||
+        existingReturnUrl.searchParams.get("complete") !==
+          "workspace-connection"
+      ) {
+        completionUrl.searchParams.set("complete", "workspace-connection");
+        startUrl.searchParams.set(
+          "return",
+          `${completionUrl.pathname}${completionUrl.search}`,
+        );
+      }
+      url = startUrl.href;
+    }
     const popup = openOAuthPopup({
       initialUrl: url,
       features: "width=640,height=760",

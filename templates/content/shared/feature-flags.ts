@@ -31,8 +31,18 @@ export const LIVE_BODY_BACKFILL_FLAG = defineFeatureFlag({
   key: "content.live-body-backfill",
 });
 
+/**
+ * Play Clips inside pages: the Clip block, its player, and Clips links in the
+ * video block's Link tab. Off, a Clips link is refused rather than saved as a
+ * video, and Content makes no request to Clips.
+ */
+export const CLIP_EMBED_FLAG = defineFeatureFlag({
+  key: "content.clip-embed",
+});
+
 export const CONTENT_FEATURE_FLAGS = defineFeatureFlags([
   LIVE_BODY_SHADOW_FLAG,
   LIVE_BODY_WRITER_FLAG,
   LIVE_BODY_BACKFILL_FLAG,
+  CLIP_EMBED_FLAG,
 ]);

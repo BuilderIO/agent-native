@@ -154,6 +154,26 @@ describe("AgentMessageActions layout", () => {
     },
   );
 
+  it("drops an older user message's hover row by padding, so the pointer never crosses a gap that ends the hover", () => {
+    const styles = readFileSync(
+      new URL("./styles.css", import.meta.url),
+      "utf8",
+    )
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = Array.from(styles.matchAll(/([^{}]+)\{([^{}]*)\}/g));
+    const rule = (selector: string) =>
+      rules.find(
+        (match) => match[1]?.trim().replace(/\s+/g, " ") === selector,
+      )?.[2];
+    const hoverRow =
+      '.agentkit-message-actions[data-role="user"]:not( [data-latest="true"], [data-has-error="true"] )';
+
+    expect(rule(hoverRow)).toContain("margin-block-start: 0;");
+    expect(rule(hoverRow)).toContain("padding-block-start: 0.25rem;");
+    expect(rule(hoverRow)).toContain("min-block-size: 1.75rem;");
+  });
+
   it("clusters user controls at the logical end without changing assistant grouping", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),

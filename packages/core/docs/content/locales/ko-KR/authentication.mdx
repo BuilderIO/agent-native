@@ -339,6 +339,8 @@ export default createAuthPlugin({
 });
 ```
 
+사용자 지정 인증은 UI 기능과 브라우저 승인에 사용할 선택적 `AuthOptions.getBrowserSession` 콜백도 구성해야 합니다. 이 콜백은 `H3Event`를 받고 `getSession`처럼 `AuthSession | null`을 반환하지만, 브라우저 쿠키만 읽어야 하며 bearer 토큰, 쿼리 토큰 또는 다른 헤더는 절대 읽으면 안 됩니다. 이 명시적 훅이 없으면 브라우저 전용 작업은 `401`을 반환합니다.
+
 ## 공용 작업 공간 앱 {#public-workspace-apps}
 
 Workspace 앱은 기본적으로 내부용입니다. 익명의 방문자가 공개를 로드할 수 있도록 하려면

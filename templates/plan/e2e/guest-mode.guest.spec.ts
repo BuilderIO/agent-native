@@ -74,12 +74,15 @@ async function createPlanAs(
 async function makePublic(request: APIRequestContext, planId: string) {
   // Making a plan public needs approval, which over HTTP only the signed-in
   // app UI gives: a frontend call holding the UI capability.
-  await request.get("/_agent-native/ui-capability");
+  const origin = new URL(test.info().project.use.baseURL ?? APP_ORIGIN).origin;
+  await request.get("/_agent-native/ui-capability", {
+    headers: { Origin: origin },
+  });
   const res = await request.post(
     "/_agent-native/actions/set-resource-visibility",
     {
       data: { resourceType: "plan", resourceId: planId, visibility: "public" },
-      headers: { "X-Agent-Native-Frontend": "1" },
+      headers: { "X-Agent-Native-Frontend": "1", Origin: origin },
     },
   );
   expect(

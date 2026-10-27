@@ -85,6 +85,20 @@ describe("comment-anchors", () => {
     expect(range).toEqual({ from, to });
   });
 
+  it("starts a whole block's quote in that block, not the one before", () => {
+    const doc = mkDoc(["First", "Second"]);
+    expect(doc.textBetween(8, 14)).toBe("Second");
+
+    expect(resolveAnchor(doc, captureAnchor(doc, 8, 14))).toEqual({
+      from: 8,
+      to: 14,
+    });
+    expect(resolveAnchor(doc, captureAnchor(doc, 1, 6))).toEqual({
+      from: 1,
+      to: 6,
+    });
+  });
+
   it("disambiguates a repeated quote using surrounding context", () => {
     const doc = mkDoc([
       "The quick brown fox jumps over the lazy dog.",

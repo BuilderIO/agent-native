@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -252,6 +253,8 @@ const databaseMessages = {
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
     "The page was created, but this collection could not refresh. Reload to see it.",
+  builderPushResultNotLoaded:
+    "The update reached Builder, but this review could not load the result. Reload to see it.",
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
@@ -717,7 +720,36 @@ const databaseMessages = {
     "Connect a Builder collection or another table to map onto these rows.",
   noBuilderWrites: "No Builder writes.",
   stageOnly: "Stage only",
-  savesDraftsNeverPublishes: "Saves drafts to Builder — never publishes.",
+  savesChangesNeverPublishes: "Saves changes to Builder — never publishes.",
+  builderEffectNewTag: "New",
+  builderEffectNewSentence: "Creates a new draft entry",
+  builderEffectEditTag: "Edit",
+  builderEffectEditSentence: "Updates the live entry",
+  builderEffectSaveTag: "Save",
+  builderEffectAutosaveSentence: "Saved, not live until you publish in Builder",
+  builderEffectSaveDraftSentence: "Saves the draft",
+  builderEffectPublishTag: "Publish",
+  builderEffectPublishSentence: "Publishes this entry",
+  builderEffectUnpublishTag: "Unpublish",
+  builderEffectUnpublishSentence: "Unpublishes the live entry",
+  builderIntentNewOne: "1 draft to create",
+  builderIntentNew: "{{count}} drafts to create",
+  builderIntentEditOne: "1 update",
+  builderIntentEdit: "{{count}} updates",
+  builderIntentSaveOne: "1 save",
+  builderIntentSave: "{{count}} saves",
+  builderIntentPublish: "{{count}} to publish",
+  builderIntentUnpublish: "{{count}} to unpublish",
+  builderIntentNone: "No changes",
+  builderPushVerbCheck: "Check",
+  builderPushVerbPublish: "Publish",
+  builderPushVerbUnpublish: "Unpublish",
+  builderPushVerbCreateOne: "Create draft",
+  builderPushVerbCreate: "Create {{count}} drafts",
+  builderPushVerbSaveOne: "Save to Builder",
+  builderPushVerbSave: "Save {{count}} to Builder",
+  builderPushVerbPushOne: "Push update",
+  builderPushVerbPush: "Push {{count}} updates",
   publishUpdates: "Publish updates",
   writesUpdatesToLiveEntries: "Writes updates to live entries.",
   sourcesFeedingThisColumn: "Sources feeding this column",
@@ -776,6 +808,8 @@ const editorPropertiesMessages = {
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
   editProperty: "Edit {{name}}",
+  builderStatusPublishInBuilder:
+    "Changes saved in Builder's editor can only be published from Builder.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",
@@ -1499,6 +1533,16 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      search: "Search actions...",
+      noResults: "No results",
+      block: "Block",
+      keyCtrl: "Ctrl",
+      keyShift: "Shift",
+      keyDelete: "Del",
+      lockedSource:
+        "Components from the source file can’t be duplicated or deleted here.",
+      lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
+      lockedPage: "This page doesn’t allow that change.",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -2097,6 +2141,7 @@ const enUS = {
   },
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
+  clipEmbed: clipEmbedMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2160,6 +2205,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
     contentImport: enUS.contentImport,
+    clipEmbed: enUS.clipEmbed,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2679,6 +2725,7 @@ function mergeMessagesForLocale(
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
+    clipEmbed: clipEmbedMessagesByLocale[locale],
   };
 }
 

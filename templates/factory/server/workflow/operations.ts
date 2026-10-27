@@ -82,6 +82,8 @@ const operationFieldSchema = z
     enum: z.array(z.string().min(1).max(80)).min(1).max(100).optional(),
     default: z.unknown().optional(),
     label: z.string().min(1).max(120).optional(),
+    // For the agent that writes graphs, not for the canvas: how to fill the field.
+    description: z.string().min(1).max(300).optional(),
     // Decides who or where the effect lands: a recipient, channel, project, branch, repository, owner. A graph may not bind it from a model-written value unless `modelMayWrite` says that was reviewed.
     target: z.boolean().optional(),
     modelMayWrite: z.boolean().optional(),
@@ -110,6 +112,15 @@ const operationFieldSchema = z
     }
   });
 export type OperationField = z.infer<typeof operationFieldSchema>;
+
+const operationOutputSchema = z.strictObject({
+  name: identifierSchema,
+  type: z.enum(["string", "number", "boolean", "list", "object"]),
+  // The field is always there, and holds null when the thing it names does not exist yet.
+  nullable: z.boolean().optional(),
+  description: z.string().min(1).max(500).optional(),
+});
+export type OperationOutput = z.infer<typeof operationOutputSchema>;
 
 const implementationSchema = z.discriminatedUnion("type", [
   z.strictObject({
@@ -222,6 +233,12 @@ export const operationDefinitionSchema = z
         toParam: z.string().min(1).max(80),
       })
       .optional(),
+    // For a provider that answers a range holding nothing with a 404 instead of an empty list: the 404 reads as zero items only when every error text it carries contains this text. Any other 404 stays a failure.
+    emptyRange: z
+      .strictObject({ errorIncludes: z.string().trim().min(3).max(120) })
+      .optional(),
+    // What `nodes.<step>` carries once this operation ran. A graph that reads a name not listed here is refused on save; an operation that lists none is not checked.
+    outputs: z.array(operationOutputSchema).min(1).max(60).optional(),
     receipt: z
       .strictObject({
         externalRef: responsePathSchema,
@@ -257,8 +274,27 @@ export const operationDefinitionSchema = z
     ) {
       fail("the sort parameter must be its own name", "cursor");
     }
+    if (
+      new Set((def.outputs ?? []).map((output) => output.name)).size !==
+      (def.outputs ?? []).length
+    ) {
+      fail("output names must be unique", "outputs");
+    }
     if (isSource && !def.itemMapping) {
       fail("a source operation declares its item mapping", "itemMapping");
+    }
+    if (def.emptyRange) {
+      const itemsPath = def.itemMapping?.itemsPath;
+      const path = itemsPath ? validateResponsePath(itemsPath) : undefined;
+      const indexed =
+        path?.ok === true &&
+        path.path.segments.some((segment) => typeof segment === "number");
+      if (!def.window || indexed) {
+        fail(
+          "only a window source whose list sits under named fields declares an empty range",
+          "emptyRange",
+        );
+      }
     }
     if (!isSource) {
       for (const name of ["itemMapping", "cursor", "window"] as const) {
@@ -329,6 +365,38 @@ export function isWriteAllowedForNode(
   if (def.effect === "write")
     return nodeKind === "action" || nodeKind === "agent";
   return true;
+}
+
+/**
+ * The outputs `nodes.<step>` carries after `def` ran: the ones it declares,
+ * plus the receipt's `externalRef` and `url`, which the engine adds to a
+ * write's result. Undefined for an operation that declares none, so nothing
+ * about it is checked.
+ */
+export function operationOutputs(
+  def: OperationDefinition,
+): OperationOutput[] | undefined {
+  if (!def.outputs) return undefined;
+  const receipt: OperationOutput[] = [];
+  if (def.receipt) {
+    receipt.push({
+      name: "externalRef",
+      type: "string",
+      description: "The receipt's reference to what the write created.",
+    });
+    if (def.receipt.url) {
+      receipt.push({
+        name: "url",
+        type: "string",
+        description: "A link to what the write created.",
+      });
+    }
+  }
+  const declared = new Set(def.outputs.map((output) => output.name));
+  return [
+    ...def.outputs,
+    ...receipt.filter((output) => !declared.has(output.name)),
+  ];
 }
 
 export interface OperationCatalog {

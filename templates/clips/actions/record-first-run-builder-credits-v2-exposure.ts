@@ -1,17 +1,22 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import {
+  evaluateFeatureFlagRules,
+  getFeatureFlagRulesStrict,
+} from "@agent-native/core/feature-flags";
 import {
   getRequestContext,
   recordFirstRunBuilderCreditsV2Exposure,
+  resolveFirstRunBuilderCreditsV2Assignment,
 } from "@agent-native/core/server";
+import { FIRST_RUN_BUILDER_CREDITS_V2_FLAG } from "@agent-native/toolkit/app/onboarding/first-run-builder-credits-flag";
 import { z } from "zod";
-
-import { CLIPS_FIRST_RUN_CREDITS_V2_FLAG } from "../shared/feature-flags.js";
 
 export default defineAction({
   description:
-    "Persist the signed-in user's Clips first-run credits v2 arm after the credits screen is eligible to appear.",
-  schema: z.object({}),
+    "Resolve a signed-in user's first-run credits v2 arm and persist exposure after the choice is displayed.",
+  schema: z.object({
+    confirmedVariant: z.enum(["control", "credits"]).optional(),
+  }),
   outputSchema: z.object({
     assignment: z
       .object({
@@ -21,23 +26,31 @@ export default defineAction({
       .nullable(),
   }),
   uiOnly: true,
-  run: async () => {
+  run: async ({ confirmedVariant }) => {
     const context = getRequestContext();
     if (!context?.authUserId) return { assignment: null };
 
-    const flagEnabled = await isFeatureFlagEnabled(
-      CLIPS_FIRST_RUN_CREDITS_V2_FLAG,
-      {
-        ...(context.userEmail ? { userEmail: context.userEmail } : {}),
-        userKey: context.authUserId,
-        ...(context.orgId ? { orgId: context.orgId } : {}),
-      },
+    const flagScope = {
+      ...(context.userEmail ? { userEmail: context.userEmail } : {}),
+      ...(context.orgId ? { orgId: context.orgId } : {}),
+    };
+    const flagRules = await getFeatureFlagRulesStrict(
+      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
+      flagScope,
+    );
+    const flagEnabled = evaluateFeatureFlagRules(
+      FIRST_RUN_BUILDER_CREDITS_V2_FLAG.key,
+      flagRules,
+      flagScope,
     );
     if (!flagEnabled) return { assignment: null };
 
-    const assignment = await recordFirstRunBuilderCreditsV2Exposure({
-      flagEnabled,
-    });
+    const assignment = confirmedVariant
+      ? await recordFirstRunBuilderCreditsV2Exposure({
+          flagEnabled,
+          experimentVariant: confirmedVariant,
+        })
+      : await resolveFirstRunBuilderCreditsV2Assignment({ flagEnabled });
     return {
       assignment: assignment
         ? {
