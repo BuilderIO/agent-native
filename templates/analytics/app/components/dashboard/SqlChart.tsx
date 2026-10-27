@@ -321,7 +321,7 @@ function axisLabelProps(value: string, side: ChartAxisSide) {
 type ChartAxisValues = {
   rows: Record<string, unknown>[];
   keys: string[];
-  stacked?: boolean;
+  stacked?: boolean | undefined;
 };
 
 // Duration axes step in clean units ("6 hours") rather than the decimal

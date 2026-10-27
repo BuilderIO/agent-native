@@ -357,14 +357,10 @@ function buildAxisScale(
   // axis, so no two labels round to the same text; others split into quarters.
   const duration =
     formatter === "duration" ? durationTicks(observedMin, observedMax) : null;
-  const min = duration ? duration[0] : observedMin;
-  const max = duration
-    ? duration[duration.length - 1]
-    : observedMax > 0
-      ? observedMax
-      : min < 0
-        ? 0
-        : 1;
+  const min = duration?.[0] ?? observedMin;
+  const max =
+    duration?.[duration.length - 1] ??
+    (observedMax > 0 ? observedMax : min < 0 ? 0 : 1);
   const span = max - min || 1;
   const ticks =
     duration ?? [0, 1, 2, 3, 4].map((index) => min + span * (index / 4));
@@ -792,8 +788,13 @@ function renderCartesianChartSvg({
           ),
         );
 
-  const leftFormatter = series[leftAxisIndexes[0]]?.formatter;
-  const rightFormatter = series[rightAxisIndexes[0]]?.formatter;
+  // Each axis formats its values like the first series drawn on it.
+  const axisFormatter = (seriesIndexes: number[]) => {
+    const first = seriesIndexes[0];
+    return first === undefined ? undefined : series[first]?.formatter;
+  };
+  const leftFormatter = axisFormatter(leftAxisIndexes);
+  const rightFormatter = axisFormatter(rightAxisIndexes);
   const leftScale = buildAxisScale(
     axisValues(
       dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes),

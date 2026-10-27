@@ -619,7 +619,7 @@ describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
       ["invalid-value", "yFormatter"],
       ["invalid-value", "rightYFormatter"],
     ]);
-    expect(issues[0].message).toContain(
+    expect(issues[0]?.message).toContain(
       'one of "number", "currency", "percent", "duration"',
     );
   });
