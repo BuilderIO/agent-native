@@ -99,7 +99,7 @@ export function filterDelegatedRegistry(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
-    Object.entries(actions).filter(
+    Object.entries(filterAgentTools(actions)).filter(
       ([name, entry]) => !isFrameworkRuntimeAction(name, entry),
     ),
   );

@@ -6,6 +6,8 @@ The 96 comparable delegated loops preserve all 15,008 observed non-prefix main a
 
 This compares the actual `runOptions.actions` supplied to the delegated loops on separately executed exact main and the companion. The companion current pre-filter registry is diagnostic only; it is neither the main baseline nor a proxy for it. The result concerns served names and captured binding facts, not identical function bodies or approval readiness.
 
+The counts below belong to the recorded capture snapshots. Subsequent visibility hardening reapplies the app-agent `agentTool` and `uiOnly` restrictions after request-scoped actions merge, including approval replay and marked automation runs. Current dispatch regressions cover those restrictions while retaining app-owned `mcpTool: false` and SQL actions; the historical matrix has not been rerun for that change.
+
 ## Source and capture provenance
 
 - Executed main: `ce19f80f156f1903c12c4a7820bdb9e82dba1f69`. Its real template plugins and generated registrations ran in 17 isolated one-worker processes: **51 checks passed**, 34 production/dev records. The completed capture is counted; two failed setup attempts are not counted as passes. Each boot resolved app actions exactly once.

@@ -290,6 +290,7 @@ describe("MCP-managed automation callers", () => {
         sent: true,
         caller: ctx?.caller,
       }));
+      const hiddenRead = vi.fn(async () => ({ hidden: true }));
       const registry = attachToolSearch({
         ...createJobTools(),
         ...(await createResourceScriptEntries()),
@@ -305,6 +306,19 @@ describe("MCP-managed automation callers", () => {
           run: async () => ({ sent: true }),
         }),
         "build-data-index": buildDataIndex,
+        "agent-hidden-read": defineAction({
+          description: "Read programmatic application state.",
+          agentTool: false,
+          readOnly: true,
+          run: hiddenRead,
+        }),
+        "mcp-only-read": defineAction({
+          description: "Read state through a direct MCP tool.",
+          agentTool: false,
+          mcpTool: true,
+          readOnly: true,
+          run: hiddenRead,
+        }),
         "query-records": defineAction({
           description: "Read application records using guarded SQL.",
           schema: z.object({ sql: z.string() }),
@@ -385,6 +399,25 @@ describe("MCP-managed automation callers", () => {
             }
           }
           if (mcpManaged) {
+            const hiddenNames = ["agent-hidden-read", "mcp-only-read"];
+            for (const name of hiddenNames) {
+              expect(opts.actions[name]).toBeUndefined();
+              await expect(
+                callTool({
+                  actions: opts.actions,
+                  name,
+                  callId: `hidden-${name}`,
+                }),
+              ).resolves.toMatchObject({
+                status: "failed",
+                output: `Unknown or unavailable tool: ${name}`,
+              });
+            }
+            const hiddenSearch = await opts.actions["tool-search"].run({
+              names: hiddenNames,
+            });
+            expect(hiddenSearch.results).toEqual([]);
+            expect(hiddenRead).not.toHaveBeenCalled();
             const discovered = await opts.actions["tool-search"].run({
               names: blocked,
             });

@@ -248,15 +248,17 @@ describe("filterDelegatedRegistry", () => {
     ]);
   });
 
-  it("leaves agentTool and uiOnly to the registry, as the in-app agent does", () => {
+  it("excludes entries the app agent cannot use after the registry merge", () => {
     const registry = {
       "ui-only": action({ uiOnly: true }),
       "agent-hidden": action({ agentTool: false }),
+      "mcp-only": action({ agentTool: false, mcpTool: true }),
+      "app-only": action({ mcpTool: false }),
     };
 
-    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual(
-      Object.keys(registry),
-    );
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "app-only",
+    ]);
   });
 
   it("drops runtime names whatever their input", () => {

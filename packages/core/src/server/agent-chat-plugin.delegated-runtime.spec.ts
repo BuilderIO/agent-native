@@ -341,11 +341,14 @@ vi.mock("./social-og-image.js", () => ({
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "../a2a/handlers.js";
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { isOutsideAgentCall } from "../action-caller.js";
 import type { ActionRunContext } from "../action.js";
+import { approvalKeyWithArguments } from "../agent/approval-key.js";
 import {
   actionsToEngineTools,
   runAgentLoop,
+  toolCallCacheKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runBackgroundAutomation } from "../jobs/background-automation-runner.js";
@@ -830,20 +833,25 @@ async function callOnce(
     result = value;
   });
   const approvals: string[] = [];
-  await asAlice(() =>
-    runAgentLoop({
-      ...runOptions,
-      messages: structuredClone(runOptions.messages),
-      engine: engine as any,
-      model: "caller-model",
-      send: (event: any) => {
-        if (event.type === "approval_required") approvals.push(event.tool);
-      },
-      signal: new AbortController().signal,
-      runId: `call-${name}`,
-      threadId: `call-${name}`,
-      turnId: `call-${name}`,
-    }),
+  await runWithRequestContext(
+    {
+      userEmail: runOptions.ownerEmail ?? ALICE,
+      orgId: runOptions.orgId === undefined ? "acme" : runOptions.orgId,
+    },
+    () =>
+      runAgentLoop({
+        ...runOptions,
+        messages: structuredClone(runOptions.messages),
+        engine: engine as any,
+        model: "caller-model",
+        send: (event: any) => {
+          if (event.type === "approval_required") approvals.push(event.tool);
+        },
+        signal: new AbortController().signal,
+        runId: `call-${name}`,
+        threadId: `call-${name}`,
+        turnId: `call-${name}`,
+      }),
   );
   return {
     available: name in runOptions.actions,
@@ -1270,6 +1278,113 @@ describe.each(SURFACES)("$name surface", (surface) => {
         expect.arrayContaining(names),
       );
     }
+  });
+
+  it("rejects agent-hidden scoped actions in dispatch, search and replay", async () => {
+    const hidden = vi.fn(async () => "hidden action ran");
+    const visible = vi.fn(async () => "app read ran");
+    const resolver = vi.fn(async () => ({
+      "hidden-app-read": {
+        ...appAction("Programmatic read"),
+        agentTool: false,
+        run: hidden,
+      },
+      "mcp-only-read": {
+        ...appAction("Direct MCP read"),
+        agentTool: false,
+        mcpTool: true,
+        run: hidden,
+      },
+      "ui-app-read": { ...appAction("UI read"), uiOnly: true, run: hidden },
+      "app-record-query": {
+        ...appAction("Guarded application query"),
+        mcpTool: false,
+        tool: {
+          description: "Guarded application query",
+          parameters: {
+            type: "object",
+            properties: { sql: { type: "string" } },
+            required: ["sql"],
+          },
+        },
+        run: visible,
+      },
+    }));
+    await bootRuntime({
+      mcp: { enabled: true },
+      actions: () => ({
+        "list-decks": appAction("List decks"),
+        "direct-only-replay": {
+          ...appAction("Direct-only application read"),
+          agentTool: false,
+          mcpTool: true,
+          run: hidden,
+        },
+      }),
+      resolveAdditionalActions: resolver,
+      additionalActionSurfaces: ["a2a", "mcp"],
+    });
+    const a2a = await receiveA2A("hidden-scoped");
+    const mcp = await asAlice(() => askThroughMcp(MODES[0]!, "ask_app"));
+    expect(mcp.inline).toHaveLength(1);
+    expect(resolver).toHaveBeenCalledTimes(2);
+    const names = [
+      "hidden-app-read",
+      "mcp-only-read",
+      "ui-app-read",
+      "direct-only-replay",
+    ];
+    for (const { runOptions } of [a2a, ...mcp.inline]) {
+      for (const name of names) {
+        const outcome = await callOnce(runOptions, name, {});
+        expect(outcome.approval).toBe(false);
+        expect(outcome.result).toBe(`Error: Unknown tool "${name}"`);
+        expect(runOptions.actions[name]).toBeUndefined();
+      }
+      const search = await asAlice(() =>
+        runOptions.actions["tool-search"].run({ names }),
+      );
+      expect(search.results).toEqual([]);
+      const queryResult = await callOnce(runOptions, "app-record-query", {
+        sql: "SELECT 1",
+      });
+      expect(queryResult, JSON.stringify(queryResult)).toMatchObject({
+        available: true,
+        approval: false,
+        result: "app read ran",
+      });
+    }
+    for (const name of names) {
+      const input = {};
+      const result = await asAlice(() =>
+        booted.a2aConfig!.executeApproval(
+          {
+            id: `approval-${surface.name}-${name}`,
+            taskId: `task-${surface.name}-${name}`,
+            ownerEmail: ALICE,
+            orgId: "acme",
+            tool: name,
+            input,
+            approvalKey: approvalKeyWithArguments(
+              toolCallCacheKey(name, input),
+              actionArgumentsHash(input),
+            ),
+            callId: `call-${name}`,
+          },
+          {
+            signal: new AbortController().signal,
+            threadId: `replay-${name}`,
+            turnId: `replay-${name}`,
+          },
+        ),
+      );
+      expect(result).toMatchObject({
+        status: "failed",
+        output: `Unknown or unavailable tool: ${name}`,
+      });
+    }
+    expect(hidden).not.toHaveBeenCalled();
+    expect(visible).toHaveBeenCalledTimes(2);
   });
 
   describe.each(MODES)("$name catalog", (mode) => {

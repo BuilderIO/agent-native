@@ -1413,7 +1413,10 @@ async function executeBackgroundAutomation(
           ? Object.fromEntries(
               Object.entries(registeredActions)
                 .filter(
-                  ([name, entry]) => !isFrameworkRuntimeAction(name, entry),
+                  ([name, entry]) =>
+                    entry.agentTool !== false &&
+                    entry.uiOnly !== true &&
+                    !isFrameworkRuntimeAction(name, entry),
                 )
                 .map(([name, entry]) => [
                   name,
