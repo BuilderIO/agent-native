@@ -101,18 +101,18 @@ do not weaken step fencing or move an effect ahead of durable dispatch.
 
 | Config                                                           | Result                          | Distinct states | Time   |
 | ---------------------------------------------------------------- | ------------------------------- | --------------- | ------ |
-| `ExecutionLease.cfg` (policy `never`, prune on)                   | pass                            | 45,848          | 2.6 s   |
-| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely)  | pass                            | 2,403,308       | 257.6 s |
-| `sufficiency/fence-alone.cfg` dispatch keeps only the fence       | P8 and P1 hold                  | 45,848          | 2.7 s   |
-| `sufficiency/clause-alone.cfg` dispatch keeps only the clause     | P8 holds                        | 71,556          | 4.3 s   |
-| `mutations/a` dispatch without the fence (ownership clause kept)  | P1 violated                     | 139             | 1.2 s   |
-| `mutations/b` begin replays a dispatched never step               | P8 violated                     | 20,715          | 1.6 s   |
-| `mutations/c` action starts before the dispatch commits           | P8 violated                     | 2,274           | 1.1 s   |
-| `mutations/d` claim takes a live lease from a running owner       | ClaimRespectsLiveOwner violated | 16              | 0.9 s   |
-| `mutations/e` fence check commits before the write                | P1 violated                     | 161             | 1.0 s   |
-| `mutations/g` reset fallback without successor fence              | P1 violated                     | 322             | 1.0 s   |
-| `checks/F2` prune reaches a turn that still sees work              | pass                            | 68,440          | 12.1 s  |
-| `checks/F3` policy flip after a retry-safe dispatch                | pass                            | 2,403,308       | 122.6 s |
+| `ExecutionLease.cfg` (policy `never`, prune on)                   | pass                            | 45,848          | 1.6 s  |
+| `ExecutionLeasePolicyFlip.cfg` (each run's policy chosen freely)  | pass                            | 2,403,308       | 43.8 s |
+| `sufficiency/fence-alone.cfg` dispatch keeps only the fence       | P8 and P1 hold                  | 45,848          | 2.6 s  |
+| `sufficiency/clause-alone.cfg` dispatch keeps only the clause     | P8 holds                        | 71,556          | 2.7 s  |
+| `mutations/a` dispatch without the fence (ownership clause kept)  | P1 violated                     | 152             | 1.0 s  |
+| `mutations/b` begin replays a dispatched never step               | P8 violated                     | 22,656          | 1.6 s  |
+| `mutations/c` action starts before the dispatch commits           | P8 violated                     | 2,199           | 1.0 s  |
+| `mutations/d` claim takes a live lease from a running owner       | ClaimRespectsLiveOwner violated | 16              | 0.8 s  |
+| `mutations/e` fence check commits before the write                | P1 violated                     | 154             | 0.9 s  |
+| `mutations/g` reset fallback without successor fence              | P1 violated                     | 322             | 0.9 s  |
+| `checks/F2` prune reaches a turn that still sees work              | pass                            | 68,440          | 2.3 s  |
+| `checks/F3` policy flip after a retry-safe dispatch                | pass                            | 2,403,308       | 58.1 s |
 
 Each mutation config checks only the invariant it is meant to break, and the
 runner requires that exact invariant to be the one violated. F2 and F3 now pass
@@ -196,7 +196,7 @@ with `AGENT_RUN_SIM_SEEDS`. A failing property includes fast-check's seed and
 the last compact event trace.
 
 The full default simulation file (24 property runs plus named scenarios and a
-concurrent-claim check) took 10.7 seconds locally. The property alone took
+concurrent-claim check) took 9.9 seconds locally. The property alone took
 63.6 seconds with 64 runs.
 
 ## Code to model map
