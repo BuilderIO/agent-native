@@ -305,6 +305,45 @@ describe("Builder account provisioning", () => {
     expect(diagnostic).not.toContain("private jwt payload");
   });
 
+  it("redacts bare tokens inside multiply escaped upstream diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    const githubToken = `ghp_${"G".repeat(36)}`;
+    const jwt = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJ1c2VySWQiOiIxMjM0NTY3ODkwIn0",
+      "signature-segment-value-1234567890",
+    ].join(".");
+    const nestedMessage = JSON.stringify(
+      JSON.stringify({ detail: `${githubToken} ${jwt}` }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: nestedMessage }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain("[redacted-token]");
+    expect(diagnostic).not.toContain(githubToken);
+    expect(diagnostic).not.toContain(jwt);
+  });
+
   it("classifies existing-account errors across runtime boundaries", () => {
     expect(
       isBuilderAccountAlreadyExistsError({

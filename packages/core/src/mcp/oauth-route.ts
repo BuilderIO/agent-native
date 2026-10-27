@@ -29,7 +29,10 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { serializeMcpSignupAttributionCookie } from "../server/mcp-signup-attribution.js";
-import { serializeAnalyticsAnonymousIdCookie } from "../shared/analytics-anonymous-id.js";
+import {
+  ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+  serializeAnalyticsAnonymousIdCookie,
+} from "../shared/analytics-anonymous-id.js";
 import {
   ANALYTICS_SESSION_ID_COOKIE_NAME,
   serializeAnalyticsSessionIdCookie,
@@ -149,17 +152,20 @@ function analyticsIdentityForAuthorize(event: H3Event): {
       ? serializeAnalyticsSessionIdCookie(sessionId)
       : undefined,
   ].filter((cookie): cookie is string => Boolean(cookie));
-  if (
-    !performanceAllowed &&
-    cookieHeader
-      ?.split(";")
-      .some((cookie) =>
-        cookie.trim().startsWith(`${ANALYTICS_SESSION_ID_COOKIE_NAME}=`),
-      )
-  ) {
-    setCookies.push(
-      `${ANALYTICS_SESSION_ID_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`,
-    );
+  if (!performanceAllowed && cookieHeader) {
+    const cookieNamesToExpire = [
+      ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+      ANALYTICS_SESSION_ID_COOKIE_NAME,
+    ];
+    for (const cookieName of cookieNamesToExpire) {
+      if (
+        cookieHeader
+          .split(";")
+          .some((cookie) => cookie.trim().startsWith(`${cookieName}=`))
+      ) {
+        setCookies.push(`${cookieName}=; path=/; max-age=0; SameSite=Lax`);
+      }
+    }
   }
 
   return {

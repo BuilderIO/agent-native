@@ -1194,7 +1194,7 @@ describe("MCP OAuth route", () => {
       });
     });
 
-    it("does not create or track analytics identifiers without performance consent", async () => {
+    it("expires analytics identifiers without performance consent", async () => {
       getSessionMock.mockResolvedValueOnce(null);
       const { response } = await openAuthorize({}, undefined, undefined, {
         cookie: "an_consent=1.p0.t1; an_sid=old-session; an_aid=old-anonymous",
@@ -1203,7 +1203,8 @@ describe("MCP OAuth route", () => {
       expect(response.status).toBe(200);
       expect(authorizeFunnelCalls()).toEqual([]);
       const cookies = response.headers.get("set-cookie") ?? "";
-      expect(cookies).not.toContain("an_aid=");
+      expect(cookies).not.toContain("an_aid=mcp_");
+      expect(cookies).toContain("an_aid=; path=/; max-age=0");
       expect(cookies).toContain("an_sid=; path=/; max-age=0");
       expect(cookies).not.toContain("an_sid=mcp_");
       const mcpToken = cookies.match(/(?:^|,\s*)an_mcp_signup=([^;,]+)/)?.[1];

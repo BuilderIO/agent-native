@@ -2669,8 +2669,13 @@ function builderApiErrorMessage(
 }
 
 function redactBuilderDiagnosticText(value: string): string {
-  // Some upstream errors embed JSON inside an already escaped JSON string.
-  const normalizedValue = value.replace(/\\(?=["'])/g, "");
+  // Upstream errors can nest escaped JSON several levels deep.
+  let normalizedValue = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const unescapedValue = normalizedValue.replace(/\\+(?=["'])/g, "");
+    if (unescapedValue === normalizedValue) break;
+    normalizedValue = unescapedValue;
+  }
   return normalizedValue
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
     .replace(
@@ -2678,6 +2683,14 @@ function redactBuilderDiagnosticText(value: string): string {
       "Authorization: [redacted]",
     )
     .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
+    .replace(
+      /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/gi,
+      "[redacted-token]",
+    )
+    .replace(
+      /\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
+      "[redacted-token]",
+    )
     .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
     .replace(
       /(["']?[\w.-]*(?:authorization|access[_-]?(?:key|token)|session[_-]?key|signing[_-]?key|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|jwt|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}&;]+)/gi,

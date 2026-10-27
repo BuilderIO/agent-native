@@ -703,7 +703,7 @@ describe("server/auth", () => {
         createJsonPostEvent(
           "/_agent-native/auth/magic-link",
           { email: "other@example.com", callbackURL: "/welcome" },
-          { cookie: `an_lt=${lastTouch}` },
+          { "x-country": "US", cookie: `an_lt=${lastTouch}` },
         ),
       );
       const lastOnly = new URL(
@@ -722,6 +722,33 @@ describe("server/auth", () => {
           last_touch_source: "steve",
           last_touch_ref: "steve",
         },
+      });
+
+      const optedOutFirstTouch = encodeURIComponent(
+        JSON.stringify({ ref: "external", landing_path: "/private-campaign" }),
+      );
+      await handler(
+        createJsonPostEvent(
+          "/_agent-native/auth/magic-link",
+          { email: "opted-out@example.com", callbackURL: "/welcome" },
+          {
+            cookie: `an_consent=1.p1.t0; an_aid=anon_opted_out; an_sid=session_opted_out; an_ft=${optedOutFirstTouch}`,
+          },
+        ),
+      );
+      const optedOutCallback = new URL(
+        signInMagicLink.mock.calls[2]?.[0].body.newUserCallbackURL,
+      );
+      const optedOutVerification = new URL(verification);
+      optedOutVerification.searchParams.set(
+        "newUserCallbackURL",
+        optedOutCallback.toString(),
+      );
+      expect(
+        readMagicLinkSignupAttribution(optedOutVerification.toString(), secret),
+      ).toEqual({
+        anonymousId: "anon_opted_out",
+        sessionId: "session_opted_out",
       });
     });
 

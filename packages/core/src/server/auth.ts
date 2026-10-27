@@ -6922,13 +6922,31 @@ async function mountBetterAuthRoutes(
           event,
           "performance",
         );
+        const targetingAllowed = requestAllowsConsentCategory(
+          event,
+          "targeting",
+        );
         const browserSignupContext =
           signupAttributionContextFromCookieHeader(signupCookieHeader);
-        const signupContext = performanceAllowed
-          ? browserSignupContext
-          : browserSignupContext
-            ? { attribution: browserSignupContext.attribution }
-            : undefined;
+        const signupContext = browserSignupContext
+          ? {
+              ...(performanceAllowed
+                ? {
+                    ...(browserSignupContext.anonymousId
+                      ? { anonymousId: browserSignupContext.anonymousId }
+                      : {}),
+                    ...(browserSignupContext.sessionId
+                      ? { sessionId: browserSignupContext.sessionId }
+                      : {}),
+                  }
+                : {}),
+              ...(targetingAllowed
+                ? { attribution: browserSignupContext.attribution }
+                : {}),
+            }
+          : undefined;
+        const hasSignupContext =
+          signupContext && Object.keys(signupContext).length > 0;
         const hasMcpSignupCookie =
           hasMcpSignupAttributionCookie(signupCookieHeader);
         const mcpSignupAttribution = hasMcpSignupCookie
@@ -6938,10 +6956,10 @@ async function mountBetterAuthRoutes(
             )
           : undefined;
         const attributionToken =
-          signupContext || mcpSignupAttribution
+          hasSignupContext || mcpSignupAttribution
             ? encodeMagicLinkSignupAttribution(
                 {
-                  ...(signupContext ?? {}),
+                  ...(hasSignupContext ? signupContext : {}),
                   ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
                 },
                 getAuthSecret(),
