@@ -753,7 +753,7 @@ export function formatWeeklyMarkdown(report: RadarWeeklyReport): string {
     }
     lines.push(
       "",
-      "Recipient-level matching uses SHA-256 digests of identified email addresses. This report contains counts only; anonymous landings cannot be assigned to a recipient.",
+      "BigQuery uses keyed HMAC-SHA256 matching; the PostgreSQL path uses bound recipient email values. This report contains counts only; anonymous landings cannot be assigned to a recipient.",
       "",
       "| Period | Activity app | Recipients | Any visit | UTM landing | Builder connect | First output |",
       "| --- | --- | ---: | ---: | ---: | ---: | ---: |",

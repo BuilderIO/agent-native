@@ -173,7 +173,7 @@ describe("weekly funnel cohort reporting", () => {
       weekEnd: "2026-11-01",
       coverage: {
         dailyRuns: { expected: 7, completed: 1, failedDates: [] },
-        campaignFollowup: false,
+        campaignFollowup: true,
         abReadout: false,
         replayTriage: false,
         journeySnapshot: "skipped",
@@ -216,7 +216,23 @@ describe("weekly funnel cohort reporting", () => {
       triageSummary: null,
       triageError: "not run",
       abReadout: null,
-      campaignFollowup: null,
+      campaignFollowup: {
+        campaign: "outage_recovery_20261026",
+        sentRecipients: 1,
+        skippedRows: 0,
+        byRecipientApp: { clips: 1 },
+        rows: [
+          {
+            period: "after_send",
+            recipient_app: "clips",
+            activity_app: "clips",
+            metric: "any_visit",
+            recipients: 1,
+            recipients_with_activity: 1,
+          },
+        ],
+        observedAt: "2026-10-27T00:00:00.000Z",
+      },
       campaignAnnotations: [],
       acquisitionContext: [],
       firedIssues: [],
@@ -228,6 +244,9 @@ describe("weekly funnel cohort reporting", () => {
 
     const formatted = formatWeeklyMarkdown(report);
     expect(formatted).toContain("| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | - |");
+    expect(formatted).toContain(
+      "BigQuery uses keyed HMAC-SHA256 matching; the PostgreSQL path uses bound recipient email values.",
+    );
     expect(formatted).toContain(
       "BigQuery actual bytes processed: 9.88 GB across 7 executed queries.",
     );
