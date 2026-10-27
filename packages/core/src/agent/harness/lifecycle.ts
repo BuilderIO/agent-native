@@ -1007,9 +1007,10 @@ export async function sendAgentHarnessFollowUp(input: {
                 ) {
                   softTimeoutDeadlineAt = Date.now() + followUpSoftTimeoutMs;
                 }
-                const queuedSubmissionStore =
-                  await import("../../chat-threads/store.js");
-                await queuedSubmissionStore.ensureChatThreadTables();
+                const queuedSubmissionStore = continuingNativeTurn
+                  ? undefined
+                  : await import("../../chat-threads/store.js");
+                await queuedSubmissionStore?.ensureChatThreadTables();
                 if (session.ownerEmail) {
                   await ensureAgentToolApprovalTable();
                 }
@@ -1019,11 +1020,15 @@ export async function sendAgentHarnessFollowUp(input: {
                   undefined,
                   {
                     turnId: followUpId,
-                    hasPendingQueuedSubmission: (tx) =>
-                      queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
-                        tx,
-                        session.threadId,
-                      ),
+                    ...(queuedSubmissionStore
+                      ? {
+                          hasPendingQueuedSubmission: (tx) =>
+                            queuedSubmissionStore.hasPendingQueuedSubmissionReceipt(
+                              tx,
+                              session.threadId,
+                            ),
+                        }
+                      : {}),
                     ...(session.ownerEmail
                       ? {
                           hasPendingApproval: (tx) =>
@@ -1056,6 +1061,9 @@ export async function sendAgentHarnessFollowUp(input: {
                             }),
                         control: runControl,
                         beforeStream: assertFollowUpClaimCanDispatch,
+                        onProviderDispatch: () => {
+                          providerDispatchStarted = true;
+                        },
                         consume: async (stream) => {
                           const iterator = stream[Symbol.asyncIterator]();
                           const firstNext = nextHarnessEvent(
@@ -1063,7 +1071,6 @@ export async function sendAgentHarnessFollowUp(input: {
                             runControl.chunkSignal,
                           );
                           void firstNext.catch(() => {});
-                          providerDispatchStarted = true;
                           if (!firstDispatchResolved) {
                             firstDispatchResolved = true;
                             if (activeRun) resolveFirstDispatch(activeRun);

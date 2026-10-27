@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Fence Agent Harness follow-up dispatch and persist approval checkpoints before notifying the host.
+Preserve Agent Harness admission order, checkpoint approvals before notification, and classify ambiguous follow-up dispatch outcomes conservatively.

@@ -18,6 +18,7 @@ export interface DriveAgentHarnessTurnChunksOptions {
   >;
   consume: (stream: AsyncIterable<AgentHarnessEvent>) => Promise<"stop" | void>;
   beforeStream?: () => Promise<void>;
+  onProviderDispatch?: () => void;
   afterStream?: () => Promise<"stop" | void>;
 }
 
@@ -30,14 +31,19 @@ export async function driveAgentHarnessTurnChunks(
   while (!isAborted(options.control.turnSignal)) {
     await options.beforeStream?.();
     if (isAborted(options.control.turnSignal)) return;
-    const stream = firstStream
-      ? options.session.streamTurn({
-          ...input,
-          abortSignal: options.control.chunkSignal,
-        })
-      : options.session.continueTurn?.({
-          abortSignal: options.control.chunkSignal,
-        });
+    let stream: AsyncIterable<AgentHarnessEvent> | undefined;
+    if (firstStream) {
+      options.onProviderDispatch?.();
+      stream = options.session.streamTurn({
+        ...input,
+        abortSignal: options.control.chunkSignal,
+      });
+    } else if (options.session.continueTurn) {
+      options.onProviderDispatch?.();
+      stream = options.session.continueTurn({
+        abortSignal: options.control.chunkSignal,
+      });
+    }
     firstStream = false;
     input = undefined;
     if (!stream) return;

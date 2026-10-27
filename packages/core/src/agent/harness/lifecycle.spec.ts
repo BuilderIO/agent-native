@@ -139,6 +139,10 @@ describe("agent harness lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.startRunFinalStatuses.length = 0;
+    mocks.ensureChatThreadTables.mockResolvedValue(undefined);
+    mocks.hasPendingQueuedSubmissionReceipt.mockResolvedValue(false);
+    mocks.ensureAgentToolApprovalTable.mockResolvedValue(undefined);
+    mocks.hasPendingCurrentTurnApproval.mockResolvedValue(false);
     mocks.startRun.mockImplementation(
       (
         runId: string,
@@ -1343,13 +1347,21 @@ describe("agent harness lifecycle", () => {
   });
 
   it("continues a truncated follow-up under the same logical turn", async () => {
+    let queuedSubmissionPending = false;
     const session = fakeSession([{ type: "text-delta", text: "first slice" }]);
+    session.streamTurn.mockImplementation(async function* () {
+      yield { type: "text-delta", text: "first slice" } as const;
+      queuedSubmissionPending = true;
+    });
     const continueTurn = vi.fn(async function* () {
       yield { type: "text-delta", text: "second slice" } as const;
     });
     const checkpoint = vi.fn(async () => ({ token: "checkpoint" }));
     session.continueTurn = continueTurn;
     session.checkpoint = checkpoint;
+    mocks.hasPendingQueuedSubmissionReceipt.mockImplementation(
+      async () => queuedSubmissionPending,
+    );
     stored.runPolicy = {
       softTimeoutMs: 10_000,
       noProgressTimeoutMs: 5_000,
@@ -1370,6 +1382,14 @@ describe("agent harness lifecycle", () => {
     expect(mocks.startRun).toHaveBeenCalledTimes(2);
     expect(session.streamTurn).toHaveBeenCalledOnce();
     expect(continueTurn).toHaveBeenCalledOnce();
+    expect(mocks.tryClaimRunSlot).toHaveBeenCalledTimes(2);
+    expect(mocks.tryClaimRunSlot.mock.calls[0]?.[3]).toHaveProperty(
+      "hasPendingQueuedSubmission",
+    );
+    expect(mocks.tryClaimRunSlot.mock.calls[1]?.[3]).not.toHaveProperty(
+      "hasPendingQueuedSubmission",
+    );
+    expect(mocks.hasPendingQueuedSubmissionReceipt).toHaveBeenCalledOnce();
     expect(checkpoint).toHaveBeenCalledOnce();
     expect(stored.resumeState).toEqual({ token: "next" });
     expect(mocks.startRun.mock.calls[1]?.[4]).toMatchObject({
@@ -1379,6 +1399,31 @@ describe("agent harness lifecycle", () => {
       softTimeoutDeadlineAt:
         mocks.startRun.mock.calls[0]?.[4].softTimeoutDeadlineAt,
     });
+  });
+
+  it("marks a synchronous provider dispatch failure as outcome unknown", async () => {
+    const session = fakeSession();
+    session.streamTurn = vi.fn(() => {
+      throw new Error("provider dispatch failed synchronously");
+    });
+    register(stored, session);
+
+    await expect(
+      sendAgentHarnessFollowUp({
+        runId: stored.runId!,
+        prompt: "continue",
+        scope: ownerScope(),
+      }),
+    ).rejects.toThrow("provider dispatch failed synchronously");
+
+    expect(mocks.failFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "unknown" }),
+    );
+    expect(stored).toMatchObject({
+      status: "errored",
+      followUpOutcome: "unknown",
+    });
+    expect(session.stop).toHaveBeenCalledOnce();
   });
 
   it("does not complete a truncated follow-up without a resumable checkpoint", async () => {
