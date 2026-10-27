@@ -3238,6 +3238,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "state-secret"),
         getBetterAuth: vi.fn(async () => ({
           handler: vi.fn(async () => new Response("{}")),
           api: {
@@ -3303,6 +3304,46 @@ describe("server/auth", () => {
         landing_referrer: "https://example.com/post",
       });
       expect(state.signupAnonymousId).toBe("anon_preview_1");
+
+      const { encodeMcpSignupAttribution } =
+        await import("./mcp-signup-attribution.js");
+      const mcpSignupCookie = encodeMcpSignupAttribution(
+        {
+          signupOrigin: "mcp_oauth",
+          vendorHint: "openai",
+          anonymousId: "anon_opted_out",
+          sessionId: "session_opted_out",
+          firstTouchPathAllowed: true,
+        },
+        "state-secret",
+      );
+      const optedOut = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: {
+            return: `${previewOrigin}/dispatch?builder.preview=interact`,
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+            "x-country": "US",
+            cookie: `an_consent=1.p1.t0; an_ft=${firstTouch}; an_aid=anon_opted_out; an_sid=session_opted_out; an_mcp_signup=${mcpSignupCookie}`,
+          },
+        }),
+      );
+      const optedOutState = decodeOAuthState(
+        new URL(optedOut.url).searchParams.get("state") || undefined,
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(optedOutState.signupAttribution).toBeUndefined();
+      expect(optedOutState.signupAnonymousId).toBe("anon_opted_out");
+      expect(optedOutState.signupSessionId).toBe("session_opted_out");
+      expect(optedOutState.mcpSignupAttribution).toEqual({
+        signupOrigin: "mcp_oauth",
+        anonymousId: "anon_opted_out",
+        sessionId: "session_opted_out",
+        firstTouchPathAllowed: false,
+      });
 
       const rejected = await authUrlHandler(
         createMockEvent({

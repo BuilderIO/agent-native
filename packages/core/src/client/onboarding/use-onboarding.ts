@@ -844,7 +844,7 @@ export function trackOnboardingEvent(
     properties.flow === "first_run"
       ? (onboardingExperiment ?? readStoredOnboardingExperiment())
       : null;
-  trackEvent(name, experiment ? { ...properties, ...experiment } : properties);
+  trackEvent(name, experiment ? { ...experiment, ...properties } : properties);
 }
 
 export interface UseOnboardingResult {

@@ -655,10 +655,6 @@ export function FirstRunOnboarding({
         ) {
           return;
         }
-        setOnboardingExperiment({
-          id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
-          variant: assignment.experiment_variant,
-        });
         trackOnboardingEvent("onboarding_experiment_exposed", {
           flow: "first_run",
           step_id: "choice",

@@ -279,6 +279,7 @@ import {
   MAGIC_LINK_ATTRIBUTION_PARAM,
 } from "./magic-link-attribution.js";
 import {
+  filterMcpSignupAttributionByConsent,
   hasMcpSignupAttributionCookie,
   MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME,
   readMcpSignupContextFromCookieHeader,
@@ -5342,27 +5343,29 @@ async function mountBetterAuthRoutes(
           event,
           "targeting",
         );
-        const signupAttribution = targetingAllowed
-          ? signupAttributionFromCookieHeader(signupCookieHeader)
-          : undefined;
         const performanceAllowed = requestAllowsConsentCategory(
           event,
           "performance",
         );
+        const signupAttribution = targetingAllowed
+          ? signupAttributionFromCookieHeader(signupCookieHeader)
+          : undefined;
         const signupAnonymousId = performanceAllowed
           ? readAnalyticsAnonymousId(signupCookieHeader)
           : undefined;
         const signupSessionId = performanceAllowed
           ? readAnalyticsSessionId(signupCookieHeader)
           : undefined;
-        const mcpSignupAttribution = hasMcpSignupAttributionCookie(
+        const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+          hasMcpSignupAttributionCookie(signupCookieHeader)
+            ? readMcpSignupContextFromCookieHeader(
+                signupCookieHeader,
+                getAuthSecret(),
+              )
+            : undefined,
           signupCookieHeader,
-        )
-          ? readMcpSignupContextFromCookieHeader(
-              signupCookieHeader,
-              getAuthSecret(),
-            )
-          : undefined;
+          { performance: performanceAllowed, targeting: targetingAllowed },
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,

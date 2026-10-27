@@ -1711,6 +1711,10 @@ describe("FirstRunOnboarding", () => {
     );
     expect(mocks.recordCreditsV2Exposure).toHaveBeenCalledOnce();
     expect(mocks.setOnboardingExperiment).toHaveBeenCalledWith({
+      id: "first_run_builder_credits",
+      variant: "control",
+    });
+    expect(mocks.setOnboardingExperiment).not.toHaveBeenCalledWith({
       id: "first_run_builder_credits_v2",
       variant: "credits",
     });
