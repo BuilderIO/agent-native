@@ -6,30 +6,26 @@ import {
   runAbReadout,
   formatAbMarkdown,
   parseAbReadoutArgs,
-} from "../templates/analytics/scripts/radar/ab.ts";
+} from "./radar/ab.ts";
 import {
   formatRadarBacktest,
   parseRadarBacktestArgs,
   runRadarBacktest,
-} from "../templates/analytics/scripts/radar/backtest.ts";
-import { liveDatabaseUrlFromEnv } from "../templates/analytics/scripts/radar/live.ts";
+} from "./radar/backtest.ts";
+import { liveDatabaseUrlFromEnv } from "./radar/live.ts";
 import {
   REPO_ROOT,
   RadarQueryError,
   closeRadarQueries,
   radarRunCliExitCode,
-} from "../templates/analytics/scripts/radar/query.ts";
+} from "./radar/query.ts";
 import {
   buildWeeklyReport,
   formatWeeklyMarkdown,
   parseReportArgs,
   writeWeeklyReport,
-} from "../templates/analytics/scripts/radar/report.ts";
-import {
-  parseWatchArgs,
-  runWatch,
-  writeWatchRun,
-} from "../templates/analytics/scripts/radar/watch.ts";
+} from "./radar/report.ts";
+import { parseWatchArgs, runWatch, writeWatchRun } from "./radar/watch.ts";
 
 function loadLiveDatabaseUrl(): void {
   const configuredFile = process.env.ANALYTICS_RADAR_ENV_FILE;
